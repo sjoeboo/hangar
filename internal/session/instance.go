@@ -30,6 +30,11 @@ type Instance struct {
 	Tool        string        `json:"tool"`
 	Status      Status        `json:"status"`
 	CreatedAt   time.Time     `json:"created_at"`
+
+	// Claude Code integration
+	ClaudeSessionID  string    `json:"claude_session_id,omitempty"`
+	ClaudeDetectedAt time.Time `json:"claude_detected_at,omitempty"`
+
 	tmuxSession *tmux.Session // Internal tmux session
 }
 
@@ -181,6 +186,42 @@ func (i *Instance) Kill() error {
 	}
 	i.Status = StatusError
 	return nil
+}
+
+// Restart recreates the tmux session for a dead/errored session
+// This preserves the session ID, title, path, and group but creates a fresh tmux session
+func (i *Instance) Restart() error {
+	// Create a new tmux session object (keeps same naming convention)
+	i.tmuxSession = tmux.NewSession(i.Title, i.ProjectPath)
+
+	// Start the new tmux session
+	if err := i.tmuxSession.Start(i.Command); err != nil {
+		i.Status = StatusError
+		return fmt.Errorf("failed to restart tmux session: %w", err)
+	}
+
+	// Update status based on whether we have a command
+	if i.Command != "" {
+		i.Status = StatusRunning
+	} else {
+		i.Status = StatusIdle
+	}
+
+	return nil
+}
+
+// CanRestart returns true if the session can be restarted (is in error state)
+func (i *Instance) CanRestart() bool {
+	return i.Status == StatusError || i.tmuxSession == nil || !i.tmuxSession.Exists()
+}
+
+// CanFork returns true if this session can be forked (has recent Claude session)
+func (i *Instance) CanFork() bool {
+	if i.ClaudeSessionID == "" {
+		return false
+	}
+	// Session ID must be detected within last 5 minutes
+	return time.Since(i.ClaudeDetectedAt) < 5*time.Minute
 }
 
 // Exists checks if the tmux session still exists

@@ -55,6 +55,10 @@ type InstanceData struct {
 	Status      Status    `json:"status"`
 	CreatedAt   time.Time `json:"created_at"`
 	TmuxSession string    `json:"tmux_session"`
+
+	// Claude session (persisted for resume after app restart)
+	ClaudeSessionID  string    `json:"claude_session_id,omitempty"`
+	ClaudeDetectedAt time.Time `json:"claude_detected_at,omitempty"`
 }
 
 // GroupData represents serializable group data
@@ -169,15 +173,17 @@ func (s *Storage) SaveWithGroups(instances []*Instance, groupTree *GroupTree) er
 			tmuxName = inst.tmuxSession.Name
 		}
 		data.Instances[i] = &InstanceData{
-			ID:          inst.ID,
-			Title:       inst.Title,
-			ProjectPath: inst.ProjectPath,
-			GroupPath:   inst.GroupPath,
-			Command:     inst.Command,
-			Tool:        inst.Tool,
-			Status:      inst.Status,
-			CreatedAt:   inst.CreatedAt,
-			TmuxSession: tmuxName,
+			ID:               inst.ID,
+			Title:            inst.Title,
+			ProjectPath:      inst.ProjectPath,
+			GroupPath:        inst.GroupPath,
+			Command:          inst.Command,
+			Tool:             inst.Tool,
+			Status:           inst.Status,
+			CreatedAt:        inst.CreatedAt,
+			TmuxSession:      tmuxName,
+			ClaudeSessionID:  inst.ClaudeSessionID,
+			ClaudeDetectedAt: inst.ClaudeDetectedAt,
 		}
 	}
 
@@ -423,9 +429,11 @@ func (s *Storage) convertToInstances(data *StorageData) ([]*Instance, []*GroupDa
 				instData.Command,
 				previousStatus,
 			)
-			// Enable mouse mode for proper scrolling (idempotent - safe to call multiple times)
-			if err := tmuxSess.EnableMouseMode(); err != nil {
-				log.Printf("Warning: failed to enable mouse mode for session %s: %v", instData.Title, err)
+			// Enable mouse mode for proper scrolling (only if session still exists)
+			// Sessions may no longer exist after tmux server restart
+			if tmuxSess.Exists() {
+				// Ignore errors - non-fatal, older tmux versions may not support all options
+				_ = tmuxSess.EnableMouseMode()
 			}
 		}
 
@@ -439,15 +447,17 @@ func (s *Storage) convertToInstances(data *StorageData) ([]*Instance, []*GroupDa
 		projectPath := expandTilde(instData.ProjectPath)
 
 		inst := &Instance{
-			ID:          instData.ID,
-			Title:       instData.Title,
-			ProjectPath: projectPath,
-			GroupPath:   groupPath,
-			Command:     instData.Command,
-			Tool:        instData.Tool,
-			Status:      instData.Status,
-			CreatedAt:   instData.CreatedAt,
-			tmuxSession: tmuxSess,
+			ID:               instData.ID,
+			Title:            instData.Title,
+			ProjectPath:      projectPath,
+			GroupPath:        groupPath,
+			Command:          instData.Command,
+			Tool:             instData.Tool,
+			Status:           instData.Status,
+			CreatedAt:        instData.CreatedAt,
+			ClaudeSessionID:  instData.ClaudeSessionID,
+			ClaudeDetectedAt: instData.ClaudeDetectedAt,
+			tmuxSession:      tmuxSess,
 		}
 
 		// Update status immediately to prevent flickering on startup

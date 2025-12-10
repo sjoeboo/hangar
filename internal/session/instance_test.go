@@ -3,6 +3,7 @@ package session
 import (
 	"os/exec"
 	"testing"
+	"time"
 )
 
 // TestNewSessionStatusFlicker tests for green flicker on new session creation
@@ -50,5 +51,28 @@ func TestNewSessionStatusFlicker(t *testing.T) {
 	// because GetStatus() returns "waiting" on first poll
 	if inst.Status == StatusWaiting {
 		t.Log("OK: First poll correctly shows 'waiting' (yellow)")
+	}
+}
+
+// TestInstance_CanFork tests the CanFork method for Claude session forking
+func TestInstance_CanFork(t *testing.T) {
+	inst := NewInstance("test", "/tmp/test")
+
+	// Without Claude session ID, cannot fork
+	if inst.CanFork() {
+		t.Error("CanFork() should be false without ClaudeSessionID")
+	}
+
+	// With Claude session ID, can fork
+	inst.ClaudeSessionID = "abc-123-def"
+	inst.ClaudeDetectedAt = time.Now()
+	if !inst.CanFork() {
+		t.Error("CanFork() should be true with recent ClaudeSessionID")
+	}
+
+	// With old detection time, cannot fork (stale)
+	inst.ClaudeDetectedAt = time.Now().Add(-10 * time.Minute)
+	if inst.CanFork() {
+		t.Error("CanFork() should be false with stale ClaudeSessionID")
 	}
 }
