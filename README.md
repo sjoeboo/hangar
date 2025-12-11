@@ -1,14 +1,11 @@
 <div align="center">
 
-```
-┌──┬──┬──┐
-│● │◐ │○ │
-└──┴──┴──┘
-```
+<!-- Status Grid Logo -->
+<img src="site/logo.svg" alt="Agent Deck Logo" width="120">
 
 # Agent Deck
 
-**Terminal session manager for AI agents**
+**Terminal session manager for AI coding agents**
 
 [![Go Version](https://img.shields.io/badge/Go-1.24+-00ADD8?style=flat&logo=go)](https://go.dev)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
@@ -21,22 +18,6 @@
 ---
 
 ![Agent Deck Demo](demos/multi-agent-research.gif)
-
-```
-┌─────────────────────────────────────────────────────────────────────────┐
-│  [●│◐│○] Agent Deck                          8 sessions   [/] Search    │
-├────────────────────────┬────────────────────────────────────────────────┤
-│  SESSIONS              │  Preview: devops/claude-1                      │
-│  ▼ projects (4)     ●  │  $ claude                                      │
-│    ▶ devops/claude  ●  │  I'll help you with the deployment...          │
-│      devops/shell   ○  │                                                │
-│      frontend       ◌  │  ┌─────────────────────────────────────────┐   │
-│  ▼ personal (2)        │  │ Proceed with changes? (Y/n)             │   │
-│      blog           ◌  │  └─────────────────────────────────────────┘   │
-├────────────────────────┴────────────────────────────────────────────────┤
-│ [↑↓] Navigate [Enter] Attach [/] Search [n] New [Tab] Fold [d] Del [q]  │
-└─────────────────────────────────────────────────────────────────────────┘
-```
 
 ## Why Agent Deck?
 
