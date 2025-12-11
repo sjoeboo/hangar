@@ -1238,14 +1238,11 @@ func (h *Home) forkSessionCmd(source *session.Instance, title, groupPath string)
 			return sessionForkedMsg{err: fmt.Errorf("cannot fork session: %w", err)}
 		}
 
-		// Create new instance with same path and command as source
-		var inst *session.Instance
-		if groupPath != "" {
-			inst = session.NewInstanceWithGroup(title, source.ProjectPath, groupPath)
-		} else {
-			inst = session.NewInstance(title, source.ProjectPath)
+		// Use CreateForkedInstance to get the proper fork command
+		inst, _, err := source.CreateForkedInstance(title, groupPath)
+		if err != nil {
+			return sessionForkedMsg{err: fmt.Errorf("cannot create forked instance: %w", err)}
 		}
-		inst.Command = source.Command
 
 		// Start the forked session
 		if err := inst.Start(); err != nil {
