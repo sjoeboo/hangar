@@ -20,8 +20,7 @@
 
 ---
 
-<!-- TODO: Add demo video here - drag mp4 into GitHub issue, copy URL -->
-<!-- https://github.com/user-attachments/assets/YOUR-VIDEO-UUID -->
+![Agent Deck Demo](demos/multi-agent-research.gif)
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
