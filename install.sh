@@ -91,24 +91,66 @@ esac
 
 echo -e "Detected: ${GREEN}${OS}/${ARCH}${NC}"
 
-# Check for tmux
+# Check for tmux and offer to install
 if ! command -v tmux &> /dev/null; then
-    echo -e "${YELLOW}Warning: tmux is not installed.${NC}"
+    echo -e "${YELLOW}tmux is not installed.${NC}"
     echo "Agent Deck requires tmux to function."
     echo ""
-    echo "Install tmux first:"
+
+    # Try to auto-install tmux
     if [[ "$OS" == "darwin" ]]; then
-        echo "  brew install tmux"
+        if command -v brew &> /dev/null; then
+            read -p "Install tmux via Homebrew? [Y/n] " -n 1 -r
+            echo
+            if [[ ! $REPLY =~ ^[Nn]$ ]]; then
+                echo -e "Installing tmux..."
+                brew install tmux
+            fi
+        else
+            echo "Install tmux with: brew install tmux"
+            echo "(Install Homebrew first: https://brew.sh)"
+        fi
     else
-        echo "  sudo apt install tmux    # Debian/Ubuntu"
-        echo "  sudo dnf install tmux    # Fedora"
-        echo "  sudo pacman -S tmux      # Arch"
+        # Linux - try apt, dnf, or pacman
+        if command -v apt-get &> /dev/null; then
+            read -p "Install tmux via apt? [Y/n] " -n 1 -r
+            echo
+            if [[ ! $REPLY =~ ^[Nn]$ ]]; then
+                echo -e "Installing tmux..."
+                sudo apt-get update && sudo apt-get install -y tmux
+            fi
+        elif command -v dnf &> /dev/null; then
+            read -p "Install tmux via dnf? [Y/n] " -n 1 -r
+            echo
+            if [[ ! $REPLY =~ ^[Nn]$ ]]; then
+                echo -e "Installing tmux..."
+                sudo dnf install -y tmux
+            fi
+        elif command -v pacman &> /dev/null; then
+            read -p "Install tmux via pacman? [Y/n] " -n 1 -r
+            echo
+            if [[ ! $REPLY =~ ^[Nn]$ ]]; then
+                echo -e "Installing tmux..."
+                sudo pacman -S --noconfirm tmux
+            fi
+        else
+            echo "Please install tmux manually:"
+            echo "  sudo apt install tmux    # Debian/Ubuntu"
+            echo "  sudo dnf install tmux    # Fedora"
+            echo "  sudo pacman -S tmux      # Arch"
+        fi
     fi
-    echo ""
-    read -p "Continue anyway? [y/N] " -n 1 -r
-    echo
-    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-        exit 1
+
+    # Check again after attempted install
+    if ! command -v tmux &> /dev/null; then
+        echo ""
+        read -p "tmux not found. Continue anyway? [y/N] " -n 1 -r
+        echo
+        if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+            exit 1
+        fi
+    else
+        echo -e "${GREEN}tmux installed successfully!${NC}"
     fi
 fi
 

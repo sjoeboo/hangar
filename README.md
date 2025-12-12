@@ -91,70 +91,37 @@ Works out-of-the-box with Claude Code, Gemini CLI, Aider, and Codex—detecting 
 
 ## Installation
 
-### Prerequisites
-
-- **macOS**, **Linux**, or **Windows (via WSL)**
-- **[tmux](https://github.com/tmux/tmux)** — Terminal multiplexer
-  ```bash
-  # macOS
-  brew install tmux
-
-  # Ubuntu/Debian/WSL
-  sudo apt install tmux
-
-  # Fedora
-  sudo dnf install tmux
-  ```
-
-### Quick Install (Recommended)
+**Works on:** macOS • Linux • Windows (WSL)
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/asheshgoplani/agent-deck/main/install.sh | bash
 ```
 
-This downloads the latest release and installs to `~/.local/bin`.
+That's it! The installer automatically handles tmux if needed.
 
-**Options:**
-```bash
-# Custom binary name
-curl -fsSL https://raw.githubusercontent.com/asheshgoplani/agent-deck/main/install.sh | bash -s -- --name ad
+Then run: `agent-deck`
 
-# Custom install directory
-curl -fsSL https://raw.githubusercontent.com/asheshgoplani/agent-deck/main/install.sh | bash -s -- --dir /usr/local/bin
+> **Windows:** [Install WSL](https://learn.microsoft.com/en-us/windows/wsl/install) first, then run the command above.
 
-# Specific version
-curl -fsSL https://raw.githubusercontent.com/asheshgoplani/agent-deck/main/install.sh | bash -s -- --version v0.2.0
-```
+<details>
+<summary>Other install methods</summary>
 
-### Homebrew (macOS/Linux)
-
+**Homebrew**
 ```bash
 brew install asheshgoplani/tap/agent-deck
 ```
 
-### Go Install
-
+**Go**
 ```bash
 go install github.com/asheshgoplani/agent-deck/cmd/agent-deck@latest
 ```
 
-Requires Go 1.24+ and `$GOPATH/bin` in your PATH.
-
-### From Source
-
+**From Source**
 ```bash
-git clone https://github.com/asheshgoplani/agent-deck.git
-cd agent-deck
-make install          # Install to /usr/local/bin (requires sudo)
-# or
-make install-user     # Install to ~/.local/bin (no sudo)
+git clone https://github.com/asheshgoplani/agent-deck.git && cd agent-deck && make install
 ```
 
-### Verify Installation
-
-```bash
-agent-deck version
-```
+</details>
 
 ## Usage
 
@@ -272,30 +239,107 @@ Data is stored in `~/.agent-deck/`:
 
 ### Recommended tmux Configuration
 
-For the best experience, add these settings to your `~/.tmux.conf`:
+For optimal experience with mouse copy, scroll, and clipboard integration, use this config in `~/.tmux.conf`:
+
+<details>
+<summary><strong>macOS</strong></summary>
 
 ```bash
-# Enable mouse scrolling in attached sessions
-set -g mouse on
+# ============================================
+# Minimal tmux Configuration for macOS
+# Mouse copy, scroll, and clipboard - just works
+# ============================================
 
-# Increase scrollback buffer (AI agents produce lots of output)
+# ----- Terminal -----
+set -g default-terminal "tmux-256color"
+set -ag terminal-overrides ",*256col*:Tc"
+
+# ----- Performance -----
+set -sg escape-time 0
 set -g history-limit 50000
 
-# Vi-style navigation in copy mode (Prefix + [ to enter, k/j to scroll)
-setw -g mode-keys vi
+# ----- Mouse (enables scroll + drag-to-copy) -----
+set -g mouse on
+
+# ----- Clipboard -----
+set -s set-clipboard external
+
+# Mouse drag automatically copies to system clipboard
+bind-key -T copy-mode-vi MouseDragEnd1Pane send-keys -X copy-pipe-and-cancel "pbcopy"
+bind-key -T copy-mode MouseDragEnd1Pane send-keys -X copy-pipe-and-cancel "pbcopy"
+
+# Double-click selects word, triple-click selects line (auto-copies)
+bind-key -T copy-mode-vi DoubleClick1Pane select-pane \; send-keys -X select-word \; run-shell -d 0.3 \; send-keys -X copy-pipe-and-cancel "pbcopy"
+bind-key -T copy-mode DoubleClick1Pane select-pane \; send-keys -X select-word \; run-shell -d 0.3 \; send-keys -X copy-pipe-and-cancel "pbcopy"
+bind-key -T copy-mode-vi TripleClick1Pane select-pane \; send-keys -X select-line \; run-shell -d 0.3 \; send-keys -X copy-pipe-and-cancel "pbcopy"
+bind-key -T copy-mode TripleClick1Pane select-pane \; send-keys -X select-line \; run-shell -d 0.3 \; send-keys -X copy-pipe-and-cancel "pbcopy"
 ```
 
-After editing, reload your config:
+</details>
+
+<details>
+<summary><strong>Linux (X11 with xclip)</strong></summary>
+
+```bash
+# ============================================
+# Minimal tmux Configuration for Linux
+# Mouse copy, scroll, and clipboard - just works
+# ============================================
+
+# ----- Terminal -----
+set -g default-terminal "tmux-256color"
+set -ag terminal-overrides ",*256col*:Tc"
+
+# ----- Performance -----
+set -sg escape-time 0
+set -g history-limit 50000
+
+# ----- Mouse (enables scroll + drag-to-copy) -----
+set -g mouse on
+
+# ----- Clipboard -----
+set -s set-clipboard external
+
+# Mouse drag automatically copies to system clipboard
+bind-key -T copy-mode-vi MouseDragEnd1Pane send-keys -X copy-pipe-and-cancel "xclip -in -selection clipboard"
+bind-key -T copy-mode MouseDragEnd1Pane send-keys -X copy-pipe-and-cancel "xclip -in -selection clipboard"
+
+# Double-click selects word, triple-click selects line (auto-copies)
+bind-key -T copy-mode-vi DoubleClick1Pane select-pane \; send-keys -X select-word \; run-shell -d 0.3 \; send-keys -X copy-pipe-and-cancel "xclip -in -selection clipboard"
+bind-key -T copy-mode DoubleClick1Pane select-pane \; send-keys -X select-word \; run-shell -d 0.3 \; send-keys -X copy-pipe-and-cancel "xclip -in -selection clipboard"
+bind-key -T copy-mode-vi TripleClick1Pane select-pane \; send-keys -X select-line \; run-shell -d 0.3 \; send-keys -X copy-pipe-and-cancel "xclip -in -selection clipboard"
+bind-key -T copy-mode TripleClick1Pane select-pane \; send-keys -X select-line \; run-shell -d 0.3 \; send-keys -X copy-pipe-and-cancel "xclip -in -selection clipboard"
+```
+
+For Wayland, replace `xclip -in -selection clipboard` with `wl-copy`.
+
+</details>
+
+After adding, reload:
 ```bash
 tmux source-file ~/.tmux.conf
 ```
 
-**Why these settings matter:**
-| Setting | Without it |
-|---------|------------|
-| `mouse on` | Mouse wheel scrolling won't work |
-| `history-limit` | Older AI output gets truncated (default is only 2000 lines) |
-| `mode-keys vi` | No keyboard scrolling in copy mode |
+**What this config does:**
+
+| Feature | How it works |
+|---------|--------------|
+| **Drag to copy** | Click and drag → auto-copies to clipboard |
+| **Double-click** | Selects word → auto-copies |
+| **Triple-click** | Selects line → auto-copies |
+| **Mouse scroll** | Just scroll with mouse wheel |
+| **Paste** | `Cmd+V` (macOS) or `Ctrl+Shift+V` (Linux) |
+
+**Why these settings:**
+
+| Setting | Purpose |
+|---------|---------|
+| `escape-time 0` | No delay on ESC key (fixes sluggishness) |
+| `history-limit 50000` | AI agents produce lots of output (default is 2000) |
+| `set-clipboard external` | Secure clipboard (apps inside tmux can't hijack it) |
+| `MouseDragEnd1Pane` | Auto-copy on mouse release |
+
+> **Tip:** Hold **Shift** while selecting to bypass tmux and use native terminal selection.
 
 ### Claude Code Profile (Optional)
 

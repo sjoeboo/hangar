@@ -277,42 +277,117 @@
         </section>
 
         <!-- Installation Section -->
-        <section class="bg-tn-surface/50 py-16">
-            <div class="max-w-3xl mx-auto px-6">
-                <h2 class="text-2xl font-semibold text-center mb-8">Quick Install</h2>
+        <section class="bg-tn-surface/50 py-12">
+            <div class="max-w-2xl mx-auto px-6">
+                <h2 class="text-2xl font-semibold text-center mb-2">Install</h2>
+                <p class="text-center text-tn-dim text-sm mb-6">macOS • Linux • Windows (WSL)</p>
 
-                <div class="space-y-4">
-                    <!-- Install from source -->
-                    <div class="code-block bg-tn-bg rounded-lg p-4 border border-tn-border">
-                        <div class="flex items-center justify-between mb-2">
-                            <span class="text-xs text-tn-dim uppercase tracking-wide">From Source</span>
-                            <button onclick="copyCode(this, 'git clone https://github.com/asheshgoplani/agent-deck.git && cd agent-deck && make install')"
-                                    class="text-xs text-tn-dim hover:text-tn-accent transition-colors px-2 py-1 rounded hover:bg-tn-surface">
-                                Copy
-                            </button>
-                        </div>
-                        <code class="text-tn-green text-sm">
-                            git clone https://github.com/asheshgoplani/agent-deck.git && cd agent-deck && make install
-                        </code>
+                <!-- Single install command -->
+                <div class="code-block bg-tn-bg rounded-lg p-5 border-2 border-tn-green mb-4">
+                    <div class="flex items-center justify-between mb-3">
+                        <span class="text-xs text-tn-green font-semibold uppercase tracking-wide">One command</span>
+                        <button onclick="copyCode(this, 'curl -fsSL https://raw.githubusercontent.com/asheshgoplani/agent-deck/main/install.sh | bash')"
+                                class="text-xs text-tn-dim hover:text-tn-accent transition-colors px-2 py-1 rounded hover:bg-tn-surface">
+                            Copy
+                        </button>
                     </div>
-
-                    <!-- Launch -->
-                    <div class="code-block bg-tn-bg rounded-lg p-4 border border-tn-border">
-                        <div class="flex items-center justify-between mb-2">
-                            <span class="text-xs text-tn-dim uppercase tracking-wide">Launch</span>
-                            <button onclick="copyCode(this, 'agent-deck')"
-                                    class="text-xs text-tn-dim hover:text-tn-accent transition-colors px-2 py-1 rounded hover:bg-tn-surface">
-                                Copy
-                            </button>
-                        </div>
-                        <code class="text-tn-cyan text-sm">agent-deck</code>
-                    </div>
+                    <code class="text-tn-green text-base break-all">curl -fsSL https://raw.githubusercontent.com/asheshgoplani/agent-deck/main/install.sh | bash</code>
                 </div>
 
-                <p class="text-center text-tn-dim text-sm mt-6">
-                    Requires <a href="https://github.com/tmux/tmux" class="text-tn-accent hover:underline">tmux</a>
-                    and <a href="https://go.dev" class="text-tn-accent hover:underline">Go 1.21+</a>
+                <p class="text-center text-tn-dim text-sm mb-4">
+                    Installs everything automatically. Then run: <code class="text-tn-accent">agent-deck</code>
                 </p>
+
+                <p class="text-center text-tn-dim text-xs">
+                    <span class="text-tn-yellow">Windows:</span> <a href="https://learn.microsoft.com/en-us/windows/wsl/install" class="text-tn-accent hover:underline">Install WSL</a> first
+                    <span class="mx-2">•</span>
+                    <a href="https://github.com/asheshgoplani/agent-deck#installation" class="text-tn-accent hover:underline">Other methods</a>
+                </p>
+            </div>
+        </section>
+
+        <!-- tmux Config Section -->
+        <section class="py-12">
+            <div class="max-w-2xl mx-auto px-6">
+                <h2 class="text-xl font-semibold text-center mb-2">Recommended tmux Config</h2>
+                <p class="text-center text-tn-dim text-sm mb-6">Mouse scroll, drag-to-copy, clipboard integration</p>
+
+                <!-- macOS Config -->
+                <details class="mb-3 bg-tn-surface rounded-lg border border-tn-border">
+                    <summary class="px-4 py-3 cursor-pointer text-sm font-medium flex items-center justify-between hover:bg-tn-bg/50 rounded-lg">
+                        <span>🍎 macOS</span>
+                        <span class="text-tn-dim text-xs">click to expand</span>
+                    </summary>
+                    <div class="px-4 pb-4">
+                        <div class="code-block bg-tn-bg rounded-lg p-3 border border-tn-border relative">
+                            <button onclick="copyCode(this, `# Terminal\nset -g default-terminal &quot;tmux-256color&quot;\nset -ag terminal-overrides &quot;,*256col*:Tc&quot;\n\n# Performance\nset -sg escape-time 0\nset -g history-limit 50000\n\n# Mouse (scroll + drag-to-copy)\nset -g mouse on\n\n# Clipboard\nset -s set-clipboard external\nbind-key -T copy-mode-vi MouseDragEnd1Pane send-keys -X copy-pipe-and-cancel &quot;pbcopy&quot;\nbind-key -T copy-mode MouseDragEnd1Pane send-keys -X copy-pipe-and-cancel &quot;pbcopy&quot;`)"
+                                    class="absolute top-2 right-2 text-xs text-tn-dim hover:text-tn-accent transition-colors px-2 py-1 rounded hover:bg-tn-surface">
+                                Copy
+                            </button>
+                            <pre class="text-xs text-tn-cyan overflow-x-auto"><code># Terminal
+set -g default-terminal "tmux-256color"
+set -ag terminal-overrides ",*256col*:Tc"
+
+# Performance
+set -sg escape-time 0
+set -g history-limit 50000
+
+# Mouse (scroll + drag-to-copy)
+set -g mouse on
+
+# Clipboard
+set -s set-clipboard external
+bind-key -T copy-mode-vi MouseDragEnd1Pane send-keys -X copy-pipe-and-cancel "pbcopy"
+bind-key -T copy-mode MouseDragEnd1Pane send-keys -X copy-pipe-and-cancel "pbcopy"</code></pre>
+                        </div>
+                    </div>
+                </details>
+
+                <!-- Linux Config -->
+                <details class="mb-4 bg-tn-surface rounded-lg border border-tn-border">
+                    <summary class="px-4 py-3 cursor-pointer text-sm font-medium flex items-center justify-between hover:bg-tn-bg/50 rounded-lg">
+                        <span>🐧 Linux / WSL</span>
+                        <span class="text-tn-dim text-xs">click to expand</span>
+                    </summary>
+                    <div class="px-4 pb-4">
+                        <div class="code-block bg-tn-bg rounded-lg p-3 border border-tn-border relative">
+                            <button onclick="copyCode(this, `# Terminal\nset -g default-terminal &quot;tmux-256color&quot;\nset -ag terminal-overrides &quot;,*256col*:Tc&quot;\n\n# Performance\nset -sg escape-time 0\nset -g history-limit 50000\n\n# Mouse (scroll + drag-to-copy)\nset -g mouse on\n\n# Clipboard\nset -s set-clipboard external\nbind-key -T copy-mode-vi MouseDragEnd1Pane send-keys -X copy-pipe-and-cancel &quot;xclip -in -selection clipboard&quot;\nbind-key -T copy-mode MouseDragEnd1Pane send-keys -X copy-pipe-and-cancel &quot;xclip -in -selection clipboard&quot;`)"
+                                    class="absolute top-2 right-2 text-xs text-tn-dim hover:text-tn-accent transition-colors px-2 py-1 rounded hover:bg-tn-surface">
+                                Copy
+                            </button>
+                            <pre class="text-xs text-tn-cyan overflow-x-auto"><code># Terminal
+set -g default-terminal "tmux-256color"
+set -ag terminal-overrides ",*256col*:Tc"
+
+# Performance
+set -sg escape-time 0
+set -g history-limit 50000
+
+# Mouse (scroll + drag-to-copy)
+set -g mouse on
+
+# Clipboard
+set -s set-clipboard external
+bind-key -T copy-mode-vi MouseDragEnd1Pane send-keys -X copy-pipe-and-cancel "xclip -in -selection clipboard"
+bind-key -T copy-mode MouseDragEnd1Pane send-keys -X copy-pipe-and-cancel "xclip -in -selection clipboard"</code></pre>
+                        </div>
+                        <p class="text-xs text-tn-dim mt-2">For Wayland, use <code class="text-tn-purple">wl-copy</code> instead of xclip.</p>
+                    </div>
+                </details>
+
+                <p class="text-center text-tn-dim text-xs">
+                    Add to <code class="text-tn-cyan">~/.tmux.conf</code> then run: <code class="text-tn-cyan">tmux source-file ~/.tmux.conf</code>
+                </p>
+
+                <!-- What it does -->
+                <div class="mt-4 grid grid-cols-2 gap-2 text-xs">
+                    <div class="bg-tn-bg/50 rounded p-2 text-center">
+                        <span class="text-tn-green">Drag</span> <span class="text-tn-dim">→ copies to clipboard</span>
+                    </div>
+                    <div class="bg-tn-bg/50 rounded p-2 text-center">
+                        <span class="text-tn-green">Scroll</span> <span class="text-tn-dim">→ just works</span>
+                    </div>
+                </div>
             </div>
         </section>
 
