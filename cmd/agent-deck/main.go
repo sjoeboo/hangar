@@ -612,7 +612,7 @@ type statusCounts struct {
 func countByStatus(instances []*session.Instance) statusCounts {
 	var counts statusCounts
 	for _, inst := range instances {
-		inst.UpdateStatus() // Refresh status from tmux
+		_ = inst.UpdateStatus() // Refresh status from tmux
 		switch inst.Status {
 		case session.StatusRunning:
 			counts.running++
@@ -833,7 +833,7 @@ func handleProfileDelete(name string) {
 	// Confirm deletion
 	fmt.Printf("Are you sure you want to delete profile '%s'? This will remove all sessions in this profile. [y/N] ", name)
 	var response string
-	fmt.Scanln(&response)
+	_, _ = fmt.Scanln(&response)
 	if response != "y" && response != "Y" {
 		fmt.Println("Cancelled.")
 		return
@@ -902,7 +902,7 @@ func handleUpdate(args []string) {
 	// Confirm update
 	fmt.Print("\nInstall update? [Y/n] ")
 	var response string
-	fmt.Scanln(&response)
+	_, _ = fmt.Scanln(&response)
 	if response != "" && response != "y" && response != "Y" {
 		fmt.Println("Update cancelled.")
 		return

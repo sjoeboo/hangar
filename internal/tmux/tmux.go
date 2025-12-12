@@ -627,7 +627,7 @@ func (s *Session) EnableMouseMode() error {
 // Kill terminates the tmux session
 func (s *Session) Kill() error {
 	// Disable pipe-pane first
-	s.DisablePipePane()
+	_ = s.DisablePipePane()
 
 	// Remove log file
 	logFile := s.LogFile()

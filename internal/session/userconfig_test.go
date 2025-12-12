@@ -19,7 +19,9 @@ config_dir = "~/.claude-work"
 command = "test"
 `
 	configPath := filepath.Join(tmpDir, "config.toml")
-	os.WriteFile(configPath, []byte(configContent), 0600)
+	if err := os.WriteFile(configPath, []byte(configContent), 0600); err != nil {
+		t.Fatalf("Failed to write config file: %v", err)
+	}
 
 	// Test parsing
 	var config UserConfig
@@ -41,7 +43,9 @@ func TestUserConfig_ClaudeConfigDirEmpty(t *testing.T) {
 command = "test"
 `
 	configPath := filepath.Join(tmpDir, "config.toml")
-	os.WriteFile(configPath, []byte(configContent), 0600)
+	if err := os.WriteFile(configPath, []byte(configContent), 0600); err != nil {
+		t.Fatalf("Failed to write config file: %v", err)
+	}
 
 	var config UserConfig
 	_, err := toml.DecodeFile(configPath, &config)

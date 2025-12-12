@@ -31,7 +31,7 @@ func TestLogWatcher(t *testing.T) {
 	// Create and write to log file
 	f, err := os.Create(logFile)
 	assert.NoError(t, err)
-	f.WriteString("test output\n")
+	_, _ = f.WriteString("test output\n")
 	f.Close()
 
 	// Wait for event

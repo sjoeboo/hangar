@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/asheshgoplani/agent-deck/internal/tmux"
-	"github.com/google/uuid"
 )
 
 // Status represents the current state of a session
@@ -85,11 +84,6 @@ func NewInstanceWithGroupAndTool(title, projectPath, groupPath, tool string) *In
 	inst := NewInstanceWithTool(title, projectPath, tool)
 	inst.GroupPath = groupPath
 	return inst
-}
-
-// generateUUID generates a valid UUID v4 for Claude session IDs
-func generateUUID() string {
-	return uuid.New().String()
 }
 
 // extractGroupPath extracts a group path from project path

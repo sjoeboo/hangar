@@ -171,8 +171,8 @@ func CompareVersions(v1, v2 string) int {
 
 	for i := 0; i < 3; i++ {
 		var n1, n2 int
-		fmt.Sscanf(parts1[i], "%d", &n1)
-		fmt.Sscanf(parts2[i], "%d", &n2)
+		_, _ = fmt.Sscanf(parts1[i], "%d", &n1)
+		_, _ = fmt.Sscanf(parts2[i], "%d", &n2)
 
 		if n1 < n2 {
 			return -1
@@ -322,7 +322,7 @@ func PerformUpdate(downloadURL string) error {
 	// Move new binary into place
 	if err := os.Rename(newBinaryPath, execPath); err != nil {
 		// Try to restore old binary
-		os.Rename(oldBinaryPath, execPath)
+		_ = os.Rename(oldBinaryPath, execPath)
 		return fmt.Errorf("failed to install new binary: %w", err)
 	}
 

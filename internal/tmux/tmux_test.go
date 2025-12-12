@@ -1774,13 +1774,13 @@ func TestStartEnablesPipePaneLogging(t *testing.T) {
 	sess := NewSession("pipe-test", t.TempDir())
 	err := sess.Start("")
 	assert.NoError(t, err)
-	defer sess.Kill()
+	defer func() { _ = sess.Kill() }()
 
 	// Give pipe-pane time to initialize
 	time.Sleep(200 * time.Millisecond)
 
 	// Generate some output
-	sess.SendKeys("echo 'pipe-pane test'")
+	_ = sess.SendKeys("echo 'pipe-pane test'")
 
 	// Poll for log file content instead of fixed sleep
 	logFile := sess.LogFile()

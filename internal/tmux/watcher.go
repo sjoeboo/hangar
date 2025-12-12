@@ -5,7 +5,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
 
 	"github.com/fsnotify/fsnotify"
 )
@@ -17,7 +16,6 @@ type LogWatcher struct {
 	logDir   string
 	callback func(sessionName string)
 	done     chan struct{}
-	mu       sync.Mutex
 }
 
 // NewLogWatcher creates a new log file watcher

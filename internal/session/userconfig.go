@@ -46,9 +46,8 @@ var defaultUserConfig = UserConfig{
 
 // Cache for user config (loaded once per session)
 var (
-	userConfigCache     *UserConfig
-	userConfigCacheMu   sync.RWMutex
-	userConfigCacheOnce sync.Once
+	userConfigCache   *UserConfig
+	userConfigCacheMu sync.RWMutex
 )
 
 // GetUserConfigPath returns the path to the user config file
