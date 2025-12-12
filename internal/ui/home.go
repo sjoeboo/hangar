@@ -950,6 +950,9 @@ func (h *Home) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		h.newDialog.SetPathSuggestions(paths)
 
+		// Apply user's preferred default tool from config
+		h.newDialog.SetDefaultTool(session.GetDefaultTool())
+
 		// Auto-select parent group from current cursor position
 		groupPath := session.DefaultGroupName
 		groupName := session.DefaultGroupName
@@ -1455,12 +1458,20 @@ func (h *Home) View() string {
 	stats := lipgloss.NewStyle().Foreground(ColorTextDim).Render(
 		fmt.Sprintf(" %d groups • %d sessions", h.groupTree.GroupCount(), h.groupTree.SessionCount()))
 
-	// Fill remaining header space
-	headerContent := lipgloss.JoinHorizontal(lipgloss.Left, logo, " ", title, stats)
-	headerPadding := h.width - lipgloss.Width(headerContent)
-	if headerPadding > 0 {
-		headerContent += strings.Repeat(" ", headerPadding)
+	// Version badge (right-aligned, subtle)
+	versionStyle := lipgloss.NewStyle().
+		Foreground(ColorComment). // Dim gray, doesn't compete with main content
+		Italic(true)
+	versionBadge := versionStyle.Render("v" + Version)
+
+	// Fill remaining header space, placing version at the right
+	headerLeft := lipgloss.JoinHorizontal(lipgloss.Left, logo, " ", title, stats)
+	// Calculate padding between stats and version
+	headerPadding := h.width - lipgloss.Width(headerLeft) - lipgloss.Width(versionBadge) - 1
+	if headerPadding < 1 {
+		headerPadding = 1
 	}
+	headerContent := headerLeft + strings.Repeat(" ", headerPadding) + versionBadge
 
 	headerBar := lipgloss.NewStyle().
 		Background(ColorSurface).

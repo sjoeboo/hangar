@@ -13,6 +13,11 @@ const UserConfigFileName = "config.toml"
 
 // UserConfig represents user-facing configuration in TOML format
 type UserConfig struct {
+	// DefaultTool is the pre-selected AI tool when creating new sessions
+	// Valid values: "claude", "gemini", "aider", "codex", or any custom tool name
+	// If empty or invalid, defaults to "shell" (no pre-selection)
+	DefaultTool string `toml:"default_tool"`
+
 	// Tools defines custom AI tool configurations
 	Tools map[string]ToolDef `toml:"tools"`
 
@@ -168,6 +173,16 @@ func GetToolBusyPatterns(toolName string) []string {
 	return patterns
 }
 
+// GetDefaultTool returns the user's preferred default tool for new sessions
+// Returns empty string if not configured (defaults to shell)
+func GetDefaultTool() string {
+	config, err := LoadUserConfig()
+	if err != nil || config == nil {
+		return ""
+	}
+	return config.DefaultTool
+}
+
 // CreateExampleConfig creates an example config file if none exists
 func CreateExampleConfig() error {
 	configPath, err := GetUserConfigPath()
@@ -182,6 +197,12 @@ func CreateExampleConfig() error {
 
 	exampleConfig := `# Agent Deck User Configuration
 # This file is loaded on startup. Edit to customize tools.
+
+# Default AI tool for new sessions
+# When creating a new session (pressing 'n'), this tool will be pre-selected
+# Valid values: "claude", "gemini", "aider", "codex", or any custom tool name
+# Leave commented out or empty to default to shell (no pre-selection)
+# default_tool = "claude"
 
 # Claude Code integration
 # Set this if you use a custom Claude profile (e.g., dual account setup)

@@ -153,11 +153,20 @@ func (h *HelpOverlay) View() string {
 		}
 	}
 
+	// Version info (subtle separator before footer)
+	separatorStyle := lipgloss.NewStyle().Foreground(ColorBorder)
+	versionStyle := lipgloss.NewStyle().
+		Foreground(ColorComment).
+		Italic(true)
+	content.WriteString("\n")
+	content.WriteString(separatorStyle.Render("─────────────────────────────────"))
+	content.WriteString("\n")
+	content.WriteString(versionStyle.Render("Agent Deck v" + Version))
+	content.WriteString("\n\n")
+
 	footerStyle := lipgloss.NewStyle().
 		Foreground(ColorComment).
-		Italic(true).
-		MarginTop(1)
-	content.WriteString("\n")
+		Italic(true)
 	content.WriteString(footerStyle.Render("Press any key to close"))
 
 	// Wrap in dialog box

@@ -80,6 +80,26 @@ func (d *NewDialog) ShowInGroup(groupPath, groupName string) {
 	d.focusIndex = 0
 	d.nameInput.SetValue("")
 	d.nameInput.Focus()
+	// Keep commandCursor at previously set default (don't reset to 0)
+}
+
+// SetDefaultTool sets the pre-selected command based on tool name
+// Call this before Show/ShowInGroup to apply user's preferred default
+func (d *NewDialog) SetDefaultTool(tool string) {
+	if tool == "" {
+		d.commandCursor = 0 // Default to shell
+		return
+	}
+
+	// Find the tool in preset commands
+	for i, cmd := range d.presetCommands {
+		if cmd == tool {
+			d.commandCursor = i
+			return
+		}
+	}
+
+	// Tool not found in presets, default to shell
 	d.commandCursor = 0
 }
 
