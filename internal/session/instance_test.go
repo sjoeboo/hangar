@@ -414,3 +414,41 @@ func TestInstance_Restart_ResumesClaudeSession(t *testing.T) {
 		t.Errorf("Status = %v, want running", inst.Status)
 	}
 }
+
+func TestInstance_Restart_InterruptsAndResumes(t *testing.T) {
+	if _, err := exec.LookPath("tmux"); err != nil {
+		t.Skip("tmux not available")
+	}
+
+	// Create instance with known session ID
+	inst := NewInstanceWithTool("restart-interrupt-test", "/tmp", "claude")
+	inst.Command = "claude"
+	inst.ClaudeSessionID = "test-session-id-xyz"
+	inst.ClaudeDetectedAt = time.Now()
+
+	// Start initial tmux session with a simple command
+	err := inst.Start()
+	if err != nil {
+		t.Fatalf("Failed to start initial session: %v", err)
+	}
+	defer inst.Kill()
+
+	// Session is running (not error state)
+	inst.Status = StatusRunning
+
+	// CanRestart should now return true for running sessions
+	if !inst.CanRestart() {
+		t.Error("CanRestart() should return true for running Claude session with known ID")
+	}
+
+	// Now restart - should send Ctrl+C and resume command
+	err = inst.Restart()
+	if err != nil {
+		t.Fatalf("Restart failed: %v", err)
+	}
+
+	// Verify the session still exists
+	if !inst.tmuxSession.Exists() {
+		t.Error("tmux session should still exist after restart")
+	}
+}

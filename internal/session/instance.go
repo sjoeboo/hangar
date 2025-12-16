@@ -363,33 +363,50 @@ func (i *Instance) Kill() error {
 	return nil
 }
 
-// Restart recreates the tmux session for a dead/errored session
-// For Claude sessions with known session ID: resumes the conversation (--resume)
-// For other sessions or unknown ID: runs the original command
+// Restart restarts the Claude session
+// For Claude sessions with known ID: sends Ctrl+C and resume command to existing session
+// For dead sessions or unknown ID: recreates the tmux session
 func (i *Instance) Restart() error {
-	// Create a new tmux session object (keeps same naming convention)
+	// If Claude session with known ID AND tmux session exists, interrupt and resume
+	if i.Tool == "claude" && i.ClaudeSessionID != "" && i.tmuxSession != nil && i.tmuxSession.Exists() {
+		// Send Ctrl+C to interrupt current process
+		if err := i.tmuxSession.SendCtrlC(); err != nil {
+			return fmt.Errorf("failed to send Ctrl+C: %w", err)
+		}
+
+		// Brief pause for interrupt to process
+		time.Sleep(100 * time.Millisecond)
+
+		// Send resume command
+		configDir := GetClaudeConfigDir()
+		resumeCmd := fmt.Sprintf("CLAUDE_CONFIG_DIR=%s claude --resume %s --dangerously-skip-permissions",
+			configDir, i.ClaudeSessionID)
+
+		if err := i.tmuxSession.SendCommand(resumeCmd); err != nil {
+			return fmt.Errorf("failed to send resume command: %w", err)
+		}
+
+		i.Status = StatusRunning
+		return nil
+	}
+
+	// Fallback: recreate tmux session (for dead sessions or unknown ID)
 	i.tmuxSession = tmux.NewSession(i.Title, i.ProjectPath)
 
 	var command string
-
-	// If Claude session with known session ID, resume the conversation
 	if i.Tool == "claude" && i.ClaudeSessionID != "" {
 		configDir := GetClaudeConfigDir()
-		// Resume the existing session - this continues the conversation
 		command = fmt.Sprintf("CLAUDE_CONFIG_DIR=%s claude --resume %s --dangerously-skip-permissions",
 			configDir, i.ClaudeSessionID)
 	} else {
-		// Use the standard build command (for non-Claude or unknown session ID)
 		command = i.buildClaudeCommand(i.Command)
 	}
 
-	// Start the new tmux session
 	if err := i.tmuxSession.Start(command); err != nil {
 		i.Status = StatusError
 		return fmt.Errorf("failed to restart tmux session: %w", err)
 	}
 
-	// Update status based on whether we have a command
 	if command != "" {
 		i.Status = StatusRunning
 	} else {
@@ -399,8 +416,15 @@ func (i *Instance) Restart() error {
 	return nil
 }
 
-// CanRestart returns true if the session can be restarted (is in error state)
+// CanRestart returns true if the session can be restarted
+// For Claude sessions with known ID: can always restart (interrupt and resume)
+// For other sessions: only if dead/error state
 func (i *Instance) CanRestart() bool {
+	// Claude sessions with known session ID can always be restarted
+	if i.Tool == "claude" && i.ClaudeSessionID != "" {
+		return true
+	}
+	// Other sessions: only if dead or error
 	return i.Status == StatusError || i.tmuxSession == nil || !i.tmuxSession.Exists()
 }
 
