@@ -192,6 +192,7 @@ func (i *Instance) UpdateStatus() error {
 }
 
 // UpdateClaudeSession updates the Claude session ID using detection
+// Priority: 1) tmux environment (for sessions we started), 2) file scanning (legacy/imported)
 // excludeIDs contains session IDs already claimed by other instances
 // Pass nil to skip deduplication (when called from UpdateStatus)
 func (i *Instance) UpdateClaudeSession(excludeIDs map[string]bool) {
@@ -204,7 +205,14 @@ func (i *Instance) UpdateClaudeSession(excludeIDs map[string]bool) {
 		return
 	}
 
-	// Get working directory
+	// PRIMARY: Try tmux environment first (most reliable for sessions we started)
+	if sessionID := i.GetSessionIDFromTmux(); sessionID != "" {
+		i.ClaudeSessionID = sessionID
+		i.ClaudeDetectedAt = time.Now()
+		return
+	}
+
+	// FALLBACK: File scanning (for imported/legacy sessions)
 	workDir := i.ProjectPath
 	if i.tmuxSession != nil {
 		if wd := i.tmuxSession.GetWorkDir(); wd != "" {

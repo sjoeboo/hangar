@@ -322,3 +322,37 @@ func TestInstance_GetSessionIDFromTmux(t *testing.T) {
 		t.Errorf("GetSessionIDFromTmux = %q, want %q", id, testSessionID)
 	}
 }
+
+func TestInstance_UpdateClaudeSession_TmuxFirst(t *testing.T) {
+	if _, err := exec.LookPath("tmux"); err != nil {
+		t.Skip("tmux not available")
+	}
+
+	// Create and start instance
+	inst := NewInstanceWithTool("update-test", "/tmp", "claude")
+	err := inst.Start()
+	if err != nil {
+		t.Fatalf("Failed to start instance: %v", err)
+	}
+	defer inst.Kill()
+
+	// Set session ID in tmux environment
+	testSessionID := "tmux-session-abc123"
+	tmuxSess := inst.GetTmuxSession()
+	err = tmuxSess.SetEnvironment("CLAUDE_SESSION_ID", testSessionID)
+	if err != nil {
+		t.Fatalf("Failed to set environment: %v", err)
+	}
+
+	// Clear any existing detection
+	inst.ClaudeSessionID = ""
+	inst.ClaudeDetectedAt = time.Time{}
+
+	// Call UpdateClaudeSession
+	inst.UpdateClaudeSession(nil)
+
+	// Should have picked up from tmux environment
+	if inst.ClaudeSessionID != testSessionID {
+		t.Errorf("ClaudeSessionID = %q, want %q (from tmux env)", inst.ClaudeSessionID, testSessionID)
+	}
+}
