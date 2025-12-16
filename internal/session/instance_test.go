@@ -369,3 +369,48 @@ func TestInstance_UpdateClaudeSession_TmuxFirst(t *testing.T) {
 		t.Errorf("ClaudeSessionID = %q, want %q (from tmux env)", inst.ClaudeSessionID, testSessionID)
 	}
 }
+
+func TestInstance_Restart_ResumesClaudeSession(t *testing.T) {
+	if _, err := exec.LookPath("tmux"); err != nil {
+		t.Skip("tmux not available")
+	}
+
+	// Create instance with known session ID (simulating previous session)
+	inst := NewInstanceWithTool("restart-test", "/tmp", "claude")
+	inst.Command = "claude"
+	inst.ClaudeSessionID = "known-session-id-xyz"
+	inst.ClaudeDetectedAt = time.Now()
+
+	// Start initial tmux session
+	err := inst.Start()
+	if err != nil {
+		t.Fatalf("Failed to start initial session: %v", err)
+	}
+
+	// Mark as error state to allow restart
+	inst.Status = StatusError
+
+	// Kill the tmux session to simulate dead session
+	inst.Kill()
+
+	// Now restart - should use --resume with the known session ID
+	err = inst.Restart()
+	if err != nil {
+		t.Fatalf("Restart failed: %v", err)
+	}
+	defer inst.Kill()
+
+	// Verify the session was created and is running
+	if inst.tmuxSession == nil {
+		t.Fatal("tmux session is nil after restart")
+	}
+
+	if !inst.tmuxSession.Exists() {
+		t.Error("tmux session should exist after restart")
+	}
+
+	// Status should be running
+	if inst.Status != StatusRunning {
+		t.Errorf("Status = %v, want running", inst.Status)
+	}
+}

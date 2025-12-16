@@ -364,19 +364,33 @@ func (i *Instance) Kill() error {
 }
 
 // Restart recreates the tmux session for a dead/errored session
-// This preserves the session ID, title, path, and group but creates a fresh tmux session
+// For Claude sessions with known session ID: resumes the conversation (--resume)
+// For other sessions or unknown ID: runs the original command
 func (i *Instance) Restart() error {
 	// Create a new tmux session object (keeps same naming convention)
 	i.tmuxSession = tmux.NewSession(i.Title, i.ProjectPath)
 
+	var command string
+
+	// If Claude session with known session ID, resume the conversation
+	if i.Tool == "claude" && i.ClaudeSessionID != "" {
+		configDir := GetClaudeConfigDir()
+		// Resume the existing session - this continues the conversation
+		command = fmt.Sprintf("CLAUDE_CONFIG_DIR=%s claude --resume %s --dangerously-skip-permissions",
+			configDir, i.ClaudeSessionID)
+	} else {
+		// Use the standard build command (for non-Claude or unknown session ID)
+		command = i.buildClaudeCommand(i.Command)
+	}
+
 	// Start the new tmux session
-	if err := i.tmuxSession.Start(i.Command); err != nil {
+	if err := i.tmuxSession.Start(command); err != nil {
 		i.Status = StatusError
 		return fmt.Errorf("failed to restart tmux session: %w", err)
 	}
 
 	// Update status based on whether we have a command
-	if i.Command != "" {
+	if command != "" {
 		i.Status = StatusRunning
 	} else {
 		i.Status = StatusIdle
