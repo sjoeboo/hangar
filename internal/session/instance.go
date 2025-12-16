@@ -222,6 +222,8 @@ func (i *Instance) UpdateClaudeSession(excludeIDs map[string]bool) {
 
 // WaitForClaudeSession waits for Claude to create a session file (for forked sessions)
 // Returns the detected session ID or empty string after timeout
+// Uses FindSessionForInstance with timestamp filtering to ensure we only detect
+// session files created AFTER this instance started (not parent's pre-existing file)
 func (i *Instance) WaitForClaudeSession(maxWait time.Duration) string {
 	if i.Tool != "claude" {
 		return ""
@@ -239,8 +241,47 @@ func (i *Instance) WaitForClaudeSession(maxWait time.Duration) string {
 	deadline := time.Now().Add(maxWait)
 
 	for time.Now().Before(deadline) {
-		sessionID, err := GetClaudeSessionID(workDir)
-		if err == nil && sessionID != "" {
+		// Use FindSessionForInstance with timestamp filtering
+		// This ensures we only match files created AFTER this instance started
+		// Critical for forks: prevents detecting parent's file instead of new fork file
+		sessionID := FindSessionForInstance(workDir, i.CreatedAt, nil)
+		if sessionID != "" {
+			i.ClaudeSessionID = sessionID
+			i.ClaudeDetectedAt = time.Now()
+			return sessionID
+		}
+		time.Sleep(interval)
+	}
+
+	return ""
+}
+
+// WaitForClaudeSessionWithExclude waits for Claude to create a session file with exclusion list
+// This is more robust than WaitForClaudeSession as it explicitly excludes known session IDs
+// Use this when forking to ensure the fork's new session is detected, not an existing one
+func (i *Instance) WaitForClaudeSessionWithExclude(maxWait time.Duration, excludeIDs map[string]bool) string {
+	if i.Tool != "claude" {
+		return ""
+	}
+
+	workDir := i.ProjectPath
+	if i.tmuxSession != nil {
+		if wd := i.tmuxSession.GetWorkDir(); wd != "" {
+			workDir = wd
+		}
+	}
+
+	// Poll every 200ms for up to maxWait
+	interval := 200 * time.Millisecond
+	deadline := time.Now().Add(maxWait)
+
+	for time.Now().Before(deadline) {
+		// Use FindSessionForInstance with timestamp filtering AND exclusion list
+		// This ensures we only match files:
+		// 1. Created AFTER this instance started (timestamp filter)
+		// 2. Not already claimed by another session (excludeIDs)
+		sessionID := FindSessionForInstance(workDir, i.CreatedAt, excludeIDs)
+		if sessionID != "" {
 			i.ClaudeSessionID = sessionID
 			i.ClaudeDetectedAt = time.Now()
 			return sessionID
@@ -406,6 +447,19 @@ func (i *Instance) GetTmuxSession() *tmux.Session {
 	return i.tmuxSession
 }
 
+// GetSessionIDFromTmux reads Claude session ID from tmux environment
+// This is the primary method for sessions started with the capture-resume pattern
+func (i *Instance) GetSessionIDFromTmux() string {
+	if i.tmuxSession == nil {
+		return ""
+	}
+	sessionID, err := i.tmuxSession.GetEnvironment("CLAUDE_SESSION_ID")
+	if err != nil {
+		return ""
+	}
+	return sessionID
+}
+
 // generateID generates a unique session ID
 func generateID() string {
 	return fmt.Sprintf("%s-%d", randomString(8), time.Now().Unix())
@@ -423,21 +477,38 @@ func randomString(length int) string {
 
 // UpdateClaudeSessionsWithDedup updates Claude sessions for all instances with deduplication
 // This should be called from the manager/storage layer that has access to all instances
+// It both fixes existing duplicates AND prevents new duplicates during detection
 func UpdateClaudeSessionsWithDedup(instances []*Instance) {
-	// Collect already-assigned session IDs
-	usedIDs := make(map[string]bool)
-	for _, inst := range instances {
-		if inst.ClaudeSessionID != "" {
-			usedIDs[inst.ClaudeSessionID] = true
-		}
-	}
-
-	// Sort instances by CreatedAt (older first get priority)
+	// Sort instances by CreatedAt (older first get priority for keeping IDs)
 	sort.Slice(instances, func(i, j int) bool {
 		return instances[i].CreatedAt.Before(instances[j].CreatedAt)
 	})
 
-	// Update each instance that needs detection
+	// Step 1: Find and clear duplicate IDs (keep only the oldest session's claim)
+	// Map from session ID to the instance that owns it (oldest one)
+	idOwner := make(map[string]*Instance)
+	for _, inst := range instances {
+		if inst.Tool != "claude" || inst.ClaudeSessionID == "" {
+			continue
+		}
+		if owner, exists := idOwner[inst.ClaudeSessionID]; exists {
+			// Duplicate found! The older session (owner) keeps the ID
+			// Clear the newer session's ID so it can re-detect
+			inst.ClaudeSessionID = ""
+			inst.ClaudeDetectedAt = time.Time{}
+			_ = owner // Older session keeps its ID
+		} else {
+			idOwner[inst.ClaudeSessionID] = inst
+		}
+	}
+
+	// Step 2: Build usedIDs from remaining assigned IDs
+	usedIDs := make(map[string]bool)
+	for id := range idOwner {
+		usedIDs[id] = true
+	}
+
+	// Step 3: Re-detect for sessions that need it (empty or cleared IDs)
 	for _, inst := range instances {
 		if inst.Tool == "claude" && inst.ClaudeSessionID == "" {
 			inst.UpdateClaudeSession(usedIDs)

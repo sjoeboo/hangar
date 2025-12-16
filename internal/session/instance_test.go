@@ -284,3 +284,41 @@ func TestWaitForClaudeSession(t *testing.T) {
 		t.Errorf("ClaudeSessionID should be empty, got: %s", inst.ClaudeSessionID)
 	}
 }
+
+func TestInstance_GetSessionIDFromTmux(t *testing.T) {
+	if _, err := exec.LookPath("tmux"); err != nil {
+		t.Skip("tmux not available")
+	}
+
+	// Create instance with tmux session
+	inst := NewInstanceWithTool("tmux-env-test", "/tmp", "claude")
+
+	// Start the session
+	err := inst.Start()
+	if err != nil {
+		t.Fatalf("Failed to start instance: %v", err)
+	}
+	defer inst.Kill()
+
+	// Initially should return empty (no CLAUDE_SESSION_ID set)
+	if id := inst.GetSessionIDFromTmux(); id != "" {
+		t.Errorf("GetSessionIDFromTmux should return empty initially, got: %s", id)
+	}
+
+	// Set the environment variable directly via tmux
+	tmuxSess := inst.GetTmuxSession()
+	if tmuxSess == nil {
+		t.Fatal("tmux session is nil")
+	}
+
+	testSessionID := "test-uuid-12345"
+	err = tmuxSess.SetEnvironment("CLAUDE_SESSION_ID", testSessionID)
+	if err != nil {
+		t.Fatalf("Failed to set environment: %v", err)
+	}
+
+	// Now should return the session ID
+	if id := inst.GetSessionIDFromTmux(); id != testSessionID {
+		t.Errorf("GetSessionIDFromTmux = %q, want %q", id, testSessionID)
+	}
+}
