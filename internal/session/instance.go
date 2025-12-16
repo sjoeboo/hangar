@@ -438,21 +438,25 @@ func (i *Instance) CanFork() bool {
 }
 
 // Fork returns the command to create a forked Claude session
-// Returns the claude command string to run in the new tmux session
+// Uses capture-resume pattern: starts fork in print mode to get new session ID,
+// stores in tmux environment, then resumes interactively
 func (i *Instance) Fork(newTitle, newGroupPath string) (string, error) {
 	if !i.CanFork() {
 		return "", fmt.Errorf("cannot fork: no active Claude session")
 	}
 
-	// Use the PARENT's project path so fork ends up in the same Claude project directory
-	// This ensures parent and forked sessions show up together in `claude --resume`
 	workDir := i.ProjectPath
-
-	// Build the fork command with the correct Claude profile
-	// This ensures fork uses the same profile where the session ID was detected
-	// Uses --dangerously-skip-permissions to match typical cdw workflow
 	configDir := GetClaudeConfigDir()
-	cmd := fmt.Sprintf("cd %s && CLAUDE_CONFIG_DIR=%s claude --dangerously-skip-permissions --resume %s --fork-session", workDir, configDir, i.ClaudeSessionID)
+
+	// Capture-resume pattern for fork:
+	// 1. Fork in print mode to get new session ID
+	// 2. Store in tmux environment
+	// 3. Resume the forked session interactively
+	cmd := fmt.Sprintf(
+		`cd %s && session_id=$(CLAUDE_CONFIG_DIR=%s claude -p "." --output-format json --resume %s --fork-session 2>/dev/null | jq -r '.session_id') && `+
+			`tmux set-environment CLAUDE_SESSION_ID "$session_id" && `+
+			`CLAUDE_CONFIG_DIR=%s claude --resume "$session_id" --dangerously-skip-permissions`,
+		workDir, configDir, i.ClaudeSessionID, configDir)
 
 	return cmd, nil
 }
