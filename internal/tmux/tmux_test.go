@@ -1851,3 +1851,31 @@ func TestSession_GetEnvironment_NotFound(t *testing.T) {
 		t.Error("GetEnvironment should return error for nonexistent variable")
 	}
 }
+
+func TestSession_SendCtrlC(t *testing.T) {
+	sess := NewSession("ctrl-c-test", "/tmp")
+
+	// Start session with a long-running command
+	err := sess.Start("sleep 60")
+	if err != nil {
+		t.Fatalf("Failed to start session: %v", err)
+	}
+	defer sess.Kill()
+
+	// Give the command time to start
+	time.Sleep(100 * time.Millisecond)
+
+	// Send Ctrl+C
+	err = sess.SendCtrlC()
+	if err != nil {
+		t.Fatalf("SendCtrlC failed: %v", err)
+	}
+
+	// Give it time to process
+	time.Sleep(100 * time.Millisecond)
+
+	// Session should still exist (we didn't kill it, just interrupted the process)
+	if !sess.Exists() {
+		t.Error("Session should still exist after Ctrl+C")
+	}
+}

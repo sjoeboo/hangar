@@ -1388,6 +1388,12 @@ func (s *Session) SendEnter() error {
 	return cmd.Run()
 }
 
+// SendCtrlC sends Ctrl+C (interrupt signal) to the tmux session
+func (s *Session) SendCtrlC() error {
+	cmd := exec.Command("tmux", "send-keys", "-t", s.Name, "C-c")
+	return cmd.Run()
+}
+
 // GetWorkDir returns the current working directory of the tmux pane
 // This is the live directory from the pane, not the initial WorkDir
 func (s *Session) GetWorkDir() string {
