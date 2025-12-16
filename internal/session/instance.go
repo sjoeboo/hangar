@@ -107,9 +107,9 @@ func extractGroupPath(projectPath string) string {
 	return DefaultGroupName
 }
 
-// buildClaudeCommand builds the claude command with config dir and permissions flag
-// NOTE: --session-id is NOT used as it creates a useless summary file instead of
-// controlling the actual session UUID. We detect the session ID from files Claude creates.
+// buildClaudeCommand builds the claude command with session capture
+// For new sessions: captures session ID via print mode, stores in tmux env, then resumes
+// This ensures we always know the session ID for fork/restart features
 func (i *Instance) buildClaudeCommand(baseCommand string) string {
 	if i.Tool != "claude" {
 		return baseCommand
@@ -117,12 +117,20 @@ func (i *Instance) buildClaudeCommand(baseCommand string) string {
 
 	configDir := GetClaudeConfigDir()
 
-	// If baseCommand is just "claude", build full command with config dir
+	// If baseCommand is just "claude", build the capture-resume command
+	// This command:
+	// 1. Starts Claude in print mode to get session ID
+	// 2. Stores session ID in tmux environment (for retrieval by agent-deck)
+	// 3. Resumes that session interactively with dangerous mode
 	if baseCommand == "claude" {
-		return fmt.Sprintf("CLAUDE_CONFIG_DIR=%s claude --dangerously-skip-permissions", configDir)
+		return fmt.Sprintf(
+			`session_id=$(CLAUDE_CONFIG_DIR=%s claude -p "." --output-format json 2>/dev/null | jq -r '.session_id') && `+
+				`tmux set-environment CLAUDE_SESSION_ID "$session_id" && `+
+				`CLAUDE_CONFIG_DIR=%s claude --resume "$session_id" --dangerously-skip-permissions`,
+			configDir, configDir)
 	}
 
-	// For custom commands, return as-is (config dir set via environment)
+	// For custom commands (e.g., fork commands), return as-is
 	return baseCommand
 }
 

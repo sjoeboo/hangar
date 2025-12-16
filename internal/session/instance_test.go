@@ -194,21 +194,34 @@ func TestNewInstanceWithTool(t *testing.T) {
 	}
 }
 
-// TestBuildClaudeCommand tests that claude command is built with config dir and permissions
+// TestBuildClaudeCommand tests that claude command is built with capture-resume pattern
 func TestBuildClaudeCommand(t *testing.T) {
 	inst := NewInstanceWithTool("test", "/tmp/test", "claude")
 
 	// Test with simple "claude" command
 	cmd := inst.buildClaudeCommand("claude")
 
-	// Should NOT contain --session-id (removed - detection-based now)
-	if strings.Contains(cmd, "--session-id") {
-		t.Errorf("Should NOT contain --session-id (detection-based), got: %s", cmd)
-	}
-
-	// Should contain CLAUDE_CONFIG_DIR
+	// Should contain CLAUDE_CONFIG_DIR (appears twice: once for capture, once for resume)
 	if !strings.Contains(cmd, "CLAUDE_CONFIG_DIR=") {
 		t.Errorf("Should contain CLAUDE_CONFIG_DIR, got: %s", cmd)
+	}
+
+	// Should use capture-resume pattern: -p "." --output-format json
+	if !strings.Contains(cmd, `-p "."`) {
+		t.Errorf("Should contain -p \".\" for print mode, got: %s", cmd)
+	}
+	if !strings.Contains(cmd, "--output-format json") {
+		t.Errorf("Should contain --output-format json, got: %s", cmd)
+	}
+
+	// Should store session ID in tmux environment
+	if !strings.Contains(cmd, "tmux set-environment CLAUDE_SESSION_ID") {
+		t.Errorf("Should store session ID in tmux env, got: %s", cmd)
+	}
+
+	// Should resume the captured session
+	if !strings.Contains(cmd, `--resume "$session_id"`) {
+		t.Errorf("Should resume the captured session ID, got: %s", cmd)
 	}
 
 	// Should contain dangerously-skip-permissions
