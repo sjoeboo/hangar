@@ -364,18 +364,28 @@ func (i *Instance) Kill() error {
 }
 
 // Restart restarts the Claude session
-// For Claude sessions with known ID: sends Ctrl+C and resume command to existing session
+// For Claude sessions with known ID: sends Ctrl+C twice and resume command to existing session
 // For dead sessions or unknown ID: recreates the tmux session
 func (i *Instance) Restart() error {
 	// If Claude session with known ID AND tmux session exists, interrupt and resume
 	if i.Tool == "claude" && i.ClaudeSessionID != "" && i.tmuxSession != nil && i.tmuxSession.Exists() {
-		// Send Ctrl+C to interrupt current process
+		// Claude requires TWO Ctrl+C signals to exit:
+		// - First Ctrl+C shows "Press Ctrl-C again to exit"
+		// - Second Ctrl+C actually exits
 		if err := i.tmuxSession.SendCtrlC(); err != nil {
-			return fmt.Errorf("failed to send Ctrl+C: %w", err)
+			return fmt.Errorf("failed to send first Ctrl+C: %w", err)
 		}
 
-		// Brief pause for interrupt to process
-		time.Sleep(100 * time.Millisecond)
+		// Wait for Claude to register the first interrupt
+		time.Sleep(300 * time.Millisecond)
+
+		// Send second Ctrl+C to actually exit
+		if err := i.tmuxSession.SendCtrlC(); err != nil {
+			return fmt.Errorf("failed to send second Ctrl+C: %w", err)
+		}
+
+		// Wait for Claude to fully exit and return to shell
+		time.Sleep(500 * time.Millisecond)
 
 		// Send resume command
 		configDir := GetClaudeConfigDir()
