@@ -368,16 +368,17 @@ func getLogoIndicators(running, waiting, idle int) []string {
 
 // RenderLogoCompact renders the compact inline logo for the header
 // Shows REAL status: running=●, waiting=◐, idle=○
-// Format: [●│◐│○]
+// Format: ⟨ ● │ ◐ │ ○ ⟩  (using angle brackets for modern look)
 func RenderLogoCompact(running, waiting, idle int) string {
 	indicators := getLogoIndicators(running, waiting, idle)
-	return LogoBorderStyle.Render("[") +
-		RenderLogoIndicator(indicators[0]) +
-		LogoBorderStyle.Render("│") +
+	bracketStyle := lipgloss.NewStyle().Foreground(ColorAccent).Bold(true)
+	return bracketStyle.Render("⟨") +
+		" " + RenderLogoIndicator(indicators[0]) +
+		LogoBorderStyle.Render(" │ ") +
 		RenderLogoIndicator(indicators[1]) +
-		LogoBorderStyle.Render("│") +
-		RenderLogoIndicator(indicators[2]) +
-		LogoBorderStyle.Render("]")
+		LogoBorderStyle.Render(" │ ") +
+		RenderLogoIndicator(indicators[2]) + " " +
+		bracketStyle.Render("⟩")
 }
 
 // RenderLogoLarge renders the large logo for empty state

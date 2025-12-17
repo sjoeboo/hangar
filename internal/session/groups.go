@@ -7,7 +7,7 @@ import (
 )
 
 // DefaultGroupName is the name used for the default group where ungrouped sessions go
-const DefaultGroupName = "default"
+const DefaultGroupName = "My Sessions"
 
 // ItemType represents the type of item in the flattened list
 type ItemType int

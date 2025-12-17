@@ -157,5 +157,8 @@ func (d *ForkDialog) View() string {
 		lipgloss.NewStyle().Foreground(ColorComment).
 			Render("[Enter] Create  [Esc] Cancel  [Tab] Next field")
 
-	return boxStyle.Render(content)
+	dialog := boxStyle.Render(content)
+
+	// Center the dialog on screen
+	return lipgloss.Place(d.width, d.height, lipgloss.Center, lipgloss.Center, dialog)
 }

@@ -38,10 +38,10 @@ func TestNewGroupTreeEmptyGroupPath(t *testing.T) {
 
 	tree := NewGroupTree(instances)
 
-	// Empty group path should default to "default"
-	defaultGroup := tree.Groups["default"]
+	// Empty group path should default to DefaultGroupName
+	defaultGroup := tree.Groups[DefaultGroupName]
 	if defaultGroup == nil {
-		t.Fatal("default group not found")
+		t.Fatalf("default group '%s' not found", DefaultGroupName)
 	}
 	if len(defaultGroup.Sessions) != 1 {
 		t.Errorf("Expected 1 session in default, got %d", len(defaultGroup.Sessions))
@@ -369,8 +369,8 @@ func TestDeleteGroup(t *testing.T) {
 
 	tree := NewGroupTree(instances)
 
-	// Ensure default group exists
-	tree.CreateGroup("default")
+	// Note: DeleteGroup creates the default group if it doesn't exist
+	// when it moves sessions there
 
 	movedSessions := tree.DeleteGroup("to-delete")
 
@@ -383,8 +383,8 @@ func TestDeleteGroup(t *testing.T) {
 	if len(movedSessions) != 1 {
 		t.Errorf("Expected 1 moved session, got %d", len(movedSessions))
 	}
-	if movedSessions[0].GroupPath != "default" {
-		t.Errorf("Session should be moved to default, got '%s'", movedSessions[0].GroupPath)
+	if movedSessions[0].GroupPath != DefaultGroupName {
+		t.Errorf("Session should be moved to %s, got '%s'", DefaultGroupName, movedSessions[0].GroupPath)
 	}
 }
 
@@ -394,7 +394,9 @@ func TestDeleteGroupWithSubgroups(t *testing.T) {
 	// Create hierarchy
 	tree.CreateGroup("Parent")
 	tree.CreateSubgroup("parent", "Child")
-	tree.CreateGroup("default")
+
+	// Note: DeleteGroup creates the default group if it doesn't exist
+	// when it moves sessions there
 
 	// Add sessions
 	tree.Groups["parent"].Sessions = []*Instance{{ID: "1", GroupPath: "parent"}}
@@ -417,23 +419,31 @@ func TestDeleteGroupWithSubgroups(t *testing.T) {
 	}
 
 	for _, sess := range movedSessions {
-		if sess.GroupPath != "default" {
-			t.Errorf("Session should be moved to default, got '%s'", sess.GroupPath)
+		if sess.GroupPath != DefaultGroupName {
+			t.Errorf("Session should be moved to %s, got '%s'", DefaultGroupName, sess.GroupPath)
 		}
 	}
 }
 
 func TestDeleteDefaultGroup(t *testing.T) {
-	tree := NewGroupTree([]*Instance{})
-	tree.CreateGroup("default")
+	// Create a session with empty GroupPath - this auto-creates the default group
+	instances := []*Instance{
+		{ID: "1", Title: "session-1", GroupPath: ""},
+	}
+	tree := NewGroupTree(instances)
+
+	// Verify default group was created
+	if tree.Groups[DefaultGroupName] == nil {
+		t.Fatalf("Default group '%s' should exist after creating session with empty GroupPath", DefaultGroupName)
+	}
 
 	// Should not be able to delete default
-	result := tree.DeleteGroup("default")
+	result := tree.DeleteGroup(DefaultGroupName)
 	if result != nil {
 		t.Error("Should not be able to delete default group")
 	}
-	if tree.Groups["default"] == nil {
-		t.Error("Default group should still exist")
+	if tree.Groups[DefaultGroupName] == nil {
+		t.Errorf("Default group '%s' should still exist after delete attempt", DefaultGroupName)
 	}
 }
 

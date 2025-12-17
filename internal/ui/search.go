@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/asheshgoplani/agent-deck/internal/session"
@@ -12,7 +13,7 @@ import (
 var (
 	searchBoxStyle = lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
-			BorderForeground(lipgloss.Color("62")).
+			BorderForeground(ColorAccent).
 			Padding(0, 1)
 
 	resultItemStyle = lipgloss.NewStyle().
@@ -20,12 +21,12 @@ var (
 
 	selectedResultStyle = lipgloss.NewStyle().
 				Padding(0, 2).
-				Background(lipgloss.Color("62")).
-				Foreground(lipgloss.Color("230"))
+				Background(ColorAccent).
+				Foreground(ColorBg)
 
 	overlayStyle = lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
-			BorderForeground(lipgloss.Color("62")).
+			BorderForeground(ColorAccent).
 			Padding(1, 2)
 )
 
@@ -214,9 +215,7 @@ func formatCount(count int) string {
 	if count == 1 {
 		return "1 result"
 	}
-	return lipgloss.NewStyle().Render(
-		lipgloss.NewStyle().Bold(true).Render(string(rune('0'+count))) + " results",
-	)
+	return lipgloss.NewStyle().Bold(true).Render(fmt.Sprintf("%d", count)) + " results"
 }
 
 // centerInScreen centers content in the terminal

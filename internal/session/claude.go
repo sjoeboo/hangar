@@ -138,7 +138,13 @@ func findActiveSessionID(configDir, projectPath string) string {
 //   - projectPath: the project directory
 //   - createdAfter: only consider files with internal timestamp >= this time
 //   - excludeIDs: session IDs already claimed by other instances
+//
 // Returns the session ID or empty string if not found
+//
+// Note: This function uses internal timestamp as the primary filter.
+// For FORKED sessions (where internal timestamp is inherited from parent),
+// we also check if the file was CREATED very recently (ModTime within 30s of now),
+// which indicates it's a newly created fork file, not an actively updated conversation.
 func FindSessionForInstance(projectPath string, createdAfter time.Time, excludeIDs map[string]bool) string {
 	configDir := GetClaudeConfigDir()
 
@@ -162,10 +168,14 @@ func FindSessionForInstance(projectPath string, createdAfter time.Time, excludeI
 	uuidPattern := regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.jsonl$`)
 
 	type candidate struct {
-		sessionID string
-		timestamp time.Time
+		sessionID   string
+		timestamp   time.Time // Internal timestamp (for sorting)
+		fileModTime time.Time // File modification time
+		isNewFork   bool      // True if this appears to be a newly created fork file
 	}
 	var candidates []candidate
+
+	now := time.Now()
 
 	for _, file := range files {
 		base := filepath.Base(file)
@@ -182,31 +192,70 @@ func FindSessionForInstance(projectPath string, createdAfter time.Time, excludeI
 
 		sessionID := strings.TrimSuffix(base, ".jsonl")
 
-		// Skip if already claimed
+		// Skip if already claimed by another instance
 		if excludeIDs[sessionID] {
 			continue
 		}
 
+		// Get file info for ModTime
+		info, err := os.Stat(file)
+		if err != nil {
+			continue
+		}
+		fileModTime := info.ModTime()
+
 		// Get internal timestamp from file
-		ts := getFileInternalTimestamp(file)
-		if ts.IsZero() {
+		internalTS := getFileInternalTimestamp(file)
+
+		// Primary check: Internal timestamp is after createdAfter (works for new sessions)
+		internalTSValid := !internalTS.IsZero() && !internalTS.Before(createdAfter)
+
+		// Secondary check for FORKS: File was created very recently (within 30s of now)
+		// AND the file ModTime is after our instance creation time.
+		// This catches fork files where internal timestamp is inherited from parent.
+		// We use a tight 30s window to avoid matching actively-used conversation files.
+		isNewFork := false
+		if !internalTSValid && !fileModTime.Before(createdAfter) {
+			// File was modified after our session started - could be fork OR active conversation
+			// Only consider it a fork if ModTime is VERY recent (file just created)
+			if now.Sub(fileModTime) < 30*time.Second {
+				isNewFork = true
+			}
+		}
+
+		if !internalTSValid && !isNewFork {
 			continue
 		}
 
-		// Only consider files created after our session start
-		if ts.Before(createdAfter) {
-			continue
+		// Use internal timestamp for sorting if valid, otherwise use file ModTime
+		sortTime := internalTS
+		if internalTS.IsZero() || isNewFork {
+			sortTime = fileModTime
 		}
 
-		candidates = append(candidates, candidate{sessionID: sessionID, timestamp: ts})
+		candidates = append(candidates, candidate{
+			sessionID:   sessionID,
+			timestamp:   sortTime,
+			fileModTime: fileModTime,
+			isNewFork:   isNewFork,
+		})
 	}
 
 	if len(candidates) == 0 {
 		return ""
 	}
 
-	// Sort by timestamp (earliest first) and return the first one
+	// Sort candidates: prefer new sessions (internal timestamp valid) over forks
+	// Within each category, sort by timestamp (earliest first)
 	sort.Slice(candidates, func(i, j int) bool {
+		// Prefer non-fork candidates (internal timestamp matched)
+		if !candidates[i].isNewFork && candidates[j].isNewFork {
+			return true
+		}
+		if candidates[i].isNewFork && !candidates[j].isNewFork {
+			return false
+		}
+		// Within same category, sort by timestamp
 		return candidates[i].timestamp.Before(candidates[j].timestamp)
 	})
 

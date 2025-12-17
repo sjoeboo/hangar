@@ -292,31 +292,22 @@ func (d *NewDialog) View() string {
 	// Styles
 	titleStyle := lipgloss.NewStyle().
 		Bold(true).
-		Foreground(lipgloss.Color("6")).
+		Foreground(ColorCyan).
 		MarginBottom(1)
 
 	labelStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("7"))
+		Foreground(ColorText)
 
 	dialogStyle := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color("6")).
-		Padding(1, 2).
+		BorderForeground(ColorCyan).
+		Background(ColorSurface).
+		Padding(2, 4).
 		Width(60)
-
-	commandBoxStyle := lipgloss.NewStyle().
-		Border(lipgloss.NormalBorder()).
-		BorderForeground(lipgloss.Color("240")).
-		Padding(0, 1).
-		Margin(0, 1, 0, 0)
-
-	commandBoxSelectedStyle := commandBoxStyle.
-		BorderForeground(lipgloss.Color("6")).
-		Bold(true)
 
 	// Active field indicator style
 	activeLabelStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("6")).
+		Foreground(ColorCyan).
 		Bold(true)
 
 	// Build content
@@ -325,7 +316,7 @@ func (d *NewDialog) View() string {
 	// Title with parent group info
 	content.WriteString(titleStyle.Render("New Session"))
 	content.WriteString("\n")
-	groupInfoStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("5")) // Cyan for group
+	groupInfoStyle := lipgloss.NewStyle().Foreground(ColorPurple) // Purple for group context
 	content.WriteString(groupInfoStyle.Render("  in group: " + d.parentGroupName))
 	content.WriteString("\n\n")
 
@@ -356,9 +347,9 @@ func (d *NewDialog) View() string {
 		matched := d.pathInput.MatchedSuggestions()
 		if len(matched) > 0 {
 			suggestionStyle := lipgloss.NewStyle().
-				Foreground(lipgloss.Color("240"))
+				Foreground(ColorComment)
 			selectedStyle := lipgloss.NewStyle().
-				Foreground(lipgloss.Color("6")).
+				Foreground(ColorCyan).
 				Bold(true)
 			currentIdx := d.pathInput.CurrentSuggestionIndex()
 
@@ -369,7 +360,7 @@ func (d *NewDialog) View() string {
 			}
 
 			content.WriteString("  ")
-			content.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("240")).Render("─ suggestions (Tab: accept, Ctrl+N/P: cycle) ─"))
+			content.WriteString(lipgloss.NewStyle().Foreground(ColorComment).Render("─ suggestions (Tab: accept, Ctrl+N/P: cycle) ─"))
 			content.WriteString("\n")
 
 			for i := 0; i < maxShow; i++ {
@@ -399,24 +390,33 @@ func (d *NewDialog) View() string {
 	}
 	content.WriteString("\n  ")
 
-	// Render preset command boxes
-	var commandBoxes []string
+	// Render command options as inline pill buttons (no borders to avoid multi-line issues)
+	var cmdButtons []string
 	for i, cmd := range d.presetCommands {
 		displayName := cmd
 		if displayName == "" {
 			displayName = "shell"
 		}
 
-		style := commandBoxStyle
-		if i == d.commandCursor && d.focusIndex == 2 {
-			style = commandBoxSelectedStyle
-		} else if i == d.commandCursor {
-			style = commandBoxStyle.Bold(true)
+		var btnStyle lipgloss.Style
+		if i == d.commandCursor {
+			// Selected: bright background, bold
+			btnStyle = lipgloss.NewStyle().
+				Foreground(ColorBg).
+				Background(ColorAccent).
+				Bold(true).
+				Padding(0, 2)
+		} else {
+			// Unselected: dim text with subtle brackets
+			btnStyle = lipgloss.NewStyle().
+				Foreground(ColorTextDim).
+				Padding(0, 1)
+			displayName = "[" + displayName + "]"
 		}
 
-		commandBoxes = append(commandBoxes, style.Render(displayName))
+		cmdButtons = append(cmdButtons, btnStyle.Render(displayName))
 	}
-	content.WriteString(lipgloss.JoinHorizontal(lipgloss.Left, commandBoxes...))
+	content.WriteString(lipgloss.JoinHorizontal(lipgloss.Left, cmdButtons...))
 	content.WriteString("\n\n")
 
 	// Custom command input (only if shell is selected)

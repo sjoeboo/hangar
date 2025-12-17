@@ -42,6 +42,14 @@ const (
 	tickInterval = 500 * time.Millisecond
 )
 
+// UI spacing constants (2-char grid system)
+// These provide consistent spacing throughout the UI for a polished look
+const (
+	spacingTight  = 1 // Between related items (e.g., icon and label)
+	spacingNormal = 2 // Between sections (e.g., list items, panel margins)
+	spacingLarge  = 4 // Between major areas (e.g., info sections in preview)
+)
+
 // Home is the main application model
 type Home struct {
 	// Dimensions
@@ -497,6 +505,9 @@ func (h *Home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else {
 			h.instancesMu.Lock()
 			h.instances = msg.instances
+			// Deduplicate Claude session IDs on load to fix any existing duplicates
+			// This ensures no two sessions share the same Claude session ID
+			session.UpdateClaudeSessionsWithDedup(h.instances)
 			h.instancesMu.Unlock()
 			// Preserve existing group tree structure if it exists
 			// Only create new tree on initial load (when groupTree has no groups)
@@ -513,6 +524,8 @@ func (h *Home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			h.rebuildFlatItems()
 			h.search.SetItems(h.instances)
+			// Save after dedup to persist any ID changes
+			h.saveInstances()
 			// Trigger immediate preview fetch for initial selection (mutex-protected)
 			if selected := h.getSelectedSession(); selected != nil {
 				h.previewCacheMu.Lock()
@@ -529,6 +542,8 @@ func (h *Home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else {
 			h.instancesMu.Lock()
 			h.instances = append(h.instances, msg.instance)
+			// Run dedup to ensure the new session doesn't have a duplicate ID
+			session.UpdateClaudeSessionsWithDedup(h.instances)
 			h.instancesMu.Unlock()
 			// Add to existing group tree instead of rebuilding
 			h.groupTree.AddSession(msg.instance)
@@ -545,6 +560,9 @@ func (h *Home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else {
 			h.instancesMu.Lock()
 			h.instances = append(h.instances, msg.instance)
+			// Run dedup to ensure the forked session doesn't have a duplicate ID
+			// This is critical: fork detection may have picked up wrong session
+			session.UpdateClaudeSessionsWithDedup(h.instances)
 			h.instancesMu.Unlock()
 			// Add to existing group tree instead of rebuilding
 			h.groupTree.AddSession(msg.instance)
@@ -611,6 +629,9 @@ func (h *Home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				h.err = fmt.Errorf("status update failed for %s: %w", inst.Title, err)
 			}
 		}
+		// Deduplicate Claude session IDs after status updates
+		// This prevents multiple sessions from claiming the same Claude session
+		session.UpdateClaudeSessionsWithDedup(h.instances)
 		// Save state after returning from attached session to persist acknowledged state
 		h.saveInstances()
 		return h, nil
@@ -1189,6 +1210,21 @@ func (h *Home) saveInstances() {
 	}
 }
 
+// getUsedClaudeSessionIDs returns a map of all Claude session IDs currently in use
+// This is used for deduplication when detecting new session IDs
+func (h *Home) getUsedClaudeSessionIDs() map[string]bool {
+	h.instancesMu.RLock()
+	defer h.instancesMu.RUnlock()
+
+	usedIDs := make(map[string]bool)
+	for _, inst := range h.instances {
+		if inst.ClaudeSessionID != "" {
+			usedIDs[inst.ClaudeSessionID] = true
+		}
+	}
+	return usedIDs
+}
+
 // createSessionInGroup creates a new session in a specific group
 func (h *Home) createSessionInGroup(name, path, command, groupPath string) tea.Cmd {
 	return func() tea.Msg {
@@ -1251,6 +1287,10 @@ func (h *Home) forkSessionCmd(source *session.Instance, title, groupPath string)
 	if source == nil {
 		return nil
 	}
+	// Capture current used session IDs before starting the async fork
+	// This ensures we don't detect an already-used session ID
+	usedIDs := h.getUsedClaudeSessionIDs()
+
 	return func() tea.Msg {
 		// Check tmux availability before forking
 		if err := tmux.IsTmuxAvailable(); err != nil {
@@ -1269,9 +1309,10 @@ func (h *Home) forkSessionCmd(source *session.Instance, title, groupPath string)
 		}
 
 		// Wait for Claude to create the new session file (fork creates new UUID)
-		// Give Claude up to 3 seconds to initialize and write the session file
+		// Give Claude up to 5 seconds to initialize and write the session file
+		// Pass usedIDs to prevent detecting an already-claimed session
 		if inst.Tool == "claude" {
-			_ = inst.WaitForClaudeSession(3 * time.Second)
+			_ = inst.WaitForClaudeSessionWithExclude(5*time.Second, usedIDs)
 		}
 
 		return sessionForkedMsg{instance: inst}
@@ -1440,34 +1481,34 @@ func (h *Home) View() string {
 
 	titleStyle := lipgloss.NewStyle().
 		Bold(true).
-		Foreground(ColorAccent).
-		Background(ColorSurface).
-		Padding(0, 1)
+		Foreground(ColorAccent)
 
 	// Show profile in title if not default
 	titleText := "Agent Deck"
 	if h.profile != "" && h.profile != session.DefaultProfile {
 		profileStyle := lipgloss.NewStyle().
 			Foreground(ColorCyan).
-			Background(ColorSurface)
+			Bold(true)
 		titleText = "Agent Deck " + profileStyle.Render("["+h.profile+"]")
 	}
 	title := titleStyle.Render(titleText)
 
-	// Stats
-	stats := lipgloss.NewStyle().Foreground(ColorTextDim).Render(
-		fmt.Sprintf(" %d groups • %d sessions", h.groupTree.GroupCount(), h.groupTree.SessionCount()))
+	// Stats with subtle separator
+	statsSep := lipgloss.NewStyle().Foreground(ColorBorder).Render(" • ")
+	statsStyle := lipgloss.NewStyle().Foreground(ColorTextDim)
+	stats := statsStyle.Render(fmt.Sprintf("%d groups", h.groupTree.GroupCount())) +
+		statsSep +
+		statsStyle.Render(fmt.Sprintf("%d sessions", h.groupTree.SessionCount()))
 
-	// Version badge (right-aligned, subtle)
+	// Version badge (right-aligned, subtle inline style - no border to keep single line)
 	versionStyle := lipgloss.NewStyle().
-		Foreground(ColorComment). // Dim gray, doesn't compete with main content
-		Italic(true)
+		Foreground(ColorComment).
+		Faint(true)
 	versionBadge := versionStyle.Render("v" + Version)
 
-	// Fill remaining header space, placing version at the right
-	headerLeft := lipgloss.JoinHorizontal(lipgloss.Left, logo, " ", title, stats)
-	// Calculate padding between stats and version
-	headerPadding := h.width - lipgloss.Width(headerLeft) - lipgloss.Width(versionBadge) - 1
+	// Fill remaining header space
+	headerLeft := lipgloss.JoinHorizontal(lipgloss.Left, logo, "  ", title, "  ", stats)
+	headerPadding := h.width - lipgloss.Width(headerLeft) - lipgloss.Width(versionBadge) - 2
 	if headerPadding < 1 {
 		headerPadding = 1
 	}
@@ -1476,6 +1517,7 @@ func (h *Home) View() string {
 	headerBar := lipgloss.NewStyle().
 		Background(ColorSurface).
 		Width(h.width).
+		Padding(0, 1).
 		Render(headerContent)
 
 	b.WriteString(headerBar)
@@ -1509,24 +1551,18 @@ func (h *Home) View() string {
 	leftWidth := int(float64(h.width) * 0.35)
 	rightWidth := h.width - leftWidth - 3 // -3 for separator
 
-	// Build left panel (session list) with title
-	leftTitle := lipgloss.NewStyle().
-		Foreground(ColorCyan).
-		Bold(true).
-		Render("SESSIONS")
-	leftContent := h.renderSessionList(contentHeight - 2) // -2 for title
+	// Build left panel (session list) with styled title
+	leftTitle := h.renderPanelTitle("SESSIONS", leftWidth)
+	leftContent := h.renderSessionList(contentHeight - 3) // -3 for title + underline
 	leftPanel := lipgloss.JoinVertical(lipgloss.Left, leftTitle, leftContent)
 	leftPanel = lipgloss.NewStyle().
 		Width(leftWidth).
 		Height(contentHeight).
 		Render(leftPanel)
 
-	// Build right panel (preview) with title
-	rightTitle := lipgloss.NewStyle().
-		Foreground(ColorCyan).
-		Bold(true).
-		Render("PREVIEW")
-	rightContent := h.renderPreviewPane(rightWidth, contentHeight-2) // -2 for title
+	// Build right panel (preview) with styled title
+	rightTitle := h.renderPanelTitle("PREVIEW", rightWidth)
+	rightContent := h.renderPreviewPane(rightWidth, contentHeight-3) // -3 for title + underline
 	rightPanel := lipgloss.JoinVertical(lipgloss.Left, rightTitle, rightContent)
 	rightPanel = lipgloss.NewStyle().
 		Width(rightWidth).
@@ -1569,6 +1605,85 @@ func (h *Home) View() string {
 	return b.String()
 }
 
+// renderPanelTitle creates a styled section title with underline
+func (h *Home) renderPanelTitle(title string, width int) string {
+	titleStyle := lipgloss.NewStyle().
+		Foreground(ColorCyan).
+		Bold(true)
+
+	// Create underline that extends to panel width (spacingNormal margin on each side)
+	underlineStyle := lipgloss.NewStyle().Foreground(ColorBorder)
+	titleLen := len(title)
+	underlineLen := width - spacingNormal // Leave margin
+	if underlineLen < titleLen {
+		underlineLen = titleLen
+	}
+	underline := underlineStyle.Render(strings.Repeat("─", underlineLen))
+
+	return titleStyle.Render(title) + "\n" + underline
+}
+
+// renderEmptyState creates a centered empty state with icon, title, subtitle, and hints
+// Used for empty session list and empty preview pane states
+func renderEmptyState(icon, title, subtitle string, hints []string) string {
+	iconStyle := lipgloss.NewStyle().
+		Foreground(ColorAccent).
+		Bold(true)
+	titleStyle := lipgloss.NewStyle().
+		Foreground(ColorText).
+		Bold(true)
+	subtitleStyle := lipgloss.NewStyle().
+		Foreground(ColorTextDim).
+		Italic(true)
+	hintStyle := lipgloss.NewStyle().
+		Foreground(ColorComment)
+
+	var content strings.Builder
+	content.WriteString(iconStyle.Render(icon))
+	content.WriteString("\n\n")
+	content.WriteString(titleStyle.Render(title))
+	if subtitle != "" {
+		content.WriteString("\n")
+		content.WriteString(subtitleStyle.Render(subtitle))
+	}
+	if len(hints) > 0 {
+		content.WriteString("\n\n")
+		for _, hint := range hints {
+			content.WriteString(hintStyle.Render("• " + hint))
+			content.WriteString("\n")
+		}
+	}
+
+	return lipgloss.NewStyle().
+		Align(lipgloss.Center).
+		Padding(spacingNormal, spacingLarge). // spacingNormal vertical, spacingLarge horizontal
+		Render(content.String())
+}
+
+// renderSectionDivider creates a modern section divider with optional centered label
+// Format: ────── Label ────── (lines extend to fill width)
+func renderSectionDivider(label string, width int) string {
+	if label == "" {
+		return lipgloss.NewStyle().Foreground(ColorBorder).Render(strings.Repeat("─", width))
+	}
+
+	labelStyle := lipgloss.NewStyle().
+		Foreground(ColorTextDim).
+		Italic(true)
+	lineStyle := lipgloss.NewStyle().Foreground(ColorBorder)
+
+	// spacingNormal (2) chars on each side of the label
+	labelWidth := len(label) + spacingNormal // +spacingNormal for spacing around label
+	sideWidth := (width - labelWidth) / 2
+	if sideWidth < spacingNormal {
+		sideWidth = spacingNormal
+	}
+
+	return lineStyle.Render(strings.Repeat("─", sideWidth)) +
+		" " + labelStyle.Render(label) + " " +
+		lineStyle.Render(strings.Repeat("─", sideWidth))
+}
+
 // renderHelpBar renders context-aware keyboard shortcuts
 func (h *Home) renderHelpBar() string {
 	// Determine context
@@ -1576,62 +1691,66 @@ func (h *Home) renderHelpBar() string {
 	var contextTitle string
 
 	if len(h.flatItems) == 0 {
-		contextTitle = "No sessions"
+		contextTitle = "Empty"
 		contextHints = []string{
-			h.helpKey("n", "New session"),
-			h.helpKey("i", "Import tmux"),
-			h.helpKey("g", "New group"),
-			h.helpKey("q", "Quit"),
+			h.helpKey("n", "New"),
+			h.helpKey("i", "Import"),
+			h.helpKey("g", "Group"),
 		}
 	} else if h.cursor < len(h.flatItems) {
 		item := h.flatItems[h.cursor]
 		if item.Type == session.ItemTypeGroup {
-			contextTitle = "Group selected"
+			contextTitle = "Group"
 			contextHints = []string{
-				h.helpKey("Tab/l", "Toggle"),
+				h.helpKey("Tab", "Toggle"),
 				h.helpKey("R", "Rename"),
 				h.helpKey("d", "Delete"),
-				h.helpKey("g", "New subgroup"),
-				h.helpKey("n", "New session"),
+				h.helpKey("g", "Subgroup"),
+				h.helpKey("n", "New"),
 			}
 		} else {
-			contextTitle = "Session selected"
+			contextTitle = "Session"
 			contextHints = []string{
 				h.helpKey("Enter", "Attach"),
 			}
 			// Only show fork hints if session has a valid Claude session ID
 			if item.Session != nil && item.Session.CanFork() {
-				contextHints = append(contextHints,
-					h.helpKey("f", "Fork"),
-					h.helpKey("F", "Fork (custom)"),
-				)
+				contextHints = append(contextHints, h.helpKey("f", "Fork"))
 			}
 			contextHints = append(contextHints,
 				h.helpKey("R", "Rename"),
-				h.helpKey("m", "Move to group"),
+				h.helpKey("m", "Move"),
 				h.helpKey("d", "Delete"),
 			)
 		}
 	}
 
-	// Build help bar
-	border := lipgloss.NewStyle().Foreground(ColorBorder).Render(strings.Repeat("─", h.width))
+	// Top border
+	borderStyle := lipgloss.NewStyle().Foreground(ColorBorder)
+	border := borderStyle.Render(strings.Repeat("─", h.width))
 
-	// Context title
-	ctxStyle := lipgloss.NewStyle().Foreground(ColorPurple).Bold(true)
+	// Context indicator
+	ctxStyle := lipgloss.NewStyle().
+		Foreground(ColorPurple).
+		Bold(true)
+	contextLabel := ctxStyle.Render(contextTitle + ":")
 
-	// Build shortcuts line
-	shortcutsLine := strings.Join(contextHints, "  ")
+	// Build shortcuts line with consistent spacing (spacingNormal between hints)
+	shortcutsLine := strings.Join(contextHints, strings.Repeat(" ", spacingNormal))
 
-	// Global shortcuts (always shown)
-	globalHints := lipgloss.NewStyle().Foreground(ColorTextDim).Render(
-		"  │  ↑↓/jk Navigate  /Search  Ctrl+Q Detach  q Quit")
+	// Global shortcuts (right side, dimmer)
+	globalStyle := lipgloss.NewStyle().Foreground(ColorComment)
+	globalHints := globalStyle.Render("↑↓ Nav  / Search  ?Help  q Quit")
 
-	helpContent := lipgloss.JoinHorizontal(lipgloss.Left,
-		ctxStyle.Render(contextTitle+": "),
-		shortcutsLine,
-		globalHints,
-	)
+	// Calculate spacing between left (context) and right (global) portions
+	leftPart := contextLabel + " " + shortcutsLine
+	rightPart := globalHints
+	padding := h.width - lipgloss.Width(leftPart) - lipgloss.Width(rightPart) - spacingNormal
+	if padding < spacingNormal {
+		padding = spacingNormal
+	}
+
+	helpContent := leftPart + strings.Repeat(" ", padding) + rightPart
 
 	return lipgloss.JoinVertical(lipgloss.Left, border, helpContent)
 }
@@ -1644,7 +1763,7 @@ func (h *Home) helpKey(key, desc string) string {
 		Bold(true).
 		Padding(0, 1)
 	descStyle := lipgloss.NewStyle().Foreground(ColorText)
-	return keyStyle.Render(key) + descStyle.Render(" "+desc)
+	return keyStyle.Render(key) + " " + descStyle.Render(desc)
 }
 
 // renderSessionList renders the left panel with hierarchical session list
@@ -1652,48 +1771,22 @@ func (h *Home) renderSessionList(height int) string {
 	var b strings.Builder
 
 	if len(h.flatItems) == 0 {
-		// Large logo for empty state - shows real status (all idle when no sessions)
-		running, waiting, idle := h.countSessionStatuses()
-		largeLogo := RenderLogoLarge(running, waiting, idle)
-
-		// App title with profile
-		titleStyle := lipgloss.NewStyle().
-			Bold(true).
-			Foreground(ColorAccent)
-		appTitle := titleStyle.Render("Agent Deck")
-		if h.profile != "" && h.profile != session.DefaultProfile {
-			profileStyle := lipgloss.NewStyle().Foreground(ColorCyan)
-			appTitle += " " + profileStyle.Render("["+h.profile+"]")
-		}
-
-		// Subtitle
-		subtitleStyle := lipgloss.NewStyle().
-			Foreground(ColorTextDim).
-			Italic(true)
-		subtitle := subtitleStyle.Render("Terminal Session Manager")
-
-		// Instructions
-		instructions := lipgloss.NewStyle().Foreground(ColorAccent).Render("n") + " Create new\n" +
-			lipgloss.NewStyle().Foreground(ColorAccent).Render("i") + " Import from tmux\n" +
-			lipgloss.NewStyle().Foreground(ColorAccent).Render("g") + " Create group"
-
-		// Combine all elements
-		content := lipgloss.JoinVertical(lipgloss.Center,
-			largeLogo,
-			"",
-			appTitle,
-			subtitle,
-			"",
-			instructions,
+		// Polished empty state with simple icon
+		emptyContent := renderEmptyState(
+			"⬡",
+			"No Sessions Yet",
+			"Get started by creating your first session",
+			[]string{
+				"Press n to create a new session",
+				"Press i to import existing tmux sessions",
+				"Press g to create a group",
+			},
 		)
 
-		emptyBox := lipgloss.NewStyle().
-			Foreground(ColorTextDim).
+		return lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
 			BorderForeground(ColorBorder).
-			Padding(1, 3).
-			Render(content)
-		return emptyBox
+			Render(emptyContent)
 	}
 
 	// Render items starting from viewOffset
@@ -1738,21 +1831,35 @@ func (h *Home) renderItem(b *strings.Builder, item session.Item, selected bool, 
 func (h *Home) renderGroupItem(b *strings.Builder, item session.Item, selected bool, itemIndex int) {
 	group := item.Group
 
-	// Calculate indentation based on nesting level
-	indent := strings.Repeat("  ", item.Level)
-	if item.Level > 0 {
-		indent = strings.Repeat("  ", item.Level-1) + "  ├─ "
-	}
+	// Calculate indentation based on nesting level (no tree lines, just spaces)
+	// Uses spacingNormal (2 chars) per level for consistent hierarchy visualization
+	indent := strings.Repeat(strings.Repeat(" ", spacingNormal), item.Level)
 
-	// Expand/collapse indicator
-	expandIcon := lipgloss.NewStyle().Foreground(ColorTextDim).Render("▼")
+	// Expand/collapse indicator with filled triangles
+	expandStyle := lipgloss.NewStyle().Foreground(ColorTextDim)
+	expandIcon := expandStyle.Render("▾") // Filled triangle for expanded
 	if !group.Expanded {
-		expandIcon = lipgloss.NewStyle().Foreground(ColorTextDim).Render("▶")
+		expandIcon = expandStyle.Render("▸") // Filled triangle for collapsed
 	}
 
-	// Group name with count
+	// Group name styling
 	nameStyle := lipgloss.NewStyle().Bold(true).Foreground(ColorCyan)
 	countStyle := lipgloss.NewStyle().Foreground(ColorTextDim)
+
+	// Hotkey indicator (subtle, only for root groups, hidden when selected)
+	hotkeyStr := ""
+	if item.Level == 0 && !selected {
+		rootGroupNum := 0
+		for i := 0; i <= itemIndex && i < len(h.flatItems); i++ {
+			if h.flatItems[i].Type == session.ItemTypeGroup && h.flatItems[i].Level == 0 {
+				rootGroupNum++
+			}
+		}
+		if rootGroupNum >= 1 && rootGroupNum <= 9 {
+			hotkeyStyle := lipgloss.NewStyle().Foreground(ColorComment)
+			hotkeyStr = hotkeyStyle.Render(fmt.Sprintf("%d·", rootGroupNum))
+		}
+	}
 
 	if selected {
 		nameStyle = lipgloss.NewStyle().
@@ -1765,36 +1872,19 @@ func (h *Home) renderGroupItem(b *strings.Builder, item session.Item, selected b
 		expandIcon = lipgloss.NewStyle().
 			Foreground(ColorBg).
 			Background(ColorAccent).
-			Render("▶")
-		if group.Expanded {
+			Render("▾")
+		if !group.Expanded {
 			expandIcon = lipgloss.NewStyle().
 				Foreground(ColorBg).
 				Background(ColorAccent).
-				Render("▼")
-		}
-	}
-
-	// Hotkey prefix for root groups (Level 0, positions 1-9)
-	hotkeyPrefix := ""
-	if item.Level == 0 {
-		// Count how many root groups come before this one
-		rootGroupNum := 0
-		for i := 0; i <= itemIndex && i < len(h.flatItems); i++ {
-			if h.flatItems[i].Type == session.ItemTypeGroup && h.flatItems[i].Level == 0 {
-				rootGroupNum++
-			}
-		}
-		// Only show hotkey for positions 1-9
-		if rootGroupNum >= 1 && rootGroupNum <= 9 {
-			hotkeyStyle := countStyle // Use same dim style as count
-			hotkeyPrefix = hotkeyStyle.Render(fmt.Sprintf("[%d] ", rootGroupNum))
+				Render("▸")
 		}
 	}
 
 	sessionCount := len(group.Sessions)
 	countStr := countStyle.Render(fmt.Sprintf(" (%d)", sessionCount))
 
-	// Check if any session in group is running
+	// Status indicators (compact, on same line)
 	running := 0
 	waiting := 0
 	for _, sess := range group.Sessions {
@@ -1806,17 +1896,16 @@ func (h *Home) renderGroupItem(b *strings.Builder, item session.Item, selected b
 		}
 	}
 
-	// Status indicators
 	statusStr := ""
 	if running > 0 {
-		statusStr += lipgloss.NewStyle().Foreground(ColorGreen).Render(fmt.Sprintf(" ●%d", running))
+		statusStr += " " + lipgloss.NewStyle().Foreground(ColorGreen).Render(fmt.Sprintf("●%d", running))
 	}
 	if waiting > 0 {
-		statusStr += lipgloss.NewStyle().Foreground(ColorYellow).Render(fmt.Sprintf(" ◐%d", waiting))
+		statusStr += " " + lipgloss.NewStyle().Foreground(ColorYellow).Render(fmt.Sprintf("◐%d", waiting))
 	}
 
-	// Build the row with proper indentation
-	row := fmt.Sprintf("%s%s%s %s%s%s", indent, hotkeyPrefix, expandIcon, nameStyle.Render(group.Name), countStr, statusStr)
+	// Build the row: [indent][hotkey][expand] [name](count) [status]
+	row := fmt.Sprintf("%s%s%s %s%s%s", indent, hotkeyStr, expandIcon, nameStyle.Render(group.Name), countStr, statusStr)
 	b.WriteString(row)
 	b.WriteString("\n")
 }
@@ -1825,15 +1914,11 @@ func (h *Home) renderGroupItem(b *strings.Builder, item session.Item, selected b
 func (h *Home) renderSessionItem(b *strings.Builder, item session.Item, selected bool) {
 	inst := item.Session
 
-	// Calculate indentation based on nesting level
-	// Sessions are always under a group, so Level >= 1
-	indent := strings.Repeat("  ", item.Level-1)
-	treeLine := indent + "  ├─ "
-	if selected {
-		treeLine = indent + "  "
-	}
+	// Calculate indentation - sessions are children of groups
+	// Uses spacingNormal (2 chars) per level for consistent hierarchy visualization
+	indent := strings.Repeat(strings.Repeat(" ", spacingNormal), item.Level)
 
-	// Status indicator
+	// Status indicator with consistent sizing
 	var statusIcon string
 	var statusColor lipgloss.Color
 	switch inst.Status {
@@ -1850,17 +1935,28 @@ func (h *Home) renderSessionItem(b *strings.Builder, item session.Item, selected
 		statusIcon = "✕"
 		statusColor = ColorRed
 	default:
-		statusIcon = "?"
+		statusIcon = "○"
 		statusColor = ColorTextDim
 	}
 
-	status := lipgloss.NewStyle().Foreground(statusColor).Render(statusIcon)
+	statusStyle := lipgloss.NewStyle().Foreground(statusColor)
+	status := statusStyle.Render(statusIcon)
 
-	// Title and tool
+	// Title styling
 	titleStyle := lipgloss.NewStyle().Foreground(ColorText)
-	toolStyle := lipgloss.NewStyle().Foreground(ColorPurple)
 
+	// Tool badge (compact, subtle)
+	toolStyle := lipgloss.NewStyle().
+		Foreground(ColorPurple).
+		Faint(true)
+
+	// Selection cursor (spacingNormal width when not selected for alignment)
+	cursor := strings.Repeat(" ", spacingNormal)
 	if selected {
+		cursor = lipgloss.NewStyle().
+			Foreground(ColorAccent).
+			Bold(true).
+			Render("▶ ")
 		titleStyle = lipgloss.NewStyle().
 			Bold(true).
 			Foreground(ColorBg).
@@ -1868,23 +1964,17 @@ func (h *Home) renderSessionItem(b *strings.Builder, item session.Item, selected
 		toolStyle = lipgloss.NewStyle().
 			Foreground(ColorBg).
 			Background(ColorAccent)
-		// Override tree line styling when selected
-		treeLine = lipgloss.NewStyle().
+		statusStyle = lipgloss.NewStyle().
 			Foreground(ColorBg).
-			Background(ColorAccent).
-			Render(indent + "▶ ")
+			Background(ColorAccent)
+		status = statusStyle.Render(statusIcon)
 	}
 
 	title := titleStyle.Render(inst.Title)
-	tool := toolStyle.Render(fmt.Sprintf(" [%s]", inst.Tool))
+	tool := toolStyle.Render(" " + inst.Tool)
 
-	// Build row
-	treeStyle := lipgloss.NewStyle().Foreground(ColorBorder)
-	if !selected {
-		treeLine = treeStyle.Render(treeLine)
-	}
-
-	row := fmt.Sprintf("%s%s %s%s", treeLine, status, title, tool)
+	// Build row: [indent][cursor][status] [title] [tool]
+	row := fmt.Sprintf("%s%s%s %s%s", indent, cursor, status, title, tool)
 	b.WriteString(row)
 	b.WriteString("\n")
 }
@@ -1894,13 +1984,24 @@ func (h *Home) renderPreviewPane(width, height int) string {
 	var b strings.Builder
 
 	if len(h.flatItems) == 0 || h.cursor >= len(h.flatItems) {
-		emptyBox := lipgloss.NewStyle().
-			Foreground(ColorTextDim).
-			Border(lipgloss.RoundedBorder()).
-			BorderForeground(ColorBorder).
-			Padding(1, 2).
-			Render("Select a session to see its terminal output")
-		return emptyBox
+		// Show different message when there are no sessions vs just no selection
+		if len(h.flatItems) == 0 {
+			return renderEmptyState(
+				"✦",
+				"Ready to Go",
+				"Your workspace is set up",
+				[]string{
+					"Press n to create your first session",
+					"Press i to import tmux sessions",
+				},
+			)
+		}
+		return renderEmptyState(
+			"◇",
+			"No Selection",
+			"Select a session to preview",
+			nil,
+		)
 	}
 
 	item := h.flatItems[h.cursor]
@@ -1958,9 +2059,7 @@ func (h *Home) renderPreviewPane(width, height int) string {
 	b.WriteString("\n\n")
 
 	// Terminal output header
-	termHeader := lipgloss.NewStyle().
-		Foreground(ColorTextDim).
-		Render("─── Terminal Output ───")
+	termHeader := renderSectionDivider("Output", width-4)
 	b.WriteString(termHeader)
 	b.WriteString("\n")
 
@@ -2066,16 +2165,22 @@ func truncatePath(path string, maxLen int) string {
 func (h *Home) renderGroupPreview(group *session.Group, width, height int) string {
 	var b strings.Builder
 
-	// Group name header
-	nameStyle := lipgloss.NewStyle().Bold(true).Foreground(ColorCyan)
-	b.WriteString(nameStyle.Render("📁 " + group.Name))
+	// Group header with folder icon
+	headerStyle := lipgloss.NewStyle().
+		Foreground(ColorCyan).
+		Bold(true)
+	b.WriteString(headerStyle.Render("📁 " + group.Name))
 	b.WriteString("\n\n")
 
-	// Group stats
-	running := 0
-	waiting := 0
-	idle := 0
-	errored := 0
+	// Session count
+	countStyle := lipgloss.NewStyle().
+		Foreground(ColorText).
+		Bold(true)
+	b.WriteString(countStyle.Render(fmt.Sprintf("%d sessions", len(group.Sessions))))
+	b.WriteString("\n\n")
+
+	// Status breakdown with inline badges
+	running, waiting, idle, errored := 0, 0, 0, 0
 	for _, sess := range group.Sessions {
 		switch sess.Status {
 		case session.StatusRunning:
@@ -2089,88 +2194,70 @@ func (h *Home) renderGroupPreview(group *session.Group, width, height int) strin
 		}
 	}
 
-	// Stats in a nice box format
-	totalBadge := lipgloss.NewStyle().
-		Foreground(ColorText).
-		Bold(true).
-		Render(fmt.Sprintf("%d sessions", len(group.Sessions)))
-	b.WriteString(totalBadge)
-	b.WriteString("\n")
-
-	// Status breakdown with badges
+	// Compact status line (inline, not badges)
+	var statuses []string
 	if running > 0 {
-		badge := lipgloss.NewStyle().
-			Foreground(ColorBg).
-			Background(ColorGreen).
-			Padding(0, 1).
-			Render(fmt.Sprintf("● %d running", running))
-		b.WriteString(badge)
-		b.WriteString(" ")
+		statuses = append(statuses, lipgloss.NewStyle().Foreground(ColorGreen).Render(fmt.Sprintf("● %d running", running)))
 	}
 	if waiting > 0 {
-		badge := lipgloss.NewStyle().
-			Foreground(ColorBg).
-			Background(ColorYellow).
-			Padding(0, 1).
-			Render(fmt.Sprintf("◐ %d waiting", waiting))
-		b.WriteString(badge)
-		b.WriteString(" ")
+		statuses = append(statuses, lipgloss.NewStyle().Foreground(ColorYellow).Render(fmt.Sprintf("◐ %d waiting", waiting)))
 	}
 	if idle > 0 {
-		badge := lipgloss.NewStyle().
-			Foreground(ColorText).
-			Background(ColorBorder).
-			Padding(0, 1).
-			Render(fmt.Sprintf("○ %d idle", idle))
-		b.WriteString(badge)
-		b.WriteString(" ")
+		statuses = append(statuses, lipgloss.NewStyle().Foreground(ColorTextDim).Render(fmt.Sprintf("○ %d idle", idle)))
 	}
 	if errored > 0 {
-		badge := lipgloss.NewStyle().
-			Foreground(ColorBg).
-			Background(ColorRed).
-			Padding(0, 1).
-			Render(fmt.Sprintf("✕ %d error", errored))
-		b.WriteString(badge)
-	}
-	b.WriteString("\n\n")
-
-	// Session list header
-	listHeader := lipgloss.NewStyle().
-		Foreground(ColorTextDim).
-		Render("─── Sessions ───")
-	b.WriteString(listHeader)
-	b.WriteString("\n")
-
-	// Session list
-	for i, sess := range group.Sessions {
-		if i >= height-10 { // Leave room
-			b.WriteString(DimStyle.Render(fmt.Sprintf("  ⋮ +%d more", len(group.Sessions)-i)))
-			break
-		}
-		statusIcon := "○"
-		statusColor := ColorTextDim
-		switch sess.Status {
-		case session.StatusRunning:
-			statusIcon = "●"
-			statusColor = ColorGreen
-		case session.StatusWaiting:
-			statusIcon = "◐"
-			statusColor = ColorYellow
-		case session.StatusError:
-			statusIcon = "✕"
-			statusColor = ColorRed
-		}
-		status := lipgloss.NewStyle().Foreground(statusColor).Render(statusIcon)
-		name := lipgloss.NewStyle().Foreground(ColorText).Render(sess.Title)
-		tool := lipgloss.NewStyle().Foreground(ColorPurple).Render(fmt.Sprintf("[%s]", sess.Tool))
-		b.WriteString(fmt.Sprintf("  %s %s %s\n", status, name, tool))
+		statuses = append(statuses, lipgloss.NewStyle().Foreground(ColorRed).Render(fmt.Sprintf("✕ %d error", errored)))
 	}
 
-	// Help hint at bottom
+	if len(statuses) > 0 {
+		b.WriteString(strings.Join(statuses, "  "))
+		b.WriteString("\n\n")
+	}
+
+	// Sessions divider
+	b.WriteString(renderSectionDivider("Sessions", width-4))
 	b.WriteString("\n")
-	hintStyle := lipgloss.NewStyle().Foreground(ColorTextDim).Italic(true)
-	b.WriteString(hintStyle.Render("Tab: expand/collapse • G: rename • d: delete"))
+
+	// Session list (compact)
+	if len(group.Sessions) == 0 {
+		emptyStyle := lipgloss.NewStyle().Foreground(ColorTextDim).Italic(true)
+		b.WriteString(emptyStyle.Render("  No sessions in this group"))
+		b.WriteString("\n")
+	} else {
+		maxShow := height - 12
+		if maxShow < 3 {
+			maxShow = 3
+		}
+		for i, sess := range group.Sessions {
+			if i >= maxShow {
+				remaining := len(group.Sessions) - i
+				b.WriteString(DimStyle.Render(fmt.Sprintf("  ... +%d more", remaining)))
+				break
+			}
+
+			// Status icon
+			statusIcon := "○"
+			statusColor := ColorTextDim
+			switch sess.Status {
+			case session.StatusRunning:
+				statusIcon, statusColor = "●", ColorGreen
+			case session.StatusWaiting:
+				statusIcon, statusColor = "◐", ColorYellow
+			case session.StatusError:
+				statusIcon, statusColor = "✕", ColorRed
+			}
+			status := lipgloss.NewStyle().Foreground(statusColor).Render(statusIcon)
+			name := lipgloss.NewStyle().Foreground(ColorText).Render(sess.Title)
+			tool := lipgloss.NewStyle().Foreground(ColorPurple).Faint(true).Render(sess.Tool)
+
+			b.WriteString(fmt.Sprintf("  %s %s %s\n", status, name, tool))
+		}
+	}
+
+	// Keyboard hints at bottom
+	b.WriteString("\n")
+	hintStyle := lipgloss.NewStyle().Foreground(ColorComment).Italic(true)
+	b.WriteString(hintStyle.Render("Tab toggle • R rename • d delete • g subgroup"))
 
 	return b.String()
 }
