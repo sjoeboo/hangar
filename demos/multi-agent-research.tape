@@ -11,7 +11,7 @@ Set Theme "TokyoNight"
 Set FontSize 14
 Set Width 1400
 Set Height 900
-Set TypingSpeed 50ms
+Set TypingSpeed 30ms
 Set Padding 20
 Set WindowBar "Colorful"
 Set BorderRadius 10
@@ -23,184 +23,176 @@ Set Framerate 30
 Hide
 Type "rm -rf ~/.agent-deck/profiles/demo"
 Enter
-Sleep 500ms
+Sleep 300ms
 Show
 
 # ============================================
 # LAUNCH: Start Agent Deck (clean demo profile)
 # ============================================
-Sleep 500ms
+Sleep 300ms
 Type "agent-deck -p demo"
-Sleep 500ms
+Sleep 300ms
 Enter
-Sleep 3s
+Sleep 2s
 
 # ============================================
-# SESSION 1: Claude - API Backend
+# CREATE SESSION 1: Claude - API Backend
 # ============================================
 Type "n"
 Wait+Screen /New Session/
-Sleep 300ms
+Sleep 200ms
 
-# Session name
 Type "API Backend"
-Sleep 400ms
-
-# Tab to Path
+Sleep 200ms
 Tab
-Sleep 400ms
-
-# Path
+Sleep 200ms
 Type "~/projects/backend"
-Sleep 400ms
-
-# Tab to Command
+Sleep 200ms
 Tab
-Sleep 400ms
-
-# Select Claude (Right once: shell -> claude)
-Right
-Sleep 600ms
-
-# Create session
-Enter
-Sleep 2s
-
-# Navigate down to session, then attach
-Down
 Sleep 300ms
-Enter
-Sleep 2s
 
-# Type task quickly
-Type "Explain API authentication patterns"
-Sleep 400ms
+# Claude is default, just create
 Enter
-Sleep 3s
-
-# Detach back to dashboard
-Ctrl+Q
 Sleep 1.5s
 
 # ============================================
-# SESSION 2: Gemini - Web Frontend
+# CREATE SESSION 2: Gemini - Web Frontend
 # ============================================
 Type "n"
 Wait+Screen /New Session/
-Sleep 300ms
+Sleep 200ms
 
-# Session name
 Type "Web Frontend"
-Sleep 400ms
-
-# Tab to Path
+Sleep 200ms
 Tab
-Sleep 400ms
-
-# Path
+Sleep 200ms
 Type "~/projects/frontend"
-Sleep 400ms
-
-# Tab to Command
+Sleep 200ms
 Tab
-Sleep 400ms
+Sleep 200ms
 
-# Select Gemini (Right twice)
+# Select Gemini (1 Right)
 Right
 Sleep 300ms
-Right
-Sleep 600ms
 
-# Create session
 Enter
-Sleep 2s
-
-# Navigate down to session, then attach
-Down
-Sleep 300ms
-Enter
-Sleep 2s
-
-# Type task quickly
-Type "Compare state management options"
-Sleep 400ms
-Enter
-Sleep 3s
-
-# Detach back to dashboard
-Ctrl+Q
 Sleep 1.5s
 
 # ============================================
-# SESSION 3: Codex - Backend Logic
+# CREATE SESSION 3: Codex - Database Logic
 # ============================================
 Type "n"
 Wait+Screen /New Session/
-Sleep 300ms
+Sleep 200ms
 
-# Session name
-Type "Backend Logic"
-Sleep 400ms
-
-# Tab to Path
+Type "Database Logic"
+Sleep 200ms
 Tab
-Sleep 400ms
-
-# Path
+Sleep 200ms
 Type "~/projects/database"
-Sleep 400ms
-
-# Tab to Command
+Sleep 200ms
 Tab
-Sleep 400ms
-
-# Select Codex (Right 4 times)
-Right
 Sleep 200ms
-Right
-Sleep 200ms
-Right
-Sleep 200ms
-Right
-Sleep 600ms
 
-# Create session
-Enter
-Sleep 2s
-
-# Navigate down to session, then attach
-Down
+# Select Codex (3 Rights: claude -> gemini -> aider -> codex)
+Right
+Sleep 100ms
+Right
+Sleep 100ms
+Right
 Sleep 300ms
+
+Enter
+Sleep 1.5s
+
+# ============================================
+# NOW WRITE IN SESSIONS (Claude had time to start)
+# ============================================
+
+# Go to Claude session (first session - 2 Ups from Codex)
+# Cursor is on Database Logic (Codex)
+# Up -> Web Frontend (Gemini)
+# Up -> API Backend (Claude)
+Up
+Sleep 500ms
+Up
+Sleep 800ms
+
+# Pause to show we selected Claude (first session)
+Sleep 1s
+
+# Enter Claude
 Enter
 Sleep 2s
 
-# Type task quickly
-Type "Optimize database queries"
-Sleep 400ms
+# Write in Claude
+Type "Explain API authentication patterns"
+Sleep 300ms
 Enter
 Sleep 3s
 
-# Detach back to dashboard
+# Detach
 Ctrl+Q
-Sleep 2s
+Sleep 1s
 
-# ============================================
-# FINALE: Show all sessions and enter first
-# ============================================
-
-# Go to top to show all 3 sessions
-Up
-Sleep 300ms
-Up
-Sleep 300ms
-Up
-Sleep 300ms
-
-# Pause to show dashboard with all 3
-Sleep 2s
-
-# Enter first session
+# Navigate to Gemini (second session)
 Down
+Sleep 800ms
+
+# Pause to show we selected Gemini
+Sleep 500ms
+
+# Enter Gemini
+Enter
+Sleep 2s
+
+# Write in Gemini
+Type "Compare state management options"
 Sleep 300ms
+Enter
+Sleep 3s
+
+# Detach
+Ctrl+Q
+Sleep 1s
+
+# Navigate to Codex (third session)
+Down
+Sleep 800ms
+
+# Pause to show we selected Codex
+Sleep 500ms
+
+# Enter Codex
+Enter
+Sleep 2s
+
+# Write in Codex
+Type "Optimize database queries"
+Sleep 300ms
+Enter
+Sleep 3s
+
+# Detach
+Ctrl+Q
+Sleep 1s
+
+# ============================================
+# FINALE: Show all sessions
+# ============================================
+
+# Pause to show dashboard with all 3 sessions
+Sleep 2s
+
+# Navigate back to Claude (first session)
+Up
+Sleep 500ms
+Up
+Sleep 800ms
+
+# Pause to show we selected Claude again
+Sleep 1.5s
+
+# Enter Claude to end
 Enter
 Sleep 3s
