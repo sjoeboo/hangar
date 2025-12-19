@@ -61,6 +61,29 @@ var (
 	mcpCacheTimes  = make(map[string]time.Time)
 )
 
+// MCPServer represents an MCP with its enabled state
+type MCPServer struct {
+	Name    string
+	Source  string // "local", "global", "project"
+	Enabled bool
+}
+
+// ProjectMCPSettings represents .claude/settings.local.json
+type ProjectMCPSettings struct {
+	EnableAllProjectMcpServers bool     `json:"enableAllProjectMcpServers,omitempty"`
+	EnabledMcpjsonServers      []string `json:"enabledMcpjsonServers,omitempty"`
+	DisabledMcpjsonServers     []string `json:"disabledMcpjsonServers,omitempty"`
+}
+
+// MCPMode indicates how MCP enabling/disabling is configured
+type MCPMode int
+
+const (
+	MCPModeDefault   MCPMode = iota // No explicit config, all enabled
+	MCPModeWhitelist                // enabledMcpjsonServers is set
+	MCPModeBlacklist                // disabledMcpjsonServers is set
+)
+
 // GetMCPInfo retrieves MCP server information for a project path (cached)
 // It reads from three sources:
 // 1. Global MCPs: CLAUDE_CONFIG_DIR/.claude.json → mcpServers
@@ -420,4 +443,264 @@ func getFileInternalTimestamp(filePath string) time.Time {
 	}
 
 	return time.Time{}
+}
+
+// getProjectSettingsPath returns the path to .claude/settings.local.json for a project
+func getProjectSettingsPath(projectPath string) string {
+	return filepath.Join(projectPath, ".claude", "settings.local.json")
+}
+
+// readProjectMCPSettings reads the project's MCP settings file
+func readProjectMCPSettings(projectPath string) (*ProjectMCPSettings, error) {
+	settingsPath := getProjectSettingsPath(projectPath)
+	data, err := os.ReadFile(settingsPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			// No settings file = default (all enabled)
+			return &ProjectMCPSettings{}, nil
+		}
+		return nil, fmt.Errorf("failed to read settings: %w", err)
+	}
+
+	var settings ProjectMCPSettings
+	if err := json.Unmarshal(data, &settings); err != nil {
+		return nil, fmt.Errorf("failed to parse settings: %w", err)
+	}
+
+	return &settings, nil
+}
+
+// GetMCPMode determines the MCP configuration mode for a project
+func GetMCPMode(projectPath string) MCPMode {
+	settings, err := readProjectMCPSettings(projectPath)
+	if err != nil {
+		return MCPModeDefault
+	}
+
+	// Whitelist takes priority if set
+	if len(settings.EnabledMcpjsonServers) > 0 {
+		return MCPModeWhitelist
+	}
+
+	// Check for blacklist
+	if len(settings.DisabledMcpjsonServers) > 0 {
+		return MCPModeBlacklist
+	}
+
+	return MCPModeDefault
+}
+
+// GetLocalMCPState returns Local MCPs with their enabled state
+func GetLocalMCPState(projectPath string) ([]MCPServer, error) {
+	// Get all Local MCPs from .mcp.json
+	mcpFile := filepath.Join(projectPath, ".mcp.json")
+	data, err := os.ReadFile(mcpFile)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil // No .mcp.json = no Local MCPs
+		}
+		return nil, fmt.Errorf("failed to read .mcp.json: %w", err)
+	}
+
+	var mcpConfig projectMCPConfig
+	if err := json.Unmarshal(data, &mcpConfig); err != nil {
+		return nil, fmt.Errorf("failed to parse .mcp.json: %w", err)
+	}
+
+	if len(mcpConfig.MCPServers) == 0 {
+		return nil, nil
+	}
+
+	// Get settings to determine enabled state
+	settings, err := readProjectMCPSettings(projectPath)
+	if err != nil {
+		return nil, err
+	}
+
+	mode := GetMCPMode(projectPath)
+
+	// Build result with enabled state
+	var servers []MCPServer
+	for name := range mcpConfig.MCPServers {
+		enabled := isMCPEnabled(name, settings, mode)
+		servers = append(servers, MCPServer{
+			Name:    name,
+			Source:  "local",
+			Enabled: enabled,
+		})
+	}
+
+	// Sort for consistent display
+	sort.Slice(servers, func(i, j int) bool {
+		return servers[i].Name < servers[j].Name
+	})
+
+	return servers, nil
+}
+
+// isMCPEnabled determines if an MCP is enabled based on settings and mode
+func isMCPEnabled(name string, settings *ProjectMCPSettings, mode MCPMode) bool {
+	switch mode {
+	case MCPModeWhitelist:
+		// Whitelist: enabled only if in enabledMcpjsonServers
+		for _, enabled := range settings.EnabledMcpjsonServers {
+			if enabled == name {
+				return true
+			}
+		}
+		return false
+
+	case MCPModeBlacklist:
+		// Blacklist: enabled unless in disabledMcpjsonServers
+		for _, disabled := range settings.DisabledMcpjsonServers {
+			if disabled == name {
+				return false
+			}
+		}
+		return true
+
+	default:
+		// Default: all enabled
+		return true
+	}
+}
+
+// ClearMCPCache invalidates the MCP cache for a project path
+func ClearMCPCache(projectPath string) {
+	mcpInfoCacheMu.Lock()
+	delete(mcpInfoCache, projectPath)
+	delete(mcpCacheTimes, projectPath)
+	mcpInfoCacheMu.Unlock()
+}
+
+// ToggleLocalMCP toggles a Local MCP on/off
+// It respects the existing mode (whitelist vs blacklist) or initializes with blacklist
+func ToggleLocalMCP(projectPath, mcpName string) error {
+	// Read current settings (preserving other fields)
+	settingsPath := getProjectSettingsPath(projectPath)
+	var rawSettings map[string]interface{}
+
+	data, err := os.ReadFile(settingsPath)
+	if err != nil {
+		if !os.IsNotExist(err) {
+			return fmt.Errorf("failed to read settings: %w", err)
+		}
+		// File doesn't exist, start fresh
+		rawSettings = make(map[string]interface{})
+	} else {
+		if err := json.Unmarshal(data, &rawSettings); err != nil {
+			return fmt.Errorf("failed to parse settings: %w", err)
+		}
+	}
+
+	// Detect mode
+	mode := GetMCPMode(projectPath)
+
+	// Get current enabled state
+	settings, _ := readProjectMCPSettings(projectPath)
+	currentlyEnabled := isMCPEnabled(mcpName, settings, mode)
+
+	// Toggle based on mode
+	switch mode {
+	case MCPModeWhitelist:
+		// Modify enabledMcpjsonServers
+		enabled := getStringSlice(rawSettings, "enabledMcpjsonServers")
+		if currentlyEnabled {
+			// Disable: remove from whitelist
+			enabled = removeFromSlice(enabled, mcpName)
+		} else {
+			// Enable: add to whitelist
+			enabled = appendIfMissing(enabled, mcpName)
+		}
+		rawSettings["enabledMcpjsonServers"] = enabled
+
+	case MCPModeBlacklist:
+		// Modify disabledMcpjsonServers
+		disabled := getStringSlice(rawSettings, "disabledMcpjsonServers")
+		if currentlyEnabled {
+			// Disable: add to blacklist
+			disabled = appendIfMissing(disabled, mcpName)
+		} else {
+			// Enable: remove from blacklist
+			disabled = removeFromSlice(disabled, mcpName)
+		}
+		rawSettings["disabledMcpjsonServers"] = disabled
+
+	default:
+		// No mode set, initialize with blacklist
+		if currentlyEnabled {
+			// Disable: add to blacklist
+			rawSettings["disabledMcpjsonServers"] = []string{mcpName}
+		}
+		// Enable does nothing (already enabled by default)
+	}
+
+	// Ensure .claude directory exists
+	claudeDir := filepath.Join(projectPath, ".claude")
+	if err := os.MkdirAll(claudeDir, 0755); err != nil {
+		return fmt.Errorf("failed to create .claude directory: %w", err)
+	}
+
+	// Write atomically (temp file + rename)
+	newData, err := json.MarshalIndent(rawSettings, "", "  ")
+	if err != nil {
+		return fmt.Errorf("failed to marshal settings: %w", err)
+	}
+
+	tmpPath := settingsPath + ".tmp"
+	if err := os.WriteFile(tmpPath, newData, 0600); err != nil {
+		return fmt.Errorf("failed to write temp file: %w", err)
+	}
+
+	if err := os.Rename(tmpPath, settingsPath); err != nil {
+		os.Remove(tmpPath) // Clean up on failure
+		return fmt.Errorf("failed to rename settings file: %w", err)
+	}
+
+	// Clear cache so changes are reflected
+	ClearMCPCache(projectPath)
+
+	return nil
+}
+
+// getStringSlice extracts a string slice from a map
+func getStringSlice(m map[string]interface{}, key string) []string {
+	val, ok := m[key]
+	if !ok {
+		return nil
+	}
+
+	arr, ok := val.([]interface{})
+	if !ok {
+		return nil
+	}
+
+	result := make([]string, 0, len(arr))
+	for _, v := range arr {
+		if s, ok := v.(string); ok {
+			result = append(result, s)
+		}
+	}
+	return result
+}
+
+// removeFromSlice removes a string from a slice
+func removeFromSlice(slice []string, item string) []string {
+	result := make([]string, 0, len(slice))
+	for _, s := range slice {
+		if s != item {
+			result = append(result, s)
+		}
+	}
+	return result
+}
+
+// appendIfMissing adds a string to a slice if not already present
+func appendIfMissing(slice []string, item string) []string {
+	for _, s := range slice {
+		if s == item {
+			return slice
+		}
+	}
+	return append(slice, item)
 }

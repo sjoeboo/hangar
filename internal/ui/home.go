@@ -77,6 +77,7 @@ type Home struct {
 	forkDialog    *ForkDialog    // For forking sessions
 	confirmDialog *ConfirmDialog // For confirming destructive actions
 	helpOverlay   *HelpOverlay   // For showing keyboard shortcuts
+	mcpDialog     *MCPDialog     // For managing MCPs
 
 	// State
 	cursor      int  // Selected item index in flatItems
@@ -193,6 +194,7 @@ func NewHomeWithProfile(profile string) *Home {
 		forkDialog:        NewForkDialog(),
 		confirmDialog:     NewConfirmDialog(),
 		helpOverlay:       NewHelpOverlay(),
+		mcpDialog:         NewMCPDialog(),
 		cursor:            0,
 		ctx:               ctx,
 		cancel:            cancel,
@@ -827,6 +829,9 @@ func (h *Home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if h.confirmDialog.IsVisible() {
 			return h.handleConfirmDialogKey(msg)
 		}
+		if h.mcpDialog.IsVisible() {
+			return h.handleMCPDialogKey(msg)
+		}
 
 		// Main view keys
 		return h.handleMainKey(msg)
@@ -1208,6 +1213,19 @@ func (h *Home) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return h, nil
 
+	case "M", "shift+m":
+		// MCP Manager - only for Claude sessions
+		if h.cursor < len(h.flatItems) {
+			item := h.flatItems[h.cursor]
+			if item.Type == session.ItemTypeSession && item.Session != nil && item.Session.Tool == "claude" {
+				h.mcpDialog.SetSize(h.width, h.height)
+				if err := h.mcpDialog.Show(item.Session.ProjectPath); err != nil {
+					h.err = err
+				}
+			}
+		}
+		return h, nil
+
 	case "g":
 		// Create new group (or subgroup if a group is selected)
 		if h.cursor < len(h.flatItems) {
@@ -1411,6 +1429,37 @@ func (h *Home) handleConfirmDialogKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 
 	return h, nil
+}
+
+// handleMCPDialogKey handles keys when MCP dialog is visible
+func (h *Home) handleMCPDialogKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "enter":
+		// Apply changes and close dialog
+		if h.mcpDialog.HasChanged() {
+			// Find the session and restart it
+			projectPath := h.mcpDialog.GetProjectPath()
+			for _, inst := range h.instances {
+				if inst.ProjectPath == projectPath && inst.Tool == "claude" {
+					// Clear MCP cache to reflect new state
+					session.ClearMCPCache(projectPath)
+					// Restart the session to apply MCP changes
+					h.mcpDialog.Hide()
+					return h, h.restartSession(inst)
+				}
+			}
+		}
+		h.mcpDialog.Hide()
+		return h, nil
+
+	case "esc":
+		h.mcpDialog.Hide()
+		return h, nil
+
+	default:
+		h.mcpDialog.Update(msg)
+		return h, nil
+	}
 }
 
 // handleGroupDialogKey handles keys when group dialog is visible
@@ -1807,6 +1856,9 @@ func (h *Home) View() string {
 	}
 	if h.confirmDialog.IsVisible() {
 		return h.confirmDialog.View()
+	}
+	if h.mcpDialog.IsVisible() {
+		return h.mcpDialog.View()
 	}
 
 	var b strings.Builder
