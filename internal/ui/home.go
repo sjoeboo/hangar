@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"os"
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -68,6 +70,8 @@ type Home struct {
 
 	// Components
 	search        *Search
+	globalSearch  *GlobalSearch              // Global session search across all Claude conversations
+	globalSearchIndex *session.GlobalSearchIndex // Search index (nil if disabled)
 	newDialog     *NewDialog
 	groupDialog   *GroupDialog   // For creating/renaming groups
 	forkDialog    *ForkDialog    // For forking sessions
@@ -103,6 +107,10 @@ type Home struct {
 
 	// Update notification (async check on startup)
 	updateInfo *update.UpdateInfo
+
+	// Launching animation state (for newly created sessions)
+	launchingSessions map[string]time.Time // sessionID -> creation time
+	animationFrame    int                  // Current frame for spinner animation
 
 	// Context for cleanup
 	ctx    context.Context
@@ -175,24 +183,25 @@ func NewHomeWithProfile(profile string) *Home {
 	}
 
 	h := &Home{
-		profile:          actualProfile,
-		storage:          storage,
-		storageWarning:   storageWarning,
-		search:           NewSearch(),
-		newDialog:        NewNewDialog(),
-		groupDialog:      NewGroupDialog(),
-		forkDialog:       NewForkDialog(),
-		confirmDialog:    NewConfirmDialog(),
-		helpOverlay:      NewHelpOverlay(),
-		cursor:           0,
-		ctx:              ctx,
-		cancel:           cancel,
-		instances:        []*session.Instance{},
-		groupTree:        session.NewGroupTree([]*session.Instance{}),
-		flatItems:        []session.Item{},
-		previewCache:     make(map[string]string),
-		statusTrigger:    make(chan statusUpdateRequest, 1), // Buffered to avoid blocking
-		statusWorkerDone: make(chan struct{}),
+		profile:           actualProfile,
+		storage:           storage,
+		storageWarning:    storageWarning,
+		search:            NewSearch(),
+		newDialog:         NewNewDialog(),
+		groupDialog:       NewGroupDialog(),
+		forkDialog:        NewForkDialog(),
+		confirmDialog:     NewConfirmDialog(),
+		helpOverlay:       NewHelpOverlay(),
+		cursor:            0,
+		ctx:               ctx,
+		cancel:            cancel,
+		instances:         []*session.Instance{},
+		groupTree:         session.NewGroupTree([]*session.Instance{}),
+		flatItems:         []session.Item{},
+		previewCache:      make(map[string]string),
+		launchingSessions: make(map[string]time.Time),
+		statusTrigger:     make(chan statusUpdateRequest, 1), // Buffered to avoid blocking
+		statusWorkerDone:  make(chan struct{}),
 	}
 
 	// Initialize event-driven log watcher
@@ -222,6 +231,27 @@ func NewHomeWithProfile(profile string) *Home {
 
 	// Start background status worker (Priority 1C)
 	go h.statusWorker()
+
+	// Initialize global search
+	h.globalSearch = NewGlobalSearch()
+	claudeDir := session.GetClaudeConfigDir()
+	userConfig, _ := session.LoadUserConfig()
+	if userConfig != nil && userConfig.GlobalSearch.Enabled {
+		globalSearchIndex, err := session.NewGlobalSearchIndex(claudeDir, userConfig.GlobalSearch)
+		if err != nil {
+			log.Printf("Warning: failed to initialize global search: %v", err)
+		} else {
+			h.globalSearchIndex = globalSearchIndex
+			h.globalSearch.SetIndex(globalSearchIndex)
+		}
+	}
+
+	// Run log maintenance at startup (non-blocking)
+	// This truncates large log files and removes orphaned logs based on user config
+	go func() {
+		logSettings := session.GetLogSettings()
+		tmux.RunLogMaintenance(logSettings.MaxSizeMB, logSettings.MaxLines, logSettings.RemoveOrphans)
+	}()
 
 	return h
 }
@@ -545,12 +575,34 @@ func (h *Home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Run dedup to ensure the new session doesn't have a duplicate ID
 			session.UpdateClaudeSessionsWithDedup(h.instances)
 			h.instancesMu.Unlock()
+
+			// Track as launching for animation
+			h.launchingSessions[msg.instance.ID] = time.Now()
+
+			// Expand the group so the session is visible
+			if msg.instance.GroupPath != "" {
+				h.groupTree.ExpandGroupWithParents(msg.instance.GroupPath)
+			}
+
 			// Add to existing group tree instead of rebuilding
 			h.groupTree.AddSession(msg.instance)
 			h.rebuildFlatItems()
 			h.search.SetItems(h.instances)
+
+			// Auto-select the new session
+			for i, item := range h.flatItems {
+				if item.Type == session.ItemTypeSession && item.Session != nil && item.Session.ID == msg.instance.ID {
+					h.cursor = i
+					h.syncViewport()
+					break
+				}
+			}
+
 			// Save both instances AND groups (critical fix: was losing groups!)
 			h.saveInstances()
+
+			// Start fetching preview for the new session
+			return h, h.fetchPreview(msg.instance)
 		}
 		return h, nil
 
@@ -564,12 +616,34 @@ func (h *Home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// This is critical: fork detection may have picked up wrong session
 			session.UpdateClaudeSessionsWithDedup(h.instances)
 			h.instancesMu.Unlock()
+
+			// Track as launching for animation
+			h.launchingSessions[msg.instance.ID] = time.Now()
+
+			// Expand the group so the session is visible
+			if msg.instance.GroupPath != "" {
+				h.groupTree.ExpandGroupWithParents(msg.instance.GroupPath)
+			}
+
 			// Add to existing group tree instead of rebuilding
 			h.groupTree.AddSession(msg.instance)
 			h.rebuildFlatItems()
 			h.search.SetItems(h.instances)
+
+			// Auto-select the forked session
+			for i, item := range h.flatItems {
+				if item.Type == session.ItemTypeSession && item.Session != nil && item.Session.ID == msg.instance.ID {
+					h.cursor = i
+					h.syncViewport()
+					break
+				}
+			}
+
 			// Save both instances AND groups
 			h.saveInstances()
+
+			// Start fetching preview for the forked session
+			return h, h.fetchPreview(msg.instance)
 		}
 		return h, nil
 
@@ -653,6 +727,41 @@ func (h *Home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Worker implements round-robin batching (Priority 1A + 1B)
 		h.triggerStatusUpdate()
 
+		// Update animation frame for launching spinner (8 frames, cycles every tick)
+		h.animationFrame = (h.animationFrame + 1) % 8
+
+		// Clean up expired launching sessions
+		// For Claude: remove after 20s timeout (animation shows for ~6-15s)
+		// For others: remove after 5s timeout
+		const claudeTimeout = 20 * time.Second
+		const defaultTimeout = 5 * time.Second
+		h.instancesMu.RLock()
+		for sessionID, createdAt := range h.launchingSessions {
+			// Find the instance
+			var inst *session.Instance
+			for _, i := range h.instances {
+				if i.ID == sessionID {
+					inst = i
+					break
+				}
+			}
+			if inst == nil {
+				// Session was deleted, clean up
+				delete(h.launchingSessions, sessionID)
+				continue
+			}
+
+			// Use appropriate timeout based on tool
+			timeout := defaultTimeout
+			if inst.Tool == "claude" {
+				timeout = claudeTimeout
+			}
+			if time.Since(createdAt) > timeout {
+				delete(h.launchingSessions, sessionID)
+			}
+		}
+		h.instancesMu.RUnlock()
+
 		// Fetch preview for currently selected session (if not already fetching)
 		// Protect previewFetchingID access with mutex
 		var previewCmd tea.Cmd
@@ -675,6 +784,9 @@ func (h *Home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if h.search.IsVisible() {
 			return h.handleSearchKey(msg)
+		}
+		if h.globalSearch.IsVisible() {
+			return h.handleGlobalSearchKey(msg)
 		}
 		if h.newDialog.IsVisible() {
 			return h.handleNewDialogKey(msg)
@@ -726,7 +838,148 @@ func (h *Home) handleSearchKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	var cmd tea.Cmd
 	h.search, cmd = h.search.Update(msg)
+
+	// Check if user wants to switch to global search
+	if h.search.WantsSwitchToGlobal() && h.globalSearchIndex != nil {
+		h.globalSearch.SetSize(h.width, h.height)
+		h.globalSearch.Show()
+	}
+
 	return h, cmd
+}
+
+// handleGlobalSearchKey handles keys when global search is visible
+func (h *Home) handleGlobalSearchKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "enter":
+		selected := h.globalSearch.Selected()
+		if selected != nil {
+			h.globalSearch.Hide()
+			return h, h.handleGlobalSearchSelection(selected)
+		}
+		h.globalSearch.Hide()
+		return h, nil
+	case "esc":
+		h.globalSearch.Hide()
+		return h, nil
+	}
+
+	var cmd tea.Cmd
+	h.globalSearch, cmd = h.globalSearch.Update(msg)
+
+	// Check if user wants to switch to local search
+	if h.globalSearch.WantsSwitchToLocal() {
+		h.search.SetItems(h.instances)
+		h.search.Show()
+	}
+
+	return h, cmd
+}
+
+// handleGlobalSearchSelection handles selection from global search
+func (h *Home) handleGlobalSearchSelection(result *GlobalSearchResult) tea.Cmd {
+	// Check if session already exists in Agent Deck
+	h.instancesMu.RLock()
+	for _, inst := range h.instances {
+		if inst.ClaudeSessionID == result.SessionID {
+			h.instancesMu.RUnlock()
+			// Jump to existing session
+			h.jumpToSession(inst)
+			return nil
+		}
+	}
+	h.instancesMu.RUnlock()
+
+	// Create new session with this Claude session ID
+	return h.createSessionFromGlobalSearch(result)
+}
+
+// jumpToSession jumps the cursor to the specified session
+func (h *Home) jumpToSession(inst *session.Instance) {
+	// Ensure the session's group is expanded
+	if inst.GroupPath != "" {
+		h.groupTree.ExpandGroupWithParents(inst.GroupPath)
+	}
+	h.rebuildFlatItems()
+
+	// Find and select the session
+	for i, item := range h.flatItems {
+		if item.Type == session.ItemTypeSession && item.Session != nil && item.Session.ID == inst.ID {
+			h.cursor = i
+			h.syncViewport()
+			break
+		}
+	}
+}
+
+// createSessionFromGlobalSearch creates a new Agent Deck session from global search result
+func (h *Home) createSessionFromGlobalSearch(result *GlobalSearchResult) tea.Cmd {
+	return func() tea.Msg {
+		// Derive title from CWD or session ID
+		title := "Claude Session"
+		projectPath := result.CWD
+		if result.CWD != "" {
+			parts := strings.Split(result.CWD, "/")
+			if len(parts) > 0 {
+				title = parts[len(parts)-1]
+			}
+		}
+		if projectPath == "" {
+			projectPath = "."
+		}
+
+		// Create instance
+		inst := session.NewInstanceWithGroupAndTool(title, projectPath, h.getCurrentGroupPath(), "claude")
+		inst.ClaudeSessionID = result.SessionID
+
+		// Build resume command with config dir and dangerous mode
+		userConfig, _ := session.LoadUserConfig()
+		dangerousMode := false
+		configDir := ""
+		if userConfig != nil {
+			dangerousMode = userConfig.Claude.DangerousMode
+			configDir = userConfig.Claude.ConfigDir
+		}
+
+		// Build command - use CLAUDE_CONFIG_DIR env var (not CLI flag)
+		var cmdBuilder strings.Builder
+		if configDir != "" {
+			// Expand ~ to home directory
+			if strings.HasPrefix(configDir, "~") {
+				home, _ := os.UserHomeDir()
+				configDir = strings.Replace(configDir, "~", home, 1)
+			}
+			// Set env var before running claude
+			cmdBuilder.WriteString(fmt.Sprintf("CLAUDE_CONFIG_DIR=%s ", configDir))
+		}
+		cmdBuilder.WriteString("claude --resume ")
+		cmdBuilder.WriteString(result.SessionID)
+		if dangerousMode {
+			cmdBuilder.WriteString(" --dangerously-skip-permissions")
+		}
+		inst.Command = cmdBuilder.String()
+
+		// Start the session
+		if err := inst.Start(); err != nil {
+			return sessionCreatedMsg{err: fmt.Errorf("failed to start session: %w", err)}
+		}
+
+		return sessionCreatedMsg{instance: inst}
+	}
+}
+
+// getCurrentGroupPath returns the group path of the currently selected item
+func (h *Home) getCurrentGroupPath() string {
+	if h.cursor >= 0 && h.cursor < len(h.flatItems) {
+		item := h.flatItems[h.cursor]
+		if item.Type == session.ItemTypeGroup && item.Group != nil {
+			return item.Group.Path
+		}
+		if item.Type == session.ItemTypeSession && item.Session != nil {
+			return item.Session.GroupPath
+		}
+	}
+	return ""
 }
 
 // handleNewDialogKey handles keys when new dialog is visible
@@ -766,6 +1019,10 @@ func (h *Home) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		<-h.statusWorkerDone
 		if h.logWatcher != nil {
 			h.logWatcher.Close()
+		}
+		// Close global search index
+		if h.globalSearchIndex != nil {
+			h.globalSearchIndex.Close()
 		}
 		// Save both instances AND groups on quit (critical fix: was losing groups!)
 		h.saveInstances()
@@ -951,7 +1208,13 @@ func (h *Home) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return h, nil
 
 	case "/":
-		h.search.Show()
+		// Open global search first if available, otherwise local search
+		if h.globalSearchIndex != nil {
+			h.globalSearch.SetSize(h.width, h.height)
+			h.globalSearch.Show()
+		} else {
+			h.search.Show()
+		}
 		return h, nil
 
 	case "?":
@@ -960,14 +1223,52 @@ func (h *Home) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return h, nil
 
 	case "n":
-		// Collect unique project paths from existing sessions
-		pathSet := make(map[string]bool)
-		var paths []string
+		// Collect unique project paths sorted by most recently accessed
+		type pathInfo struct {
+			path           string
+			lastAccessedAt time.Time
+		}
+		pathMap := make(map[string]*pathInfo)
 		for _, inst := range h.instances {
-			if inst.ProjectPath != "" && !pathSet[inst.ProjectPath] {
-				pathSet[inst.ProjectPath] = true
-				paths = append(paths, inst.ProjectPath)
+			if inst.ProjectPath == "" {
+				continue
 			}
+			existing, ok := pathMap[inst.ProjectPath]
+			if !ok {
+				// First time seeing this path
+				accessTime := inst.LastAccessedAt
+				if accessTime.IsZero() {
+					accessTime = inst.CreatedAt // Fall back to creation time
+				}
+				pathMap[inst.ProjectPath] = &pathInfo{
+					path:           inst.ProjectPath,
+					lastAccessedAt: accessTime,
+				}
+			} else {
+				// Update if this instance was accessed more recently
+				accessTime := inst.LastAccessedAt
+				if accessTime.IsZero() {
+					accessTime = inst.CreatedAt
+				}
+				if accessTime.After(existing.lastAccessedAt) {
+					existing.lastAccessedAt = accessTime
+				}
+			}
+		}
+
+		// Convert to slice and sort by most recent first
+		pathInfos := make([]*pathInfo, 0, len(pathMap))
+		for _, info := range pathMap {
+			pathInfos = append(pathInfos, info)
+		}
+		sort.Slice(pathInfos, func(i, j int) bool {
+			return pathInfos[i].lastAccessedAt.After(pathInfos[j].lastAccessedAt)
+		})
+
+		// Extract sorted paths
+		paths := make([]string, len(pathInfos))
+		for i, info := range pathInfos {
+			paths[i] = info.path
 		}
 		h.newDialog.SetPathSuggestions(paths)
 
@@ -1356,6 +1657,12 @@ func (h *Home) attachSession(inst *session.Instance) tea.Cmd {
 		return nil
 	}
 
+	// Mark session as accessed (for recency-sorted path suggestions)
+	inst.MarkAccessed()
+	if h.storage != nil {
+		_ = h.storage.SaveWithGroups(h.instances, h.groupTree)
+	}
+
 	// NOTE: We DON'T call Acknowledge() here. Setting acknowledged=true before attach
 	// would cause brief "idle" status if a poll happens before content changes.
 	// The proper acknowledgment happens in AcknowledgeWithSnapshot() AFTER detach,
@@ -1456,6 +1763,9 @@ func (h *Home) View() string {
 	}
 	if h.search.IsVisible() {
 		return h.search.View()
+	}
+	if h.globalSearch.IsVisible() {
+		return h.globalSearch.View()
 	}
 	if h.newDialog.IsVisible() {
 		return h.newDialog.View()
@@ -1979,6 +2289,78 @@ func (h *Home) renderSessionItem(b *strings.Builder, item session.Item, selected
 	b.WriteString("\n")
 }
 
+// renderLaunchingState renders the animated launching indicator for new sessions
+func (h *Home) renderLaunchingState(inst *session.Instance, width int) string {
+	var b strings.Builder
+
+	// Braille spinner frames - creates smooth rotation effect
+	spinnerFrames := []string{"⣾", "⣽", "⣻", "⢿", "⡿", "⣟", "⣯", "⣷"}
+	spinner := spinnerFrames[h.animationFrame]
+
+	// Tool-specific messaging
+	var toolName, toolDesc string
+	switch inst.Tool {
+	case "claude":
+		toolName = "Claude Code"
+		toolDesc = "Starting Claude session..."
+	case "gemini":
+		toolName = "Gemini"
+		toolDesc = "Connecting to Gemini..."
+	case "aider":
+		toolName = "Aider"
+		toolDesc = "Starting Aider..."
+	case "codex":
+		toolName = "Codex"
+		toolDesc = "Starting Codex..."
+	default:
+		toolName = "Shell"
+		toolDesc = "Launching shell session..."
+	}
+
+	// Centered layout
+	centerStyle := lipgloss.NewStyle().
+		Width(width - 4).
+		Align(lipgloss.Center)
+
+	// Spinner with tool color
+	spinnerStyle := lipgloss.NewStyle().
+		Foreground(ColorAccent).
+		Bold(true)
+	spinnerLine := spinnerStyle.Render(spinner + "  " + spinner + "  " + spinner)
+	b.WriteString(centerStyle.Render(spinnerLine))
+	b.WriteString("\n\n")
+
+	// Tool name
+	toolStyle := lipgloss.NewStyle().
+		Foreground(ColorPurple).
+		Bold(true)
+	b.WriteString(centerStyle.Render(toolStyle.Render("Launching " + toolName)))
+	b.WriteString("\n\n")
+
+	// Description
+	descStyle := lipgloss.NewStyle().
+		Foreground(ColorTextDim).
+		Italic(true)
+	b.WriteString(centerStyle.Render(descStyle.Render(toolDesc)))
+	b.WriteString("\n\n")
+
+	// Progress dots animation
+	dotsCount := (h.animationFrame % 4) + 1
+	dots := strings.Repeat("●", dotsCount) + strings.Repeat("○", 4-dotsCount)
+	dotsStyle := lipgloss.NewStyle().
+		Foreground(ColorAccent)
+	b.WriteString(centerStyle.Render(dotsStyle.Render(dots)))
+	b.WriteString("\n\n")
+
+	// Please wait message
+	waitStyle := lipgloss.NewStyle().
+		Foreground(ColorYellow).
+		Italic(true)
+	b.WriteString(centerStyle.Render(waitStyle.Render("Please wait...")))
+
+	return b.String()
+}
+
 // renderPreviewPane renders the right panel with live preview
 func (h *Home) renderPreviewPane(width, height int) string {
 	var b strings.Builder
@@ -2056,18 +2438,107 @@ func (h *Home) renderPreviewPane(width, height int) string {
 	b.WriteString(toolBadge)
 	b.WriteString(" ")
 	b.WriteString(groupBadge)
-	b.WriteString("\n\n")
+	b.WriteString("\n")
+
+	// Claude-specific info (session ID and MCPs)
+	if selected.Tool == "claude" {
+		// Connection status with session ID
+		if selected.ClaudeSessionID != "" {
+			connStyle := lipgloss.NewStyle().Foreground(ColorGreen).Bold(true)
+			idStyle := lipgloss.NewStyle().Foreground(ColorTextDim)
+
+			// Truncate session ID for display (show first 8 chars)
+			shortID := selected.ClaudeSessionID
+			if len(shortID) > 8 {
+				shortID = shortID[:8] + "..."
+			}
+
+			b.WriteString(connStyle.Render("✓ Connected"))
+			b.WriteString(idStyle.Render(" (" + shortID + ")"))
+			b.WriteString("\n")
+		} else {
+			disconnStyle := lipgloss.NewStyle().Foreground(ColorTextDim)
+			b.WriteString(disconnStyle.Render("○ Not connected"))
+			b.WriteString("\n")
+		}
+
+		// MCP servers
+		if mcpInfo := selected.GetMCPInfo(); mcpInfo != nil && mcpInfo.HasAny() {
+			mcpHeaderStyle := lipgloss.NewStyle().Foreground(ColorCyan).Bold(true)
+			mcpLabelStyle := lipgloss.NewStyle().Foreground(ColorTextDim)
+			mcpNameStyle := lipgloss.NewStyle().Foreground(ColorText)
+
+			b.WriteString(mcpHeaderStyle.Render("MCPs:"))
+			b.WriteString("\n")
+
+			if len(mcpInfo.Global) > 0 {
+				b.WriteString(mcpLabelStyle.Render("  Global: "))
+				b.WriteString(mcpNameStyle.Render(strings.Join(mcpInfo.Global, ", ")))
+				b.WriteString("\n")
+			}
+			if len(mcpInfo.Project) > 0 {
+				b.WriteString(mcpLabelStyle.Render("  Project: "))
+				b.WriteString(mcpNameStyle.Render(strings.Join(mcpInfo.Project, ", ")))
+				b.WriteString("\n")
+			}
+			if len(mcpInfo.Local) > 0 {
+				b.WriteString(mcpLabelStyle.Render("  Local: "))
+				b.WriteString(mcpNameStyle.Render(strings.Join(mcpInfo.Local, ", ")))
+				b.WriteString("\n")
+			}
+		}
+	}
+	b.WriteString("\n")
 
 	// Terminal output header
 	termHeader := renderSectionDivider("Output", width-4)
 	b.WriteString(termHeader)
 	b.WriteString("\n")
 
+	// Check if this session is still launching (newly created)
+	launchTime, isLaunching := h.launchingSessions[selected.ID]
+
+	// Determine if we should show launching animation
+	// For Claude: show for minimum 6 seconds, then check for ready indicators
+	// For others: show for first 3 seconds after creation
+	showLaunchingAnimation := false
+	if isLaunching {
+		timeSinceLaunch := time.Since(launchTime)
+		if selected.Tool == "claude" {
+			// Claude session: show animation for at least 6 seconds
+			minAnimationTime := 6 * time.Second
+			if timeSinceLaunch < minAnimationTime {
+				// Always show animation for first 6 seconds
+				showLaunchingAnimation = true
+			} else {
+				// After 6 seconds, check if Claude UI is visible
+				h.previewCacheMu.RLock()
+				previewContent := h.previewCache[selected.ID]
+				h.previewCacheMu.RUnlock()
+				// Claude is ready when we see its prompt or it is actively running
+				claudeReady := strings.Contains(previewContent, "\n> ") ||
+					strings.Contains(previewContent, "> \n") ||
+					strings.Contains(previewContent, "esc to interrupt") ||
+					strings.Contains(previewContent, "⠋") || strings.Contains(previewContent, "⠙") ||
+					strings.Contains(previewContent, "Thinking")
+				showLaunchingAnimation = !claudeReady && timeSinceLaunch < 15*time.Second
+			}
+		} else {
+			// Non-Claude: show animation for first 3 seconds
+			showLaunchingAnimation = timeSinceLaunch < 3*time.Second
+		}
+	}
+
 	// Terminal preview - use cached content (async fetching keeps View() pure)
 	h.previewCacheMu.RLock()
 	preview, hasCached := h.previewCache[selected.ID]
 	h.previewCacheMu.RUnlock()
-	if !hasCached {
+
+	// Show launching animation for new sessions
+	if showLaunchingAnimation {
+		b.WriteString("\n")
+		b.WriteString(h.renderLaunchingState(selected, width))
+	} else if !hasCached {
 		// Show loading indicator while waiting for async fetch
 		loadingStyle := lipgloss.NewStyle().
 			Foreground(ColorTextDim).
