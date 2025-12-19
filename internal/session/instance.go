@@ -23,20 +23,26 @@ const (
 
 // Instance represents a single agent/shell session
 type Instance struct {
-	ID          string        `json:"id"`
-	Title       string        `json:"title"`
-	ProjectPath string        `json:"project_path"`
-	GroupPath   string        `json:"group_path"` // e.g., "projects/devops"
-	Command     string        `json:"command"`
-	Tool        string        `json:"tool"`
-	Status      Status        `json:"status"`
-	CreatedAt   time.Time     `json:"created_at"`
+	ID             string    `json:"id"`
+	Title          string    `json:"title"`
+	ProjectPath    string    `json:"project_path"`
+	GroupPath      string    `json:"group_path"` // e.g., "projects/devops"
+	Command        string    `json:"command"`
+	Tool           string    `json:"tool"`
+	Status         Status    `json:"status"`
+	CreatedAt      time.Time `json:"created_at"`
+	LastAccessedAt time.Time `json:"last_accessed_at,omitempty"` // When user last attached
 
 	// Claude Code integration
 	ClaudeSessionID  string    `json:"claude_session_id,omitempty"`
 	ClaudeDetectedAt time.Time `json:"claude_detected_at,omitempty"`
 
 	tmuxSession *tmux.Session // Internal tmux session
+}
+
+// MarkAccessed updates the LastAccessedAt timestamp to now
+func (inst *Instance) MarkAccessed() {
+	inst.LastAccessedAt = time.Now()
 }
 
 // NewInstance creates a new session instance
@@ -526,6 +532,15 @@ func (i *Instance) GetSessionIDFromTmux() string {
 		return ""
 	}
 	return sessionID
+}
+
+// GetMCPInfo returns MCP server information for this session
+// Returns nil if not a Claude session
+func (i *Instance) GetMCPInfo() *MCPInfo {
+	if i.Tool != "claude" {
+		return nil
+	}
+	return GetMCPInfo(i.ProjectPath)
 }
 
 // generateID generates a unique session ID
