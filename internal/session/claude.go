@@ -9,6 +9,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -20,6 +21,114 @@ type ClaudeProject struct {
 // ClaudeConfig represents the structure of .claude.json
 type ClaudeConfig struct {
 	Projects map[string]ClaudeProject `json:"projects"`
+}
+
+// MCPInfo contains MCP server information for a session
+type MCPInfo struct {
+	Global  []string // From CLAUDE_CONFIG_DIR/.claude.json mcpServers
+	Project []string // From CLAUDE_CONFIG_DIR/.claude.json projects[path].mcpServers
+	Local   []string // From {projectPath}/.mcp.json mcpServers
+}
+
+// HasAny returns true if any MCPs are configured
+func (m *MCPInfo) HasAny() bool {
+	return len(m.Global) > 0 || len(m.Project) > 0 || len(m.Local) > 0
+}
+
+// Total returns total number of MCPs across all sources
+func (m *MCPInfo) Total() int {
+	return len(m.Global) + len(m.Project) + len(m.Local)
+}
+
+// claudeConfigForMCP is used for parsing MCP-related fields from .claude.json
+type claudeConfigForMCP struct {
+	MCPServers map[string]json.RawMessage `json:"mcpServers"`
+	Projects   map[string]struct {
+		MCPServers map[string]json.RawMessage `json:"mcpServers"`
+	} `json:"projects"`
+}
+
+// projectMCPConfig is used for parsing .mcp.json files
+type projectMCPConfig struct {
+	MCPServers map[string]json.RawMessage `json:"mcpServers"`
+}
+
+// MCP info cache (30 second TTL to avoid re-reading files on every render)
+var (
+	mcpInfoCache   = make(map[string]*MCPInfo)
+	mcpInfoCacheMu sync.RWMutex
+	mcpCacheExpiry = 30 * time.Second
+	mcpCacheTimes  = make(map[string]time.Time)
+)
+
+// GetMCPInfo retrieves MCP server information for a project path (cached)
+// It reads from three sources:
+// 1. Global MCPs: CLAUDE_CONFIG_DIR/.claude.json → mcpServers
+// 2. Project MCPs: CLAUDE_CONFIG_DIR/.claude.json → projects[projectPath].mcpServers
+// 3. Local MCPs: {projectPath}/.mcp.json → mcpServers
+func GetMCPInfo(projectPath string) *MCPInfo {
+	// Check cache first
+	mcpInfoCacheMu.RLock()
+	if cached, ok := mcpInfoCache[projectPath]; ok {
+		if time.Since(mcpCacheTimes[projectPath]) < mcpCacheExpiry {
+			mcpInfoCacheMu.RUnlock()
+			return cached
+		}
+	}
+	mcpInfoCacheMu.RUnlock()
+
+	// Cache miss or expired - fetch fresh data
+	info := getMCPInfoUncached(projectPath)
+
+	// Update cache
+	mcpInfoCacheMu.Lock()
+	mcpInfoCache[projectPath] = info
+	mcpCacheTimes[projectPath] = time.Now()
+	mcpInfoCacheMu.Unlock()
+
+	return info
+}
+
+// getMCPInfoUncached reads MCP info from disk (called by cached wrapper)
+func getMCPInfoUncached(projectPath string) *MCPInfo {
+	info := &MCPInfo{}
+	configDir := GetClaudeConfigDir()
+
+	// Read .claude.json for global and project MCPs
+	configFile := filepath.Join(configDir, ".claude.json")
+	if data, err := os.ReadFile(configFile); err == nil {
+		var config claudeConfigForMCP
+		if json.Unmarshal(data, &config) == nil {
+			// Global MCPs
+			for name := range config.MCPServers {
+				info.Global = append(info.Global, name)
+			}
+			// Project-specific MCPs
+			if proj, ok := config.Projects[projectPath]; ok {
+				for name := range proj.MCPServers {
+					info.Project = append(info.Project, name)
+				}
+			}
+		}
+	}
+
+	// Read .mcp.json from project directory for local MCPs
+	mcpFile := filepath.Join(projectPath, ".mcp.json")
+	if data, err := os.ReadFile(mcpFile); err == nil {
+		var mcp projectMCPConfig
+		if json.Unmarshal(data, &mcp) == nil {
+			for name := range mcp.MCPServers {
+				info.Local = append(info.Local, name)
+			}
+		}
+	}
+
+	// Sort for consistent display
+	sort.Strings(info.Global)
+	sort.Strings(info.Project)
+	sort.Strings(info.Local)
+
+	return info
 }
 
 // GetClaudeConfigDir returns the Claude config directory
