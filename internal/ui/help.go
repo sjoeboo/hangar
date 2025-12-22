@@ -79,9 +79,11 @@ func (h *HelpOverlay) View() string {
 			title: "SESSIONS",
 			items: [][2]string{
 				{"n", "New session"},
+				{"r / R", "Restart session"},
 				{"d", "Delete session"},
+				{"e", "Rename session"},
 				{"m", "Move to group"},
-				{"R", "Rename"},
+				{"M", "MCP Manager (Claude)"},
 				{"u", "Mark unread"},
 				{"K / J", "Reorder up/down"},
 				{"f", "Quick fork (Claude only)"},
@@ -92,7 +94,7 @@ func (h *HelpOverlay) View() string {
 			title: "GROUPS",
 			items: [][2]string{
 				{"g", "New group"},
-				{"G", "Rename group"},
+				{"e", "Rename group"},
 				{"Tab", "Toggle expand"},
 			},
 		},
@@ -109,7 +111,6 @@ func (h *HelpOverlay) View() string {
 			title: "OTHER",
 			items: [][2]string{
 				{"i", "Import tmux sessions"},
-				{"r", "Refresh all"},
 				{"Ctrl+Q", "Detach from session"},
 				{"q", "Quit"},
 				{"?", "This help"},

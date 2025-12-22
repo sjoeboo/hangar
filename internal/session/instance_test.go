@@ -233,10 +233,8 @@ func TestBuildClaudeCommand(t *testing.T) {
 		t.Errorf("Should resume the captured session ID, got: %s", cmd)
 	}
 
-	// Should contain dangerously-skip-permissions
-	if !strings.Contains(cmd, "--dangerously-skip-permissions") {
-		t.Errorf("Should contain --dangerously-skip-permissions, got: %s", cmd)
-	}
+	// Note: --dangerously-skip-permissions is conditional on user config (dangerous_mode)
+	// The command should work with or without it depending on config
 
 	// Test with non-claude tool (should not modify)
 	shellInst := NewInstance("shell-test", "/tmp/test")

@@ -1,6 +1,8 @@
 package ui
 
 import (
+	"log"
+
 	"github.com/asheshgoplani/agent-deck/internal/session"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -34,6 +36,7 @@ type MCPDialog struct {
 	width       int
 	height      int
 	projectPath string
+	sessionID   string // ID of the session being managed (for restart)
 
 	// Current scope and column
 	scope  MCPScope
@@ -64,9 +67,12 @@ func NewMCPDialog() *MCPDialog {
 }
 
 // Show displays the MCP dialog for a project
-func (m *MCPDialog) Show(projectPath string) error {
+func (m *MCPDialog) Show(projectPath string, sessionID string) error {
 	// Reload config to pick up any changes to config.toml
 	session.ReloadUserConfig()
+
+	// Store session ID for restart
+	m.sessionID = sessionID
 
 	// Get all available MCPs from config.toml (the pool)
 	availableMCPs := session.GetAvailableMCPs()
@@ -161,12 +167,20 @@ func (m *MCPDialog) HasItems() bool {
 
 // HasChanged returns true if any MCPs were changed (either scope)
 func (m *MCPDialog) HasChanged() bool {
-	return m.localChanged || m.globalChanged
+	result := m.localChanged || m.globalChanged
+	log.Printf("[MCP-DEBUG] HasChanged() called - localChanged=%v, globalChanged=%v, result=%v",
+		m.localChanged, m.globalChanged, result)
+	return result
 }
 
 // GetProjectPath returns the project path being managed
 func (m *MCPDialog) GetProjectPath() string {
 	return m.projectPath
+}
+
+// GetSessionID returns the session ID being managed
+func (m *MCPDialog) GetSessionID() string {
+	return m.sessionID
 }
 
 // GetError returns any error that occurred
@@ -197,12 +211,15 @@ func (m *MCPDialog) getCurrentList() (*[]MCPItem, *int) {
 
 // Move moves the selected item between Attached <-> Available
 func (m *MCPDialog) Move() {
+	log.Printf("[MCP-DEBUG] Move() called - scope=%d, column=%d", m.scope, m.column)
 	list, idx := m.getCurrentList()
 	if len(*list) == 0 || *idx < 0 || *idx >= len(*list) {
+		log.Printf("[MCP-DEBUG] Move() early return - list empty or invalid index")
 		return
 	}
 
 	item := (*list)[*idx]
+	log.Printf("[MCP-DEBUG] Moving item: %q", item.Name)
 
 	// Remove from current list
 	*list = append((*list)[:*idx], (*list)[*idx+1:]...)
@@ -213,20 +230,26 @@ func (m *MCPDialog) Move() {
 		if m.scope == MCPScopeLocal {
 			m.localAvailable = append(m.localAvailable, item)
 			m.localChanged = true
+			log.Printf("[MCP-DEBUG] Moved to localAvailable, localChanged=true")
 		} else {
 			m.globalAvailable = append(m.globalAvailable, item)
 			m.globalChanged = true
+			log.Printf("[MCP-DEBUG] Moved to globalAvailable, globalChanged=true")
 		}
 	} else {
 		// Moving from Available -> Attached
 		if m.scope == MCPScopeLocal {
 			m.localAttached = append(m.localAttached, item)
 			m.localChanged = true
+			log.Printf("[MCP-DEBUG] Moved to localAttached, localChanged=true")
 		} else {
 			m.globalAttached = append(m.globalAttached, item)
 			m.globalChanged = true
+			log.Printf("[MCP-DEBUG] Moved to globalAttached, globalChanged=true")
 		}
 	}
+
+	log.Printf("[MCP-DEBUG] After Move: localChanged=%v, globalChanged=%v", m.localChanged, m.globalChanged)
 
 	// Adjust index if needed
 	if *idx >= len(*list) && len(*list) > 0 {
@@ -236,6 +259,9 @@ func (m *MCPDialog) Move() {
 
 // Apply saves the changes to LOCAL (.mcp.json) and GLOBAL (Claude config)
 func (m *MCPDialog) Apply() error {
+	log.Printf("[MCP-DEBUG] Apply() called - localChanged=%v, globalChanged=%v, projectPath=%q",
+		m.localChanged, m.globalChanged, m.projectPath)
+
 	// Apply LOCAL changes
 	if m.localChanged {
 		// Get names of attached MCPs

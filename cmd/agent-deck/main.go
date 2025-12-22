@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
+	"log"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -21,7 +23,7 @@ import (
 	"github.com/muesli/termenv"
 )
 
-const Version = "0.5.3"
+const Version = "0.5.4"
 
 // Table column widths for list command output
 const (
@@ -164,6 +166,24 @@ func main() {
 		releaseLock(profile)
 		os.Exit(0)
 	}()
+
+	// Set up debug logging if AGENTDECK_DEBUG is set
+	// Logs go to ~/.agent-deck/debug.log to avoid interfering with TUI
+	if os.Getenv("AGENTDECK_DEBUG") != "" {
+		if baseDir, err := session.GetAgentDeckDir(); err == nil {
+			logPath := filepath.Join(baseDir, "debug.log")
+			logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
+			if err == nil {
+				log.SetOutput(logFile)
+				log.SetFlags(log.Ltime | log.Lmicroseconds)
+				log.Printf("=== Agent Deck Debug Log Started ===")
+				defer logFile.Close()
+			}
+		}
+	} else {
+		// Disable logging when not in debug mode to avoid TUI interference
+		log.SetOutput(io.Discard)
+	}
 
 	// Start TUI with the specified profile
 	p := tea.NewProgram(

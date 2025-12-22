@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"log"
 	"sort"
 	"strings"
 	"time"
@@ -42,6 +43,11 @@ type Instance struct {
 	LoadedMCPNames []string `json:"loaded_mcp_names,omitempty"`
 
 	tmuxSession *tmux.Session // Internal tmux session
+
+	// lastErrorCheck tracks when we last confirmed the session doesn't exist
+	// Used to skip expensive Exists() checks for ghost sessions (sessions in JSON but not in tmux)
+	// Not serialized - resets on load, but that's fine since we'll recheck on first poll
+	lastErrorCheck time.Time
 }
 
 // MarkAccessed updates the LastAccessedAt timestamp to now
@@ -120,6 +126,7 @@ func extractGroupPath(projectPath string) string {
 // buildClaudeCommand builds the claude command with session capture
 // For new sessions: captures session ID via print mode, stores in tmux env, then resumes
 // This ensures we always know the session ID for fork/restart features
+// Respects: CLAUDE_CONFIG_DIR, dangerous_mode from user config
 func (i *Instance) buildClaudeCommand(baseCommand string) string {
 	if i.Tool != "claude" {
 		return baseCommand
@@ -127,16 +134,29 @@ func (i *Instance) buildClaudeCommand(baseCommand string) string {
 
 	configDir := GetClaudeConfigDir()
 
+	// Check if dangerous mode is enabled in user config
+	dangerousMode := false
+	if userConfig, err := LoadUserConfig(); err == nil && userConfig != nil {
+		dangerousMode = userConfig.Claude.DangerousMode
+	}
+
 	// If baseCommand is just "claude", build the capture-resume command
 	// This command:
 	// 1. Starts Claude in print mode to get session ID
 	// 2. Stores session ID in tmux environment (for retrieval by agent-deck)
-	// 3. Resumes that session interactively with dangerous mode
+	// 3. Resumes that session interactively (with dangerous mode if enabled)
 	if baseCommand == "claude" {
+		if dangerousMode {
+			return fmt.Sprintf(
+				`session_id=$(CLAUDE_CONFIG_DIR=%s claude -p "." --output-format json 2>/dev/null | jq -r '.session_id') && `+
+					`tmux set-environment CLAUDE_SESSION_ID "$session_id" && `+
+					`CLAUDE_CONFIG_DIR=%s claude --resume "$session_id" --dangerously-skip-permissions`,
+				configDir, configDir)
+		}
 		return fmt.Sprintf(
 			`session_id=$(CLAUDE_CONFIG_DIR=%s claude -p "." --output-format json 2>/dev/null | jq -r '.session_id') && `+
 				`tmux set-environment CLAUDE_SESSION_ID "$session_id" && `+
-				`CLAUDE_CONFIG_DIR=%s claude --resume "$session_id" --dangerously-skip-permissions`,
+				`CLAUDE_CONFIG_DIR=%s claude --resume "$session_id"`,
 			configDir, configDir)
 	}
 
@@ -168,6 +188,11 @@ func (i *Instance) Start() error {
 	return nil
 }
 
+// errorRecheckInterval - how often to recheck sessions that don't exist
+// Ghost sessions (in JSON but not in tmux) are rechecked at this interval
+// instead of every 500ms tick, dramatically reducing subprocess spawns
+const errorRecheckInterval = 30 * time.Second
+
 // UpdateStatus updates the session status by checking tmux
 func (i *Instance) UpdateStatus() error {
 	if i.tmuxSession == nil {
@@ -175,11 +200,23 @@ func (i *Instance) UpdateStatus() error {
 		return nil
 	}
 
+	// Optimization: Skip expensive Exists() check for sessions already in error status
+	// Ghost sessions (in JSON but not in tmux) only get rechecked every 30 seconds
+	// This reduces subprocess spawns from 74/sec to ~5/sec for 28 ghost sessions
+	if i.Status == StatusError && !i.lastErrorCheck.IsZero() &&
+		time.Since(i.lastErrorCheck) < errorRecheckInterval {
+		return nil // Skip - still in error, checked recently
+	}
+
 	// Check if tmux session exists
 	if !i.tmuxSession.Exists() {
 		i.Status = StatusError
+		i.lastErrorCheck = time.Now() // Record when we confirmed error
 		return nil
 	}
+
+	// Session exists - clear error check timestamp
+	i.lastErrorCheck = time.Time{}
 
 	// Get status from tmux session
 	status, err := i.tmuxSession.GetStatus()
@@ -380,45 +417,24 @@ func (i *Instance) Kill() error {
 // For Claude sessions with known ID: sends Ctrl+C twice and resume command to existing session
 // For dead sessions or unknown ID: recreates the tmux session
 func (i *Instance) Restart() error {
-	// If Claude session with known ID AND tmux session exists, interrupt and resume
+	log.Printf("[MCP-DEBUG] Instance.Restart() called - Tool=%s, ClaudeSessionID=%q, tmuxSession=%v, tmuxExists=%v",
+		i.Tool, i.ClaudeSessionID, i.tmuxSession != nil, i.tmuxSession != nil && i.tmuxSession.Exists())
+
+	// If Claude session with known ID AND tmux session exists, use respawn-pane
 	if i.Tool == "claude" && i.ClaudeSessionID != "" && i.tmuxSession != nil && i.tmuxSession.Exists() {
-		// Robust restart: interrupt Claude, wait for shell, then send resume command
+		// Build the resume command with proper config
+		resumeCmd := i.buildClaudeResumeCommand()
+		log.Printf("[MCP-DEBUG] Using respawn-pane with command: %s", resumeCmd)
 
-		// Step 1: Send Ctrl+C twice to exit Claude
-		// Claude requires TWO Ctrl+C signals:
-		// - First Ctrl+C shows "Press Ctrl-C again to exit"
-		// - Second Ctrl+C actually exits
-		if err := i.tmuxSession.SendCtrlC(); err != nil {
-			return fmt.Errorf("failed to send first Ctrl+C: %w", err)
-		}
-		time.Sleep(200 * time.Millisecond)
-
-		if err := i.tmuxSession.SendCtrlC(); err != nil {
-			return fmt.Errorf("failed to send second Ctrl+C: %w", err)
+		// Use respawn-pane for atomic restart
+		// This is more reliable than Ctrl+C + wait for shell + send command
+		// respawn-pane -k kills the current process and starts the new command atomically
+		if err := i.tmuxSession.RespawnPane(resumeCmd); err != nil {
+			log.Printf("[MCP-DEBUG] RespawnPane failed: %v", err)
+			return fmt.Errorf("failed to restart Claude session: %w", err)
 		}
 
-		// Step 2: Wait for shell prompt (polls terminal, max 5 seconds)
-		// This is adaptive - if Claude exits quickly, we proceed quickly
-		if !i.tmuxSession.WaitForShellPrompt(5 * time.Second) {
-			// Timeout - Claude might be stuck. Try one more Ctrl+C
-			_ = i.tmuxSession.SendCtrlC()
-			time.Sleep(500 * time.Millisecond)
-		}
-
-		// Step 3: Clear any partial input that might be on the line
-		if err := i.tmuxSession.SendCtrlU(); err != nil {
-			// Non-fatal, continue
-		}
-		time.Sleep(50 * time.Millisecond)
-
-		// Step 4: Send resume command
-		configDir := GetClaudeConfigDir()
-		resumeCmd := fmt.Sprintf("CLAUDE_CONFIG_DIR=%s claude --resume %s --dangerously-skip-permissions",
-			configDir, i.ClaudeSessionID)
-
-		if err := i.tmuxSession.SendCommand(resumeCmd); err != nil {
-			return fmt.Errorf("failed to send resume command: %w", err)
-		}
+		log.Printf("[MCP-DEBUG] RespawnPane succeeded")
 
 		// Re-capture MCPs after restart (they may have changed since session started)
 		i.CaptureLoadedMCPs()
@@ -427,22 +443,26 @@ func (i *Instance) Restart() error {
 		return nil
 	}
 
+	log.Printf("[MCP-DEBUG] Using fallback: recreate tmux session")
+
 	// Fallback: recreate tmux session (for dead sessions or unknown ID)
 	i.tmuxSession = tmux.NewSession(i.Title, i.ProjectPath)
 
 	var command string
 	if i.Tool == "claude" && i.ClaudeSessionID != "" {
-		configDir := GetClaudeConfigDir()
-		command = fmt.Sprintf("CLAUDE_CONFIG_DIR=%s claude --resume %s --dangerously-skip-permissions",
-			configDir, i.ClaudeSessionID)
+		command = i.buildClaudeResumeCommand()
 	} else {
 		command = i.buildClaudeCommand(i.Command)
 	}
+	log.Printf("[MCP-DEBUG] Starting new tmux session with command: %s", command)
 
 	if err := i.tmuxSession.Start(command); err != nil {
+		log.Printf("[MCP-DEBUG] tmuxSession.Start() failed: %v", err)
 		i.Status = StatusError
 		return fmt.Errorf("failed to restart tmux session: %w", err)
 	}
+
+	log.Printf("[MCP-DEBUG] tmuxSession.Start() succeeded")
 
 	// Re-capture MCPs after restart
 	i.CaptureLoadedMCPs()
@@ -454,6 +474,26 @@ func (i *Instance) Restart() error {
 	}
 
 	return nil
+}
+
+// buildClaudeResumeCommand builds the claude resume command with proper config options
+// Respects: CLAUDE_CONFIG_DIR, dangerous_mode from user config
+func (i *Instance) buildClaudeResumeCommand() string {
+	configDir := GetClaudeConfigDir()
+
+	// Check if dangerous mode is enabled in user config
+	dangerousMode := false
+	if userConfig, err := LoadUserConfig(); err == nil && userConfig != nil {
+		dangerousMode = userConfig.Claude.DangerousMode
+	}
+
+	// Build the command
+	if dangerousMode {
+		return fmt.Sprintf("CLAUDE_CONFIG_DIR=%s claude --resume %s --dangerously-skip-permissions",
+			configDir, i.ClaudeSessionID)
+	}
+	return fmt.Sprintf("CLAUDE_CONFIG_DIR=%s claude --resume %s",
+		configDir, i.ClaudeSessionID)
 }
 
 // CanRestart returns true if the session can be restarted

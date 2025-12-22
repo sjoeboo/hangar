@@ -661,6 +661,36 @@ func (s *Session) Kill() error {
 	return cmd.Run()
 }
 
+// RespawnPane kills the current process in the pane and starts a new command
+// This is more reliable than sending Ctrl+C and waiting for shell prompt
+// The -k flag kills the current process before respawning
+func (s *Session) RespawnPane(command string) error {
+	if !s.Exists() {
+		return fmt.Errorf("session does not exist: %s", s.Name)
+	}
+
+	// Build respawn-pane command
+	// -k: Kill current process
+	// -t: Target pane (session:window.pane format, use session: for active pane)
+	// command: New command to run
+	target := s.Name + ":"  // Append colon to target the active pane
+	args := []string{"respawn-pane", "-k", "-t", target}
+	if command != "" {
+		args = append(args, command)
+	}
+
+	log.Printf("[MCP-DEBUG] RespawnPane executing: tmux %v", args)
+	cmd := exec.Command("tmux", args...)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		log.Printf("[MCP-DEBUG] RespawnPane error: %v, output: %s", err, string(output))
+		return fmt.Errorf("failed to respawn pane: %w (output: %s)", err, string(output))
+	}
+	log.Printf("[MCP-DEBUG] RespawnPane output: %s", string(output))
+
+	return nil
+}
+
 // GetWindowActivity returns Unix timestamp of last tmux window activity
 // This is a fast operation (~4ms) that checks when the window last had output
 func (s *Session) GetWindowActivity() (int64, error) {

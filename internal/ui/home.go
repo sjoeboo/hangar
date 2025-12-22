@@ -42,6 +42,10 @@ const (
 	// tickInterval for UI refresh - event-driven detection still reduces
 	// expensive operations (SignalFileActivity updates state, tick just redraws)
 	tickInterval = 500 * time.Millisecond
+
+	// logMaintenanceInterval - how often to check and truncate large log files
+	// Prevents runaway log growth that can crash the system
+	logMaintenanceInterval = 5 * time.Minute
 )
 
 // UI spacing constants (2-char grid system)
@@ -112,11 +116,15 @@ type Home struct {
 	// Launching animation state (for newly created sessions)
 	launchingSessions map[string]time.Time // sessionID -> creation time
 	resumingSessions  map[string]time.Time // sessionID -> resume time (for restart/resume)
+	mcpLoadingSessions map[string]time.Time // sessionID -> MCP reload time
 	animationFrame    int                  // Current frame for spinner animation
 
 	// Context for cleanup
 	ctx    context.Context
 	cancel context.CancelFunc
+
+	// Periodic log maintenance (prevents runaway log growth)
+	lastLogMaintenance time.Time
 }
 
 // Messages
@@ -204,6 +212,7 @@ func NewHomeWithProfile(profile string) *Home {
 		previewCache:      make(map[string]string),
 		launchingSessions: make(map[string]time.Time),
 		resumingSessions:  make(map[string]time.Time),
+		mcpLoadingSessions: make(map[string]time.Time),
 		statusTrigger:     make(chan statusUpdateRequest, 1), // Buffered to avoid blocking
 		statusWorkerDone:  make(chan struct{}),
 	}
@@ -252,6 +261,8 @@ func NewHomeWithProfile(profile string) *Home {
 
 	// Run log maintenance at startup (non-blocking)
 	// This truncates large log files and removes orphaned logs based on user config
+	// Also initializes lastLogMaintenance so periodic maintenance starts from now
+	h.lastLogMaintenance = time.Now()
 	go func() {
 		logSettings := session.GetLogSettings()
 		tmux.RunLogMaintenance(logSettings.MaxSizeMB, logSettings.MaxLines, logSettings.RemoveOrphans)
@@ -694,6 +705,23 @@ func (h *Home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Save the updated session state (new tmux session name)
 			h.saveInstances()
 		}
+		// Clean up MCP loading animation if this was an MCP restart
+		delete(h.mcpLoadingSessions, msg.sessionID)
+		return h, nil
+
+	case mcpRestartedMsg:
+		if msg.err != nil {
+			h.err = fmt.Errorf("failed to restart session for MCP changes: %w", msg.err)
+			return h, nil
+		}
+		// Refresh the loaded MCPs to match the new config
+		if msg.session != nil {
+			msg.session.CaptureLoadedMCPs()
+			h.saveInstances()
+			// Remove from MCP loading animation (restart completed)
+			delete(h.mcpLoadingSessions, msg.session.ID)
+			log.Printf("[MCP-DEBUG] mcpRestartedMsg: MCP reload complete for %s", msg.session.ID)
+		}
 		return h, nil
 
 	case updateCheckMsg:
@@ -750,6 +778,16 @@ func (h *Home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Update animation frame for launching spinner (8 frames, cycles every tick)
 		h.animationFrame = (h.animationFrame + 1) % 8
 
+		// Periodic log maintenance (prevents runaway log growth)
+		// Runs every logMaintenanceInterval (5 min) to truncate large logs
+		if time.Since(h.lastLogMaintenance) >= logMaintenanceInterval {
+			h.lastLogMaintenance = time.Now()
+			go func() {
+				logSettings := session.GetLogSettings()
+				tmux.RunLogMaintenance(logSettings.MaxSizeMB, logSettings.MaxLines, logSettings.RemoveOrphans)
+			}()
+		}
+
 		// Clean up expired launching/resuming sessions
 		// For Claude: remove after 20s timeout (animation shows for ~6-15s)
 		// For others: remove after 5s timeout
@@ -803,6 +841,31 @@ func (h *Home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			if time.Since(resumedAt) > timeout {
 				delete(h.resumingSessions, sessionID)
+			}
+		}
+		// Clean up expired MCP loading sessions (same timeout logic)
+		for sessionID, loadedAt := range h.mcpLoadingSessions {
+			// Find the instance
+			var inst *session.Instance
+			for _, i := range h.instances {
+				if i.ID == sessionID {
+					inst = i
+					break
+				}
+			}
+			if inst == nil {
+				// Session was deleted, clean up
+				delete(h.mcpLoadingSessions, sessionID)
+				continue
+			}
+
+			// Use appropriate timeout based on tool
+			timeout := defaultTimeout
+			if inst.Tool == "claude" {
+				timeout = claudeTimeout
+			}
+			if time.Since(loadedAt) > timeout {
+				delete(h.mcpLoadingSessions, sessionID)
 			}
 		}
 		h.instancesMu.RUnlock()
@@ -1235,7 +1298,7 @@ func (h *Home) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			item := h.flatItems[h.cursor]
 			if item.Type == session.ItemTypeSession && item.Session != nil && item.Session.Tool == "claude" {
 				h.mcpDialog.SetSize(h.width, h.height)
-				if err := h.mcpDialog.Show(item.Session.ProjectPath); err != nil {
+				if err := h.mcpDialog.Show(item.Session.ProjectPath, item.Session.ID); err != nil {
 					h.err = err
 				}
 			}
@@ -1256,8 +1319,8 @@ func (h *Home) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		h.groupDialog.Show()
 		return h, nil
 
-	case "R", "shift+r":
-		// Rename group or session
+	case "e":
+		// Edit/Rename group or session
 		if h.cursor < len(h.flatItems) {
 			item := h.flatItems[h.cursor]
 			if item.Type == session.ItemTypeGroup {
@@ -1370,9 +1433,6 @@ func (h *Home) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "i":
 		return h, h.importSessions
 
-	case "r":
-		return h, h.loadSessions
-
 	case "u":
 		// Mark session as unread (change idle → waiting)
 		if h.cursor < len(h.flatItems) {
@@ -1388,8 +1448,8 @@ func (h *Home) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return h, nil
 
-	case "S":
-		// Restart/Start a dead/errored session (recreate tmux session)
+	case "r", "R":
+		// Restart session (recreate tmux session with resume)
 		if h.cursor < len(h.flatItems) {
 			item := h.flatItems[h.cursor]
 			if item.Type == session.ItemTypeSession && item.Session != nil {
@@ -1451,24 +1511,50 @@ func (h *Home) handleConfirmDialogKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 func (h *Home) handleMCPDialogKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "enter":
+		// DEBUG: Log entry point
+		log.Printf("[MCP-DEBUG] Enter pressed in MCP dialog")
+
 		// Apply changes and close dialog
-		if h.mcpDialog.HasChanged() {
+		hasChanged := h.mcpDialog.HasChanged()
+		log.Printf("[MCP-DEBUG] HasChanged() = %v", hasChanged)
+
+		if hasChanged {
 			// Apply changes (saves state + writes .mcp.json)
 			if err := h.mcpDialog.Apply(); err != nil {
+				log.Printf("[MCP-DEBUG] Apply() failed: %v", err)
 				h.err = err
+				h.mcpDialog.Hide() // Hide dialog even on error
 				return h, nil
 			}
+			log.Printf("[MCP-DEBUG] Apply() succeeded")
 
-			// Find the session and restart it
-			projectPath := h.mcpDialog.GetProjectPath()
+			// Find the session by ID (stored when dialog opened - same as Shift+S uses)
+			sessionID := h.mcpDialog.GetSessionID()
+			log.Printf("[MCP-DEBUG] Looking for sessionID: %q", sessionID)
+
+			h.instancesMu.RLock()
+			var targetInst *session.Instance
 			for _, inst := range h.instances {
-				if inst.ProjectPath == projectPath && inst.Tool == "claude" {
-					// Restart the session to apply MCP changes
-					h.mcpDialog.Hide()
-					return h, h.restartSession(inst)
+				if inst.ID == sessionID {
+					targetInst = inst
+					log.Printf("[MCP-DEBUG] Found session by ID: %s, Title=%s", inst.ID, inst.Title)
+					break
 				}
 			}
+			h.instancesMu.RUnlock()
+
+			if targetInst != nil {
+				log.Printf("[MCP-DEBUG] Calling restartSession for: %s (with MCP loading animation)", targetInst.ID)
+				// Track as MCP loading for animation in preview pane
+				h.mcpLoadingSessions[targetInst.ID] = time.Now()
+				// Restart the session to apply MCP changes
+				h.mcpDialog.Hide()
+				return h, h.restartSession(targetInst)
+			} else {
+				log.Printf("[MCP-DEBUG] No session found with ID: %s", sessionID)
+			}
 		}
+		log.Printf("[MCP-DEBUG] Hiding dialog without restart")
 		h.mcpDialog.Hide()
 		return h, nil
 
@@ -1735,16 +1821,38 @@ func (h *Home) deleteSession(inst *session.Instance) tea.Cmd {
 
 // sessionRestartedMsg signals that a session was restarted
 type sessionRestartedMsg struct {
-	sessionID string
-	err       error
+	sessionID  string
+	err        error
+	autoAttach bool // If true, attach to session after restart
+}
+
+// mcpRestartedMsg signals that an MCP-triggered restart completed and should auto-attach
+type mcpRestartedMsg struct {
+	session *session.Instance
+	err     error
 }
 
 // restartSession restarts a dead/errored session by creating a new tmux session
 func (h *Home) restartSession(inst *session.Instance) tea.Cmd {
 	id := inst.ID
+	log.Printf("[MCP-DEBUG] restartSession() called for ID=%s, Title=%s, Tool=%s", inst.ID, inst.Title, inst.Tool)
 	return func() tea.Msg {
+		log.Printf("[MCP-DEBUG] restartSession() cmd executing - calling inst.Restart()")
 		err := inst.Restart()
+		log.Printf("[MCP-DEBUG] restartSession() inst.Restart() returned err=%v", err)
 		return sessionRestartedMsg{sessionID: id, err: err}
+	}
+}
+
+// restartAndAttachSession restarts a session and auto-attaches after restart completes
+// Used by MCP Manager to restart session with new MCP config and immediately attach
+func (h *Home) restartAndAttachSession(inst *session.Instance) tea.Cmd {
+	log.Printf("[MCP-DEBUG] restartAndAttachSession() called for ID=%s, Title=%s", inst.ID, inst.Title)
+	return func() tea.Msg {
+		log.Printf("[MCP-DEBUG] restartAndAttachSession() executing restart")
+		err := inst.Restart()
+		log.Printf("[MCP-DEBUG] restartAndAttachSession() restart returned err=%v", err)
+		return mcpRestartedMsg{session: inst, err: err}
 	}
 }
 
@@ -2114,7 +2222,7 @@ func (h *Home) renderHelpBar() string {
 			contextTitle = "Group"
 			contextHints = []string{
 				h.helpKey("Tab", "Toggle"),
-				h.helpKey("R", "Rename"),
+				h.helpKey("e", "Rename"),
 				h.helpKey("d", "Delete"),
 				h.helpKey("g", "Subgroup"),
 				h.helpKey("n", "New"),
@@ -2123,13 +2231,14 @@ func (h *Home) renderHelpBar() string {
 			contextTitle = "Session"
 			contextHints = []string{
 				h.helpKey("Enter", "Attach"),
+				h.helpKey("r", "Restart"),
 			}
 			// Only show fork hints if session has a valid Claude session ID
 			if item.Session != nil && item.Session.CanFork() {
 				contextHints = append(contextHints, h.helpKey("f", "Fork"))
 			}
 			contextHints = append(contextHints,
-				h.helpKey("R", "Rename"),
+				h.helpKey("e", "Rename"),
 				h.helpKey("m", "Move"),
 				h.helpKey("d", "Delete"),
 			)
@@ -2491,6 +2600,59 @@ func (h *Home) renderLaunchingState(inst *session.Instance, width int) string {
 	return b.String()
 }
 
+// renderMcpLoadingState renders the MCP loading animation in the preview pane
+func (h *Home) renderMcpLoadingState(inst *session.Instance, width int, startTime time.Time) string {
+	var b strings.Builder
+
+	// Braille spinner frames - creates smooth rotation effect
+	spinnerFrames := []string{"⣾", "⣽", "⣻", "⢿", "⡿", "⣟", "⣯", "⣷"}
+	spinner := spinnerFrames[h.animationFrame]
+
+	// Centered layout
+	centerStyle := lipgloss.NewStyle().
+		Width(width - 4).
+		Align(lipgloss.Center)
+
+	// Spinner with cyan color (MCP-themed)
+	spinnerStyle := lipgloss.NewStyle().
+		Foreground(ColorCyan).
+		Bold(true)
+	spinnerLine := spinnerStyle.Render(spinner + "  " + spinner + "  " + spinner)
+	b.WriteString(centerStyle.Render(spinnerLine))
+	b.WriteString("\n\n")
+
+	// MCP loading title
+	titleStyle := lipgloss.NewStyle().
+		Foreground(ColorCyan).
+		Bold(true)
+	b.WriteString(centerStyle.Render(titleStyle.Render("🔌 Reloading MCPs")))
+	b.WriteString("\n\n")
+
+	// Description
+	descStyle := lipgloss.NewStyle().
+		Foreground(ColorTextDim).
+		Italic(true)
+	b.WriteString(centerStyle.Render(descStyle.Render("Restarting session with updated MCP configuration...")))
+	b.WriteString("\n\n")
+
+	// Progress dots animation
+	dotsCount := (h.animationFrame % 4) + 1
+	dots := strings.Repeat("●", dotsCount) + strings.Repeat("○", 4-dotsCount)
+	dotsStyle := lipgloss.NewStyle().
+		Foreground(ColorCyan)
+	b.WriteString(centerStyle.Render(dotsStyle.Render(dots)))
+	b.WriteString("\n\n")
+
+	// Elapsed time
+	elapsed := time.Since(startTime).Round(time.Second)
+	timeStyle := lipgloss.NewStyle().
+		Foreground(ColorYellow).
+		Italic(true)
+	b.WriteString(centerStyle.Render(timeStyle.Render(fmt.Sprintf("Loading... %s", elapsed))))
+
+	return b.String()
+}
+
 // renderPreviewPane renders the right panel with live preview
 func (h *Home) renderPreviewPane(width, height int) string {
 	var b strings.Builder
@@ -2684,16 +2846,21 @@ func (h *Home) renderPreviewPane(width, height int) string {
 	// Check if this session is launching (newly created) or resuming (restarted)
 	launchTime, isLaunching := h.launchingSessions[selected.ID]
 	resumeTime, isResuming := h.resumingSessions[selected.ID]
+	mcpLoadTime, isMcpLoading := h.mcpLoadingSessions[selected.ID]
 
-	// Determine if we should show animation (launch or resume)
+	// Determine if we should show animation (launch, resume, or MCP loading)
 	// For Claude: show for minimum 6 seconds, then check for ready indicators
 	// For others: show for first 3 seconds after creation
 	showLaunchingAnimation := false
+	showMcpLoadingAnimation := false
 	var animationStartTime time.Time
 	if isLaunching {
 		animationStartTime = launchTime
 	} else if isResuming {
 		animationStartTime = resumeTime
+	} else if isMcpLoading {
+		animationStartTime = mcpLoadTime
+		showMcpLoadingAnimation = true
 	}
 
 	if isLaunching || isResuming {
@@ -2733,8 +2900,12 @@ func (h *Home) renderPreviewPane(width, height int) string {
 	preview, hasCached := h.previewCache[selected.ID]
 	h.previewCacheMu.RUnlock()
 
-	// Show launching animation for new sessions
-	if showLaunchingAnimation {
+	// Show MCP loading animation when reloading MCPs
+	if showMcpLoadingAnimation {
+		b.WriteString("\n")
+		b.WriteString(h.renderMcpLoadingState(selected, width, mcpLoadTime))
+	} else if showLaunchingAnimation {
+		// Show launching animation for new sessions
 		b.WriteString("\n")
 		b.WriteString(h.renderLaunchingState(selected, width))
 	} else if !hasCached {
