@@ -37,6 +37,10 @@ type Instance struct {
 	ClaudeSessionID  string    `json:"claude_session_id,omitempty"`
 	ClaudeDetectedAt time.Time `json:"claude_detected_at,omitempty"`
 
+	// MCP tracking - which MCPs were loaded when session started/restarted
+	// Used to detect pending MCPs (added after session start) and stale MCPs (removed but still running)
+	LoadedMCPNames []string `json:"loaded_mcp_names,omitempty"`
+
 	tmuxSession *tmux.Session // Internal tmux session
 }
 
@@ -153,6 +157,9 @@ func (i *Instance) Start() error {
 	if err := i.tmuxSession.Start(command); err != nil {
 		return fmt.Errorf("failed to start tmux session: %w", err)
 	}
+
+	// Capture MCPs that are now loaded (for sync tracking)
+	i.CaptureLoadedMCPs()
 
 	if command != "" {
 		i.Status = StatusRunning
@@ -375,25 +382,36 @@ func (i *Instance) Kill() error {
 func (i *Instance) Restart() error {
 	// If Claude session with known ID AND tmux session exists, interrupt and resume
 	if i.Tool == "claude" && i.ClaudeSessionID != "" && i.tmuxSession != nil && i.tmuxSession.Exists() {
-		// Claude requires TWO Ctrl+C signals to exit:
+		// Robust restart: interrupt Claude, wait for shell, then send resume command
+
+		// Step 1: Send Ctrl+C twice to exit Claude
+		// Claude requires TWO Ctrl+C signals:
 		// - First Ctrl+C shows "Press Ctrl-C again to exit"
 		// - Second Ctrl+C actually exits
 		if err := i.tmuxSession.SendCtrlC(); err != nil {
 			return fmt.Errorf("failed to send first Ctrl+C: %w", err)
 		}
+		time.Sleep(200 * time.Millisecond)
 
-		// Wait for Claude to register the first interrupt
-		time.Sleep(300 * time.Millisecond)
-
-		// Send second Ctrl+C to actually exit
 		if err := i.tmuxSession.SendCtrlC(); err != nil {
 			return fmt.Errorf("failed to send second Ctrl+C: %w", err)
 		}
 
-		// Wait for Claude to fully exit and return to shell
-		time.Sleep(500 * time.Millisecond)
+		// Step 2: Wait for shell prompt (polls terminal, max 5 seconds)
+		// This is adaptive - if Claude exits quickly, we proceed quickly
+		if !i.tmuxSession.WaitForShellPrompt(5 * time.Second) {
+			// Timeout - Claude might be stuck. Try one more Ctrl+C
+			_ = i.tmuxSession.SendCtrlC()
+			time.Sleep(500 * time.Millisecond)
+		}
 
-		// Send resume command
+		// Step 3: Clear any partial input that might be on the line
+		if err := i.tmuxSession.SendCtrlU(); err != nil {
+			// Non-fatal, continue
+		}
+		time.Sleep(50 * time.Millisecond)
+
+		// Step 4: Send resume command
 		configDir := GetClaudeConfigDir()
 		resumeCmd := fmt.Sprintf("CLAUDE_CONFIG_DIR=%s claude --resume %s --dangerously-skip-permissions",
 			configDir, i.ClaudeSessionID)
@@ -401,6 +419,9 @@ func (i *Instance) Restart() error {
 		if err := i.tmuxSession.SendCommand(resumeCmd); err != nil {
 			return fmt.Errorf("failed to send resume command: %w", err)
 		}
+
+		// Re-capture MCPs after restart (they may have changed since session started)
+		i.CaptureLoadedMCPs()
 
 		i.Status = StatusRunning
 		return nil
@@ -422,6 +443,9 @@ func (i *Instance) Restart() error {
 		i.Status = StatusError
 		return fmt.Errorf("failed to restart tmux session: %w", err)
 	}
+
+	// Re-capture MCPs after restart
+	i.CaptureLoadedMCPs()
 
 	if command != "" {
 		i.Status = StatusRunning
@@ -541,6 +565,24 @@ func (i *Instance) GetMCPInfo() *MCPInfo {
 		return nil
 	}
 	return GetMCPInfo(i.ProjectPath)
+}
+
+// CaptureLoadedMCPs captures the current MCP names as the "loaded" state
+// This should be called when a session starts or restarts, so we can track
+// which MCPs are actually loaded in the running Claude session vs just configured
+func (i *Instance) CaptureLoadedMCPs() {
+	if i.Tool != "claude" {
+		i.LoadedMCPNames = nil
+		return
+	}
+
+	mcpInfo := GetMCPInfo(i.ProjectPath)
+	if mcpInfo == nil {
+		i.LoadedMCPNames = nil
+		return
+	}
+
+	i.LoadedMCPNames = mcpInfo.AllNames()
 }
 
 // generateID generates a unique session ID

@@ -58,19 +58,23 @@ type StorageData struct {
 
 // InstanceData represents the serializable session data
 type InstanceData struct {
-	ID          string    `json:"id"`
-	Title       string    `json:"title"`
-	ProjectPath string    `json:"project_path"`
-	GroupPath   string    `json:"group_path"`
-	Command     string    `json:"command"`
-	Tool        string    `json:"tool"`
-	Status      Status    `json:"status"`
-	CreatedAt   time.Time `json:"created_at"`
-	TmuxSession string    `json:"tmux_session"`
+	ID             string    `json:"id"`
+	Title          string    `json:"title"`
+	ProjectPath    string    `json:"project_path"`
+	GroupPath      string    `json:"group_path"`
+	Command        string    `json:"command"`
+	Tool           string    `json:"tool"`
+	Status         Status    `json:"status"`
+	CreatedAt      time.Time `json:"created_at"`
+	LastAccessedAt time.Time `json:"last_accessed_at,omitempty"`
+	TmuxSession    string    `json:"tmux_session"`
 
 	// Claude session (persisted for resume after app restart)
 	ClaudeSessionID  string    `json:"claude_session_id,omitempty"`
 	ClaudeDetectedAt time.Time `json:"claude_detected_at,omitempty"`
+
+	// MCP tracking (persisted for sync status display)
+	LoadedMCPNames []string `json:"loaded_mcp_names,omitempty"`
 }
 
 // GroupData represents serializable group data
@@ -193,9 +197,11 @@ func (s *Storage) SaveWithGroups(instances []*Instance, groupTree *GroupTree) er
 			Tool:             inst.Tool,
 			Status:           inst.Status,
 			CreatedAt:        inst.CreatedAt,
+			LastAccessedAt:   inst.LastAccessedAt,
 			TmuxSession:      tmuxName,
 			ClaudeSessionID:  inst.ClaudeSessionID,
 			ClaudeDetectedAt: inst.ClaudeDetectedAt,
+			LoadedMCPNames:   inst.LoadedMCPNames,
 		}
 	}
 
@@ -467,8 +473,10 @@ func (s *Storage) convertToInstances(data *StorageData) ([]*Instance, []*GroupDa
 			Tool:             instData.Tool,
 			Status:           instData.Status,
 			CreatedAt:        instData.CreatedAt,
+			LastAccessedAt:   instData.LastAccessedAt,
 			ClaudeSessionID:  instData.ClaudeSessionID,
 			ClaudeDetectedAt: instData.ClaudeDetectedAt,
+			LoadedMCPNames:   instData.LoadedMCPNames,
 			tmuxSession:      tmuxSess,
 		}
 

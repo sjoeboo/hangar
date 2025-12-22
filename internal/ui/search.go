@@ -32,13 +32,14 @@ var (
 
 // Search represents the search overlay component
 type Search struct {
-	input    textinput.Model
-	results  []*session.Instance
-	cursor   int
-	width    int
-	height   int
-	visible  bool
-	allItems []*session.Instance
+	input          textinput.Model
+	results        []*session.Instance
+	cursor         int
+	width          int
+	height         int
+	visible        bool
+	allItems       []*session.Instance
+	switchToGlobal bool // Flag to signal switch to global search
 }
 
 // NewSearch creates a new search overlay
@@ -73,6 +74,16 @@ func (s *Search) SetSize(width, height int) {
 func (s *Search) Show() {
 	s.visible = true
 	s.input.Focus()
+	s.switchToGlobal = false
+}
+
+// WantsSwitchToGlobal returns true if user pressed Tab to switch to global search
+func (s *Search) WantsSwitchToGlobal() bool {
+	if s.switchToGlobal {
+		s.switchToGlobal = false
+		return true
+	}
+	return false
 }
 
 // Hide hides the search overlay
@@ -130,6 +141,12 @@ func (s *Search) Update(msg tea.Msg) (*Search, tea.Cmd) {
 			}
 			return s, nil
 
+		case "tab":
+			// Signal to switch to global search
+			s.switchToGlobal = true
+			s.Hide()
+			return s, nil
+
 		default:
 			// Update text input
 			var cmd tea.Cmd
@@ -154,6 +171,12 @@ func (s *Search) View() string {
 	if !s.visible {
 		return ""
 	}
+
+	// Header
+	header := lipgloss.NewStyle().
+		Foreground(ColorAccent).
+		Bold(true).
+		Render("🔍 Local Search (Agent Deck sessions)")
 
 	// Build search input box
 	searchBox := searchBoxStyle.Render(s.input.View())
@@ -192,12 +215,17 @@ func (s *Search) View() string {
 			Render("  Tip: waiting / running / idle to filter by status")
 	}
 
+	// Keyboard shortcuts hint
+	keysHint := lipgloss.NewStyle().
+		Foreground(ColorComment).
+		Render("  [Enter] Select  [↑↓] Navigate  [Tab] Global  [Esc] Cancel")
+
 	// Combine everything
 	var content string
 	if hintStr != "" {
-		content = searchBox + "\n" + hintStr + "\n\n" + resultsStr.String() + "\n" + countStr
+		content = header + "\n\n" + searchBox + "\n" + hintStr + "\n\n" + resultsStr.String() + "\n" + countStr + "\n" + keysHint
 	} else {
-		content = searchBox + "\n\n" + resultsStr.String() + "\n" + countStr
+		content = header + "\n\n" + searchBox + "\n\n" + resultsStr.String() + "\n" + countStr + "\n" + keysHint
 	}
 
 	// Wrap in overlay box

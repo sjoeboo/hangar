@@ -683,6 +683,14 @@ func (h *Home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.err != nil {
 			h.err = fmt.Errorf("failed to restart session: %w", msg.err)
 		} else {
+			// Find the instance and refresh its MCP state
+			for _, inst := range h.instances {
+				if inst.ID == msg.sessionID {
+					// Refresh the loaded MCPs to match the new config
+					inst.CaptureLoadedMCPs()
+					break
+				}
+			}
 			// Save the updated session state (new tmux session name)
 			h.saveInstances()
 		}
@@ -699,19 +707,27 @@ func (h *Home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Clear attach flag - we've returned from the attached session
 		h.isAttaching = false
 
-		// Immediate status update without reloading from storage
-		// Used when returning from attached session
-		for _, inst := range h.instances {
-			if err := inst.UpdateStatus(); err != nil {
-				// Log error but don't fail - other sessions still need updating
-				h.err = fmt.Errorf("status update failed for %s: %w", inst.Title, err)
+		// CRITICAL FIX: Use async background worker instead of blocking UI thread
+		// The previous blocking loop caused 500ms+ delays with many sessions,
+		// resulting in black screen and lag when returning from attached sessions.
+		// Now we trigger the background worker which uses round-robin batching.
+		h.triggerStatusUpdate()
+
+		// Run dedup and save in background to avoid blocking UI
+		go func() {
+			h.instancesMu.RLock()
+			instancesCopy := make([]*session.Instance, len(h.instances))
+			copy(instancesCopy, h.instances)
+			h.instancesMu.RUnlock()
+
+			// Deduplicate Claude session IDs
+			session.UpdateClaudeSessionsWithDedup(instancesCopy)
+
+			// Save state to persist acknowledged state
+			if h.storage != nil {
+				_ = h.storage.SaveWithGroups(instancesCopy, h.groupTree)
 			}
-		}
-		// Deduplicate Claude session IDs after status updates
-		// This prevents multiple sessions from claiming the same Claude session
-		session.UpdateClaudeSessionsWithDedup(h.instances)
-		// Save state after returning from attached session to persist acknowledged state
-		h.saveInstances()
+		}()
 		return h, nil
 
 	case previewFetchedMsg:
@@ -1437,12 +1453,16 @@ func (h *Home) handleMCPDialogKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "enter":
 		// Apply changes and close dialog
 		if h.mcpDialog.HasChanged() {
+			// Apply changes (saves state + writes .mcp.json)
+			if err := h.mcpDialog.Apply(); err != nil {
+				h.err = err
+				return h, nil
+			}
+
 			// Find the session and restart it
 			projectPath := h.mcpDialog.GetProjectPath()
 			for _, inst := range h.instances {
 				if inst.ProjectPath == projectPath && inst.Tool == "claude" {
-					// Clear MCP cache to reflect new state
-					session.ClearMCPCache(projectPath)
 					// Restart the session to apply MCP changes
 					h.mcpDialog.Hide()
 					return h, h.restartSession(inst)
@@ -2578,22 +2598,79 @@ func (h *Home) renderPreviewPane(width, height int) string {
 			b.WriteString("\n")
 		}
 
-		// MCP servers - compact format with source indicators
-		if mcpInfo := selected.GetMCPInfo(); mcpInfo != nil && mcpInfo.HasAny() {
+		// MCP servers - compact format with source indicators and sync status
+		mcpInfo := selected.GetMCPInfo()
+		hasLoadedMCPs := len(selected.LoadedMCPNames) > 0
+		hasMCPs := mcpInfo != nil && mcpInfo.HasAny()
+
+		if hasMCPs || hasLoadedMCPs {
 			b.WriteString(labelStyle.Render("MCPs:    "))
 
-			// Collect all MCPs with source indicators: (g)lobal, (p)roject, (l)ocal
+			// Build set of loaded MCPs for comparison
+			loadedSet := make(map[string]bool)
+			for _, name := range selected.LoadedMCPNames {
+				loadedSet[name] = true
+			}
+
+			// Build set of current MCPs (from config)
+			currentSet := make(map[string]bool)
+			if mcpInfo != nil {
+				for _, name := range mcpInfo.Global {
+					currentSet[name] = true
+				}
+				for _, name := range mcpInfo.Project {
+					currentSet[name] = true
+				}
+				for _, name := range mcpInfo.Local {
+					currentSet[name] = true
+				}
+			}
+
+			// Styles for different MCP states
+			pendingStyle := lipgloss.NewStyle().Foreground(ColorYellow)
+			staleStyle := lipgloss.NewStyle().Foreground(ColorTextDim)
+
 			var mcpParts []string
-			for _, name := range mcpInfo.Global {
-				mcpParts = append(mcpParts, name+" (g)")
+
+			// Helper to add MCP with appropriate styling
+			addMCP := func(name, source string) {
+				label := name + " (" + source + ")"
+				if !hasLoadedMCPs {
+					// Old session without LoadedMCPNames - show all as normal (no sync info)
+					mcpParts = append(mcpParts, valueStyle.Render(label))
+				} else if loadedSet[name] {
+					// In both loaded and current - active (normal style)
+					mcpParts = append(mcpParts, valueStyle.Render(label))
+				} else {
+					// In current but not loaded - pending (needs restart)
+					mcpParts = append(mcpParts, pendingStyle.Render(label+" ⟳"))
+				}
 			}
-			for _, name := range mcpInfo.Project {
-				mcpParts = append(mcpParts, name+" (p)")
+
+			// Add MCPs from current config with source indicators
+			if mcpInfo != nil {
+				for _, name := range mcpInfo.Global {
+					addMCP(name, "g")
+				}
+				for _, name := range mcpInfo.Project {
+					addMCP(name, "p")
+				}
+				for _, name := range mcpInfo.Local {
+					addMCP(name, "l")
+				}
 			}
-			for _, name := range mcpInfo.Local {
-				mcpParts = append(mcpParts, name+" (l)")
+
+			// Add stale MCPs (loaded but no longer in config)
+			if hasLoadedMCPs {
+				for _, name := range selected.LoadedMCPNames {
+					if !currentSet[name] {
+						// Still running but removed from config
+						mcpParts = append(mcpParts, staleStyle.Render(name+" ✕"))
+					}
+				}
 			}
-			b.WriteString(valueStyle.Render(strings.Join(mcpParts, ", ")))
+
+			b.WriteString(strings.Join(mcpParts, ", "))
 			b.WriteString("\n")
 		}
 	}
@@ -2633,7 +2710,12 @@ func (h *Home) renderPreviewPane(width, height int) string {
 				previewContent := h.previewCache[selected.ID]
 				h.previewCacheMu.RUnlock()
 				// Claude is ready when we see its prompt or it is actively running
-				claudeReady := strings.Contains(previewContent, "\n> ") ||
+				// Detection patterns (from Claude Squad + our own):
+				// - Permission prompt: "No, and tell Claude what to do differently" (most reliable)
+				// - Input prompt: "\n> " or "> \n"
+				// - Active running: "esc to interrupt", spinner chars, "Thinking"
+				claudeReady := strings.Contains(previewContent, "No, and tell Claude what to do differently") ||
+					strings.Contains(previewContent, "\n> ") ||
 					strings.Contains(previewContent, "> \n") ||
 					strings.Contains(previewContent, "esc to interrupt") ||
 					strings.Contains(previewContent, "⠋") || strings.Contains(previewContent, "⠙") ||

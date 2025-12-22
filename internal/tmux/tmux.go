@@ -1394,6 +1394,96 @@ func (s *Session) SendCtrlC() error {
 	return cmd.Run()
 }
 
+// SendCtrlU sends Ctrl+U (clear line) to the tmux session
+func (s *Session) SendCtrlU() error {
+	cmd := exec.Command("tmux", "send-keys", "-t", s.Name, "C-u")
+	return cmd.Run()
+}
+
+// WaitForShellPrompt polls the terminal until a shell prompt is detected
+// Returns true if shell prompt found, false if timeout
+// Shell prompts: $, #, %, ❯, ➜, or bare > at end of line
+func (s *Session) WaitForShellPrompt(timeout time.Duration) bool {
+	deadline := time.Now().Add(timeout)
+	pollInterval := 100 * time.Millisecond
+
+	shellPrompts := []string{"$ ", "# ", "% ", "❯ ", "➜ "}
+
+	for time.Now().Before(deadline) {
+		content, err := s.CapturePane()
+		if err != nil {
+			time.Sleep(pollInterval)
+			continue
+		}
+
+		// Get the last non-empty line
+		lines := strings.Split(strings.TrimSpace(content), "\n")
+		if len(lines) == 0 {
+			time.Sleep(pollInterval)
+			continue
+		}
+		lastLine := strings.TrimSpace(lines[len(lines)-1])
+
+		// Check for shell prompts
+		for _, prompt := range shellPrompts {
+			if strings.HasSuffix(lastLine, strings.TrimSpace(prompt)) ||
+				strings.Contains(lastLine, prompt) {
+				return true
+			}
+		}
+
+		// Also check for bare ">" but make sure it's not Claude's input prompt
+		// Claude's prompt is just ">" or "> " without path prefix
+		// Shell prompts typically have a path or user prefix before >
+		if strings.HasSuffix(lastLine, ">") && len(lastLine) > 2 {
+			return true
+		}
+
+		time.Sleep(pollInterval)
+	}
+
+	return false
+}
+
+// IsClaudeRunning checks if Claude appears to be running in the session
+// Returns true if Claude indicators are found
+func (s *Session) IsClaudeRunning() bool {
+	content, err := s.CapturePane()
+	if err != nil {
+		return false
+	}
+
+	// Check for Claude-specific indicators
+	claudeIndicators := []string{
+		"esc to interrupt",
+		"Thinking...",
+		"Connecting...",
+		"Press Ctrl-C again to exit",
+	}
+
+	// Also check for spinner characters (Claude's busy indicator)
+	spinnerChars := "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
+
+	for _, indicator := range claudeIndicators {
+		if strings.Contains(content, indicator) {
+			return true
+		}
+	}
+
+	// Check last few lines for spinner
+	lines := strings.Split(content, "\n")
+	for i := len(lines) - 1; i >= 0 && i >= len(lines)-5; i-- {
+		line := lines[i]
+		for _, c := range spinnerChars {
+			if strings.ContainsRune(line, c) {
+				return true
+			}
+		}
+	}
+
+	return false
+}
+
 // SendCommand sends a command to the tmux session and presses Enter
 func (s *Session) SendCommand(command string) error {
 	// Send the command text
@@ -1454,6 +1544,170 @@ func ListAllSessions() ([]*Session, error) {
 
 	return sessions, nil
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Log Management Functions
+// ═══════════════════════════════════════════════════════════════════════════
+
+// TruncateLogFile truncates a log file to keep only the last maxLines lines
+// This is called when a log file exceeds maxSizeBytes
+func TruncateLogFile(logPath string, maxLines int) error {
+	// Read the file
+	data, err := os.ReadFile(logPath)
+	if err != nil {
+		return fmt.Errorf("failed to read log file: %w", err)
+	}
+
+	// Split into lines
+	lines := strings.Split(string(data), "\n")
+
+	// If already under limit, nothing to do
+	if len(lines) <= maxLines {
+		return nil
+	}
+
+	// Keep only the last maxLines
+	start := len(lines) - maxLines
+	truncatedLines := lines[start:]
+
+	// Write back
+	truncatedData := strings.Join(truncatedLines, "\n")
+	if err := os.WriteFile(logPath, []byte(truncatedData), 0644); err != nil {
+		return fmt.Errorf("failed to write truncated log: %w", err)
+	}
+
+	debugLog("Truncated log %s: %d -> %d lines", filepath.Base(logPath), len(lines), len(truncatedLines))
+	return nil
+}
+
+// TruncateLargeLogFiles checks all log files and truncates any that exceed maxSizeMB
+func TruncateLargeLogFiles(maxSizeMB int, maxLines int) (truncated int, err error) {
+	logDir := LogDir()
+
+	entries, err := os.ReadDir(logDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return 0, nil // No logs directory yet
+		}
+		return 0, fmt.Errorf("failed to read log directory: %w", err)
+	}
+
+	maxSizeBytes := int64(maxSizeMB * 1024 * 1024)
+
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".log") {
+			continue
+		}
+
+		logPath := filepath.Join(logDir, entry.Name())
+		info, err := entry.Info()
+		if err != nil {
+			continue
+		}
+
+		if info.Size() > maxSizeBytes {
+			if err := TruncateLogFile(logPath, maxLines); err != nil {
+				debugLog("Failed to truncate %s: %v", entry.Name(), err)
+				continue
+			}
+			truncated++
+		}
+	}
+
+	return truncated, nil
+}
+
+// CleanupOrphanedLogs removes log files for sessions that no longer exist
+// A log is considered orphaned if:
+// 1. No tmux session with matching name exists
+// 2. The log file is older than 1 hour (to avoid race conditions during session creation)
+func CleanupOrphanedLogs() (removed int, freedBytes int64, err error) {
+	logDir := LogDir()
+
+	entries, err := os.ReadDir(logDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return 0, 0, nil // No logs directory yet
+		}
+		return 0, 0, fmt.Errorf("failed to read log directory: %w", err)
+	}
+
+	// Get list of existing tmux sessions
+	sessions, err := ListAllSessions()
+	if err != nil {
+		// If tmux server isn't running, we can't determine orphans safely
+		return 0, 0, nil
+	}
+
+	// Build a set of active session names
+	activeNames := make(map[string]bool)
+	for _, sess := range sessions {
+		activeNames[sess.Name] = true
+	}
+
+	now := time.Now()
+	minAge := 1 * time.Hour // Only cleanup logs older than 1 hour
+
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".log") {
+			continue
+		}
+
+		sessionName := strings.TrimSuffix(entry.Name(), ".log")
+		logPath := filepath.Join(logDir, entry.Name())
+
+		// Check if session exists
+		if activeNames[sessionName] {
+			continue // Session still exists
+		}
+
+		// Check age
+		info, err := entry.Info()
+		if err != nil {
+			continue
+		}
+		if now.Sub(info.ModTime()) < minAge {
+			continue // Too recent, might be in process of creation
+		}
+
+		// Remove orphaned log
+		size := info.Size()
+		if err := os.Remove(logPath); err != nil {
+			debugLog("Failed to remove orphaned log %s: %v", entry.Name(), err)
+			continue
+		}
+
+		removed++
+		freedBytes += size
+		debugLog("Removed orphaned log: %s (%.1f KB)", entry.Name(), float64(size)/1024)
+	}
+
+	return removed, freedBytes, nil
+}
+
+// RunLogMaintenance performs all log maintenance tasks based on settings
+// This should be called once at startup and optionally periodically
+func RunLogMaintenance(maxSizeMB int, maxLines int, removeOrphans bool) {
+	// Truncate large files
+	truncated, err := TruncateLargeLogFiles(maxSizeMB, maxLines)
+	if err != nil {
+		debugLog("Log truncation error: %v", err)
+	} else if truncated > 0 {
+		debugLog("Truncated %d large log files", truncated)
+	}
+
+	// Remove orphaned logs
+	if removeOrphans {
+		removed, freed, err := CleanupOrphanedLogs()
+		if err != nil {
+			debugLog("Orphan cleanup error: %v", err)
+		} else if removed > 0 {
+			debugLog("Removed %d orphaned logs (freed %.1f MB)", removed, float64(freed)/(1024*1024))
+		}
+	}
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
 
 // DiscoverAllTmuxSessions returns all tmux sessions (including non-Agent Deck ones)
 func DiscoverAllTmuxSessions() ([]*Session, error) {

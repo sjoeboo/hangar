@@ -243,8 +243,13 @@ func (gs *GlobalSearch) updateResults() {
 		return
 	}
 
-	// Perform search (use fuzzy for typo tolerance)
-	searchResults := gs.index.FuzzySearch(query)
+	// Perform full-content search first (more comprehensive)
+	searchResults := gs.index.Search(query)
+
+	// If no substring matches, fall back to fuzzy search (typo tolerance)
+	if len(searchResults) == 0 {
+		searchResults = gs.index.FuzzySearch(query)
+	}
 
 	// Convert to UI results (limit to 15 for split view)
 	gs.results = make([]*GlobalSearchResult, 0, min(len(searchResults), 15))

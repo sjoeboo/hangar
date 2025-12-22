@@ -85,7 +85,10 @@ func TestHomeUpdateSearch(t *testing.T) {
 	home.width = 100
 	home.height = 30
 
-	// Press / to open search
+	// Disable global search to test local search behavior
+	home.globalSearchIndex = nil
+
+	// Press / to open search (should open local search when global is not available)
 	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}}
 	model, _ := home.Update(msg)
 
@@ -94,7 +97,7 @@ func TestHomeUpdateSearch(t *testing.T) {
 		t.Fatal("Update should return *Home")
 	}
 	if !h.search.IsVisible() {
-		t.Error("Search should be visible after pressing /")
+		t.Error("Local search should be visible after pressing / when global search is not available")
 	}
 }
 
@@ -252,5 +255,118 @@ func TestHomeRenameSessionComplete(t *testing.T) {
 	}
 	if h.instances[0].Title != "new-name" {
 		t.Errorf("Session title = %s, want new-name", h.instances[0].Title)
+	}
+}
+
+func TestHomeGlobalSearchInitialized(t *testing.T) {
+	home := NewHome()
+	if home.globalSearch == nil {
+		t.Error("GlobalSearch component should be initialized")
+	}
+	// globalSearchIndex may be nil if not enabled in config, that's OK
+}
+
+func TestHomeSearchOpensGlobalWhenAvailable(t *testing.T) {
+	home := NewHome()
+	home.width = 100
+	home.height = 30
+
+	// Create a mock index
+	tmpDir := t.TempDir()
+	config := session.GlobalSearchSettings{
+		Enabled:        true,
+		Tier:           "instant",
+		MemoryLimitMB:  100,
+		IndexRateLimit: 100,
+	}
+	index, err := session.NewGlobalSearchIndex(tmpDir, config)
+	if err != nil {
+		t.Fatalf("Failed to create test index: %v", err)
+	}
+	defer index.Close()
+
+	home.globalSearchIndex = index
+	home.globalSearch.SetIndex(index)
+
+	// Press / to open search - should open global search when index is available
+	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}}
+	model, _ := home.Update(msg)
+
+	h, ok := model.(*Home)
+	if !ok {
+		t.Fatal("Update should return *Home")
+	}
+	if !h.globalSearch.IsVisible() {
+		t.Error("Global search should be visible after pressing / when index is available")
+	}
+	if h.search.IsVisible() {
+		t.Error("Local search should NOT be visible when global search opens")
+	}
+}
+
+func TestHomeSearchOpensLocalWhenNoIndex(t *testing.T) {
+	home := NewHome()
+	home.width = 100
+	home.height = 30
+
+	// Ensure no global search index
+	home.globalSearchIndex = nil
+
+	// Press / to open search - should fall back to local search
+	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}}
+	model, _ := home.Update(msg)
+
+	h, ok := model.(*Home)
+	if !ok {
+		t.Fatal("Update should return *Home")
+	}
+	if h.globalSearch.IsVisible() {
+		t.Error("Global search should NOT be visible when index is nil")
+	}
+	if !h.search.IsVisible() {
+		t.Error("Local search should be visible when global index is not available")
+	}
+}
+
+func TestHomeGlobalSearchEscape(t *testing.T) {
+	home := NewHome()
+	home.width = 100
+	home.height = 30
+
+	// Create a mock index
+	tmpDir := t.TempDir()
+	config := session.GlobalSearchSettings{
+		Enabled:        true,
+		Tier:           "instant",
+		MemoryLimitMB:  100,
+		IndexRateLimit: 100,
+	}
+	index, err := session.NewGlobalSearchIndex(tmpDir, config)
+	if err != nil {
+		t.Fatalf("Failed to create test index: %v", err)
+	}
+	defer index.Close()
+
+	home.globalSearchIndex = index
+	home.globalSearch.SetIndex(index)
+
+	// Open global search with /
+	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}}
+	home.Update(msg)
+
+	if !home.globalSearch.IsVisible() {
+		t.Fatal("Global search should be visible after pressing /")
+	}
+
+	// Press Escape to close
+	escMsg := tea.KeyMsg{Type: tea.KeyEsc}
+	model, _ := home.Update(escMsg)
+
+	h, ok := model.(*Home)
+	if !ok {
+		t.Fatal("Update should return *Home")
+	}
+	if h.globalSearch.IsVisible() {
+		t.Error("Global search should be hidden after pressing Escape")
 	}
 }

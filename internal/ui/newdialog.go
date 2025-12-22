@@ -13,18 +13,19 @@ import (
 
 // NewDialog represents the new session creation dialog
 type NewDialog struct {
-	nameInput       textinput.Model
-	pathInput       textinput.Model
-	commandInput    textinput.Model
-	focusIndex      int
-	width           int
-	height          int
-	visible         bool
-	presetCommands  []string
-	commandCursor   int
-	parentGroupPath string
-	parentGroupName string
-	pathSuggestions []string // stores all available path suggestions
+	nameInput            textinput.Model
+	pathInput            textinput.Model
+	commandInput         textinput.Model
+	focusIndex           int
+	width                int
+	height               int
+	visible              bool
+	presetCommands       []string
+	commandCursor        int
+	parentGroupPath      string
+	parentGroupName      string
+	pathSuggestions      []string // stores all available path suggestions
+	pathSuggestionCursor int      // tracks selected suggestion in dropdown
 }
 
 // NewNewDialog creates a new NewDialog instance
@@ -117,6 +118,7 @@ func (d *NewDialog) SetSize(width, height int) {
 // SetPathSuggestions sets the available path suggestions for autocomplete
 func (d *NewDialog) SetPathSuggestions(paths []string) {
 	d.pathSuggestions = paths
+	d.pathSuggestionCursor = 0
 	d.pathInput.SetSuggestions(paths)
 }
 
@@ -222,17 +224,36 @@ func (d *NewDialog) Update(msg tea.Msg) (*NewDialog, tea.Cmd) {
 	case tea.KeyMsg:
 		switch msg.String() {
 		case "tab":
-			// On path field: let textinput accept suggestion, then move to next field
-			if d.focusIndex == 1 {
-				d.pathInput, cmd = d.pathInput.Update(msg)
+			// On path field: apply selected suggestion, then move to next field
+			if d.focusIndex == 1 && len(d.pathSuggestions) > 0 {
+				if d.pathSuggestionCursor < len(d.pathSuggestions) {
+					d.pathInput.SetValue(d.pathSuggestions[d.pathSuggestionCursor])
+				}
 			}
 			// Move to next field
 			d.focusIndex = (d.focusIndex + 1) % 3
 			d.updateFocus()
 			return d, cmd
 
+		case "ctrl+n":
+			// Next suggestion (when on path field)
+			if d.focusIndex == 1 && len(d.pathSuggestions) > 0 {
+				d.pathSuggestionCursor = (d.pathSuggestionCursor + 1) % len(d.pathSuggestions)
+				return d, nil
+			}
+
+		case "ctrl+p":
+			// Previous suggestion (when on path field)
+			if d.focusIndex == 1 && len(d.pathSuggestions) > 0 {
+				d.pathSuggestionCursor--
+				if d.pathSuggestionCursor < 0 {
+					d.pathSuggestionCursor = len(d.pathSuggestions) - 1
+				}
+				return d, nil
+			}
+
 		case "down":
-			// Down always navigates fields (Ctrl+N for suggestions)
+			// Down always navigates fields
 			d.focusIndex = (d.focusIndex + 1) % 3
 			d.updateFocus()
 			return d, nil
@@ -343,41 +364,37 @@ func (d *NewDialog) View() string {
 	content.WriteString("\n")
 
 	// Show path suggestions dropdown when path field is focused
-	if d.focusIndex == 1 {
-		matched := d.pathInput.MatchedSuggestions()
-		if len(matched) > 0 {
-			suggestionStyle := lipgloss.NewStyle().
-				Foreground(ColorComment)
-			selectedStyle := lipgloss.NewStyle().
-				Foreground(ColorCyan).
-				Bold(true)
-			currentIdx := d.pathInput.CurrentSuggestionIndex()
+	if d.focusIndex == 1 && len(d.pathSuggestions) > 0 {
+		suggestionStyle := lipgloss.NewStyle().
+			Foreground(ColorComment)
+		selectedStyle := lipgloss.NewStyle().
+			Foreground(ColorCyan).
+			Bold(true)
 
-			// Show up to 5 suggestions
-			maxShow := 5
-			if len(matched) < maxShow {
-				maxShow = len(matched)
+		// Show up to 5 suggestions
+		maxShow := 5
+		if len(d.pathSuggestions) < maxShow {
+			maxShow = len(d.pathSuggestions)
+		}
+
+		content.WriteString("  ")
+		content.WriteString(lipgloss.NewStyle().Foreground(ColorComment).Render("─ recent paths (Tab: accept, Ctrl+N/P: cycle) ─"))
+		content.WriteString("\n")
+
+		for i := 0; i < maxShow; i++ {
+			style := suggestionStyle
+			prefix := "    "
+			if i == d.pathSuggestionCursor {
+				style = selectedStyle
+				prefix = "  ▶ "
 			}
-
-			content.WriteString("  ")
-			content.WriteString(lipgloss.NewStyle().Foreground(ColorComment).Render("─ suggestions (Tab: accept, Ctrl+N/P: cycle) ─"))
+			content.WriteString(style.Render(prefix + d.pathSuggestions[i]))
 			content.WriteString("\n")
+		}
 
-			for i := 0; i < maxShow; i++ {
-				style := suggestionStyle
-				prefix := "    "
-				if i == currentIdx {
-					style = selectedStyle
-					prefix = "  ▶ "
-				}
-				content.WriteString(style.Render(prefix + matched[i]))
-				content.WriteString("\n")
-			}
-
-			if len(matched) > maxShow {
-				content.WriteString(suggestionStyle.Render(fmt.Sprintf("    ... and %d more", len(matched)-maxShow)))
-				content.WriteString("\n")
-			}
+		if len(d.pathSuggestions) > maxShow {
+			content.WriteString(suggestionStyle.Render(fmt.Sprintf("    ... and %d more", len(d.pathSuggestions)-maxShow)))
+			content.WriteString("\n")
 		}
 	}
 	content.WriteString("\n")

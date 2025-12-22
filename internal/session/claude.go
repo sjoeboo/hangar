@@ -40,6 +40,28 @@ func (m *MCPInfo) Total() int {
 	return len(m.Global) + len(m.Project) + len(m.Local)
 }
 
+// AllNames returns a deduplicated, sorted list of all MCP names across all sources
+// Used for capturing loaded MCPs at session start for sync tracking
+func (m *MCPInfo) AllNames() []string {
+	seen := make(map[string]bool)
+	for _, name := range m.Global {
+		seen[name] = true
+	}
+	for _, name := range m.Project {
+		seen[name] = true
+	}
+	for _, name := range m.Local {
+		seen[name] = true
+	}
+
+	names := make([]string, 0, len(seen))
+	for name := range seen {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
+}
+
 // claudeConfigForMCP is used for parsing MCP-related fields from .claude.json
 type claudeConfigForMCP struct {
 	MCPServers map[string]json.RawMessage `json:"mcpServers"`

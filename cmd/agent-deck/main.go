@@ -6,8 +6,11 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/asheshgoplani/agent-deck/internal/session"
@@ -145,6 +148,22 @@ func main() {
 		fmt.Println("  brew install tmux")
 		os.Exit(1)
 	}
+
+	// Acquire lock to prevent duplicate instances
+	if err := acquireLock(profile); err != nil {
+		fmt.Printf("Error: %v\n", err)
+		os.Exit(1)
+	}
+	defer releaseLock(profile)
+
+	// Set up signal handling for graceful lock cleanup
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+	go func() {
+		<-sigChan
+		releaseLock(profile)
+		os.Exit(0)
+	}()
 
 	// Start TUI with the specified profile
 	p := tea.NewProgram(
@@ -1006,5 +1025,90 @@ func detectTool(cmd string) string {
 		return "cursor"
 	default:
 		return "shell"
+	}
+}
+
+// getLockFilePath returns the path to the lock file for a profile
+func getLockFilePath(profile string) string {
+	if profile == "" {
+		profile = session.DefaultProfile
+	}
+	homeDir, _ := os.UserHomeDir()
+	return filepath.Join(homeDir, ".agent-deck", "profiles", profile, ".lock")
+}
+
+// isProcessRunning checks if a process with the given PID is still running
+func isProcessRunning(pid int) bool {
+	process, err := os.FindProcess(pid)
+	if err != nil {
+		return false
+	}
+	// On Unix, FindProcess always succeeds, so we need to send signal 0 to check
+	err = process.Signal(syscall.Signal(0))
+	return err == nil
+}
+
+// acquireLock attempts to acquire an exclusive lock for the profile
+// Uses O_EXCL for atomic file creation to prevent race conditions
+func acquireLock(profile string) error {
+	lockPath := getLockFilePath(profile)
+
+	// Ensure the directory exists
+	if err := os.MkdirAll(filepath.Dir(lockPath), 0755); err != nil {
+		return fmt.Errorf("failed to create lock directory: %w", err)
+	}
+
+	// Attempt atomic lock file creation (up to 2 attempts for stale lock cleanup)
+	for attempt := 0; attempt < 2; attempt++ {
+		// O_EXCL ensures atomic creation - fails if file exists
+		f, err := os.OpenFile(lockPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0644)
+		if err == nil {
+			// Successfully created lock file atomically
+			defer f.Close()
+			if _, writeErr := f.WriteString(strconv.Itoa(os.Getpid())); writeErr != nil {
+				os.Remove(lockPath)
+				return fmt.Errorf("failed to write PID to lock file: %w", writeErr)
+			}
+			return nil
+		}
+
+		if !os.IsExist(err) {
+			return fmt.Errorf("failed to create lock file: %w", err)
+		}
+
+		// Lock file exists - check if stale
+		data, readErr := os.ReadFile(lockPath)
+		if readErr != nil {
+			// Cannot read lock file, try removing it
+			os.Remove(lockPath)
+			continue
+		}
+
+		pid, parseErr := strconv.Atoi(strings.TrimSpace(string(data)))
+		if parseErr == nil && isProcessRunning(pid) {
+			// Another instance is running
+			effectiveProfile := profile
+			if effectiveProfile == "" {
+				effectiveProfile = session.DefaultProfile
+			}
+			return fmt.Errorf("agent-deck is already running for profile '%s' (PID %d)\n\nIf this is incorrect, remove the lock file:\n  rm %s", effectiveProfile, pid, lockPath)
+		}
+
+		// Stale lock - remove and retry
+		os.Remove(lockPath)
+	}
+
+	return fmt.Errorf("failed to acquire lock after multiple attempts")
+}
+
+// releaseLock removes the lock file for the profile
+func releaseLock(profile string) {
+	lockPath := getLockFilePath(profile)
+	// Only remove if it's our lock (contains our PID)
+	if data, err := os.ReadFile(lockPath); err == nil {
+		pid, _ := strconv.Atoi(strings.TrimSpace(string(data)))
+		if pid == os.Getpid() {
+			os.Remove(lockPath)
+		}
 	}
 }

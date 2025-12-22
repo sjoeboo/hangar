@@ -171,21 +171,39 @@ func parseClaudeJSONL(filePath string, data []byte) (*SearchEntry, error) {
 			entry.Summary = record.Summary
 		}
 
-		// Extract message content
+		// Extract message content with role prefix
 		if len(record.Message) > 0 {
 			var msg claudeMessage
 			if err := json.Unmarshal(record.Message, &msg); err == nil {
+				// Determine role prefix for better preview display
+				var rolePrefix string
+				switch msg.Role {
+				case "user":
+					rolePrefix = "User: "
+				case "assistant":
+					rolePrefix = "Assistant: "
+				default:
+					rolePrefix = ""
+				}
+
 				// Content can be string or array
 				var contentStr string
 				if err := json.Unmarshal(msg.Content, &contentStr); err == nil {
+					if rolePrefix != "" && contentStr != "" {
+						contentBuilder.WriteString(rolePrefix)
+					}
 					contentBuilder.WriteString(contentStr)
 					contentBuilder.WriteString("\n")
 				} else {
 					// Try as array of content blocks
 					var blocks []map[string]interface{}
 					if err := json.Unmarshal(msg.Content, &blocks); err == nil {
-						for _, block := range blocks {
+						for i, block := range blocks {
 							if text, ok := block["text"].(string); ok {
+								// Only add prefix to first block of message
+								if i == 0 && rolePrefix != "" && text != "" {
+									contentBuilder.WriteString(rolePrefix)
+								}
 								contentBuilder.WriteString(text)
 								contentBuilder.WriteString("\n")
 							}

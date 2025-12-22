@@ -3,6 +3,7 @@ package session
 import (
 	"os"
 	"path/filepath"
+	"sort"
 	"sync"
 
 	"github.com/BurntSushi/toml"
@@ -21,8 +22,34 @@ type UserConfig struct {
 	// Tools defines custom AI tool configurations
 	Tools map[string]ToolDef `toml:"tools"`
 
+	// MCPs defines available MCP servers for the MCP Manager
+	// These can be attached/detached per-project via the MCP Manager (M key)
+	MCPs map[string]MCPDef `toml:"mcps"`
+
 	// Claude defines Claude Code integration settings
 	Claude ClaudeSettings `toml:"claude"`
+
+	// GlobalSearch defines global conversation search settings
+	GlobalSearch GlobalSearchSettings `toml:"global_search"`
+
+	// Logs defines session log management settings
+	Logs LogSettings `toml:"logs"`
+}
+
+// LogSettings defines log file management configuration
+type LogSettings struct {
+	// MaxSizeMB is the maximum size in MB before a log file is truncated
+	// When a log exceeds this size, it keeps only the last MaxLines lines
+	// Default: 10 (10MB)
+	MaxSizeMB int `toml:"max_size_mb"`
+
+	// MaxLines is the number of lines to keep when truncating
+	// Default: 10000
+	MaxLines int `toml:"max_lines"`
+
+	// RemoveOrphans removes log files for sessions that no longer exist
+	// Default: true
+	RemoveOrphans bool `toml:"remove_orphans"`
 }
 
 // ClaudeSettings defines Claude Code configuration
@@ -30,6 +57,35 @@ type ClaudeSettings struct {
 	// ConfigDir is the path to Claude's config directory
 	// Default: ~/.claude (or CLAUDE_CONFIG_DIR env var)
 	ConfigDir string `toml:"config_dir"`
+
+	// DangerousMode enables --dangerously-skip-permissions flag for Claude sessions
+	// Default: false
+	DangerousMode bool `toml:"dangerous_mode"`
+}
+
+// GlobalSearchSettings defines global conversation search configuration
+type GlobalSearchSettings struct {
+	// Enabled enables/disables global search feature (default: true when loaded via LoadUserConfig)
+	Enabled bool `toml:"enabled"`
+
+	// Tier controls search strategy: "auto", "instant", "balanced", "disabled"
+	// auto: Auto-detect based on data size (recommended)
+	// instant: Force full in-memory (fast, uses more RAM)
+	// balanced: Force LRU cache mode (slower, capped RAM)
+	// disabled: Disable global search entirely
+	Tier string `toml:"tier"`
+
+	// MemoryLimitMB caps memory usage for search index (default: 100)
+	// Only applies to balanced tier
+	MemoryLimitMB int `toml:"memory_limit_mb"`
+
+	// RecentDays limits search to sessions from last N days (0 = all)
+	// Reduces index size for users with long history (default: 90)
+	RecentDays int `toml:"recent_days"`
+
+	// IndexRateLimit limits files indexed per second during background indexing
+	// Lower = less CPU impact (default: 20)
+	IndexRateLimit int `toml:"index_rate_limit"`
 }
 
 // ToolDef defines a custom AI tool
@@ -44,9 +100,25 @@ type ToolDef struct {
 	BusyPatterns []string `toml:"busy_patterns"`
 }
 
-// Default user config (empty tools map)
+// MCPDef defines an MCP server configuration for the MCP Manager
+type MCPDef struct {
+	// Command is the executable to run (e.g., "npx", "docker", "node")
+	Command string `toml:"command"`
+
+	// Args are command-line arguments
+	Args []string `toml:"args"`
+
+	// Env is optional environment variables
+	Env map[string]string `toml:"env"`
+
+	// Description is optional help text shown in the MCP Manager
+	Description string `toml:"description"`
+}
+
+// Default user config (empty maps)
 var defaultUserConfig = UserConfig{
 	Tools: make(map[string]ToolDef),
+	MCPs:  make(map[string]MCPDef),
 }
 
 // Cache for user config (loaded once per session)
@@ -106,6 +178,9 @@ func LoadUserConfig() (*UserConfig, error) {
 	// Initialize maps if nil
 	if config.Tools == nil {
 		config.Tools = make(map[string]ToolDef)
+	}
+	if config.MCPs == nil {
+		config.MCPs = make(map[string]MCPDef)
 	}
 
 	userConfigCache = &config
@@ -183,6 +258,36 @@ func GetDefaultTool() string {
 	return config.DefaultTool
 }
 
+// GetLogSettings returns log management settings with defaults applied
+func GetLogSettings() LogSettings {
+	config, err := LoadUserConfig()
+	if err != nil || config == nil {
+		return LogSettings{
+			MaxSizeMB:     10,
+			MaxLines:      10000,
+			RemoveOrphans: true,
+		}
+	}
+
+	settings := config.Logs
+
+	// Apply defaults for unset values
+	if settings.MaxSizeMB <= 0 {
+		settings.MaxSizeMB = 10
+	}
+	if settings.MaxLines <= 0 {
+		settings.MaxLines = 10000
+	}
+	// RemoveOrphans defaults to true (Go zero value is false, so we check if config was loaded)
+	// If the config file doesn't have this key, we want it to be true by default
+	// We detect this by checking if the entire Logs section is empty
+	if config.Logs.MaxSizeMB == 0 && config.Logs.MaxLines == 0 {
+		settings.RemoveOrphans = true
+	}
+
+	return settings
+}
+
 // CreateExampleConfig creates an example config file if none exists
 func CreateExampleConfig() error {
 	configPath, err := GetUserConfigPath()
@@ -196,7 +301,7 @@ func CreateExampleConfig() error {
 	}
 
 	exampleConfig := `# Agent Deck User Configuration
-# This file is loaded on startup. Edit to customize tools.
+# This file is loaded on startup. Edit to customize tools and MCPs.
 
 # Default AI tool for new sessions
 # When creating a new session (pressing 'n'), this tool will be pre-selected
@@ -210,7 +315,57 @@ func CreateExampleConfig() error {
 # [claude]
 # config_dir = "~/.claude-work"
 
-# Custom tool definitions
+# Log file management
+# Agent-deck logs session output to ~/.agent-deck/logs/ for status detection
+# These settings control automatic log maintenance to prevent disk bloat
+[logs]
+# Maximum log file size in MB before truncation (default: 10)
+max_size_mb = 10
+# Number of lines to keep when truncating (default: 10000)
+max_lines = 10000
+# Remove log files for sessions that no longer exist (default: true)
+remove_orphans = true
+
+# ============================================================================
+# MCP Server Definitions
+# ============================================================================
+# Define available MCP servers here. These can be attached/detached per-project
+# using the MCP Manager (press 'M' on a Claude session).
+#
+# Each MCP can have:
+#   command     - The executable to run (e.g., "npx", "docker", "node")
+#   args        - Command-line arguments (array)
+#   env         - Environment variables (optional, key-value pairs)
+#   description - Help text shown in the MCP Manager (optional)
+
+# Example: Exa Search MCP
+# [mcps.exa]
+# command = "npx"
+# args = ["-y", "@anthropics/exa-mcp"]
+# description = "Web search via Exa AI"
+
+# Example: Filesystem MCP with restricted paths
+# [mcps.filesystem]
+# command = "npx"
+# args = ["-y", "@modelcontextprotocol/server-filesystem", "/Users/you/projects"]
+# description = "Read/write local files"
+
+# Example: GitHub MCP with token
+# [mcps.github]
+# command = "npx"
+# args = ["-y", "@modelcontextprotocol/server-github"]
+# env = { GITHUB_TOKEN = "ghp_your_token_here" }
+# description = "GitHub repository operations"
+
+# Example: Sequential Thinking MCP
+# [mcps.thinking]
+# command = "npx"
+# args = ["-y", "@modelcontextprotocol/server-sequential-thinking"]
+# description = "Step-by-step reasoning for complex problems"
+
+# ============================================================================
+# Custom Tool Definitions
+# ============================================================================
 # Each tool can have:
 #   command      - The shell command to run
 #   icon         - Emoji/symbol shown in the UI
@@ -236,4 +391,35 @@ func CreateExampleConfig() error {
 	}
 
 	return os.WriteFile(configPath, []byte(exampleConfig), 0600)
+}
+
+// GetAvailableMCPs returns MCPs from config.toml as a map
+// This replaces the old catalog-based approach with explicit user configuration
+func GetAvailableMCPs() map[string]MCPDef {
+	config, err := LoadUserConfig()
+	if err != nil || config == nil {
+		return make(map[string]MCPDef)
+	}
+	return config.MCPs
+}
+
+// GetAvailableMCPNames returns sorted list of MCP names from config.toml
+func GetAvailableMCPNames() []string {
+	mcps := GetAvailableMCPs()
+	names := make([]string, 0, len(mcps))
+	for name := range mcps {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
+}
+
+// GetMCPDef returns a specific MCP definition by name
+// Returns nil if not found
+func GetMCPDef(name string) *MCPDef {
+	mcps := GetAvailableMCPs()
+	if def, ok := mcps[name]; ok {
+		return &def
+	}
+	return nil
 }
