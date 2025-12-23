@@ -1177,6 +1177,18 @@ func (s *Session) SignalFileActivity() {
 	s.lastStableStatus = "active"
 }
 
+// GetLastActivityTime returns when the session content last changed
+// Returns zero time if no activity has been tracked
+func (s *Session) GetLastActivityTime() time.Time {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.stateTracker == nil {
+		return time.Time{}
+	}
+	return s.stateTracker.lastChangeTime
+}
+
 // hasBusyIndicator checks if the terminal shows explicit busy indicators
 // This is a quick check used in GetStatus() to detect active processing
 //

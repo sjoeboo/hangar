@@ -1944,7 +1944,7 @@ func (h *Home) importSessions() tea.Msg {
 }
 
 // countSessionStatuses counts sessions by status for the logo display
-func (h *Home) countSessionStatuses() (running, waiting, idle int) {
+func (h *Home) countSessionStatuses() (running, waiting, idle, errored int) {
 	for _, inst := range h.instances {
 		switch inst.Status {
 		case session.StatusRunning:
@@ -1953,10 +1953,11 @@ func (h *Home) countSessionStatuses() (running, waiting, idle int) {
 			waiting++
 		case session.StatusIdle:
 			idle++
-			// StatusError is counted as neither - will show as idle in logo
+		case session.StatusError:
+			errored++
 		}
 	}
-	return running, waiting, idle
+	return running, waiting, idle, errored
 }
 
 // updateSizes updates component sizes
@@ -2010,8 +2011,8 @@ func (h *Home) View() string {
 	// ═══════════════════════════════════════════════════════════════════
 	// HEADER BAR
 	// ═══════════════════════════════════════════════════════════════════
-	// Calculate real session status counts for logo
-	running, waiting, idle := h.countSessionStatuses()
+	// Calculate real session status counts for logo and stats
+	running, waiting, idle, errored := h.countSessionStatuses()
 	logo := RenderLogoCompact(running, waiting, idle)
 
 	titleStyle := lipgloss.NewStyle().
@@ -2028,12 +2029,31 @@ func (h *Home) View() string {
 	}
 	title := titleStyle.Render(titleText)
 
-	// Stats with subtle separator
+	// Status-based stats (more useful than group/session counts)
+	// Format: ● 2 running • ◐ 1 waiting • ○ 3 idle (• ✕ 1 error)
+	var statsParts []string
 	statsSep := lipgloss.NewStyle().Foreground(ColorBorder).Render(" • ")
-	statsStyle := lipgloss.NewStyle().Foreground(ColorTextDim)
-	stats := statsStyle.Render(fmt.Sprintf("%d groups", h.groupTree.GroupCount())) +
-		statsSep +
-		statsStyle.Render(fmt.Sprintf("%d sessions", h.groupTree.SessionCount()))
+
+	if running > 0 {
+		statsParts = append(statsParts, lipgloss.NewStyle().Foreground(ColorGreen).Render(fmt.Sprintf("● %d running", running)))
+	}
+	if waiting > 0 {
+		statsParts = append(statsParts, lipgloss.NewStyle().Foreground(ColorYellow).Render(fmt.Sprintf("◐ %d waiting", waiting)))
+	}
+	if idle > 0 {
+		statsParts = append(statsParts, lipgloss.NewStyle().Foreground(ColorTextDim).Render(fmt.Sprintf("○ %d idle", idle)))
+	}
+	if errored > 0 {
+		statsParts = append(statsParts, lipgloss.NewStyle().Foreground(ColorRed).Render(fmt.Sprintf("✕ %d error", errored)))
+	}
+
+	// Fallback if no sessions
+	stats := ""
+	if len(statsParts) > 0 {
+		stats = strings.Join(statsParts, statsSep)
+	} else {
+		stats = lipgloss.NewStyle().Foreground(ColorTextDim).Render("no sessions")
+	}
 
 	// Version badge (right-aligned, subtle inline style - no border to keep single line)
 	versionStyle := lipgloss.NewStyle().
@@ -2770,10 +2790,19 @@ func (h *Home) renderPreviewPane(width, height int) string {
 	b.WriteString(statusBadge)
 	b.WriteString("\n")
 
-	// Info line
+	// Info lines: path and activity time
 	infoStyle := lipgloss.NewStyle().Foreground(ColorTextDim)
 	pathStr := truncatePath(selected.ProjectPath, width-4)
 	b.WriteString(infoStyle.Render("📁 " + pathStr))
+	b.WriteString("\n")
+
+	// Activity time - shows when session was last active
+	activityTime := selected.GetLastActivityTime()
+	activityStr := formatRelativeTime(activityTime)
+	if selected.Status == session.StatusRunning {
+		activityStr = "active now"
+	}
+	b.WriteString(infoStyle.Render("⏱ " + activityStr))
 	b.WriteString("\n")
 
 	toolBadge := lipgloss.NewStyle().
@@ -2896,6 +2925,41 @@ func (h *Home) renderPreviewPane(width, height int) string {
 		}
 	}
 	b.WriteString("\n")
+
+	// Special handling for error state - show guidance instead of output
+	if selected.Status == session.StatusError {
+		errorHeader := renderSectionDivider("Session Disconnected", width-4)
+		b.WriteString(errorHeader)
+		b.WriteString("\n\n")
+
+		// Warning icon and message
+		warnStyle := lipgloss.NewStyle().Foreground(ColorYellow)
+		dimStyle := lipgloss.NewStyle().Foreground(ColorTextDim)
+		keyStyle := lipgloss.NewStyle().Foreground(ColorAccent).Bold(true)
+
+		b.WriteString(warnStyle.Render("⚠ The tmux session no longer exists"))
+		b.WriteString("\n\n")
+		b.WriteString(dimStyle.Render("This can happen if:"))
+		b.WriteString("\n")
+		b.WriteString(dimStyle.Render("  • tmux server was restarted"))
+		b.WriteString("\n")
+		b.WriteString(dimStyle.Render("  • Terminal app was closed"))
+		b.WriteString("\n")
+		b.WriteString(dimStyle.Render("  • System was rebooted"))
+		b.WriteString("\n\n")
+		b.WriteString(dimStyle.Render("Actions:"))
+		b.WriteString("\n")
+		b.WriteString("  ")
+		b.WriteString(keyStyle.Render("R"))
+		b.WriteString(dimStyle.Render(" Restart - recreate tmux session"))
+		b.WriteString("\n")
+		b.WriteString("  ")
+		b.WriteString(keyStyle.Render("d"))
+		b.WriteString(dimStyle.Render(" Delete  - remove from list"))
+		b.WriteString("\n")
+
+		return b.String()
+	}
 
 	// Terminal output header
 	termHeader := renderSectionDivider("Output", width-4)
@@ -3059,6 +3123,39 @@ func truncatePath(path string, maxLen int) string {
 	}
 	// Show beginning and end: /Users/.../project
 	return path[:maxLen/3] + "..." + path[len(path)-(maxLen*2/3-3):]
+}
+
+// formatRelativeTime formats a time as a human-readable relative string
+// Examples: "just now", "2m ago", "1h ago", "3h ago", "1d ago"
+func formatRelativeTime(t time.Time) string {
+	if t.IsZero() {
+		return "unknown"
+	}
+
+	d := time.Since(t)
+
+	switch {
+	case d < time.Minute:
+		return "just now"
+	case d < time.Hour:
+		mins := int(d.Minutes())
+		if mins == 1 {
+			return "1m ago"
+		}
+		return fmt.Sprintf("%dm ago", mins)
+	case d < 24*time.Hour:
+		hours := int(d.Hours())
+		if hours == 1 {
+			return "1h ago"
+		}
+		return fmt.Sprintf("%dh ago", hours)
+	default:
+		days := int(d.Hours() / 24)
+		if days == 1 {
+			return "1d ago"
+		}
+		return fmt.Sprintf("%dd ago", days)
+	}
 }
 
 // renderGroupPreview renders the preview pane for a group

@@ -55,6 +55,19 @@ func (inst *Instance) MarkAccessed() {
 	inst.LastAccessedAt = time.Now()
 }
 
+// GetLastActivityTime returns when the session was last active (content changed)
+// Returns CreatedAt if no activity has been tracked yet
+func (inst *Instance) GetLastActivityTime() time.Time {
+	if inst.tmuxSession != nil {
+		activityTime := inst.tmuxSession.GetLastActivityTime()
+		if !activityTime.IsZero() {
+			return activityTime
+		}
+	}
+	// Fallback to CreatedAt
+	return inst.CreatedAt
+}
+
 // NewInstance creates a new session instance
 func NewInstance(title, projectPath string) *Instance {
 	return &Instance{
