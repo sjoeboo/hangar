@@ -221,10 +221,10 @@ func TestGlobalSearchIndexInstantTier(t *testing.T) {
 func TestGlobalSearchIndexFuzzyMatch(t *testing.T) {
 	tmpDir := t.TempDir()
 	projectDir := filepath.Join(tmpDir, "projects", "-Users-test-project")
-	os.MkdirAll(projectDir, 0755)
+	_ = os.MkdirAll(projectDir, 0755)
 
 	jsonl := `{"sessionId":"c3d4e5f6-a7b8-9012-cdef-345678901234","type":"user","message":{"role":"user","content":"authentication system implementation"}}`
-	os.WriteFile(filepath.Join(projectDir, "c3d4e5f6-a7b8-9012-cdef-345678901234.jsonl"), []byte(jsonl), 0644)
+	_ = os.WriteFile(filepath.Join(projectDir, "c3d4e5f6-a7b8-9012-cdef-345678901234.jsonl"), []byte(jsonl), 0644)
 
 	config := GlobalSearchSettings{Enabled: true, Tier: "auto", MemoryLimitMB: 100, IndexRateLimit: 100}
 	index, err := NewGlobalSearchIndex(tmpDir, config)
@@ -255,7 +255,7 @@ func TestGlobalSearchIndexDisabled(t *testing.T) {
 func TestGlobalSearchIndexEmptyQuery(t *testing.T) {
 	tmpDir := t.TempDir()
 	projectDir := filepath.Join(tmpDir, "projects", "-Users-test-project")
-	os.MkdirAll(projectDir, 0755)
+	_ = os.MkdirAll(projectDir, 0755)
 
 	config := GlobalSearchSettings{Enabled: true, Tier: "auto", MemoryLimitMB: 100, IndexRateLimit: 100}
 	index, _ := NewGlobalSearchIndex(tmpDir, config)
@@ -273,13 +273,13 @@ func TestGlobalSearchIndexEmptyQuery(t *testing.T) {
 func TestGlobalSearchIndexBalancedTier(t *testing.T) {
 	tmpDir := t.TempDir()
 	projectDir := filepath.Join(tmpDir, "projects", "-Users-test-project")
-	os.MkdirAll(projectDir, 0755)
+	_ = os.MkdirAll(projectDir, 0755)
 
 	// Create multiple test session files
 	for i := 0; i < 5; i++ {
 		sessionID := fmt.Sprintf("d4e5f6a7-b8c9-0123-def4-%012d", i)
 		jsonl := fmt.Sprintf(`{"sessionId":"%s","type":"user","message":{"role":"user","content":"content for session %d with unique keyword%d"}}`, sessionID, i, i)
-		os.WriteFile(filepath.Join(projectDir, sessionID+".jsonl"), []byte(jsonl), 0644)
+		_ = os.WriteFile(filepath.Join(projectDir, sessionID+".jsonl"), []byte(jsonl), 0644)
 	}
 
 	// Force balanced tier

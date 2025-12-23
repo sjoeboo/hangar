@@ -69,7 +69,7 @@ func NewMCPDialog() *MCPDialog {
 // Show displays the MCP dialog for a project
 func (m *MCPDialog) Show(projectPath string, sessionID string) error {
 	// Reload config to pick up any changes to config.toml
-	session.ReloadUserConfig()
+	_, _ = session.ReloadUserConfig()
 
 	// Store session ID for restart
 	m.sessionID = sessionID

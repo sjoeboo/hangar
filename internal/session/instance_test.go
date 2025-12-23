@@ -316,7 +316,7 @@ func TestInstance_GetSessionIDFromTmux(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to start instance: %v", err)
 	}
-	defer inst.Kill()
+	defer func() { _ = inst.Kill() }()
 
 	// Initially should return empty (no CLAUDE_SESSION_ID set)
 	if id := inst.GetSessionIDFromTmux(); id != "" {
@@ -352,7 +352,7 @@ func TestInstance_UpdateClaudeSession_TmuxFirst(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to start instance: %v", err)
 	}
-	defer inst.Kill()
+	defer func() { _ = inst.Kill() }()
 
 	// Set session ID in tmux environment
 	testSessionID := "tmux-session-abc123"
@@ -396,14 +396,14 @@ func TestInstance_Restart_ResumesClaudeSession(t *testing.T) {
 	inst.Status = StatusError
 
 	// Kill the tmux session to simulate dead session
-	inst.Kill()
+	_ = inst.Kill()
 
 	// Now restart - should use --resume with the known session ID
 	err = inst.Restart()
 	if err != nil {
 		t.Fatalf("Restart failed: %v", err)
 	}
-	defer inst.Kill()
+	defer func() { _ = inst.Kill() }()
 
 	// Verify the session was created and is running
 	if inst.tmuxSession == nil {

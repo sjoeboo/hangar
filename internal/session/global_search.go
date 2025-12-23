@@ -375,11 +375,11 @@ func NewGlobalSearchIndex(claudeDir string, config GlobalSearchSettings) (*Globa
 		}
 
 		// Also watch subdirectories
-		filepath.WalkDir(projectsDir, func(path string, d os.DirEntry, err error) error {
+		_ = filepath.WalkDir(projectsDir, func(path string, d os.DirEntry, err error) error {
 			if err != nil || !d.IsDir() {
 				return nil
 			}
-			watcher.Add(path)
+			_ = watcher.Add(path) // Ignore error - best effort watching
 			return nil
 		})
 	}
@@ -436,7 +436,7 @@ func (idx *GlobalSearchIndex) initialLoad() {
 
 	var entries []SearchEntry
 
-	filepath.WalkDir(projectsDir, func(path string, d os.DirEntry, err error) error {
+	_ = filepath.WalkDir(projectsDir, func(path string, d os.DirEntry, err error) error {
 		if err != nil || d.IsDir() {
 			return nil
 		}
@@ -452,7 +452,7 @@ func (idx *GlobalSearchIndex) initialLoad() {
 		}
 
 		// Rate limit
-		idx.limiter.Wait(idx.ctx)
+		_ = idx.limiter.Wait(idx.ctx)
 
 		info, err := d.Info()
 		if err != nil {
@@ -586,7 +586,7 @@ func (idx *GlobalSearchIndex) updateFile(path string) {
 			return
 		}
 		defer f.Close()
-		f.Seek(tracker.LastOffset, 0)
+		_, _ = f.Seek(tracker.LastOffset, 0)
 		data, _ = io.ReadAll(f)
 	} else {
 		// Full read

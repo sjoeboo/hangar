@@ -1815,7 +1815,7 @@ func TestSession_SetAndGetEnvironment(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to start session: %v", err)
 	}
-	defer sess.Kill()
+	defer func() { _ = sess.Kill() }()
 
 	// Test setting environment
 	err = sess.SetEnvironment("TEST_VAR", "test_value_123")
@@ -1844,7 +1844,7 @@ func TestSession_GetEnvironment_NotFound(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to start session: %v", err)
 	}
-	defer sess.Kill()
+	defer func() { _ = sess.Kill() }()
 
 	_, err = sess.GetEnvironment("NONEXISTENT_VAR")
 	if err == nil {
@@ -1860,7 +1860,7 @@ func TestSession_SendCtrlC(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to start session: %v", err)
 	}
-	defer sess.Kill()
+	defer func() { _ = sess.Kill() }()
 
 	// Give the command time to start
 	time.Sleep(100 * time.Millisecond)

@@ -1000,7 +1000,7 @@ func (h *Home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			go func() {
 				logSettings := session.GetLogSettings()
 				// Fast check - only truncate, no orphan cleanup
-				tmux.TruncateLargeLogFiles(logSettings.MaxSizeMB, logSettings.MaxLines)
+				_, _ = tmux.TruncateLargeLogFiles(logSettings.MaxSizeMB, logSettings.MaxLines)
 			}()
 		}
 
@@ -2028,9 +2028,8 @@ func (h *Home) deleteSession(inst *session.Instance) tea.Cmd {
 
 // sessionRestartedMsg signals that a session was restarted
 type sessionRestartedMsg struct {
-	sessionID  string
-	err        error
-	autoAttach bool // If true, attach to session after restart
+	sessionID string
+	err       error
 }
 
 // mcpRestartedMsg signals that an MCP-triggered restart completed and should auto-attach
@@ -2048,18 +2047,6 @@ func (h *Home) restartSession(inst *session.Instance) tea.Cmd {
 		err := inst.Restart()
 		log.Printf("[MCP-DEBUG] restartSession() inst.Restart() returned err=%v", err)
 		return sessionRestartedMsg{sessionID: id, err: err}
-	}
-}
-
-// restartAndAttachSession restarts a session and auto-attaches after restart completes
-// Used by MCP Manager to restart session with new MCP config and immediately attach
-func (h *Home) restartAndAttachSession(inst *session.Instance) tea.Cmd {
-	log.Printf("[MCP-DEBUG] restartAndAttachSession() called for ID=%s, Title=%s", inst.ID, inst.Title)
-	return func() tea.Msg {
-		log.Printf("[MCP-DEBUG] restartAndAttachSession() executing restart")
-		err := inst.Restart()
-		log.Printf("[MCP-DEBUG] restartAndAttachSession() restart returned err=%v", err)
-		return mcpRestartedMsg{session: inst, err: err}
 	}
 }
 
@@ -2166,26 +2153,6 @@ func (h *Home) countSessionStatuses() (running, waiting, idle, errored int) {
 	h.cachedStatusCounts.errored = errored
 	h.cachedStatusCounts.valid = true
 	return running, waiting, idle, errored
-}
-
-// hasMultipleStatuses returns true if there's more than one status type active
-// Used to decide whether to show the filter bar
-func (h *Home) hasMultipleStatuses() bool {
-	running, waiting, idle, errored := h.countSessionStatuses()
-	count := 0
-	if running > 0 {
-		count++
-	}
-	if waiting > 0 {
-		count++
-	}
-	if idle > 0 {
-		count++
-	}
-	if errored > 0 {
-		count++
-	}
-	return count > 1
 }
 
 // renderFilterBar renders the quick filter pills
@@ -2669,18 +2636,6 @@ func renderEmptyStateResponsive(config EmptyStateConfig, width, height int) stri
 		Align(lipgloss.Center).
 		Padding(vPad, hPad).
 		Render(content.String())
-}
-
-// renderEmptyState is a convenience wrapper for backward compatibility
-// For new code, prefer renderEmptyStateResponsive with explicit dimensions
-func renderEmptyState(icon, title, subtitle string, hints []string) string {
-	// Use generous defaults for backward compatibility (legacy callers)
-	return renderEmptyStateResponsive(EmptyStateConfig{
-		Icon:     icon,
-		Title:    title,
-		Subtitle: subtitle,
-		Hints:    hints,
-	}, emptyStateWidthFull+10, emptyStateHeightFull+10)
 }
 
 // renderSectionDivider creates a modern section divider with optional centered label
@@ -3686,19 +3641,6 @@ func (h *Home) renderPreviewPane(width, height int) string {
 	}
 
 	return b.String()
-}
-
-// truncateString truncates a string to maxWidth display columns using runewidth
-// Handles multi-byte characters (emoji, CJK) correctly
-func truncateString(s string, maxWidth int) string {
-	if runewidth.StringWidth(s) <= maxWidth {
-		return s
-	}
-	if maxWidth < 4 {
-		maxWidth = 4
-	}
-	// Use runewidth.Truncate for proper handling of wide characters
-	return runewidth.Truncate(s, maxWidth, "...")
 }
 
 // truncatePath shortens a path to fit within maxLen characters
