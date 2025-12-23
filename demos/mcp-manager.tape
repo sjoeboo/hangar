@@ -121,13 +121,6 @@ Sleep 2s
 Type "/mcp"
 Sleep 400ms
 Enter
-Sleep 3s
 
-# ============================================
-# FINALE: Detach and show dashboard
-# ============================================
-Ctrl+Q
-Sleep 1s
-
-# Final view - preview shows MCP attached indicator
-Sleep 2s
+# Show the attached MCP and end
+Sleep 4s

@@ -17,7 +17,7 @@
 
 ---
 
-![Agent Deck Demo](demos/multi-agent-research.gif)
+![Agent Deck Demo](demos/agent-deck-overview.gif)
 
 ## Why Agent Deck?
 
@@ -65,6 +65,19 @@ Agent Deck offers **first-class Claude Code integration** with powerful session 
 - Tracks sessions across restarts
 - Handles multiple Claude sessions in same project
 - Works with custom Claude profiles (`CLAUDE_CONFIG_DIR`)
+
+![Fork Session Demo](demos/fork-session.gif)
+
+### 🔌 MCP Manager
+
+Attach and detach MCP servers to your Claude sessions on the fly:
+
+- Press `M` to open the MCP Manager
+- Toggle MCPs between **Attached** ↔ **Available**
+- Choose scope: **LOCAL** (project only) or **GLOBAL** (all projects)
+- Session automatically restarts with new MCPs loaded
+
+![MCP Manager Demo](demos/mcp-manager.gif)
 
 ### 🔍 Global Search
 
@@ -142,11 +155,33 @@ Each AI tool displays with its brand color in the session list for easy visual i
 curl -fsSL https://raw.githubusercontent.com/asheshgoplani/agent-deck/main/install.sh | bash
 ```
 
-That's it! The installer automatically handles tmux if needed.
+**The installer handles everything:**
+1. Downloads and installs the binary
+2. Installs tmux if not present
+3. **Configures tmux** for mouse scrolling & clipboard (you'll be prompted)
 
 Then run: `agent-deck`
 
 > **Windows:** [Install WSL](https://learn.microsoft.com/en-us/windows/wsl/install) first, then run the command above.
+
+<details>
+<summary>Installer options</summary>
+
+```bash
+# Custom install location
+curl -fsSL .../install.sh | bash -s -- --dir /usr/local/bin
+
+# Specific version
+curl -fsSL .../install.sh | bash -s -- --version v0.5.7
+
+# Skip tmux configuration only
+curl -fsSL .../install.sh | bash -s -- --skip-tmux-config
+
+# Fully automated (no prompts - for CI/scripts)
+curl -fsSL .../install.sh | bash -s -- --non-interactive
+```
+
+</details>
 
 <details>
 <summary>Other install methods</summary>
@@ -297,6 +332,8 @@ Data is stored in `~/.agent-deck/`:
 
 ### Recommended tmux Configuration
 
+> **Note:** The install script offers to configure tmux automatically. The configs below are for reference or manual setup.
+
 For optimal experience with mouse copy, scroll, and clipboard integration, use this config in `~/.tmux.conf`:
 
 <details>
@@ -314,7 +351,7 @@ set -ag terminal-overrides ",*256col*:Tc"
 
 # ----- Performance -----
 set -sg escape-time 0
-set -g history-limit 50000
+set -g history-limit 10000
 
 # ----- Mouse (enables scroll + drag-to-copy) -----
 set -g mouse on
@@ -350,7 +387,7 @@ set -ag terminal-overrides ",*256col*:Tc"
 
 # ----- Performance -----
 set -sg escape-time 0
-set -g history-limit 50000
+set -g history-limit 10000
 
 # ----- Mouse (enables scroll + drag-to-copy) -----
 set -g mouse on
@@ -393,7 +430,7 @@ tmux source-file ~/.tmux.conf
 | Setting | Purpose |
 |---------|---------|
 | `escape-time 0` | No delay on ESC key (fixes sluggishness) |
-| `history-limit 50000` | AI agents produce lots of output (default is 2000) |
+| `history-limit 10000` | AI agents produce lots of output (default is 2000) |
 | `set-clipboard external` | Secure clipboard (apps inside tmux can't hijack it) |
 | `MouseDragEnd1Pane` | Auto-copy on mouse release |
 

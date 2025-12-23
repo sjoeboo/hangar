@@ -40,27 +40,17 @@ Sleep 3s
 Sleep 1.5s
 
 # ============================================
-# CREATE SESSION 1: docs (Claude - default, no Right needed)
+# CREATE SESSION 1: docs (Claude - default)
 # ============================================
 
 Type "n"
 Sleep 1s
-
-# Name
 Type "docs"
-Sleep 300ms
-
-# Tab to path
 Tab
 Sleep 300ms
 Type "~/demo/docs"
-Sleep 300ms
-
-# Tab to command - Claude is default, just Enter
 Tab
 Sleep 500ms
-
-# Create
 Enter
 Sleep 2.5s
 
@@ -70,55 +60,33 @@ Sleep 2.5s
 
 Type "n"
 Sleep 1s
-
-# Name
 Type "api"
-Sleep 300ms
-
-# Tab to path
 Tab
 Sleep 300ms
 Type "~/demo/api"
-Sleep 300ms
-
-# Tab to command, Right once for Gemini
 Tab
 Sleep 300ms
 Right
 Sleep 500ms
-
-# Create
 Enter
 Sleep 2.5s
 
 # ============================================
-# CREATE SESSION 3: bugs (Codex - Right three times)
+# CREATE SESSION 3: bugs (Codex - Right 3x)
 # ============================================
 
 Type "n"
 Sleep 1s
-
-# Name
 Type "bugs"
-Sleep 300ms
-
-# Tab to path
 Tab
 Sleep 300ms
 Type "~/demo/bugs"
-Sleep 300ms
-
-# Tab to command, Right 3x for Codex
 Tab
 Sleep 300ms
 Right
-Sleep 200ms
 Right
-Sleep 200ms
 Right
 Sleep 500ms
-
-# Create
 Enter
 Sleep 2.5s
 
@@ -126,23 +94,26 @@ Sleep 2.5s
 # WORK: Enter "docs" (Claude), ask question, leave
 # ============================================
 
-# Navigate to docs (first session)
-Up
-Sleep 300ms
-Up
+# Wait for UI to settle
 Sleep 500ms
 
-# Enter session
+# Navigate up to docs: bugs -> api -> docs
+Type "k"
+Sleep 400ms
+Type "k"
+Sleep 600ms
+
+# Enter docs session
 Enter
 
-# Wait for Claude to initialize and show prompt
-Sleep 5s
+# Wait for Claude to fully initialize
+Sleep 6s
 
 # Ask question
 Type "What are best practices for REST API design?"
 Sleep 400ms
 Enter
-Sleep 2.5s
+Sleep 3s
 
 # Detach
 Ctrl+Q
@@ -153,8 +124,8 @@ Sleep 1.5s
 # ============================================
 
 # Move down to api
-Down
-Sleep 500ms
+Type "j"
+Sleep 600ms
 
 # Enter session
 Enter
@@ -164,19 +135,19 @@ Sleep 3s
 Type "Compare PostgreSQL vs MongoDB for user data"
 Sleep 400ms
 Enter
-Sleep 2.5s
+Sleep 3s
 
 # Detach
 Ctrl+Q
 Sleep 1.5s
 
 # ============================================
-# RETURN: Go back to "docs" to see Claude's response
+# RETURN: Go back to "docs" to see response
 # ============================================
 
 # Navigate up to docs
-Up
-Sleep 500ms
+Type "k"
+Sleep 600ms
 
 # Enter to see response
 Enter

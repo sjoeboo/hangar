@@ -269,7 +269,7 @@
             <!-- Demo Video - Bigger and higher -->
             <div class="video-container max-w-5xl mx-auto mb-8 bg-tn-surface">
                 <img
-                    src="https://raw.githubusercontent.com/asheshgoplani/agent-deck/main/demos/multi-agent-research.gif"
+                    src="https://raw.githubusercontent.com/asheshgoplani/agent-deck/main/demos/agent-deck-overview.gif"
                     alt="Agent Deck Demo - Managing multiple AI coding sessions"
                     class="w-full"
                 />
@@ -320,7 +320,7 @@
                     </summary>
                     <div class="px-4 pb-4">
                         <div class="code-block bg-tn-bg rounded-lg p-3 border border-tn-border relative">
-                            <button onclick="copyCode(this, `# Terminal\nset -g default-terminal &quot;tmux-256color&quot;\nset -ag terminal-overrides &quot;,*256col*:Tc&quot;\n\n# Performance\nset -sg escape-time 0\nset -g history-limit 50000\n\n# Mouse (scroll + drag-to-copy)\nset -g mouse on\n\n# Clipboard\nset -s set-clipboard external\nbind-key -T copy-mode-vi MouseDragEnd1Pane send-keys -X copy-pipe-and-cancel &quot;pbcopy&quot;\nbind-key -T copy-mode MouseDragEnd1Pane send-keys -X copy-pipe-and-cancel &quot;pbcopy&quot;`)"
+                            <button onclick="copyCode(this, `# Terminal\nset -g default-terminal &quot;tmux-256color&quot;\nset -ag terminal-overrides &quot;,*256col*:Tc&quot;\n\n# Performance\nset -sg escape-time 0\nset -g history-limit 10000\n\n# Mouse (scroll + drag-to-copy)\nset -g mouse on\n\n# Clipboard\nset -s set-clipboard external\nbind-key -T copy-mode-vi MouseDragEnd1Pane send-keys -X copy-pipe-and-cancel &quot;pbcopy&quot;\nbind-key -T copy-mode MouseDragEnd1Pane send-keys -X copy-pipe-and-cancel &quot;pbcopy&quot;`)"
                                     class="absolute top-2 right-2 text-xs text-tn-dim hover:text-tn-accent transition-colors px-2 py-1 rounded hover:bg-tn-surface">
                                 Copy
                             </button>
@@ -330,7 +330,7 @@ set -ag terminal-overrides ",*256col*:Tc"
 
 # Performance
 set -sg escape-time 0
-set -g history-limit 50000
+set -g history-limit 10000
 
 # Mouse (scroll + drag-to-copy)
 set -g mouse on
@@ -351,7 +351,7 @@ bind-key -T copy-mode MouseDragEnd1Pane send-keys -X copy-pipe-and-cancel "pbcop
                     </summary>
                     <div class="px-4 pb-4">
                         <div class="code-block bg-tn-bg rounded-lg p-3 border border-tn-border relative">
-                            <button onclick="copyCode(this, `# Terminal\nset -g default-terminal &quot;tmux-256color&quot;\nset -ag terminal-overrides &quot;,*256col*:Tc&quot;\n\n# Performance\nset -sg escape-time 0\nset -g history-limit 50000\n\n# Mouse (scroll + drag-to-copy)\nset -g mouse on\n\n# Clipboard\nset -s set-clipboard external\nbind-key -T copy-mode-vi MouseDragEnd1Pane send-keys -X copy-pipe-and-cancel &quot;xclip -in -selection clipboard&quot;\nbind-key -T copy-mode MouseDragEnd1Pane send-keys -X copy-pipe-and-cancel &quot;xclip -in -selection clipboard&quot;`)"
+                            <button onclick="copyCode(this, `# Terminal\nset -g default-terminal &quot;tmux-256color&quot;\nset -ag terminal-overrides &quot;,*256col*:Tc&quot;\n\n# Performance\nset -sg escape-time 0\nset -g history-limit 10000\n\n# Mouse (scroll + drag-to-copy)\nset -g mouse on\n\n# Clipboard\nset -s set-clipboard external\nbind-key -T copy-mode-vi MouseDragEnd1Pane send-keys -X copy-pipe-and-cancel &quot;xclip -in -selection clipboard&quot;\nbind-key -T copy-mode MouseDragEnd1Pane send-keys -X copy-pipe-and-cancel &quot;xclip -in -selection clipboard&quot;`)"
                                     class="absolute top-2 right-2 text-xs text-tn-dim hover:text-tn-accent transition-colors px-2 py-1 rounded hover:bg-tn-surface">
                                 Copy
                             </button>
@@ -361,7 +361,7 @@ set -ag terminal-overrides ",*256col*:Tc"
 
 # Performance
 set -sg escape-time 0
-set -g history-limit 50000
+set -g history-limit 10000
 
 # Mouse (scroll + drag-to-copy)
 set -g mouse on
@@ -400,17 +400,13 @@ bind-key -T copy-mode MouseDragEnd1Pane send-keys -X copy-pipe-and-cancel "xclip
                     <p class="text-tn-dim max-w-2xl mx-auto">Fork Claude conversations to explore multiple approaches in parallel. Each fork inherits the full conversation context from its parent.</p>
                 </div>
 
-                <!-- Fork Diagram -->
-                <div class="bg-tn-bg rounded-lg border border-tn-border p-6 mb-8 mono text-sm overflow-x-auto">
-                    <pre class="text-center">
-<span class="text-tn-dim">Parent Session</span>                    <span class="text-tn-dim">Forked Sessions</span>
-<span class="text-tn-border">┌─────────────────┐</span>               <span class="text-tn-border">┌─────────────────┐</span>
-<span class="text-tn-border">│</span> <span class="text-tn-cyan">"Build auth"</span>    <span class="text-tn-border">│</span><span class="text-tn-yellow">──── Fork ────►</span><span class="text-tn-border">│</span> <span class="text-tn-green">"Try JWT"</span>       <span class="text-tn-border">│</span>
-<span class="text-tn-border">│</span> <span class="text-tn-dim">claude session</span>  <span class="text-tn-border">│</span>               <span class="text-tn-border">└─────────────────┘</span>
-<span class="text-tn-border">│</span>                 <span class="text-tn-border">│</span><span class="text-tn-yellow">──── Fork ────►</span><span class="text-tn-border">┌─────────────────┐</span>
-<span class="text-tn-border">│</span>                 <span class="text-tn-border">│</span>               <span class="text-tn-border">│</span> <span class="text-tn-purple">"Try OAuth"</span>     <span class="text-tn-border">│</span>
-<span class="text-tn-border">└─────────────────┘</span>               <span class="text-tn-border">└─────────────────┘</span>
-                    </pre>
+                <!-- Fork Demo GIF -->
+                <div class="video-container max-w-4xl mx-auto mb-8 bg-tn-surface rounded-lg border border-tn-border overflow-hidden">
+                    <img
+                        src="https://raw.githubusercontent.com/asheshgoplani/agent-deck/main/demos/fork-session.gif"
+                        alt="Fork Session Demo - Creating parallel Claude conversations"
+                        class="w-full"
+                    />
                 </div>
 
                 <!-- Fork Use Cases -->
@@ -442,6 +438,45 @@ bind-key -T copy-mode MouseDragEnd1Pane send-keys -X copy-pipe-and-cancel "xclip
                             <h4 class="font-medium mb-1">Learning</h4>
                             <p class="text-tn-dim text-sm">Fork to ask "what if" questions without derailing main session</p>
                         </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- MCP Manager Section -->
+        <section class="py-16 bg-tn-surface/30">
+            <div class="max-w-4xl mx-auto px-6">
+                <div class="text-center mb-8">
+                    <span class="inline-block px-3 py-1 bg-tn-purple/10 text-tn-purple text-xs font-semibold rounded-full uppercase tracking-wide mb-4">MCP Support</span>
+                    <h2 class="text-2xl font-semibold mb-4">MCP Manager</h2>
+                    <p class="text-tn-dim max-w-2xl mx-auto">Attach and detach MCP servers to your Claude sessions on the fly. No manual config editing required.</p>
+                </div>
+
+                <!-- MCP Demo GIF -->
+                <div class="video-container max-w-4xl mx-auto mb-8 bg-tn-surface rounded-lg border border-tn-border overflow-hidden">
+                    <img
+                        src="https://raw.githubusercontent.com/asheshgoplani/agent-deck/main/demos/mcp-manager.gif"
+                        alt="MCP Manager Demo - Attaching MCP servers to Claude sessions"
+                        class="w-full"
+                    />
+                </div>
+
+                <!-- MCP Features -->
+                <div class="grid md:grid-cols-3 gap-4 text-center">
+                    <div class="p-4 bg-tn-surface/50 rounded-lg">
+                        <div class="text-2xl mb-2">🔌</div>
+                        <h4 class="font-medium mb-1">Easy Toggle</h4>
+                        <p class="text-tn-dim text-sm">Press M to open, Space to toggle</p>
+                    </div>
+                    <div class="p-4 bg-tn-surface/50 rounded-lg">
+                        <div class="text-2xl mb-2">📁</div>
+                        <h4 class="font-medium mb-1">Two Scopes</h4>
+                        <p class="text-tn-dim text-sm">LOCAL (project) or GLOBAL (all)</p>
+                    </div>
+                    <div class="p-4 bg-tn-surface/50 rounded-lg">
+                        <div class="text-2xl mb-2">🔄</div>
+                        <h4 class="font-medium mb-1">Auto Restart</h4>
+                        <p class="text-tn-dim text-sm">Session restarts with new MCPs</p>
                     </div>
                 </div>
             </div>

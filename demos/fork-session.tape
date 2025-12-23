@@ -82,15 +82,15 @@ Sleep 1s
 # STEP 1: Enter session (already loaded with conversation)
 # ============================================
 Enter
-Sleep 5s
-
-# Scroll up to show the conversation
-Ctrl+U
 Sleep 2s
+
+# Scroll up briefly to show conversation
+Ctrl+U
+Sleep 1s
 
 # Detach
 Ctrl+Q
-Sleep 1.5s
+Sleep 1s
 
 # ============================================
 # STEP 2: Fork the session with 'f'
@@ -99,7 +99,7 @@ Sleep 500ms
 
 # Press 'f' for quick fork
 Type "f"
-Sleep 8s
+Sleep 10s
 
 # ============================================
 # STEP 3: Show the forked session in list
@@ -113,17 +113,17 @@ Sleep 2s
 # STEP 4: Enter forked session to show context preserved
 # ============================================
 Enter
-Sleep 6s
+Sleep 4s
 
 # Scroll up to show same conversation context is there
 Ctrl+U
-Sleep 2s
+Sleep 1.5s
 
 # Continue the conversation from the fork point
 Type "Can you give me a code review checklist?"
 Sleep 300ms
 Enter
-Sleep 6s
+Sleep 3s
 
 # ============================================
 # FINALE: Detach and show both sessions
