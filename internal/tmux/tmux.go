@@ -62,7 +62,7 @@ func RefreshSessionCache() {
 		}
 		name := parts[0]
 		var activity int64
-		fmt.Sscanf(parts[1], "%d", &activity)
+		_, _ = fmt.Sscanf(parts[1], "%d", &activity) // ignore error, 0 is valid default
 		newCache[name] = activity
 	}
 
