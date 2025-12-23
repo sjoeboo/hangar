@@ -21,7 +21,7 @@
 
 ## Why Agent Deck?
 
-Managing multiple AI coding sessions across projects can get overwhelming. Agent Deck provides a single dashboard to monitor and switch between all your sessions—Claude Code, Gemini CLI, Aider, Codex, or any terminal tool.
+Managing multiple AI coding sessions across projects can get overwhelming. Agent Deck provides a single dashboard to monitor and switch between all your sessions: Claude Code, Gemini CLI, Aider, Codex, or any terminal tool.
 
 **What it does:**
 - Organize sessions by project with collapsible groups
@@ -44,7 +44,7 @@ Fork Claude conversations to explore multiple approaches in parallel. Each fork 
 
 ### 🔌 MCP Manager
 
-Attach and detach MCP servers on the fly—no config editing required.
+Attach and detach MCP servers on the fly. No config editing required.
 
 ![MCP Manager Demo](demos/mcp-manager.gif)
 
