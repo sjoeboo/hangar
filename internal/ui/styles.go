@@ -229,6 +229,25 @@ func ToolIcon(tool string) string {
 	}
 }
 
+// ToolColor returns the brand color for a given tool
+// Claude=orange (Anthropic), Gemini=purple (Google AI), Codex=cyan, Aider=red
+func ToolColor(tool string) lipgloss.Color {
+	switch tool {
+	case "claude":
+		return ColorOrange // Anthropic's orange
+	case "gemini":
+		return ColorPurple // Google AI purple
+	case "codex":
+		return ColorCyan // Light blue for OpenAI
+	case "aider":
+		return ColorRed // Red for Aider
+	case "cursor":
+		return ColorAccent // Blue for Cursor
+	default:
+		return ColorTextDim // Default gray
+	}
+}
+
 // List Item Styles
 var (
 	ListItemStyle = lipgloss.NewStyle().

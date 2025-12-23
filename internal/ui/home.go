@@ -88,10 +88,11 @@ type Home struct {
 	mcpDialog     *MCPDialog     // For managing MCPs
 
 	// State
-	cursor      int  // Selected item index in flatItems
-	viewOffset  int  // First visible item index (for scrolling)
-	isAttaching bool // Prevents View() output during attach (fixes Bubble Tea Issue #431)
-	err         error
+	cursor       int           // Selected item index in flatItems
+	viewOffset   int           // First visible item index (for scrolling)
+	isAttaching  bool          // Prevents View() output during attach (fixes Bubble Tea Issue #431)
+	statusFilter session.Status // Filter sessions by status ("" = all, or specific status)
+	err          error
 
 	// Preview cache (async fetching - View() must be pure, no blocking I/O)
 	previewCache      map[string]string // sessionID -> cached preview content
@@ -279,7 +280,47 @@ func NewHomeWithProfile(profile string) *Home {
 
 // rebuildFlatItems rebuilds the flattened view from group tree
 func (h *Home) rebuildFlatItems() {
-	h.flatItems = h.groupTree.Flatten()
+	allItems := h.groupTree.Flatten()
+
+	// Apply status filter if active
+	if h.statusFilter != "" {
+		// First pass: identify groups that have matching sessions
+		groupsWithMatches := make(map[string]bool)
+		for _, item := range allItems {
+			if item.Type == session.ItemTypeSession && item.Session != nil {
+				if item.Session.Status == h.statusFilter {
+					// Mark this session's group and all parent groups as having matches
+					groupsWithMatches[item.Path] = true
+					// Also mark parent paths
+					parts := strings.Split(item.Path, "/")
+					for i := range parts {
+						parentPath := strings.Join(parts[:i+1], "/")
+						groupsWithMatches[parentPath] = true
+					}
+				}
+			}
+		}
+
+		// Second pass: filter items
+		filtered := make([]session.Item, 0, len(allItems))
+		for _, item := range allItems {
+			if item.Type == session.ItemTypeGroup {
+				// Keep group if it has matching sessions
+				if groupsWithMatches[item.Path] {
+					filtered = append(filtered, item)
+				}
+			} else if item.Type == session.ItemTypeSession && item.Session != nil {
+				// Keep session if it matches the filter
+				if item.Session.Status == h.statusFilter {
+					filtered = append(filtered, item)
+				}
+			}
+		}
+		h.flatItems = filtered
+	} else {
+		h.flatItems = allItems
+	}
+
 	// Ensure cursor is valid
 	if h.cursor >= len(h.flatItems) {
 		h.cursor = len(h.flatItems) - 1
@@ -1483,6 +1524,52 @@ func (h *Home) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		targetNum := int(msg.String()[0] - '0') // Convert "1" -> 1, "2" -> 2, etc.
 		h.jumpToRootGroup(targetNum)
 		return h, nil
+
+	case "0":
+		// Clear status filter (show all)
+		h.statusFilter = ""
+		h.rebuildFlatItems()
+		return h, nil
+
+	case "!", "shift+1":
+		// Filter to running sessions only
+		if h.statusFilter == session.StatusRunning {
+			h.statusFilter = "" // Toggle off
+		} else {
+			h.statusFilter = session.StatusRunning
+		}
+		h.rebuildFlatItems()
+		return h, nil
+
+	case "@", "shift+2":
+		// Filter to waiting sessions only
+		if h.statusFilter == session.StatusWaiting {
+			h.statusFilter = "" // Toggle off
+		} else {
+			h.statusFilter = session.StatusWaiting
+		}
+		h.rebuildFlatItems()
+		return h, nil
+
+	case "#", "shift+3":
+		// Filter to idle sessions only
+		if h.statusFilter == session.StatusIdle {
+			h.statusFilter = "" // Toggle off
+		} else {
+			h.statusFilter = session.StatusIdle
+		}
+		h.rebuildFlatItems()
+		return h, nil
+
+	case "$", "shift+4":
+		// Filter to error sessions only
+		if h.statusFilter == session.StatusError {
+			h.statusFilter = "" // Toggle off
+		} else {
+			h.statusFilter = session.StatusError
+		}
+		h.rebuildFlatItems()
+		return h, nil
 	}
 
 	return h, nil
@@ -1960,6 +2047,140 @@ func (h *Home) countSessionStatuses() (running, waiting, idle, errored int) {
 	return running, waiting, idle, errored
 }
 
+// hasMultipleStatuses returns true if there's more than one status type active
+// Used to decide whether to show the filter bar
+func (h *Home) hasMultipleStatuses() bool {
+	running, waiting, idle, errored := h.countSessionStatuses()
+	count := 0
+	if running > 0 {
+		count++
+	}
+	if waiting > 0 {
+		count++
+	}
+	if idle > 0 {
+		count++
+	}
+	if errored > 0 {
+		count++
+	}
+	return count > 1
+}
+
+// renderFilterBar renders the quick filter pills
+// Format: [All] [● Running 2] [◐ Waiting 1] [○ Idle 5] [✕ Error 1]
+func (h *Home) renderFilterBar() string {
+	running, waiting, idle, errored := h.countSessionStatuses()
+
+	// Pill styling
+	activePillStyle := lipgloss.NewStyle().
+		Foreground(ColorBg).
+		Background(ColorAccent).
+		Bold(true).
+		Padding(0, 1)
+
+	inactivePillStyle := lipgloss.NewStyle().
+		Foreground(ColorText).
+		Background(ColorSurface).
+		Padding(0, 1)
+
+	dimPillStyle := lipgloss.NewStyle().
+		Foreground(ColorTextDim).
+		Faint(true).
+		Padding(0, 1)
+
+	// Build pills
+	var pills []string
+
+	// "All" pill
+	allLabel := "All"
+	if h.statusFilter == "" {
+		pills = append(pills, activePillStyle.Render(allLabel))
+	} else {
+		pills = append(pills, inactivePillStyle.Render(allLabel))
+	}
+
+	// Running pill (green when active, dim if 0)
+	runningLabel := fmt.Sprintf("● %d", running)
+	if h.statusFilter == session.StatusRunning {
+		pills = append(pills, lipgloss.NewStyle().
+			Foreground(ColorBg).
+			Background(ColorGreen).
+			Bold(true).
+			Padding(0, 1).Render(runningLabel))
+	} else if running > 0 {
+		pills = append(pills, lipgloss.NewStyle().
+			Foreground(ColorGreen).
+			Background(ColorSurface).
+			Padding(0, 1).Render(runningLabel))
+	} else {
+		pills = append(pills, dimPillStyle.Render(runningLabel))
+	}
+
+	// Waiting pill (yellow when active)
+	waitingLabel := fmt.Sprintf("◐ %d", waiting)
+	if h.statusFilter == session.StatusWaiting {
+		pills = append(pills, lipgloss.NewStyle().
+			Foreground(ColorBg).
+			Background(ColorYellow).
+			Bold(true).
+			Padding(0, 1).Render(waitingLabel))
+	} else if waiting > 0 {
+		pills = append(pills, lipgloss.NewStyle().
+			Foreground(ColorYellow).
+			Background(ColorSurface).
+			Padding(0, 1).Render(waitingLabel))
+	} else {
+		pills = append(pills, dimPillStyle.Render(waitingLabel))
+	}
+
+	// Idle pill (gray when active)
+	idleLabel := fmt.Sprintf("○ %d", idle)
+	if h.statusFilter == session.StatusIdle {
+		pills = append(pills, lipgloss.NewStyle().
+			Foreground(ColorBg).
+			Background(ColorTextDim).
+			Bold(true).
+			Padding(0, 1).Render(idleLabel))
+	} else if idle > 0 {
+		pills = append(pills, lipgloss.NewStyle().
+			Foreground(ColorTextDim).
+			Background(ColorSurface).
+			Padding(0, 1).Render(idleLabel))
+	} else {
+		pills = append(pills, dimPillStyle.Render(idleLabel))
+	}
+
+	// Error pill (red when active)
+	if errored > 0 || h.statusFilter == session.StatusError {
+		errorLabel := fmt.Sprintf("✕ %d", errored)
+		if h.statusFilter == session.StatusError {
+			pills = append(pills, lipgloss.NewStyle().
+				Foreground(ColorBg).
+				Background(ColorRed).
+				Bold(true).
+				Padding(0, 1).Render(errorLabel))
+		} else if errored > 0 {
+			pills = append(pills, lipgloss.NewStyle().
+				Foreground(ColorRed).
+				Background(ColorSurface).
+				Padding(0, 1).Render(errorLabel))
+		}
+	}
+
+	// Hint for keyboard shortcuts (shift+number to filter, 0 to clear)
+	hintStyle := lipgloss.NewStyle().Foreground(ColorComment).Faint(true)
+	hint := hintStyle.Render("  !@#$ filter • 0 all")
+
+	// Join pills with spaces
+	filterRow := strings.Join(pills, " ") + hint
+
+	return lipgloss.NewStyle().
+		Width(h.width).
+		Padding(0, 1).
+		Render(filterRow)
+}
+
 // updateSizes updates component sizes
 func (h *Home) updateSizes() {
 	h.search.SetSize(h.width, h.height)
@@ -2079,6 +2300,16 @@ func (h *Home) View() string {
 	b.WriteString("\n")
 
 	// ═══════════════════════════════════════════════════════════════════
+	// FILTER BAR (quick status filters)
+	// ═══════════════════════════════════════════════════════════════════
+	filterBarHeight := 0
+	if h.statusFilter != "" || h.hasMultipleStatuses() {
+		filterBarHeight = 1
+		b.WriteString(h.renderFilterBar())
+		b.WriteString("\n")
+	}
+
+	// ═══════════════════════════════════════════════════════════════════
 	// UPDATE BANNER (if update available)
 	// ═══════════════════════════════════════════════════════════════════
 	updateBannerHeight := 0
@@ -2099,8 +2330,8 @@ func (h *Home) View() string {
 	// ═══════════════════════════════════════════════════════════════════
 	// MAIN CONTENT AREA
 	// ═══════════════════════════════════════════════════════════════════
-	helpBarHeight := 3                                              // Help bar takes 3 lines
-	contentHeight := h.height - 2 - helpBarHeight - updateBannerHeight // -2 for header, -helpBarHeight for help
+	helpBarHeight := 3                                                                      // Help bar takes 3 lines
+	contentHeight := h.height - 2 - helpBarHeight - updateBannerHeight - filterBarHeight // -2 for header, -helpBarHeight for help
 
 	// Calculate panel widths (35% left, 65% right for more preview space)
 	leftWidth := int(float64(h.width) * 0.35)
@@ -2539,10 +2770,11 @@ func (h *Home) renderSessionItem(b *strings.Builder, item session.Item, selected
 	// Title styling
 	titleStyle := lipgloss.NewStyle().Foreground(ColorText)
 
-	// Tool badge (compact, subtle)
+	// Tool badge with brand-specific color
+	// Claude=orange, Gemini=purple, Codex=cyan, Aider=red
+	toolColor := ToolColor(inst.Tool)
 	toolStyle := lipgloss.NewStyle().
-		Foreground(ColorPurple).
-		Faint(true)
+		Foreground(toolColor)
 
 	// Selection indicator
 	selectionPrefix := " "
