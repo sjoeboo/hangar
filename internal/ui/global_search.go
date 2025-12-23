@@ -26,10 +26,6 @@ var (
 		Background(ColorCyan).
 		Foreground(ColorBg)
 
-	snippetStyle = lipgloss.NewStyle().
-		Foreground(ColorComment).
-		Italic(true)
-
 	globalSearchHeaderStyle = lipgloss.NewStyle().
 		Foreground(ColorCyan).
 		Bold(true)

@@ -318,7 +318,7 @@ func TestGlobalSearchIndexBalancedTier(t *testing.T) {
 func TestGlobalSearchIndexTierAutoDetect(t *testing.T) {
 	tmpDir := t.TempDir()
 	projectDir := filepath.Join(tmpDir, "projects", "-Users-test-project")
-	os.MkdirAll(projectDir, 0755)
+	_ = os.MkdirAll(projectDir, 0755)
 
 	// Small dataset should auto-detect as instant
 	config := GlobalSearchSettings{

@@ -1887,7 +1887,7 @@ func TestSession_SendCommand(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to start session: %v", err)
 	}
-	defer sess.Kill()
+	defer func() { _ = sess.Kill() }()
 
 	// Send a command
 	err = sess.SendCommand("echo hello")

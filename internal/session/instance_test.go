@@ -436,7 +436,7 @@ func TestInstance_Restart_InterruptsAndResumes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to start initial session: %v", err)
 	}
-	defer inst.Kill()
+	defer func() { _ = inst.Kill() }()
 
 	// Session is running (not error state)
 	inst.Status = StatusRunning
