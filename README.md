@@ -32,107 +32,46 @@ Running multiple AI coding agents across projects gets messy fast. Agent Deck gi
 
 ## Features
 
-### 🚀 Claude Code Deep Integration
+### 🚀 Session Forking (Claude Code)
 
-Agent Deck offers **first-class Claude Code integration** with powerful session forking:
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│  Parent Session                    │   Forked Sessions      │
-│  ┌─────────────────┐               │   ┌─────────────────┐  │
-│  │ "Build auth"    │──── Fork ────►│   │ "Try JWT"       │  │
-│  │ claude session  │               │   └─────────────────┘  │
-│  │                 │──── Fork ────►│   ┌─────────────────┐  │
-│  │                 │               │   │ "Try OAuth"     │  │
-│  └─────────────────┘               │   └─────────────────┘  │
-└─────────────────────────────────────────────────────────────┘
-```
-
-**Fork a conversation** to explore multiple approaches in parallel:
-- Press `f` to quick-fork any Claude session
-- Press `F` to fork with custom name/group
-- Each fork **inherits full conversation context** from parent
-- Forks get their own session ID—can be forked again!
-
-**Use cases:**
-- 🔀 **Branching explorations** — Try different implementation approaches from the same context
-- 🧪 **Experiment safely** — Fork before risky changes, keep original intact
-- 👥 **Parallel work** — Multiple Claude instances working from same knowledge base
-- 📚 **Learning** — Fork to ask "what if" questions without derailing main session
-
-**Automatic session detection:**
-- Detects Claude session ID from `.jsonl` files
-- Tracks sessions across restarts
-- Handles multiple Claude sessions in same project
-- Works with custom Claude profiles (`CLAUDE_CONFIG_DIR`)
+Fork Claude conversations to explore multiple approaches in parallel. Each fork inherits full conversation context.
 
 ![Fork Session Demo](demos/fork-session.gif)
 
+- Press `f` to quick-fork, `F` for custom name/group
+- Forks inherit context and can be forked again
+- Auto-detects Claude session ID across restarts
+
 ### 🔌 MCP Manager
 
-Attach and detach MCP servers to your Claude sessions on the fly:
-
-- Press `M` to open the MCP Manager
-- Toggle MCPs between **Attached** ↔ **Available**
-- Choose scope: **LOCAL** (project only) or **GLOBAL** (all projects)
-- Session automatically restarts with new MCPs loaded
+Attach and detach MCP servers on the fly—no config editing required.
 
 ![MCP Manager Demo](demos/mcp-manager.gif)
 
+- Press `M` to open, `Space` to toggle MCPs
+- **LOCAL** scope (project) or **GLOBAL** (all projects)
+- Session auto-restarts with new MCPs loaded
+
 ### 🔍 Global Search
 
-Search across **ALL your Claude conversations** with a single keystroke:
+Press `G` to search across **all your Claude conversations**—full content search with keyword highlighting and smart ranking.
 
-```
-┌────────────────────────────────────────────────────────────────────────┐
-│ 🔍 Global Search (83 sessions)                                         │
-├─────────────────────────────┬──────────────────────────────────────────┤
-│ Search: MCP█               │ 📄 Preview                                │
-│                            │ 📁 /Users/ashesh/my-project              │
-│ › MCP Manager implement... │                                          │
-│     2h ago • 15 matches    │ 👤 How do I attach an MCP server?        │
-│   • Fix MCP detection      │ 🤖 I'll help you attach an [MCP] server  │
-│   • Add MCP config...      │     to your Claude session...            │
-│                            │                                          │
-│ [↑↓] Select [Enter] Open   │ ─── 45/120 lines ───                    │
-└─────────────────────────────┴──────────────────────────────────────────┘
-```
+### 🎯 Smart Status Detection
 
-**Press `G` to open Global Search:**
-- **Full content search** — Searches entire conversations, not just titles
-- **Auto-scroll to match** — Preview jumps to the matching line
-- **Keyword highlighting** — Matched terms highlighted in yellow
-- **Smart ranking** — Results sorted by relevance × recency
-- **Fuzzy fallback** — Handles typos when no exact match found
-
-### Intelligent Status Detection
-
-Agent Deck automatically detects what your AI agent is doing:
+Automatically detects what your AI agent is doing:
 
 | Status | Symbol | Meaning |
 |--------|--------|---------|
 | **Running** | `●` green | Agent is actively working |
-| **Waiting** | `◐` yellow | Prompt detected, needs your input |
-| **Idle** | `○` gray | Session ready, nothing happening |
-| **Error** | `✕` red | Session has an error |
+| **Waiting** | `◐` yellow | Needs your input |
+| **Idle** | `○` gray | Session ready |
+| **Error** | `✕` red | Session error |
 
-Works out-of-the-box with Claude Code, Gemini CLI, Aider, and Codex—detecting busy indicators, permission prompts, and input requests.
+Works with Claude Code, Gemini CLI, Aider, and Codex out-of-the-box.
 
-### Quick Filter Pills
+### ⌨️ Quick Filters
 
-Filter sessions by status with a single keystroke. A filter bar appears below the header showing colored pills:
-
-```
-[All] [● Running 2] [◐ Waiting 1] [○ Idle 5] [✕ Error 1]
-```
-
-- `0` — Show all sessions (clear filter)
-- `!` — Filter to running sessions only
-- `@` — Filter to waiting sessions only
-- `#` — Filter to idle sessions only
-- `$` — Filter to error sessions only
-
-Press the same key again to toggle off the filter. Filtering preserves group hierarchy—parent groups of matching sessions remain visible.
+Filter by status with `!` (running), `@` (waiting), `#` (idle), `$` (error), or `0` (all).
 
 ### Supported Tools
 
