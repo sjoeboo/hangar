@@ -52,6 +52,83 @@ Attach and detach MCP servers on the fly. No config editing required.
 - **LOCAL** scope (project) or **GLOBAL** (all projects)
 - Session auto-restarts with new MCPs loaded
 
+**Adding Available MCPs:**
+
+Define your MCPs once in `~/.agent-deck/config.toml`, then toggle them per project:
+
+```toml
+# Web search
+[mcps.exa]
+command = "npx"
+args = ["-y", "exa-mcp-server"]
+env = { EXA_API_KEY = "your-api-key" }
+description = "Web search via Exa AI"
+
+# GitHub integration
+[mcps.github]
+command = "npx"
+args = ["-y", "@modelcontextprotocol/server-github"]
+env = { GITHUB_PERSONAL_ACCESS_TOKEN = "ghp_your_token" }
+description = "GitHub repos, issues, PRs"
+
+# Browser automation
+[mcps.playwright]
+command = "npx"
+args = ["-y", "@playwright/mcp@latest"]
+description = "Browser automation & testing"
+
+# Memory across sessions
+[mcps.memory]
+command = "npx"
+args = ["-y", "@modelcontextprotocol/server-memory"]
+description = "Persistent memory via knowledge graph"
+```
+
+<details>
+<summary>More MCP examples</summary>
+
+```toml
+# YouTube transcripts
+[mcps.youtube-transcript]
+command = "npx"
+args = ["-y", "@kimtaeyoon83/mcp-server-youtube-transcript"]
+description = "Get YouTube transcripts"
+
+# Web scraping
+[mcps.firecrawl]
+command = "npx"
+args = ["-y", "firecrawl-mcp"]
+env = { FIRECRAWL_API_KEY = "your-key" }
+description = "Web scraping and crawling"
+
+# Notion
+[mcps.notion]
+command = "npx"
+args = ["-y", "@notionhq/notion-mcp-server"]
+env = { NOTION_TOKEN = "your-token" }
+description = "Notion workspace access"
+
+# Sequential thinking
+[mcps.sequential-thinking]
+command = "npx"
+args = ["-y", "@modelcontextprotocol/server-sequential-thinking"]
+description = "Step-by-step reasoning"
+
+# Context7 - code docs
+[mcps.context7]
+command = "npx"
+args = ["-y", "@upstash/context7-mcp@latest"]
+description = "Up-to-date code documentation"
+
+# Anthropic docs
+[mcps.anthropic-docs]
+command = "npx"
+args = ["-y", "anthropic-docs-mcp", "--transport", "stdio"]
+description = "Search Claude & Anthropic docs"
+```
+
+</details>
+
 ### 🔍 Search
 
 Press `/` to search across sessions with fuzzy matching. Filter by status with `!` (running), `@` (waiting), `#` (idle), `$` (error).

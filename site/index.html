@@ -461,7 +461,7 @@ bind-key -T copy-mode MouseDragEnd1Pane send-keys -X copy-pipe-and-cancel "xclip
                 </div>
 
                 <!-- MCP Features -->
-                <div class="grid md:grid-cols-3 gap-4 text-center">
+                <div class="grid md:grid-cols-3 gap-4 text-center mb-8">
                     <div class="p-4 bg-tn-surface/50 rounded-lg">
                         <div class="text-2xl mb-2">🔌</div>
                         <h4 class="font-medium mb-1">Easy Toggle</h4>
@@ -477,6 +477,33 @@ bind-key -T copy-mode MouseDragEnd1Pane send-keys -X copy-pipe-and-cancel "xclip
                         <h4 class="font-medium mb-1">Auto Restart</h4>
                         <p class="text-tn-dim text-sm">Session restarts with new MCPs</p>
                     </div>
+                </div>
+
+                <!-- Add MCPs Config -->
+                <div class="bg-tn-bg rounded-lg border border-tn-border p-6">
+                    <h3 class="text-lg font-semibold mb-3">Adding Available MCPs</h3>
+                    <p class="text-tn-dim text-sm mb-4">Define MCPs once in <code class="text-tn-cyan">~/.agent-deck/config.toml</code>, then toggle per project:</p>
+                    <div class="code-block bg-tn-surface rounded-lg p-4 overflow-x-auto">
+                        <pre class="text-xs text-tn-text"><code><span class="text-tn-dim"># GitHub integration</span>
+<span class="text-tn-purple">[mcps.github]</span>
+<span class="text-tn-cyan">command</span> = <span class="text-tn-green">"npx"</span>
+<span class="text-tn-cyan">args</span> = [<span class="text-tn-green">"-y"</span>, <span class="text-tn-green">"@modelcontextprotocol/server-github"</span>]
+<span class="text-tn-cyan">env</span> = { GITHUB_PERSONAL_ACCESS_TOKEN = <span class="text-tn-green">"ghp_your_token"</span> }
+<span class="text-tn-cyan">description</span> = <span class="text-tn-green">"GitHub repos, issues, PRs"</span>
+
+<span class="text-tn-dim"># Browser automation</span>
+<span class="text-tn-purple">[mcps.playwright]</span>
+<span class="text-tn-cyan">command</span> = <span class="text-tn-green">"npx"</span>
+<span class="text-tn-cyan">args</span> = [<span class="text-tn-green">"-y"</span>, <span class="text-tn-green">"@playwright/mcp@latest"</span>]
+<span class="text-tn-cyan">description</span> = <span class="text-tn-green">"Browser automation & testing"</span>
+
+<span class="text-tn-dim"># Memory across sessions</span>
+<span class="text-tn-purple">[mcps.memory]</span>
+<span class="text-tn-cyan">command</span> = <span class="text-tn-green">"npx"</span>
+<span class="text-tn-cyan">args</span> = [<span class="text-tn-green">"-y"</span>, <span class="text-tn-green">"@modelcontextprotocol/server-memory"</span>]
+<span class="text-tn-cyan">description</span> = <span class="text-tn-green">"Persistent memory via knowledge graph"</span></code></pre>
+                    </div>
+                    <p class="text-tn-dim text-xs mt-3">See <a href="https://github.com/asheshgoplani/agent-deck#-mcp-manager" class="text-tn-cyan hover:underline">README</a> for more MCP examples.</p>
                 </div>
             </div>
         </section>
