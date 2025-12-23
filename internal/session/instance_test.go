@@ -452,7 +452,12 @@ func TestInstance_Restart_InterruptsAndResumes(t *testing.T) {
 		t.Fatalf("Restart failed: %v", err)
 	}
 
+	// Give tmux time to respawn the pane (CI timing)
+	time.Sleep(100 * time.Millisecond)
+
 	// Verify the session still exists
+	// Note: In CI, the claude command may exit immediately (not installed),
+	// but the session/pane should still exist
 	if !inst.tmuxSession.Exists() {
 		t.Error("tmux session should still exist after restart")
 	}
