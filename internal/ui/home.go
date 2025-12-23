@@ -407,7 +407,8 @@ func (h *Home) syncViewport() {
 	}
 
 	// This matches: contentHeight-3 passed to renderSessionList, then height-1 in that function
-	contentHeight := h.height - 2 - helpBarHeight - updateBannerHeight - filterBarHeight
+	// -1 for header line, -helpBarHeight for help bar, -updateBannerHeight, -filterBarHeight
+	contentHeight := h.height - 1 - helpBarHeight - updateBannerHeight - filterBarHeight
 	listHeight := contentHeight - panelTitleHeight
 	maxVisible := listHeight - 1 // -1 for "more below" indicator
 	if maxVisible < 1 {
@@ -2434,8 +2435,9 @@ func (h *Home) View() string {
 	// ═══════════════════════════════════════════════════════════════════
 	// MAIN CONTENT AREA
 	// ═══════════════════════════════════════════════════════════════════
-	helpBarHeight := 2                                                                      // Help bar takes 2 lines (border + content)
-	contentHeight := h.height - 2 - helpBarHeight - updateBannerHeight - filterBarHeight // -2 for header, -helpBarHeight for help
+	helpBarHeight := 2 // Help bar takes 2 lines (border + content)
+	// Height breakdown: -1 header, -filterBarHeight filter, -updateBannerHeight banner, -helpBarHeight help
+	contentHeight := h.height - 1 - helpBarHeight - updateBannerHeight - filterBarHeight
 
 	// Calculate panel widths (35% left, 65% right for more preview space)
 	leftWidth := int(float64(h.width) * 0.35)
