@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -76,41 +77,48 @@ func (e *SearchEntry) Match(query string) []MatchRange {
 }
 
 // GetSnippet extracts a context window around the first match
+// Uses rune-based indexing to safely handle UTF-8 content
 func (e *SearchEntry) GetSnippet(query string, windowSize int) string {
 	matches := e.Match(query)
+	runes := []rune(e.Content)
+
 	if len(matches) == 0 {
 		// No match, return beginning of content
-		if len(e.Content) > windowSize*2 {
-			return e.Content[:windowSize*2] + "..."
+		if len(runes) > windowSize*2 {
+			return string(runes[:windowSize*2]) + "..."
 		}
 		return e.Content
 	}
 
 	match := matches[0]
-	start := match.Start - windowSize
+	// Convert byte indices to rune indices for safe slicing
+	runeStart := len([]rune(e.Content[:match.Start]))
+	runeEnd := len([]rune(e.Content[:match.End]))
+
+	start := runeStart - windowSize
 	if start < 0 {
 		start = 0
 	}
-	end := match.End + windowSize
-	if end > len(e.Content) {
-		end = len(e.Content)
+	end := runeEnd + windowSize
+	if end > len(runes) {
+		end = len(runes)
 	}
 
-	// Expand to word boundaries
-	for start > 0 && e.Content[start-1] != ' ' && e.Content[start-1] != '\n' {
+	// Expand to word boundaries using runes
+	for start > 0 && runes[start-1] != ' ' && runes[start-1] != '\n' {
 		start--
 	}
-	for end < len(e.Content) && e.Content[end] != ' ' && e.Content[end] != '\n' {
+	for end < len(runes) && runes[end] != ' ' && runes[end] != '\n' {
 		end++
 	}
 
-	snippet := e.Content[start:end]
+	snippet := string(runes[start:end])
 	prefix := ""
 	suffix := ""
 	if start > 0 {
 		prefix = "..."
 	}
-	if end < len(e.Content) {
+	if end < len(runes) {
 		suffix = "..."
 	}
 
@@ -659,14 +667,10 @@ func (idx *GlobalSearchIndex) Search(query string) []*SearchResult {
 		}
 	}
 
-	// Sort by score (more matches = higher score)
-	for i := 0; i < len(results); i++ {
-		for j := i + 1; j < len(results); j++ {
-			if results[j].Score > results[i].Score {
-				results[i], results[j] = results[j], results[i]
-			}
-		}
-	}
+	// Sort by score (more matches = higher score) - O(n log n)
+	sort.Slice(results, func(i, j int) bool {
+		return results[i].Score > results[j].Score
+	})
 
 	return results
 }

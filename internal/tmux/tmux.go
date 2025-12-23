@@ -882,6 +882,16 @@ func (s *Session) AcknowledgeWithSnapshot() {
 	s.stateTracker.lastHash = newHash
 	s.stateTracker.acknowledged = true
 	s.lastStableStatus = "idle"
+
+	// If Claude isn't actively busy, expire the cooldown for immediate GRAY status.
+	// This ensures explicit user acknowledge (Ctrl+Q detach) takes effect immediately,
+	// rather than waiting for the 2-second cooldown to expire.
+	// If Claude IS busy (spinner visible), we keep the cooldown so GREEN persists correctly.
+	if !s.hasBusyIndicator(content) {
+		s.stateTracker.lastChangeTime = time.Now().Add(-activityCooldown)
+		debugLog("%s: AckSnapshot cleared cooldown (no busy indicator)", shortName)
+	}
+
 	prevHashShort := "(empty)"
 	if len(prevHash) >= 16 {
 		prevHashShort = prevHash[:16]

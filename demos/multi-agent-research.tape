@@ -1,21 +1,25 @@
 # Agent Deck - Multi-Agent Research Demo
 # Shows: Creating 3 sessions (Claude, Gemini, Codex) for parallel research
 
-Output demos/multi-agent-research.gif
-Output demos/multi-agent-research.mp4
-Output demos/multi-agent-research.webm
+Output multi-agent-research.gif
+Output multi-agent-research.mp4
+Output multi-agent-research.webm
 
-# Terminal settings
+# Terminal settings - Professional styling
 Set Shell "zsh"
 Set Theme "TokyoNight"
-Set FontSize 14
+Set FontSize 16
 Set Width 1400
 Set Height 900
 Set TypingSpeed 30ms
 Set Padding 20
-Set WindowBar "Colorful"
+Set Margin 20
+Set MarginFill "#1a1b26"
 Set BorderRadius 10
+Set WindowBar Colorful
+Set WindowBarSize 40
 Set Framerate 30
+Set PlaybackSpeed 1.2
 
 # ============================================
 # CLEANUP: Remove demo profile sessions (hidden)

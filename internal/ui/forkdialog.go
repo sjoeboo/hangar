@@ -133,11 +133,20 @@ func (d *ForkDialog) View() string {
 		Foreground(ColorAccent).
 		Bold(true)
 
+	// Responsive dialog width
+	dialogWidth := 50
+	if d.width > 0 && d.width < dialogWidth+10 {
+		dialogWidth = d.width - 10
+		if dialogWidth < 35 {
+			dialogWidth = 35
+		}
+	}
+
 	boxStyle := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(ColorAccent).
 		Padding(1, 2).
-		Width(50)
+		Width(dialogWidth)
 
 	// Build content
 	var nameLabel, groupLabel string

@@ -414,9 +414,9 @@ func TestInstance_Restart_ResumesClaudeSession(t *testing.T) {
 		t.Error("tmux session should exist after restart")
 	}
 
-	// Status should be running
-	if inst.Status != StatusRunning {
-		t.Errorf("Status = %v, want running", inst.Status)
+	// Status should be waiting initially (will go to running on first tick if Claude shows busy indicator)
+	if inst.Status != StatusWaiting {
+		t.Errorf("Status = %v, want waiting", inst.Status)
 	}
 }
 

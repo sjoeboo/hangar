@@ -60,6 +60,26 @@ const (
 	spacingLarge  = 4 // Between major areas (e.g., info sections in preview)
 )
 
+// Minimum terminal size requirements
+const (
+	minTerminalWidth  = 80
+	minTerminalHeight = 20
+)
+
+// Responsive breakpoints for empty state content tiers
+// These define when to show full/compact/minimal content
+const (
+	// Width breakpoints (for left panel after 35% split)
+	emptyStateWidthFull    = 45 // Full content with all hints
+	emptyStateWidthCompact = 35 // Compact: fewer hints, shorter text
+	// Below 35: minimal mode (icon + title + 1 hint)
+
+	// Height breakpoints (for content area)
+	emptyStateHeightFull    = 18 // Full content with generous spacing
+	emptyStateHeightCompact = 12 // Compact: reduced spacing
+	// Below 12: minimal mode
+)
+
 // Home is the main application model
 type Home struct {
 	// Dimensions
@@ -70,11 +90,12 @@ type Home struct {
 	profile string // The profile this Home is displaying
 
 	// Data (protected by instancesMu for background worker access)
-	instances   []*session.Instance
-	instancesMu sync.RWMutex // Protects instances slice for thread-safe background access
-	storage     *session.Storage
-	groupTree   *session.GroupTree
-	flatItems   []session.Item // Flattened view for cursor navigation
+	instances    []*session.Instance
+	instanceByID map[string]*session.Instance // O(1) instance lookup by ID
+	instancesMu  sync.RWMutex                 // Protects instances slice for thread-safe background access
+	storage      *session.Storage
+	groupTree    *session.GroupTree
+	flatItems    []session.Item // Flattened view for cursor navigation
 
 	// Components
 	search        *Search
@@ -93,11 +114,13 @@ type Home struct {
 	isAttaching  bool          // Prevents View() output during attach (fixes Bubble Tea Issue #431)
 	statusFilter session.Status // Filter sessions by status ("" = all, or specific status)
 	err          error
+	errTime      time.Time // When error occurred (for auto-dismiss)
 
 	// Preview cache (async fetching - View() must be pure, no blocking I/O)
-	previewCache      map[string]string // sessionID -> cached preview content
-	previewCacheMu    sync.RWMutex      // Protects previewCache for thread-safety
-	previewFetchingID string            // ID currently being fetched (prevents duplicate fetches)
+	previewCache       map[string]string    // sessionID -> cached preview content
+	previewCacheTime   map[string]time.Time // sessionID -> when cached (for expiration)
+	previewCacheMu     sync.RWMutex         // Protects previewCache for thread-safety
+	previewFetchingID  string               // ID currently being fetched (prevents duplicate fetches)
 
 	// Round-robin status updates (Priority 1A optimization)
 	// Instead of updating ALL sessions every tick, we update batches of 5-10 sessions
@@ -119,10 +142,11 @@ type Home struct {
 	updateInfo *update.UpdateInfo
 
 	// Launching animation state (for newly created sessions)
-	launchingSessions map[string]time.Time // sessionID -> creation time
-	resumingSessions  map[string]time.Time // sessionID -> resume time (for restart/resume)
+	launchingSessions  map[string]time.Time // sessionID -> creation time
+	resumingSessions   map[string]time.Time // sessionID -> resume time (for restart/resume)
 	mcpLoadingSessions map[string]time.Time // sessionID -> MCP reload time
-	animationFrame    int                  // Current frame for spinner animation
+	forkingSessions    map[string]time.Time // sessionID -> fork start time (fork in progress)
+	animationFrame     int                  // Current frame for spinner animation
 
 	// Context for cleanup
 	ctx    context.Context
@@ -131,6 +155,15 @@ type Home struct {
 	// Periodic log maintenance (prevents runaway log growth)
 	lastLogMaintenance time.Time
 	lastLogCheck       time.Time // Fast 10-second check for oversized logs
+
+	// Cached status counts (invalidated on instance changes)
+	cachedStatusCounts struct {
+		running, waiting, idle, errored int
+		valid                           bool
+	}
+
+	// Reusable string builder for View() to reduce allocations
+	viewBuilder strings.Builder
 }
 
 // Messages
@@ -147,6 +180,7 @@ type sessionCreatedMsg struct {
 
 type sessionForkedMsg struct {
 	instance *session.Instance
+	sourceID string // ID of the source session that was forked (for cleanup)
 	err      error
 }
 
@@ -213,12 +247,15 @@ func NewHomeWithProfile(profile string) *Home {
 		ctx:               ctx,
 		cancel:            cancel,
 		instances:         []*session.Instance{},
+		instanceByID:      make(map[string]*session.Instance),
 		groupTree:         session.NewGroupTree([]*session.Instance{}),
 		flatItems:         []session.Item{},
-		previewCache:      make(map[string]string),
-		launchingSessions: make(map[string]time.Time),
-		resumingSessions:  make(map[string]time.Time),
+		previewCache:       make(map[string]string),
+		previewCacheTime:   make(map[string]time.Time),
+		launchingSessions:  make(map[string]time.Time),
+		resumingSessions:   make(map[string]time.Time),
 		mcpLoadingSessions: make(map[string]time.Time),
+		forkingSessions:    make(map[string]time.Time),
 		statusTrigger:     make(chan statusUpdateRequest, 1), // Buffered to avoid blocking
 		statusWorkerDone:  make(chan struct{}),
 	}
@@ -321,6 +358,15 @@ func (h *Home) rebuildFlatItems() {
 		h.flatItems = allItems
 	}
 
+	// Pre-compute root group numbers for O(1) hotkey lookup (replaces O(n) loop in renderGroupItem)
+	rootNum := 0
+	for i := range h.flatItems {
+		if h.flatItems[i].Type == session.ItemTypeGroup && h.flatItems[i].Level == 0 {
+			rootNum++
+			h.flatItems[i].RootGroupNum = rootNum
+		}
+	}
+
 	// Ensure cursor is valid
 	if h.cursor >= len(h.flatItems) {
 		h.cursor = len(h.flatItems) - 1
@@ -341,12 +387,41 @@ func (h *Home) syncViewport() {
 	}
 
 	// Calculate visible height for session list
-	// Header takes 2 lines, help bar takes 3 lines, content area needs -2 for title
-	helpBarHeight := 3
-	contentHeight := h.height - 2 - helpBarHeight
-	visibleHeight := contentHeight - 2 // -2 for SESSIONS title
-	if visibleHeight < 1 {
-		visibleHeight = 1
+	// MUST match the calculation in View() and renderSessionList() exactly!
+	//
+	// Layout breakdown:
+	// - Header: 2 lines
+	// - Filter bar: 0 or 1 line (when statusFilter active or multiple statuses exist)
+	// - Update banner: 0 or 1 line (when update available)
+	// - Help bar: 2 lines (border + content)
+	// - Panel title: 3 lines (title + underline + spacing)
+	// - "more below" indicator: 1 line (always reserved)
+	helpBarHeight := 2
+	panelTitleHeight := 3 // "SESSIONS" title + underline + spacing
+
+	// Filter bar is always shown for consistent layout (matches View())
+	filterBarHeight := 1
+	updateBannerHeight := 0
+	if h.updateInfo != nil && h.updateInfo.Available {
+		updateBannerHeight = 1
+	}
+
+	// This matches: contentHeight-3 passed to renderSessionList, then height-1 in that function
+	contentHeight := h.height - 2 - helpBarHeight - updateBannerHeight - filterBarHeight
+	listHeight := contentHeight - panelTitleHeight
+	maxVisible := listHeight - 1 // -1 for "more below" indicator
+	if maxVisible < 1 {
+		maxVisible = 1
+	}
+
+	// Account for "more above" indicator (takes 1 line when scrolled down)
+	// This is the key fix: when we're scrolled down, we have 1 less visible line
+	effectiveMaxVisible := maxVisible
+	if h.viewOffset > 0 {
+		effectiveMaxVisible-- // "more above" indicator takes 1 line
+	}
+	if effectiveMaxVisible < 1 {
+		effectiveMaxVisible = 1
 	}
 
 	// If cursor is above viewport, scroll up
@@ -355,17 +430,25 @@ func (h *Home) syncViewport() {
 	}
 
 	// If cursor is below viewport, scroll down
-	// Leave room for "⋮ +N more" indicator
-	maxVisible := visibleHeight - 1
-	if maxVisible < 1 {
-		maxVisible = 1
-	}
-	if h.cursor >= h.viewOffset+maxVisible {
-		h.viewOffset = h.cursor - maxVisible + 1
+	if h.cursor >= h.viewOffset+effectiveMaxVisible {
+		// When scrolling down, we need to account for the "more above" indicator
+		// that will appear once viewOffset > 0
+		if h.viewOffset == 0 {
+			// First scroll down: "more above" will appear, reducing visible by 1
+			h.viewOffset = h.cursor - (maxVisible - 1) + 1
+		} else {
+			// Already scrolled: "more above" already showing
+			h.viewOffset = h.cursor - effectiveMaxVisible + 1
+		}
 	}
 
 	// Clamp viewOffset to valid range
-	maxOffset := len(h.flatItems) - maxVisible
+	// When scrolled down, "more above" takes 1 line, so we can show fewer items
+	finalMaxVisible := maxVisible
+	if h.viewOffset > 0 {
+		finalMaxVisible--
+	}
+	maxOffset := len(h.flatItems) - finalMaxVisible
 	if maxOffset < 0 {
 		maxOffset = 0
 	}
@@ -434,6 +517,55 @@ func (h *Home) tick() tea.Cmd {
 	})
 }
 
+// invalidatePreviewCache removes a session's preview from the cache
+// Called when session is deleted, renamed, or moved to ensure stale data is not displayed
+func (h *Home) invalidatePreviewCache(sessionID string) {
+	h.previewCacheMu.Lock()
+	delete(h.previewCache, sessionID)
+	delete(h.previewCacheTime, sessionID)
+	h.previewCacheMu.Unlock()
+}
+
+// setError sets an error with timestamp for auto-dismiss
+func (h *Home) setError(err error) {
+	h.err = err
+	if err != nil {
+		h.errTime = time.Now()
+	}
+}
+
+// clearError clears the current error
+func (h *Home) clearError() {
+	h.err = nil
+	h.errTime = time.Time{}
+}
+
+// cleanupExpiredAnimations removes expired entries from an animation map
+// Returns list of IDs that were removed (for logging/debugging if needed)
+func (h *Home) cleanupExpiredAnimations(animMap map[string]time.Time, claudeTimeout, defaultTimeout time.Duration) []string {
+	var toDelete []string
+	for sessionID, startTime := range animMap {
+		inst := h.instanceByID[sessionID]
+		if inst == nil {
+			// Session was deleted, clean up
+			toDelete = append(toDelete, sessionID)
+			continue
+		}
+		// Use appropriate timeout based on tool
+		timeout := defaultTimeout
+		if inst.Tool == "claude" {
+			timeout = claudeTimeout
+		}
+		if time.Since(startTime) > timeout {
+			toDelete = append(toDelete, sessionID)
+		}
+	}
+	for _, id := range toDelete {
+		delete(animMap, id)
+	}
+	return toDelete
+}
+
 // fetchPreview returns a command that asynchronously fetches preview content
 // This keeps View() pure (no blocking I/O) as per Bubble Tea best practices
 func (h *Home) fetchPreview(inst *session.Instance) tea.Cmd {
@@ -461,6 +593,12 @@ func (h *Home) getSelectedSession() *session.Instance {
 		return item.Session
 	}
 	return nil
+}
+
+// getInstanceByID returns the instance with the given ID using O(1) map lookup
+// Returns nil if not found. Caller must hold instancesMu if accessing from background goroutine.
+func (h *Home) getInstanceByID(id string) *session.Instance {
+	return h.instanceByID[id]
 }
 
 // statusWorker runs in a background goroutine (Priority 1C)
@@ -577,6 +715,9 @@ func (h *Home) processStatusUpdate(req statusUpdateRequest) {
 		remaining--
 		h.statusUpdateIndex.Store(int32((idx + 1) % instanceCount))
 	}
+
+	// Invalidate status counts cache (statuses may have changed)
+	h.cachedStatusCounts.valid = false
 }
 
 // Update handles messages
@@ -593,14 +734,21 @@ func (h *Home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case loadSessionsMsg:
 		if msg.err != nil {
-			h.err = msg.err
+			h.setError(msg.err)
 		} else {
 			h.instancesMu.Lock()
 			h.instances = msg.instances
+			// Rebuild instanceByID map for O(1) lookup
+			h.instanceByID = make(map[string]*session.Instance, len(h.instances))
+			for _, inst := range h.instances {
+				h.instanceByID[inst.ID] = inst
+			}
 			// Deduplicate Claude session IDs on load to fix any existing duplicates
 			// This ensures no two sessions share the same Claude session ID
 			session.UpdateClaudeSessionsWithDedup(h.instances)
 			h.instancesMu.Unlock()
+			// Invalidate status counts cache
+			h.cachedStatusCounts.valid = false
 			// Preserve existing group tree structure if it exists
 			// Only create new tree on initial load (when groupTree has no groups)
 			if h.groupTree.GroupCount() == 0 {
@@ -630,13 +778,16 @@ func (h *Home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case sessionCreatedMsg:
 		if msg.err != nil {
-			h.err = msg.err
+			h.setError(msg.err)
 		} else {
 			h.instancesMu.Lock()
 			h.instances = append(h.instances, msg.instance)
+			h.instanceByID[msg.instance.ID] = msg.instance
 			// Run dedup to ensure the new session doesn't have a duplicate ID
 			session.UpdateClaudeSessionsWithDedup(h.instances)
 			h.instancesMu.Unlock()
+			// Invalidate status counts cache
+			h.cachedStatusCounts.valid = false
 
 			// Track as launching for animation
 			h.launchingSessions[msg.instance.ID] = time.Now()
@@ -669,15 +820,23 @@ func (h *Home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return h, nil
 
 	case sessionForkedMsg:
+		// Clean up forking state for source session
+		if msg.sourceID != "" {
+			delete(h.forkingSessions, msg.sourceID)
+		}
+
 		if msg.err != nil {
-			h.err = msg.err
+			h.setError(msg.err)
 		} else {
 			h.instancesMu.Lock()
 			h.instances = append(h.instances, msg.instance)
+			h.instanceByID[msg.instance.ID] = msg.instance
 			// Run dedup to ensure the forked session doesn't have a duplicate ID
 			// This is critical: fork detection may have picked up wrong session
 			session.UpdateClaudeSessionsWithDedup(h.instances)
 			h.instancesMu.Unlock()
+			// Invalidate status counts cache
+			h.cachedStatusCounts.valid = false
 
 			// Track as launching for animation
 			h.launchingSessions[msg.instance.ID] = time.Now()
@@ -712,7 +871,7 @@ func (h *Home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case sessionDeletedMsg:
 		// Report kill error if any (session may still be running in tmux)
 		if msg.killErr != nil {
-			h.err = fmt.Errorf("warning: tmux session may still be running: %w", msg.killErr)
+			h.setError(fmt.Errorf("warning: tmux session may still be running: %w", msg.killErr))
 		}
 
 		// Find and remove from list
@@ -725,7 +884,12 @@ func (h *Home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				break
 			}
 		}
+		delete(h.instanceByID, msg.deletedID)
 		h.instancesMu.Unlock()
+		// Invalidate status counts cache
+		h.cachedStatusCounts.valid = false
+		// Invalidate preview cache for deleted session
+		h.invalidatePreviewCache(msg.deletedID)
 		// Remove from group tree (preserves empty groups)
 		if deletedInstance != nil {
 			h.groupTree.RemoveSession(deletedInstance)
@@ -739,35 +903,33 @@ func (h *Home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case sessionRestartedMsg:
 		if msg.err != nil {
-			h.err = fmt.Errorf("failed to restart session: %w", msg.err)
+			h.setError(fmt.Errorf("failed to restart session: %w", msg.err))
 		} else {
-			// Find the instance and refresh its MCP state
-			for _, inst := range h.instances {
-				if inst.ID == msg.sessionID {
-					// Refresh the loaded MCPs to match the new config
-					inst.CaptureLoadedMCPs()
-					break
-				}
+			// Find the instance and refresh its MCP state (O(1) lookup)
+			if inst := h.getInstanceByID(msg.sessionID); inst != nil {
+				// Refresh the loaded MCPs to match the new config
+				inst.CaptureLoadedMCPs()
 			}
 			// Save the updated session state (new tmux session name)
 			h.saveInstances()
 		}
-		// Clean up MCP loading animation if this was an MCP restart
-		delete(h.mcpLoadingSessions, msg.sessionID)
+		// NOTE: Do NOT delete from mcpLoadingSessions here!
+		// The animation should continue until Claude is ready (detected via preview content)
+		// or until the timeout expires (handled by cleanup logic in tickMsg handler)
 		return h, nil
 
 	case mcpRestartedMsg:
 		if msg.err != nil {
-			h.err = fmt.Errorf("failed to restart session for MCP changes: %w", msg.err)
+			h.setError(fmt.Errorf("failed to restart session for MCP changes: %w", msg.err))
 			return h, nil
 		}
 		// Refresh the loaded MCPs to match the new config
 		if msg.session != nil {
 			msg.session.CaptureLoadedMCPs()
 			h.saveInstances()
-			// Remove from MCP loading animation (restart completed)
-			delete(h.mcpLoadingSessions, msg.session.ID)
-			log.Printf("[MCP-DEBUG] mcpRestartedMsg: MCP reload complete for %s", msg.session.ID)
+			// NOTE: Do NOT delete from mcpLoadingSessions here!
+			// Animation continues until Claude is ready or timeout expires
+			log.Printf("[MCP-DEBUG] mcpRestartedMsg: MCP reload initiated for %s (animation continues)", msg.session.ID)
 		}
 		return h, nil
 
@@ -806,17 +968,23 @@ func (h *Home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return h, nil
 
 	case previewFetchedMsg:
-		// Async preview content received - update cache
+		// Async preview content received - update cache with timestamp
 		// Protect both previewFetchingID and previewCache with the same mutex
 		h.previewCacheMu.Lock()
 		h.previewFetchingID = ""
 		if msg.err == nil {
 			h.previewCache[msg.sessionID] = msg.content
+			h.previewCacheTime[msg.sessionID] = time.Now()
 		}
 		h.previewCacheMu.Unlock()
 		return h, nil
 
 	case tickMsg:
+		// Auto-dismiss errors after 5 seconds
+		if h.err != nil && !h.errTime.IsZero() && time.Since(h.errTime) > 5*time.Second {
+			h.clearError()
+		}
+
 		// Background status updates (Priority 1C optimization)
 		// Triggers background worker to update session statuses without blocking UI
 		// Worker implements round-robin batching (Priority 1A + 1B)
@@ -845,94 +1013,32 @@ func (h *Home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}()
 		}
 
-		// Clean up expired launching/resuming sessions
+		// Clean up expired animation entries (launching, resuming, MCP loading, forking)
 		// For Claude: remove after 20s timeout (animation shows for ~6-15s)
 		// For others: remove after 5s timeout
 		const claudeTimeout = 20 * time.Second
 		const defaultTimeout = 5 * time.Second
-		h.instancesMu.RLock()
-		for sessionID, createdAt := range h.launchingSessions {
-			// Find the instance
-			var inst *session.Instance
-			for _, i := range h.instances {
-				if i.ID == sessionID {
-					inst = i
-					break
-				}
-			}
-			if inst == nil {
-				// Session was deleted, clean up
-				delete(h.launchingSessions, sessionID)
-				continue
-			}
 
-			// Use appropriate timeout based on tool
-			timeout := defaultTimeout
-			if inst.Tool == "claude" {
-				timeout = claudeTimeout
-			}
-			if time.Since(createdAt) > timeout {
-				delete(h.launchingSessions, sessionID)
-			}
-		}
-		// Clean up expired resuming sessions (same timeout logic)
-		for sessionID, resumedAt := range h.resumingSessions {
-			// Find the instance
-			var inst *session.Instance
-			for _, i := range h.instances {
-				if i.ID == sessionID {
-					inst = i
-					break
-				}
-			}
-			if inst == nil {
-				// Session was deleted, clean up
-				delete(h.resumingSessions, sessionID)
-				continue
-			}
+		// Use consolidated cleanup helper for all animation maps
+		// Note: cleanupExpiredAnimations accesses instanceByID which is thread-safe on main goroutine
+		h.cleanupExpiredAnimations(h.launchingSessions, claudeTimeout, defaultTimeout)
+		h.cleanupExpiredAnimations(h.resumingSessions, claudeTimeout, defaultTimeout)
+		h.cleanupExpiredAnimations(h.mcpLoadingSessions, claudeTimeout, defaultTimeout)
+		h.cleanupExpiredAnimations(h.forkingSessions, claudeTimeout, defaultTimeout)
 
-			// Use appropriate timeout based on tool
-			timeout := defaultTimeout
-			if inst.Tool == "claude" {
-				timeout = claudeTimeout
-			}
-			if time.Since(resumedAt) > timeout {
-				delete(h.resumingSessions, sessionID)
-			}
-		}
-		// Clean up expired MCP loading sessions (same timeout logic)
-		for sessionID, loadedAt := range h.mcpLoadingSessions {
-			// Find the instance
-			var inst *session.Instance
-			for _, i := range h.instances {
-				if i.ID == sessionID {
-					inst = i
-					break
-				}
-			}
-			if inst == nil {
-				// Session was deleted, clean up
-				delete(h.mcpLoadingSessions, sessionID)
-				continue
-			}
-
-			// Use appropriate timeout based on tool
-			timeout := defaultTimeout
-			if inst.Tool == "claude" {
-				timeout = claudeTimeout
-			}
-			if time.Since(loadedAt) > timeout {
-				delete(h.mcpLoadingSessions, sessionID)
-			}
-		}
-		h.instancesMu.RUnlock()
-
-		// Fetch preview for currently selected session (if not already fetching)
-		// Protect previewFetchingID access with mutex
+		// Fetch preview for currently selected session (if stale/missing and not fetching)
+		// Cache expires after 2 seconds to show live terminal updates without excessive fetching
+		const previewCacheTTL = 2 * time.Second
 		var previewCmd tea.Cmd
-		if selected := h.getSelectedSession(); selected != nil {
+		h.instancesMu.RLock()
+		selected := h.getSelectedSession()
+		h.instancesMu.RUnlock()
+		if selected != nil {
 			h.previewCacheMu.Lock()
-			if h.previewFetchingID != selected.ID {
+			cachedTime, hasCached := h.previewCacheTime[selected.ID]
+			cacheExpired := !hasCached || time.Since(cachedTime) > previewCacheTTL
+			// Only fetch if cache is stale/missing AND not currently fetching this session
+			if cacheExpired && h.previewFetchingID != selected.ID {
 				h.previewFetchingID = selected.ID
 				previewCmd = h.fetchPreview(selected)
 			}
@@ -1156,7 +1262,7 @@ func (h *Home) handleNewDialogKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "enter":
 		// Validate before creating session
 		if validationErr := h.newDialog.Validate(); validationErr != "" {
-			h.err = fmt.Errorf("validation error: %s", validationErr)
+			h.setError(fmt.Errorf("validation error: %s", validationErr))
 			return h, nil
 		}
 
@@ -1164,12 +1270,12 @@ func (h *Home) handleNewDialogKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		name, path, command := h.newDialog.GetValues()
 		groupPath := h.newDialog.GetSelectedGroup()
 		h.newDialog.Hide()
-		h.err = nil // Clear any previous validation error
+		h.clearError() // Clear any previous validation error
 		return h, h.createSessionInGroup(name, path, command, groupPath)
 
 	case "esc":
 		h.newDialog.Hide()
-		h.err = nil // Clear any validation error
+		h.clearError() // Clear any validation error
 		return h, nil
 	}
 
@@ -1356,7 +1462,7 @@ func (h *Home) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			if item.Type == session.ItemTypeSession && item.Session != nil && item.Session.Tool == "claude" {
 				h.mcpDialog.SetSize(h.width, h.height)
 				if err := h.mcpDialog.Show(item.Session.ProjectPath, item.Session.ID); err != nil {
-					h.err = err
+					h.setError(err)
 				}
 			}
 		}
@@ -1583,11 +1689,9 @@ func (h *Home) handleConfirmDialogKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		switch h.confirmDialog.GetConfirmType() {
 		case ConfirmDeleteSession:
 			sessionID := h.confirmDialog.GetTargetID()
-			for _, inst := range h.instances {
-				if inst.ID == sessionID {
-					h.confirmDialog.Hide()
-					return h, h.deleteSession(inst)
-				}
+			if inst := h.getInstanceByID(sessionID); inst != nil {
+				h.confirmDialog.Hide()
+				return h, h.deleteSession(inst)
 			}
 		case ConfirmDeleteGroup:
 			groupPath := h.confirmDialog.GetTargetID()
@@ -1625,7 +1729,7 @@ func (h *Home) handleMCPDialogKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			// Apply changes (saves state + writes .mcp.json)
 			if err := h.mcpDialog.Apply(); err != nil {
 				log.Printf("[MCP-DEBUG] Apply() failed: %v", err)
-				h.err = err
+				h.setError(err)
 				h.mcpDialog.Hide() // Hide dialog even on error
 				return h, nil
 			}
@@ -1635,16 +1739,11 @@ func (h *Home) handleMCPDialogKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			sessionID := h.mcpDialog.GetSessionID()
 			log.Printf("[MCP-DEBUG] Looking for sessionID: %q", sessionID)
 
-			h.instancesMu.RLock()
-			var targetInst *session.Instance
-			for _, inst := range h.instances {
-				if inst.ID == sessionID {
-					targetInst = inst
-					log.Printf("[MCP-DEBUG] Found session by ID: %s, Title=%s", inst.ID, inst.Title)
-					break
-				}
+			// O(1) lookup - no lock needed as Update() runs on main goroutine
+			targetInst := h.getInstanceByID(sessionID)
+			if targetInst != nil {
+				log.Printf("[MCP-DEBUG] Found session by ID: %s, Title=%s", targetInst.ID, targetInst.Title)
 			}
-			h.instancesMu.RUnlock()
 
 			if targetInst != nil {
 				log.Printf("[MCP-DEBUG] Calling restartSession for: %s (with MCP loading animation)", targetInst.ID)
@@ -1677,10 +1776,10 @@ func (h *Home) handleGroupDialogKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "enter":
 		// Validate before proceeding
 		if validationErr := h.groupDialog.Validate(); validationErr != "" {
-			h.err = fmt.Errorf("validation error: %s", validationErr)
+			h.setError(fmt.Errorf("validation error: %s", validationErr))
 			return h, nil
 		}
-		h.err = nil // Clear any previous validation error
+		h.clearError() // Clear any previous validation error
 
 		switch h.groupDialog.Mode() {
 		case GroupDialogCreate:
@@ -1730,13 +1829,12 @@ func (h *Home) handleGroupDialogKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			newName := h.groupDialog.GetValue()
 			if newName != "" {
 				sessionID := h.groupDialog.GetSessionID()
-				// Find and rename the session
-				for _, inst := range h.instances {
-					if inst.ID == sessionID {
-						inst.Title = newName
-						break
-					}
+				// Find and rename the session (O(1) lookup)
+				if inst := h.getInstanceByID(sessionID); inst != nil {
+					inst.Title = newName
 				}
+				// Invalidate preview cache since title changed
+				h.invalidatePreviewCache(sessionID)
 				h.rebuildFlatItems()
 				h.saveInstances()
 			}
@@ -1745,7 +1843,7 @@ func (h *Home) handleGroupDialogKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return h, nil
 	case "esc":
 		h.groupDialog.Hide()
-		h.err = nil // Clear any validation error
+		h.clearError() // Clear any validation error
 		return h, nil
 	}
 
@@ -1761,10 +1859,10 @@ func (h *Home) handleForkDialogKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// Get fork parameters from dialog
 		title, groupPath := h.forkDialog.GetValues()
 		if title == "" {
-			h.err = fmt.Errorf("session name cannot be empty")
+			h.setError(fmt.Errorf("session name cannot be empty"))
 			return h, nil
 		}
-		h.err = nil // Clear any previous error
+		h.clearError() // Clear any previous error
 
 		// Find the currently selected session
 		if h.cursor < len(h.flatItems) {
@@ -1779,7 +1877,7 @@ func (h *Home) handleForkDialogKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case "esc":
 		h.forkDialog.Hide()
-		h.err = nil // Clear any error
+		h.clearError() // Clear any error
 		return h, nil
 	}
 
@@ -1793,7 +1891,7 @@ func (h *Home) saveInstances() {
 	if h.storage != nil {
 		// Save both instances and groups (including empty ones)
 		if err := h.storage.SaveWithGroups(h.instances, h.groupTree); err != nil {
-			h.err = fmt.Errorf("failed to save: %w", err)
+			h.setError(fmt.Errorf("failed to save: %w", err))
 		}
 	}
 }
@@ -1871,29 +1969,35 @@ func (h *Home) forkSessionWithDialog(source *session.Instance) tea.Cmd {
 }
 
 // forkSessionCmd creates a forked session with the given title and group
+// Shows immediate UI feedback by tracking the source session in forkingSessions
 func (h *Home) forkSessionCmd(source *session.Instance, title, groupPath string) tea.Cmd {
 	if source == nil {
 		return nil
 	}
+
+	// Track source session as "forking" for immediate UI feedback
+	h.forkingSessions[source.ID] = time.Now()
+
 	// Capture current used session IDs before starting the async fork
 	// This ensures we don't detect an already-used session ID
 	usedIDs := h.getUsedClaudeSessionIDs()
+	sourceID := source.ID // Capture for closure
 
 	return func() tea.Msg {
 		// Check tmux availability before forking
 		if err := tmux.IsTmuxAvailable(); err != nil {
-			return sessionForkedMsg{err: fmt.Errorf("cannot fork session: %w", err)}
+			return sessionForkedMsg{err: fmt.Errorf("cannot fork session: %w", err), sourceID: sourceID}
 		}
 
 		// Use CreateForkedInstance to get the proper fork command
 		inst, _, err := source.CreateForkedInstance(title, groupPath)
 		if err != nil {
-			return sessionForkedMsg{err: fmt.Errorf("cannot create forked instance: %w", err)}
+			return sessionForkedMsg{err: fmt.Errorf("cannot create forked instance: %w", err), sourceID: sourceID}
 		}
 
 		// Start the forked session
 		if err := inst.Start(); err != nil {
-			return sessionForkedMsg{err: err}
+			return sessionForkedMsg{err: err, sourceID: sourceID}
 		}
 
 		// Wait for Claude to create the new session file (fork creates new UUID)
@@ -1903,7 +2007,7 @@ func (h *Home) forkSessionCmd(source *session.Instance, title, groupPath string)
 			_ = inst.WaitForClaudeSessionWithExclude(5*time.Second, usedIDs)
 		}
 
-		return sessionForkedMsg{instance: inst}
+		return sessionForkedMsg{instance: inst, sourceID: sourceID}
 	}
 }
 
@@ -2031,7 +2135,16 @@ func (h *Home) importSessions() tea.Msg {
 }
 
 // countSessionStatuses counts sessions by status for the logo display
+// Uses cache to avoid O(n) iteration on every View() call
 func (h *Home) countSessionStatuses() (running, waiting, idle, errored int) {
+	// Return cached values if valid
+	if h.cachedStatusCounts.valid {
+		return h.cachedStatusCounts.running, h.cachedStatusCounts.waiting,
+			h.cachedStatusCounts.idle, h.cachedStatusCounts.errored
+	}
+
+	// Compute counts
+	h.instancesMu.RLock()
 	for _, inst := range h.instances {
 		switch inst.Status {
 		case session.StatusRunning:
@@ -2044,6 +2157,14 @@ func (h *Home) countSessionStatuses() (running, waiting, idle, errored int) {
 			errored++
 		}
 	}
+	h.instancesMu.RUnlock()
+
+	// Cache results
+	h.cachedStatusCounts.running = running
+	h.cachedStatusCounts.waiting = waiting
+	h.cachedStatusCounts.idle = idle
+	h.cachedStatusCounts.errored = errored
+	h.cachedStatusCounts.valid = true
 	return running, waiting, idle, errored
 }
 
@@ -2201,6 +2322,21 @@ func (h *Home) View() string {
 		return "Loading..."
 	}
 
+	// Check minimum terminal size for usability
+	if h.width < minTerminalWidth || h.height < minTerminalHeight {
+		return lipgloss.Place(
+			h.width, h.height,
+			lipgloss.Center, lipgloss.Center,
+			lipgloss.NewStyle().
+				Foreground(ColorYellow).
+				Render(fmt.Sprintf(
+					"Terminal too small (%dx%d)\nMinimum: %dx%d",
+					h.width, h.height,
+					minTerminalWidth, minTerminalHeight,
+				)),
+		)
+	}
+
 	// Overlays take full screen
 	if h.helpOverlay.IsVisible() {
 		return h.helpOverlay.View()
@@ -2227,7 +2363,10 @@ func (h *Home) View() string {
 		return h.mcpDialog.View()
 	}
 
-	var b strings.Builder
+	// Reuse viewBuilder to reduce allocations (reset and pre-allocate)
+	h.viewBuilder.Reset()
+	h.viewBuilder.Grow(32768) // Pre-allocate 32KB for typical view size
+	b := &h.viewBuilder
 
 	// ═══════════════════════════════════════════════════════════════════
 	// HEADER BAR
@@ -2302,12 +2441,10 @@ func (h *Home) View() string {
 	// ═══════════════════════════════════════════════════════════════════
 	// FILTER BAR (quick status filters)
 	// ═══════════════════════════════════════════════════════════════════
-	filterBarHeight := 0
-	if h.statusFilter != "" || h.hasMultipleStatuses() {
-		filterBarHeight = 1
-		b.WriteString(h.renderFilterBar())
-		b.WriteString("\n")
-	}
+	// Always show filter bar for consistent layout (prevents viewport jumping)
+	filterBarHeight := 1
+	b.WriteString(h.renderFilterBar())
+	b.WriteString("\n")
 
 	// ═══════════════════════════════════════════════════════════════════
 	// UPDATE BANNER (if update available)
@@ -2330,7 +2467,7 @@ func (h *Home) View() string {
 	// ═══════════════════════════════════════════════════════════════════
 	// MAIN CONTENT AREA
 	// ═══════════════════════════════════════════════════════════════════
-	helpBarHeight := 3                                                                      // Help bar takes 3 lines
+	helpBarHeight := 2                                                                      // Help bar takes 2 lines (border + content)
 	contentHeight := h.height - 2 - helpBarHeight - updateBannerHeight - filterBarHeight // -2 for header, -helpBarHeight for help
 
 	// Calculate panel widths (35% left, 65% right for more preview space)
@@ -2339,7 +2476,7 @@ func (h *Home) View() string {
 
 	// Build left panel (session list) with styled title
 	leftTitle := h.renderPanelTitle("SESSIONS", leftWidth)
-	leftContent := h.renderSessionList(contentHeight - 3) // -3 for title + underline
+	leftContent := h.renderSessionList(leftWidth, contentHeight-3) // -3 for title + underline
 	leftPanel := lipgloss.JoinVertical(lipgloss.Left, leftTitle, leftContent)
 	leftPanel = lipgloss.NewStyle().
 		Width(leftWidth).
@@ -2374,9 +2511,15 @@ func (h *Home) View() string {
 	helpBar := h.renderHelpBar()
 	b.WriteString(helpBar)
 
-	// Error display
+	// Error display with auto-dismiss countdown
 	if h.err != nil {
-		errMsg := ErrorStyle.Render("⚠ " + h.err.Error())
+		remaining := 5*time.Second - time.Since(h.errTime)
+		if remaining < 0 {
+			remaining = 0
+		}
+		dismissHint := lipgloss.NewStyle().Foreground(ColorTextDim).Render(
+			fmt.Sprintf(" (auto-dismiss in %ds)", int(remaining.Seconds())+1))
+		errMsg := ErrorStyle.Render("⚠ "+h.err.Error()) + dismissHint
 		b.WriteString("\n")
 		b.WriteString(errMsg)
 	}
@@ -2388,7 +2531,13 @@ func (h *Home) View() string {
 		b.WriteString(warnStyle.Render(h.storageWarning))
 	}
 
-	return b.String()
+	// CRITICAL: Ensure output is EXACTLY h.height lines to prevent terminal scrolling
+	// This prevents the header from being clipped off the top when output exceeds terminal height
+	return lipgloss.NewStyle().
+		Width(h.width).
+		Height(h.height).
+		MaxHeight(h.height).
+		Render(b.String())
 }
 
 // renderPanelTitle creates a styled section title with underline
@@ -2409,9 +2558,38 @@ func (h *Home) renderPanelTitle(title string, width int) string {
 	return titleStyle.Render(title) + "\n" + underline
 }
 
-// renderEmptyState creates a centered empty state with icon, title, subtitle, and hints
-// Used for empty session list and empty preview pane states
-func renderEmptyState(icon, title, subtitle string, hints []string) string {
+// EmptyStateConfig holds content for responsive empty state rendering
+type EmptyStateConfig struct {
+	Icon     string
+	Title    string
+	Subtitle string
+	Hints    []string // Full list of hints (will be reduced based on space)
+}
+
+// renderEmptyStateResponsive creates a centered empty state that adapts to available space
+// Uses progressive disclosure: full → compact → minimal based on width/height
+func renderEmptyStateResponsive(config EmptyStateConfig, width, height int) string {
+	// Determine content tier based on available space
+	// Use the more restrictive of width or height constraints
+	tier := "full"
+	if width < emptyStateWidthCompact || height < emptyStateHeightCompact {
+		tier = "minimal"
+	} else if width < emptyStateWidthFull || height < emptyStateHeightFull {
+		tier = "compact"
+	}
+
+	// Adaptive padding based on tier
+	var vPad, hPad int
+	switch tier {
+	case "full":
+		vPad, hPad = spacingNormal, spacingLarge
+	case "compact":
+		vPad, hPad = spacingTight, spacingNormal
+	case "minimal":
+		vPad, hPad = 0, spacingTight
+	}
+
+	// Styles
 	iconStyle := lipgloss.NewStyle().
 		Foreground(ColorAccent).
 		Bold(true)
@@ -2425,25 +2603,84 @@ func renderEmptyState(icon, title, subtitle string, hints []string) string {
 		Foreground(ColorComment)
 
 	var content strings.Builder
-	content.WriteString(iconStyle.Render(icon))
-	content.WriteString("\n\n")
-	content.WriteString(titleStyle.Render(title))
-	if subtitle != "" {
+
+	// Icon - always shown but with adaptive spacing
+	content.WriteString(iconStyle.Render(config.Icon))
+	if tier == "full" {
+		content.WriteString("\n\n")
+	} else {
 		content.WriteString("\n")
+	}
+
+	// Title - always shown
+	content.WriteString(titleStyle.Render(config.Title))
+
+	// Subtitle - shown in full and compact modes
+	if config.Subtitle != "" && tier != "minimal" {
+		content.WriteString("\n")
+		// Truncate subtitle if width is tight
+		subtitle := config.Subtitle
+		maxSubtitleWidth := width - hPad*2 - 4 // Account for padding and margins
+		if maxSubtitleWidth > 0 && len(subtitle) > maxSubtitleWidth {
+			subtitle = subtitle[:maxSubtitleWidth-3] + "..."
+		}
 		content.WriteString(subtitleStyle.Render(subtitle))
 	}
-	if len(hints) > 0 {
-		content.WriteString("\n\n")
-		for _, hint := range hints {
-			content.WriteString(hintStyle.Render("• " + hint))
+
+	// Hints - progressive disclosure based on tier
+	if len(config.Hints) > 0 {
+		var hintsToShow []string
+		switch tier {
+		case "full":
+			hintsToShow = config.Hints // Show all
+		case "compact":
+			// Show first 2 hints max
+			if len(config.Hints) > 2 {
+				hintsToShow = config.Hints[:2]
+			} else {
+				hintsToShow = config.Hints
+			}
+		case "minimal":
+			// Show only the first (most important) hint
+			hintsToShow = config.Hints[:1]
+		}
+
+		if tier == "full" {
+			content.WriteString("\n\n")
+		} else {
 			content.WriteString("\n")
+		}
+
+		for i, hint := range hintsToShow {
+			// Truncate hint if width is tight
+			displayHint := hint
+			maxHintWidth := width - hPad*2 - 6 // Account for "• " prefix and margins
+			if maxHintWidth > 0 && len(displayHint) > maxHintWidth {
+				displayHint = displayHint[:maxHintWidth-3] + "..."
+			}
+			content.WriteString(hintStyle.Render("• " + displayHint))
+			if i < len(hintsToShow)-1 {
+				content.WriteString("\n")
+			}
 		}
 	}
 
 	return lipgloss.NewStyle().
 		Align(lipgloss.Center).
-		Padding(spacingNormal, spacingLarge). // spacingNormal vertical, spacingLarge horizontal
+		Padding(vPad, hPad).
 		Render(content.String())
+}
+
+// renderEmptyState is a convenience wrapper for backward compatibility
+// For new code, prefer renderEmptyStateResponsive with explicit dimensions
+func renderEmptyState(icon, title, subtitle string, hints []string) string {
+	// Use generous defaults for backward compatibility (legacy callers)
+	return renderEmptyStateResponsive(EmptyStateConfig{
+		Icon:     icon,
+		Title:    title,
+		Subtitle: subtitle,
+		Hints:    hints,
+	}, emptyStateWidthFull+10, emptyStateHeightFull+10)
 }
 
 // renderSectionDivider creates a modern section divider with optional centered label
@@ -2511,7 +2748,7 @@ func (h *Home) renderHelpBar() string {
 			}
 			// Only show fork hints if session has a valid Claude session ID
 			if item.Session != nil && item.Session.CanFork() {
-				primaryHints = append(primaryHints, h.helpKey("f", "Fork"))
+				primaryHints = append(primaryHints, h.helpKey("f/F", "Fork"))
 			}
 			// Show MCP Manager hint for Claude sessions
 			if item.Session != nil && item.Session.Tool == "claude" {
@@ -2573,21 +2810,31 @@ func (h *Home) helpKey(key, desc string) string {
 }
 
 // renderSessionList renders the left panel with hierarchical session list
-func (h *Home) renderSessionList(height int) string {
+func (h *Home) renderSessionList(width, height int) string {
 	var b strings.Builder
 
 	if len(h.flatItems) == 0 {
-		// Polished empty state with simple icon
-		emptyContent := renderEmptyState(
-			"⬡",
-			"No Sessions Yet",
-			"Get started by creating your first session",
-			[]string{
+		// Responsive empty state - adapts to available space
+		// Account for border (2 chars each side) when calculating content area
+		contentWidth := width - 4
+		contentHeight := height - 2
+		if contentWidth < 10 {
+			contentWidth = 10
+		}
+		if contentHeight < 5 {
+			contentHeight = 5
+		}
+
+		emptyContent := renderEmptyStateResponsive(EmptyStateConfig{
+			Icon:     "⬡",
+			Title:    "No Sessions Yet",
+			Subtitle: "Get started by creating your first session",
+			Hints: []string{
 				"Press n to create a new session",
 				"Press i to import existing tmux sessions",
 				"Press g to create a group",
 			},
-		)
+		}, contentWidth, contentHeight)
 
 		return lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
@@ -2653,17 +2900,12 @@ func (h *Home) renderGroupItem(b *strings.Builder, item session.Item, selected b
 	countStyle := lipgloss.NewStyle().Foreground(ColorTextDim)
 
 	// Hotkey indicator (subtle, only for root groups, hidden when selected)
+	// Uses pre-computed RootGroupNum from rebuildFlatItems() - O(1) lookup instead of O(n) loop
 	hotkeyStr := ""
 	if item.Level == 0 && !selected {
-		rootGroupNum := 0
-		for i := 0; i <= itemIndex && i < len(h.flatItems); i++ {
-			if h.flatItems[i].Type == session.ItemTypeGroup && h.flatItems[i].Level == 0 {
-				rootGroupNum++
-			}
-		}
-		if rootGroupNum >= 1 && rootGroupNum <= 9 {
+		if item.RootGroupNum >= 1 && item.RootGroupNum <= 9 {
 			hotkeyStyle := lipgloss.NewStyle().Foreground(ColorComment)
-			hotkeyStr = hotkeyStyle.Render(fmt.Sprintf("%d·", rootGroupNum))
+			hotkeyStr = hotkeyStyle.Render(fmt.Sprintf("%d·", item.RootGroupNum))
 		}
 	}
 
@@ -2767,8 +3009,16 @@ func (h *Home) renderSessionItem(b *strings.Builder, item session.Item, selected
 	statusStyle := lipgloss.NewStyle().Foreground(statusColor)
 	status := statusStyle.Render(statusIcon)
 
-	// Title styling
+	// Title styling - add bold/underline for accessibility (colorblind users)
 	titleStyle := lipgloss.NewStyle().Foreground(ColorText)
+	switch inst.Status {
+	case session.StatusRunning, session.StatusWaiting:
+		// Bold for active states (distinguishable without color)
+		titleStyle = titleStyle.Bold(true)
+	case session.StatusError:
+		// Underline for error (distinguishable without color)
+		titleStyle = titleStyle.Underline(true)
+	}
 
 	// Tool badge with brand-specific color
 	// Claude=orange, Gemini=purple, Codex=cyan, Aider=red
@@ -2964,6 +3214,65 @@ func (h *Home) renderMcpLoadingState(inst *session.Instance, width int, startTim
 	return b.String()
 }
 
+// renderForkingState renders the forking animation when session is being forked
+func (h *Home) renderForkingState(inst *session.Instance, width int, startTime time.Time) string {
+	var b strings.Builder
+
+	// Centered layout
+	centerStyle := lipgloss.NewStyle().
+		Width(width - 4).
+		Align(lipgloss.Center)
+
+	// Braille spinner frames
+	spinnerFrames := []string{"⣾", "⣽", "⣻", "⢿", "⡿", "⣟", "⣯", "⣷"}
+	spinner := spinnerFrames[h.animationFrame]
+
+	// Spinner with purple color (fork-themed)
+	spinnerStyle := lipgloss.NewStyle().
+		Foreground(ColorPurple).
+		Bold(true)
+	spinnerLine := spinnerStyle.Render(spinner + "  " + spinner + "  " + spinner)
+	b.WriteString(centerStyle.Render(spinnerLine))
+	b.WriteString("\n\n")
+
+	// Forking title
+	titleStyle := lipgloss.NewStyle().
+		Foreground(ColorPurple).
+		Bold(true)
+	b.WriteString(centerStyle.Render(titleStyle.Render("🔀 Forking Session")))
+	b.WriteString("\n\n")
+
+	// Description
+	descStyle := lipgloss.NewStyle().
+		Foreground(ColorTextDim).
+		Italic(true)
+	b.WriteString(centerStyle.Render(descStyle.Render("Creating a new Claude session from this conversation...")))
+	b.WriteString("\n\n")
+
+	// Progress dots animation
+	dotsCount := (h.animationFrame % 4) + 1
+	dots := strings.Repeat("●", dotsCount) + strings.Repeat("○", 4-dotsCount)
+	dotsStyle := lipgloss.NewStyle().
+		Foreground(ColorPurple)
+	b.WriteString(centerStyle.Render(dotsStyle.Render(dots)))
+	b.WriteString("\n\n")
+
+	// Elapsed time
+	elapsed := time.Since(startTime).Round(time.Second)
+	timeStyle := lipgloss.NewStyle().
+		Foreground(ColorYellow).
+		Italic(true)
+	b.WriteString(centerStyle.Render(timeStyle.Render(fmt.Sprintf("Forking... %s", elapsed))))
+	b.WriteString("\n\n")
+
+	// Info text
+	infoStyle := lipgloss.NewStyle().
+		Foreground(ColorComment)
+	b.WriteString(centerStyle.Render(infoStyle.Render("This may take 10-30 seconds")))
+
+	return b.String()
+}
+
 // renderPreviewPane renders the right panel with live preview
 func (h *Home) renderPreviewPane(width, height int) string {
 	var b strings.Builder
@@ -2971,22 +3280,22 @@ func (h *Home) renderPreviewPane(width, height int) string {
 	if len(h.flatItems) == 0 || h.cursor >= len(h.flatItems) {
 		// Show different message when there are no sessions vs just no selection
 		if len(h.flatItems) == 0 {
-			return renderEmptyState(
-				"✦",
-				"Ready to Go",
-				"Your workspace is set up",
-				[]string{
+			return renderEmptyStateResponsive(EmptyStateConfig{
+				Icon:     "✦",
+				Title:    "Ready to Go",
+				Subtitle: "Your workspace is set up",
+				Hints: []string{
 					"Press n to create your first session",
 					"Press i to import tmux sessions",
 				},
-			)
+			}, width, height)
 		}
-		return renderEmptyState(
-			"◇",
-			"No Selection",
-			"Select a session to preview",
-			nil,
-		)
+		return renderEmptyStateResponsive(EmptyStateConfig{
+			Icon:     "◇",
+			Title:    "No Selection",
+			Subtitle: "Select a session to preview",
+			Hints:    nil,
+		}, width, height)
 	}
 
 	item := h.flatItems[h.cursor]
@@ -3155,6 +3464,18 @@ func (h *Home) renderPreviewPane(width, height int) string {
 			b.WriteString(strings.Join(mcpParts, ", "))
 			b.WriteString("\n")
 		}
+
+		// Fork hint when session can be forked
+		if selected.CanFork() {
+			hintStyle := lipgloss.NewStyle().Foreground(ColorTextDim).Italic(true)
+			keyStyle := lipgloss.NewStyle().Foreground(ColorAccent).Bold(true)
+			b.WriteString(hintStyle.Render("Fork:    "))
+			b.WriteString(keyStyle.Render("f"))
+			b.WriteString(hintStyle.Render(" quick fork, "))
+			b.WriteString(keyStyle.Render("F"))
+			b.WriteString(hintStyle.Render(" fork with options"))
+			b.WriteString("\n")
+		}
 	}
 	b.WriteString("\n")
 
@@ -3198,16 +3519,18 @@ func (h *Home) renderPreviewPane(width, height int) string {
 	b.WriteString(termHeader)
 	b.WriteString("\n")
 
-	// Check if this session is launching (newly created) or resuming (restarted)
+	// Check if this session is launching (newly created), resuming (restarted), or forking
 	launchTime, isLaunching := h.launchingSessions[selected.ID]
 	resumeTime, isResuming := h.resumingSessions[selected.ID]
 	mcpLoadTime, isMcpLoading := h.mcpLoadingSessions[selected.ID]
+	forkTime, isForking := h.forkingSessions[selected.ID]
 
-	// Determine if we should show animation (launch, resume, or MCP loading)
+	// Determine if we should show animation (launch, resume, MCP loading, or forking)
 	// For Claude: show for minimum 6 seconds, then check for ready indicators
 	// For others: show for first 3 seconds after creation
 	showLaunchingAnimation := false
 	showMcpLoadingAnimation := false
+	showForkingAnimation := isForking // Show forking animation immediately
 	var animationStartTime time.Time
 	if isLaunching {
 		animationStartTime = launchTime
@@ -3215,17 +3538,21 @@ func (h *Home) renderPreviewPane(width, height int) string {
 		animationStartTime = resumeTime
 	} else if isMcpLoading {
 		animationStartTime = mcpLoadTime
-		showMcpLoadingAnimation = true
 	}
 
-	if isLaunching || isResuming {
+	// Apply animation logic to launching, resuming, AND MCP loading
+	if isLaunching || isResuming || isMcpLoading {
 		timeSinceStart := time.Since(animationStartTime)
 		if selected.Tool == "claude" {
 			// Claude session: show animation for at least 6 seconds
 			minAnimationTime := 6 * time.Second
 			if timeSinceStart < minAnimationTime {
 				// Always show animation for first 6 seconds
-				showLaunchingAnimation = true
+				if isMcpLoading {
+					showMcpLoadingAnimation = true
+				} else {
+					showLaunchingAnimation = true
+				}
 			} else {
 				// After 6 seconds, check if Claude UI is visible
 				h.previewCacheMu.RLock()
@@ -3242,11 +3569,23 @@ func (h *Home) renderPreviewPane(width, height int) string {
 					strings.Contains(previewContent, "esc to interrupt") ||
 					strings.Contains(previewContent, "⠋") || strings.Contains(previewContent, "⠙") ||
 					strings.Contains(previewContent, "Thinking")
-				showLaunchingAnimation = !claudeReady && timeSinceStart < 15*time.Second
+				if !claudeReady && timeSinceStart < 15*time.Second {
+					if isMcpLoading {
+						showMcpLoadingAnimation = true
+					} else {
+						showLaunchingAnimation = true
+					}
+				}
 			}
 		} else {
 			// Non-Claude: show animation for first 3 seconds
-			showLaunchingAnimation = timeSinceStart < 3*time.Second
+			if timeSinceStart < 3*time.Second {
+				if isMcpLoading {
+					showMcpLoadingAnimation = true
+				} else {
+					showLaunchingAnimation = true
+				}
+			}
 		}
 	}
 
@@ -3255,8 +3594,12 @@ func (h *Home) renderPreviewPane(width, height int) string {
 	preview, hasCached := h.previewCache[selected.ID]
 	h.previewCacheMu.RUnlock()
 
-	// Show MCP loading animation when reloading MCPs
-	if showMcpLoadingAnimation {
+	// Show forking animation when fork is in progress (highest priority)
+	if showForkingAnimation {
+		b.WriteString("\n")
+		b.WriteString(h.renderForkingState(selected, width, forkTime))
+	} else if showMcpLoadingAnimation {
+		// Show MCP loading animation when reloading MCPs
 		b.WriteString("\n")
 		b.WriteString(h.renderMcpLoadingState(selected, width, mcpLoadTime))
 	} else if showLaunchingAnimation {
@@ -3343,6 +3686,19 @@ func (h *Home) renderPreviewPane(width, height int) string {
 	}
 
 	return b.String()
+}
+
+// truncateString truncates a string to maxWidth display columns using runewidth
+// Handles multi-byte characters (emoji, CJK) correctly
+func truncateString(s string, maxWidth int) string {
+	if runewidth.StringWidth(s) <= maxWidth {
+		return s
+	}
+	if maxWidth < 4 {
+		maxWidth = 4
+	}
+	// Use runewidth.Truncate for proper handling of wide characters
+	return runewidth.Truncate(s, maxWidth, "...")
 }
 
 // truncatePath shortens a path to fit within maxLen characters

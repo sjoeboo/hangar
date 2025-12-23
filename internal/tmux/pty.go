@@ -53,7 +53,7 @@ func (s *Session) Attach(ctx context.Context) error {
 	defer func() {
 		signal.Stop(sigwinch)
 		close(sigwinchDone) // Signal goroutine to exit
-		close(sigwinch)     // Allow range to complete
+		// Don't close sigwinch - signal.Stop() handles cleanup
 	}()
 
 	// WaitGroup to track ALL goroutines (including SIGWINCH handler)

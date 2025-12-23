@@ -228,8 +228,15 @@ func (s *Search) View() string {
 		content = header + "\n\n" + searchBox + "\n\n" + resultsStr.String() + "\n" + countStr + "\n" + keysHint
 	}
 
-	// Wrap in overlay box
-	overlay := overlayStyle.Width(60).Render(content)
+	// Wrap in overlay box - responsive width
+	overlayWidth := 60
+	if s.width > 0 && s.width < overlayWidth+10 {
+		overlayWidth = s.width - 10
+		if overlayWidth < 30 {
+			overlayWidth = 30
+		}
+	}
+	overlay := overlayStyle.Width(overlayWidth).Render(content)
 
 	// Center in the screen
 	return centerInScreen(overlay, s.width, s.height)

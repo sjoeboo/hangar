@@ -406,8 +406,18 @@ func (m *MCPDialog) View() string {
 	hintStyle := lipgloss.NewStyle().Foreground(ColorComment)
 	hint := hintStyle.Render("Tab scope │ ←→ column │ Space move │ Enter apply │ Esc cancel")
 
+	// Responsive dialog width
+	dialogWidth := 64
+	if m.width > 0 && m.width < dialogWidth+10 {
+		dialogWidth = m.width - 10
+		if dialogWidth < 50 {
+			dialogWidth = 50
+		}
+	}
+	titleWidth := dialogWidth - 4
+
 	// Assemble dialog
-	titleStyle := DialogTitleStyle.Width(60)
+	titleStyle := DialogTitleStyle.Width(titleWidth)
 
 	parts := []string{
 		titleStyle.Render(title),
@@ -424,7 +434,7 @@ func (m *MCPDialog) View() string {
 
 	dialogContent := lipgloss.JoinVertical(lipgloss.Left, parts...)
 
-	dialog := DialogBoxStyle.Width(64).Render(dialogContent)
+	dialog := DialogBoxStyle.Width(dialogWidth).Render(dialogContent)
 
 	// Center the dialog
 	return lipgloss.Place(

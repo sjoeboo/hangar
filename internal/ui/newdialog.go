@@ -319,12 +319,21 @@ func (d *NewDialog) View() string {
 	labelStyle := lipgloss.NewStyle().
 		Foreground(ColorText)
 
+	// Responsive dialog width
+	dialogWidth := 60
+	if d.width > 0 && d.width < dialogWidth+10 {
+		dialogWidth = d.width - 10
+		if dialogWidth < 40 {
+			dialogWidth = 40
+		}
+	}
+
 	dialogStyle := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(ColorCyan).
 		Background(ColorSurface).
 		Padding(2, 4).
-		Width(60)
+		Width(dialogWidth)
 
 	// Active field indicator style
 	activeLabelStyle := lipgloss.NewStyle().

@@ -25,6 +25,7 @@ type Item struct {
 	Level         int    // Indentation level (0 for root groups, 1 for sessions)
 	Path          string // Group path for this item
 	IsLastInGroup bool   // True if this is the last session in its group (for tree rendering)
+	RootGroupNum  int    // Pre-computed root group number for hotkey display (1-9, 0 if not a root group)
 }
 
 // Group represents a group of sessions

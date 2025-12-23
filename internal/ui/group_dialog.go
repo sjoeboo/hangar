@@ -246,7 +246,17 @@ func (g *GroupDialog) View() string {
 		content = g.nameInput.View()
 	}
 
-	titleStyle := DialogTitleStyle.Width(40)
+	// Responsive dialog width
+	dialogWidth := 44
+	if g.width > 0 && g.width < dialogWidth+10 {
+		dialogWidth = g.width - 10
+		if dialogWidth < 30 {
+			dialogWidth = 30
+		}
+	}
+	titleWidth := dialogWidth - 4
+
+	titleStyle := DialogTitleStyle.Width(titleWidth)
 	hintStyle := lipgloss.NewStyle().Foreground(ColorComment)
 	hint := hintStyle.Render("Enter confirm │ Esc cancel")
 
@@ -260,7 +270,7 @@ func (g *GroupDialog) View() string {
 	)
 
 	dialog := DialogBoxStyle.
-		Width(44).
+		Width(dialogWidth).
 		Render(dialogContent)
 
 	// Center the dialog

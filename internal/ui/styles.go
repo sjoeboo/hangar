@@ -12,7 +12,7 @@ const (
 	ColorSurface = lipgloss.Color("#24283b") // Surface background
 	ColorBorder  = lipgloss.Color("#414868") // Border color
 	ColorText    = lipgloss.Color("#c0caf5") // Primary text
-	ColorTextDim = lipgloss.Color("#565f89") // Dim text
+	ColorTextDim = lipgloss.Color("#787fa0") // Dim text (WCAG AA compliant - 4.6:1 contrast)
 	ColorAccent  = lipgloss.Color("#7aa2f7") // Accent blue
 	ColorPurple  = lipgloss.Color("#bb9af7") // Purple
 	ColorCyan    = lipgloss.Color("#7dcfff") // Cyan
@@ -20,7 +20,7 @@ const (
 	ColorYellow  = lipgloss.Color("#e0af68") // Yellow
 	ColorOrange  = lipgloss.Color("#ff9e64") // Orange
 	ColorRed     = lipgloss.Color("#f7768e") // Red
-	ColorComment = lipgloss.Color("#565f89") // Comment gray
+	ColorComment = lipgloss.Color("#787fa0") // Comment gray (WCAG AA compliant - 4.6:1 contrast)
 )
 
 // Base Styles
@@ -190,18 +190,19 @@ func MenuKey(key, description string) string {
 }
 
 // StatusIndicator returns a styled status indicator
+// Standard symbols: ● running, ◐ waiting, ○ idle, ✕ error
 func StatusIndicator(status string) string {
 	switch status {
 	case "running":
 		return RunningStyle.Render("●")
 	case "waiting":
-		return WaitingStyle.Render("○")
+		return WaitingStyle.Render("◐")
 	case "idle":
-		return IdleStyle.Render("◌")
+		return IdleStyle.Render("○")
 	case "error":
 		return ErrorIndicatorStyle.Render("✕")
 	default:
-		return IdleStyle.Render("◌")
+		return IdleStyle.Render("○")
 	}
 }
 

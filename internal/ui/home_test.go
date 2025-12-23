@@ -178,7 +178,9 @@ func TestHomeRenameSessionWithR(t *testing.T) {
 
 	// Create a test session
 	inst := session.NewInstance("test-session", "/tmp/project")
+	home.instancesMu.Lock()
 	home.instances = []*session.Instance{inst}
+	home.instancesMu.Unlock()
 	home.groupTree = session.NewGroupTree(home.instances)
 	home.rebuildFlatItems()
 
@@ -221,7 +223,10 @@ func TestHomeRenameSessionComplete(t *testing.T) {
 
 	// Create a test session
 	inst := session.NewInstance("original-name", "/tmp/project")
+	home.instancesMu.Lock()
 	home.instances = []*session.Instance{inst}
+	home.instanceByID[inst.ID] = inst // Also populate the O(1) lookup map
+	home.instancesMu.Unlock()
 	home.groupTree = session.NewGroupTree(home.instances)
 	home.rebuildFlatItems()
 

@@ -66,6 +66,32 @@ Agent Deck offers **first-class Claude Code integration** with powerful session 
 - Handles multiple Claude sessions in same project
 - Works with custom Claude profiles (`CLAUDE_CONFIG_DIR`)
 
+### 🔍 Global Search
+
+Search across **ALL your Claude conversations** with a single keystroke:
+
+```
+┌────────────────────────────────────────────────────────────────────────┐
+│ 🔍 Global Search (83 sessions)                                         │
+├─────────────────────────────┬──────────────────────────────────────────┤
+│ Search: MCP█               │ 📄 Preview                                │
+│                            │ 📁 /Users/ashesh/my-project              │
+│ › MCP Manager implement... │                                          │
+│     2h ago • 15 matches    │ 👤 How do I attach an MCP server?        │
+│   • Fix MCP detection      │ 🤖 I'll help you attach an [MCP] server  │
+│   • Add MCP config...      │     to your Claude session...            │
+│                            │                                          │
+│ [↑↓] Select [Enter] Open   │ ─── 45/120 lines ───                    │
+└─────────────────────────────┴──────────────────────────────────────────┘
+```
+
+**Press `G` to open Global Search:**
+- **Full content search** — Searches entire conversations, not just titles
+- **Auto-scroll to match** — Preview jumps to the matching line
+- **Keyword highlighting** — Matched terms highlighted in yellow
+- **Smart ranking** — Results sorted by relevance × recency
+- **Fuzzy fallback** — Handles typos when no exact match found
+
 ### Intelligent Status Detection
 
 Agent Deck automatically detects what your AI agent is doing:
@@ -79,15 +105,34 @@ Agent Deck automatically detects what your AI agent is doing:
 
 Works out-of-the-box with Claude Code, Gemini CLI, Aider, and Codex—detecting busy indicators, permission prompts, and input requests.
 
+### Quick Filter Pills
+
+Filter sessions by status with a single keystroke. A filter bar appears below the header showing colored pills:
+
+```
+[All] [● Running 2] [◐ Waiting 1] [○ Idle 5] [✕ Error 1]
+```
+
+- `0` — Show all sessions (clear filter)
+- `!` — Filter to running sessions only
+- `@` — Filter to waiting sessions only
+- `#` — Filter to idle sessions only
+- `$` — Filter to error sessions only
+
+Press the same key again to toggle off the filter. Filtering preserves group hierarchy—parent groups of matching sessions remain visible.
+
 ### Supported Tools
 
-| Icon | Tool | Status Detection |
-|------|------|------------------|
-| 🤖 | Claude Code | Busy indicators, permission dialogs, prompts |
-| ✨ | Gemini CLI | Activity detection, prompts |
-| 🔧 | Aider | Y/N prompts, input detection |
-| 💻 | Codex | Prompts, continuation requests |
-| 🐚 | Any Shell | Standard shell prompts |
+Each AI tool displays with its brand color in the session list for easy visual identification:
+
+| Icon | Tool | Badge Color | Status Detection |
+|------|------|-------------|------------------|
+| 🤖 | Claude Code | Orange | Busy indicators, permission dialogs, prompts |
+| ✨ | Gemini CLI | Purple | Activity detection, prompts |
+| 🔧 | Aider | Red | Y/N prompts, input detection |
+| 💻 | Codex | Cyan | Prompts, continuation requests |
+| 🖱️ | Cursor | Blue | Activity detection |
+| 🐚 | Any Shell | Default | Standard shell prompts |
 
 ## Installation
 
@@ -184,8 +229,18 @@ agent-deck remove <id|title>                  # By ID or title
 | Key | Action |
 |-----|--------|
 | `/` | Search sessions |
+| `G` | Global Search (all Claude conversations) |
 | `i` | Import existing tmux sessions |
 | `?` | Help (keyboard shortcuts) |
+
+#### Quick Filters
+| Key | Action |
+|-----|--------|
+| `0` | Show all sessions (clear filter) |
+| `!` | Filter to running sessions only |
+| `@` | Filter to waiting sessions only |
+| `#` | Filter to idle sessions only |
+| `$` | Filter to error sessions only |
 
 #### While Attached
 | Key | Action |

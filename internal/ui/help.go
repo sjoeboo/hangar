@@ -130,9 +130,22 @@ func (h *HelpOverlay) View() string {
 		Foreground(ColorCyan).
 		Bold(true)
 
+	// Responsive dialog width
+	dialogWidth := 48
+	if h.width > 0 && h.width < dialogWidth+10 {
+		dialogWidth = h.width - 10
+		if dialogWidth < 35 {
+			dialogWidth = 35
+		}
+	}
+	keyWidth := 14
+	if dialogWidth < 45 {
+		keyWidth = 10 // Compact key column for small screens
+	}
+
 	keyStyle := lipgloss.NewStyle().
 		Foreground(ColorPurple).
-		Width(14)
+		Width(keyWidth)
 
 	descStyle := lipgloss.NewStyle().
 		Foreground(ColorText)
@@ -159,8 +172,12 @@ func (h *HelpOverlay) View() string {
 	versionStyle := lipgloss.NewStyle().
 		Foreground(ColorComment).
 		Italic(true)
+	separatorWidth := dialogWidth - 8
+	if separatorWidth < 20 {
+		separatorWidth = 20
+	}
 	content.WriteString("\n")
-	content.WriteString(separatorStyle.Render("─────────────────────────────────"))
+	content.WriteString(separatorStyle.Render(strings.Repeat("─", separatorWidth)))
 	content.WriteString("\n")
 	content.WriteString(versionStyle.Render("Agent Deck v" + Version))
 	content.WriteString("\n\n")
@@ -172,7 +189,7 @@ func (h *HelpOverlay) View() string {
 
 	// Wrap in dialog box
 	box := DialogBoxStyle.
-		Width(48).
+		Width(dialogWidth).
 		Render(content.String())
 
 	return centerInScreen(box, h.width, h.height)

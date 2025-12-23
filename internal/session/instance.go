@@ -194,8 +194,11 @@ func (i *Instance) Start() error {
 	// Capture MCPs that are now loaded (for sync tracking)
 	i.CaptureLoadedMCPs()
 
+	// New sessions start as WAITING (yellow) - they need attention.
+	// Status will change to RUNNING (green) on first tick if Claude shows busy indicator.
+	// This prevents the initial GREEN flash before actual status detection.
 	if command != "" {
-		i.Status = StatusRunning
+		i.Status = StatusWaiting
 	}
 
 	return nil
@@ -452,7 +455,8 @@ func (i *Instance) Restart() error {
 		// Re-capture MCPs after restart (they may have changed since session started)
 		i.CaptureLoadedMCPs()
 
-		i.Status = StatusRunning
+		// Start as WAITING - will go GREEN on next tick if Claude shows busy indicator
+		i.Status = StatusWaiting
 		return nil
 	}
 
@@ -480,8 +484,9 @@ func (i *Instance) Restart() error {
 	// Re-capture MCPs after restart
 	i.CaptureLoadedMCPs()
 
+	// Start as WAITING - will go GREEN on next tick if Claude shows busy indicator
 	if command != "" {
-		i.Status = StatusRunning
+		i.Status = StatusWaiting
 	} else {
 		i.Status = StatusIdle
 	}

@@ -423,6 +423,21 @@ func (gs *GlobalSearch) View() string {
 		// Split content into lines and wrap
 		contentLines := gs.formatPreviewContent(content, rightWidth-2)
 
+		// Auto-scroll to first match if scroll is at 0 (initial view)
+		if gs.previewScroll == 0 && gs.query != "" {
+			queryLower := strings.ToLower(gs.query)
+			for i, line := range contentLines {
+				if strings.Contains(strings.ToLower(line), queryLower) {
+					// Scroll to a few lines before the match for context
+					gs.previewScroll = i - 3
+					if gs.previewScroll < 0 {
+						gs.previewScroll = 0
+					}
+					break
+				}
+			}
+		}
+
 		// Apply scroll offset
 		startLine := gs.previewScroll
 		if startLine >= len(contentLines) {
