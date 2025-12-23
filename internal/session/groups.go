@@ -676,4 +676,10 @@ func (t *GroupTree) SyncWithInstances(instances []*Instance) {
 		}
 		group.Sessions = append(group.Sessions, inst)
 	}
+
+	// Always rebuild GroupList at the end to ensure consistency between
+	// Groups map and GroupList slice. This fixes the bug where flatItems
+	// could be empty while instances has data (filter bar shows counts
+	// but main panel shows "No Sessions Yet").
+	t.rebuildGroupList()
 }

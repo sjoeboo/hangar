@@ -482,8 +482,8 @@ func (s *Session) Start(command string) error {
 	_ = exec.Command("tmux", "set-option", "-t", s.Name, "set-clipboard", "on").Run()
 
 	// Set large history buffer for AI agent sessions (default is 2000)
-	// AI agents produce extensive output, 50000 lines covers ~1000 screens
-	_ = exec.Command("tmux", "set-option", "-t", s.Name, "history-limit", "50000").Run()
+	// AI agents produce extensive output, 10000 lines is a good balance
+	_ = exec.Command("tmux", "set-option", "-t", s.Name, "history-limit", "10000").Run()
 
 	// Reduce escape-time for responsive Vim/editor usage (default 500ms is too slow)
 	// 10ms is a good balance between responsiveness and SSH reliability
@@ -581,7 +581,7 @@ func (s *Session) DisablePipePane() error {
 // - mouse on: Mouse wheel scrolling, text selection, pane resizing
 // - set-clipboard on: OSC 52 clipboard integration (works with modern terminals)
 // - allow-passthrough on: OSC 8 hyperlinks, advanced escape sequences (tmux 3.2+)
-// - history-limit 50000: Large scrollback buffer for AI agent output
+// - history-limit 10000: Large scrollback buffer for AI agent output
 // - escape-time 10: Fast Vim/editor responsiveness (default 500ms is too slow)
 //
 // Terminal compatibility:
@@ -630,7 +630,7 @@ func (s *Session) EnableMouseMode() error {
 
 	// Set large history limit for AI agent sessions (default is 2000)
 	// AI agents produce a lot of output, so we need more scrollback
-	historyCmd := exec.Command("tmux", "set-option", "-t", s.Name, "history-limit", "50000")
+	historyCmd := exec.Command("tmux", "set-option", "-t", s.Name, "history-limit", "10000")
 	if err := historyCmd.Run(); err != nil {
 		// Non-fatal: history limit is a nice-to-have
 		debugLog("%s: failed to set history-limit: %v", s.DisplayName, err)

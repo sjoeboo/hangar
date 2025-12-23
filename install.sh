@@ -7,9 +7,22 @@
 #   curl -fsSL https://raw.githubusercontent.com/asheshgoplani/agent-deck/main/install.sh | bash
 #
 # Options:
-#   --name <name>    Custom binary name (default: agent-deck)
-#   --dir <path>     Installation directory (default: ~/.local/bin)
-#   --version <ver>  Specific version (default: latest)
+#   --name <name>       Custom binary name (default: agent-deck)
+#   --dir <path>        Installation directory (default: ~/.local/bin)
+#   --version <ver>     Specific version (default: latest)
+#   --skip-tmux-config  Skip tmux configuration prompt
+#   --non-interactive   Skip all prompts (for CI/automated installs)
+#
+# The installer will:
+#   1. Download and install the agent-deck binary
+#   2. Check for tmux (offer to install if missing) - REQUIRED
+#   3. Check for jq (offer to install if missing) - Optional, for session forking
+#   4. Configure ~/.tmux.conf for mouse scrolling & clipboard - Optional
+#
+# Supported platforms:
+#   - macOS (darwin) - arm64 (Apple Silicon), amd64 (Intel)
+#   - Linux - arm64, amd64
+#   - Windows - via WSL (uses Linux binary, clipboard via clip.exe)
 #
 
 set -e
@@ -26,6 +39,8 @@ BINARY_NAME="agent-deck"
 INSTALL_DIR="${HOME}/.local/bin"
 VERSION="latest"
 REPO="asheshgoplani/agent-deck"
+SKIP_TMUX_CONFIG=false
+SKIP_OPTIONAL_DEPS=false
 
 # Parse arguments
 while [[ $# -gt 0 ]]; do
@@ -42,16 +57,27 @@ while [[ $# -gt 0 ]]; do
             VERSION="$2"
             shift 2
             ;;
+        --skip-tmux-config)
+            SKIP_TMUX_CONFIG=true
+            shift
+            ;;
+        --non-interactive)
+            SKIP_TMUX_CONFIG=true
+            SKIP_OPTIONAL_DEPS=true
+            shift
+            ;;
         -h|--help)
             echo "Agent Deck Installer"
             echo ""
             echo "Usage: install.sh [options]"
             echo ""
             echo "Options:"
-            echo "  --name <name>    Custom binary name (default: agent-deck)"
-            echo "  --dir <path>     Installation directory (default: ~/.local/bin)"
-            echo "  --version <ver>  Specific version (default: latest)"
-            echo "  -h, --help       Show this help message"
+            echo "  --name <name>       Custom binary name (default: agent-deck)"
+            echo "  --dir <path>        Installation directory (default: ~/.local/bin)"
+            echo "  --version <ver>     Specific version (default: latest)"
+            echo "  --skip-tmux-config  Skip tmux configuration prompt"
+            echo "  --non-interactive   Skip all prompts (for CI/automated installs)"
+            echo "  -h, --help          Show this help message"
             exit 0
             ;;
         *)
@@ -68,9 +94,16 @@ echo ""
 
 # Detect OS
 OS=$(uname -s | tr '[:upper:]' '[:lower:]')
+IS_WSL=false
 case "$OS" in
     darwin) OS="darwin" ;;
-    linux) OS="linux" ;;
+    linux)
+        OS="linux"
+        # Detect WSL (Windows Subsystem for Linux)
+        if grep -qi microsoft /proc/version 2>/dev/null || [[ -n "$WSL_DISTRO_NAME" ]]; then
+            IS_WSL=true
+        fi
+        ;;
     *)
         echo -e "${RED}Error: Unsupported operating system: $OS${NC}"
         echo "Agent Deck only supports macOS and Linux."
@@ -89,7 +122,11 @@ case "$ARCH" in
         ;;
 esac
 
-echo -e "Detected: ${GREEN}${OS}/${ARCH}${NC}"
+if [[ "$IS_WSL" == "true" ]]; then
+    echo -e "Detected: ${GREEN}${OS}/${ARCH}${NC} (WSL - Windows Subsystem for Linux)"
+else
+    echo -e "Detected: ${GREEN}${OS}/${ARCH}${NC}"
+fi
 
 # Check for tmux and offer to install
 if ! command -v tmux &> /dev/null; then
@@ -151,6 +188,56 @@ if ! command -v tmux &> /dev/null; then
         fi
     else
         echo -e "${GREEN}tmux installed successfully!${NC}"
+    fi
+fi
+
+# Check for jq (required for Claude session forking)
+if ! command -v jq &> /dev/null && [[ "$SKIP_OPTIONAL_DEPS" != "true" ]]; then
+    echo -e "${YELLOW}jq is not installed (optional but recommended).${NC}"
+    echo "jq is required for Claude session forking/session ID capture."
+    echo ""
+
+    # Try to auto-install jq
+    if [[ "$OS" == "darwin" ]]; then
+        if command -v brew &> /dev/null; then
+            read -p "Install jq via Homebrew? [Y/n] " -n 1 -r
+            echo
+            if [[ ! $REPLY =~ ^[Nn]$ ]]; then
+                echo -e "Installing jq..."
+                brew install jq
+            fi
+        else
+            echo "Install jq with: brew install jq"
+        fi
+    else
+        if command -v apt-get &> /dev/null; then
+            read -p "Install jq via apt? [Y/n] " -n 1 -r
+            echo
+            if [[ ! $REPLY =~ ^[Nn]$ ]]; then
+                echo -e "Installing jq..."
+                sudo apt-get install -y jq
+            fi
+        elif command -v dnf &> /dev/null; then
+            read -p "Install jq via dnf? [Y/n] " -n 1 -r
+            echo
+            if [[ ! $REPLY =~ ^[Nn]$ ]]; then
+                echo -e "Installing jq..."
+                sudo dnf install -y jq
+            fi
+        elif command -v pacman &> /dev/null; then
+            read -p "Install jq via pacman? [Y/n] " -n 1 -r
+            echo
+            if [[ ! $REPLY =~ ^[Nn]$ ]]; then
+                echo -e "Installing jq..."
+                sudo pacman -S --noconfirm jq
+            fi
+        else
+            echo "Install jq manually for session forking support."
+        fi
+    fi
+
+    if command -v jq &> /dev/null; then
+        echo -e "${GREEN}jq installed successfully!${NC}"
     fi
 fi
 
@@ -224,6 +311,113 @@ if [[ ":$PATH:" != *":$INSTALL_DIR:"* ]]; then
     echo ""
 fi
 
+# Configure tmux for optimal agent-deck experience
+configure_tmux() {
+    local TMUX_CONF="$HOME/.tmux.conf"
+    local MARKER="# agent-deck configuration"
+
+    # Check if already configured
+    if [[ -f "$TMUX_CONF" ]] && grep -q "$MARKER" "$TMUX_CONF" 2>/dev/null; then
+        echo -e "${GREEN}tmux already configured for agent-deck${NC}"
+        return 0
+    fi
+
+    echo ""
+    echo -e "${BLUE}tmux Configuration${NC}"
+    echo "Agent Deck works best with mouse scroll and clipboard support."
+    echo ""
+
+    if [[ -f "$TMUX_CONF" ]]; then
+        echo -e "Found existing config: ${YELLOW}~/.tmux.conf${NC}"
+        echo "The following settings will be APPENDED (your existing config is preserved):"
+    else
+        echo "No ~/.tmux.conf found. The following settings will be created:"
+    fi
+
+    echo ""
+    echo -e "${BLUE}  • Mouse scrolling & drag-to-copy${NC}"
+    echo -e "${BLUE}  • Clipboard integration (copy to system clipboard)${NC}"
+    echo -e "${BLUE}  • 256-color terminal support${NC}"
+    echo -e "${BLUE}  • 10,000 line history${NC}"
+    echo ""
+
+    read -p "Configure tmux for agent-deck? [Y/n] " -n 1 -r
+    echo
+    if [[ $REPLY =~ ^[Nn]$ ]]; then
+        echo "Skipping tmux configuration."
+        echo "You can manually add the config later (see: agent-deck docs)"
+        return 0
+    fi
+
+    # Determine clipboard command based on OS
+    local CLIPBOARD_CMD
+    if [[ "$OS" == "darwin" ]]; then
+        CLIPBOARD_CMD="pbcopy"
+    elif [[ "$IS_WSL" == "true" ]]; then
+        # WSL: Use Windows clip.exe for clipboard integration
+        CLIPBOARD_CMD="clip.exe"
+        echo -e "${GREEN}WSL detected:${NC} Using Windows clipboard (clip.exe)"
+    else
+        # Linux - prefer xclip, fallback to xsel, or wl-copy for Wayland
+        if [[ -n "$WAYLAND_DISPLAY" ]] && command -v wl-copy &> /dev/null; then
+            CLIPBOARD_CMD="wl-copy"
+        elif command -v xclip &> /dev/null; then
+            CLIPBOARD_CMD="xclip -in -selection clipboard"
+        elif command -v xsel &> /dev/null; then
+            CLIPBOARD_CMD="xsel --clipboard --input"
+        else
+            echo -e "${YELLOW}Note: No clipboard tool found (xclip/xsel/wl-copy)${NC}"
+            echo "Install with: sudo apt install xclip"
+            CLIPBOARD_CMD="xclip -in -selection clipboard"
+        fi
+    fi
+
+    # Create the config block
+    local CONFIG_BLOCK="
+$MARKER
+# Added by agent-deck installer - $(date +%Y-%m-%d)
+# https://github.com/asheshgoplani/agent-deck
+
+# Terminal with true color support
+set -g default-terminal \"tmux-256color\"
+set -ag terminal-overrides \",*256col*:Tc\"
+
+# Performance
+set -sg escape-time 0
+set -g history-limit 10000
+
+# Mouse support (scroll + drag-to-copy)
+set -g mouse on
+
+# Clipboard integration
+set -s set-clipboard external
+bind-key -T copy-mode-vi MouseDragEnd1Pane send-keys -X copy-pipe-and-cancel \"$CLIPBOARD_CMD\"
+bind-key -T copy-mode MouseDragEnd1Pane send-keys -X copy-pipe-and-cancel \"$CLIPBOARD_CMD\"
+# End agent-deck configuration
+"
+
+    # Append to config file
+    echo "$CONFIG_BLOCK" >> "$TMUX_CONF"
+
+    echo -e "${GREEN}tmux configured successfully!${NC}"
+
+    # Reload tmux config if tmux is running
+    if tmux list-sessions &> /dev/null; then
+        echo "Reloading tmux configuration..."
+        tmux source-file "$TMUX_CONF" 2>/dev/null || true
+        echo -e "${GREEN}tmux config reloaded${NC}"
+    else
+        echo "Run 'tmux source-file ~/.tmux.conf' to apply (or restart tmux)"
+    fi
+}
+
+# Run tmux configuration (unless skipped)
+if [[ "$SKIP_TMUX_CONFIG" != "true" ]]; then
+    configure_tmux
+else
+    echo -e "${YELLOW}Skipping tmux configuration (--skip-tmux-config)${NC}"
+fi
+
 # Verify installation
 if "$INSTALL_DIR/$BINARY_NAME" version &> /dev/null; then
     INSTALLED_VERSION=$("$INSTALL_DIR/$BINARY_NAME" version 2>&1 || echo "unknown")
@@ -232,14 +426,53 @@ if "$INSTALL_DIR/$BINARY_NAME" version &> /dev/null; then
     echo -e "${GREEN}║     Installation successful!           ║${NC}"
     echo -e "${GREEN}╚════════════════════════════════════════╝${NC}"
     echo ""
-    echo -e "Version: ${GREEN}${INSTALLED_VERSION}${NC}"
-    echo -e "Binary:  ${GREEN}${INSTALL_DIR}/${BINARY_NAME}${NC}"
+    echo -e "Version:  ${GREEN}${INSTALLED_VERSION}${NC}"
+    echo -e "Binary:   ${GREEN}${INSTALL_DIR}/${BINARY_NAME}${NC}"
+    echo -e "Platform: ${GREEN}${OS}/${ARCH}${NC}$([ "$IS_WSL" == "true" ] && echo -e " ${BLUE}(WSL)${NC}")"
     echo ""
+
+    # Show dependency status
+    echo "Dependencies:"
+    if command -v tmux &> /dev/null; then
+        echo -e "  ✓ tmux $(tmux -V 2>/dev/null | head -1)"
+    else
+        echo -e "  ${RED}✗ tmux (required - please install)${NC}"
+    fi
+    if command -v jq &> /dev/null; then
+        echo -e "  ✓ jq $(jq --version 2>/dev/null)"
+    else
+        echo -e "  ${YELLOW}○ jq (optional - install for session forking)${NC}"
+    fi
+    echo ""
+
+    # Show tmux config status
+    if [[ -f "$HOME/.tmux.conf" ]] && grep -q "# agent-deck configuration" "$HOME/.tmux.conf" 2>/dev/null; then
+        echo -e "tmux config: ${GREEN}Configured for mouse scroll + clipboard${NC}"
+    else
+        echo -e "tmux config: ${YELLOW}Not configured (run installer again or see docs)${NC}"
+    fi
+    echo ""
+
     echo "Get started:"
     echo "  ${BINARY_NAME}              # Launch the TUI"
     echo "  ${BINARY_NAME} add .        # Add current directory as session"
     echo "  ${BINARY_NAME} --help       # Show help"
+
+    # WSL-specific tips
+    if [[ "$IS_WSL" == "true" ]]; then
+        echo ""
+        echo -e "${BLUE}WSL Tips:${NC}"
+        echo "  • Clipboard works with Windows (via clip.exe)"
+        echo "  • Run in Windows Terminal for best experience"
+        echo "  • Mouse scrolling works out of the box"
+    fi
 else
     echo -e "${RED}Warning: Installation completed but verification failed${NC}"
     echo "The binary was installed but may not work correctly."
+    echo ""
+    echo "Troubleshooting:"
+    echo "  1. Check if ${INSTALL_DIR} is in your PATH"
+    echo "  2. Try: ${INSTALL_DIR}/${BINARY_NAME} version"
+    echo "  3. If using zsh: source ~/.zshrc"
+    echo "  4. If using bash: source ~/.bashrc"
 fi

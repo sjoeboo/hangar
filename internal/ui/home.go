@@ -2800,6 +2800,8 @@ func (h *Home) renderSessionList(width, height int) string {
 	}
 
 	// Render items starting from viewOffset
+	// Track lines written to ensure exact height output (prevents layout shifts)
+	linesWritten := 0
 	visibleCount := 0
 	maxVisible := height - 1 // Leave room for scrolling indicator
 	if maxVisible < 1 {
@@ -2810,12 +2812,14 @@ func (h *Home) renderSessionList(width, height int) string {
 	if h.viewOffset > 0 {
 		b.WriteString(DimStyle.Render(fmt.Sprintf("  ⋮ +%d above", h.viewOffset)))
 		b.WriteString("\n")
+		linesWritten++
 		maxVisible-- // Account for the indicator line
 	}
 
 	for i := h.viewOffset; i < len(h.flatItems) && visibleCount < maxVisible; i++ {
 		item := h.flatItems[i]
 		h.renderItem(&b, item, i == h.cursor, i)
+		linesWritten++
 		visibleCount++
 	}
 
@@ -2823,9 +2827,23 @@ func (h *Home) renderSessionList(width, height int) string {
 	remaining := len(h.flatItems) - (h.viewOffset + visibleCount)
 	if remaining > 0 {
 		b.WriteString(DimStyle.Render(fmt.Sprintf("  ⋮ +%d below", remaining)))
+		linesWritten++
 	}
 
-	return b.String()
+	// Pad to exact height to prevent layout shifts during navigation
+	// Each item/indicator already has trailing newline, so we just add blank lines
+	for linesWritten < height {
+		b.WriteString("\n")
+		linesWritten++
+	}
+
+	// Remove trailing newline (content ends without final \n, height padding already applied)
+	result := b.String()
+	if len(result) > 0 && result[len(result)-1] == '\n' {
+		result = result[:len(result)-1]
+	}
+
+	return result
 }
 
 // renderItem renders a single item (group or session) for the left panel
@@ -3468,7 +3486,22 @@ func (h *Home) renderPreviewPane(width, height int) string {
 		b.WriteString(dimStyle.Render(" Delete  - remove from list"))
 		b.WriteString("\n")
 
-		return b.String()
+		// Pad output to exact height to prevent layout shifts
+		content := b.String()
+		lines := strings.Split(content, "\n")
+		lineCount := len(lines)
+
+		if lineCount < height {
+			for i := lineCount; i < height; i++ {
+				content += "\n"
+			}
+		}
+
+		if len(content) > 0 && content[len(content)-1] == '\n' {
+			content = content[:len(content)-1]
+		}
+
+		return content
 	}
 
 	// Terminal output header
@@ -3642,7 +3675,30 @@ func (h *Home) renderPreviewPane(width, height int) string {
 		}
 	}
 
-	return b.String()
+	// Ensure output is EXACTLY 'height' lines to prevent layout shifts
+	// This is critical - truncate if too long, pad if too short
+	content := b.String()
+	lines := strings.Split(content, "\n")
+	lineCount := len(lines)
+
+	if lineCount > height {
+		// Truncate to exactly 'height' lines
+		// Keep lines from the START to preserve header info, truncate terminal output
+		lines = lines[:height]
+		content = strings.Join(lines, "\n")
+	} else if lineCount < height {
+		// Pad with blank lines to reach 'height'
+		for i := lineCount; i < height; i++ {
+			content += "\n"
+		}
+	}
+
+	// Remove trailing newline (consistent with other render functions)
+	if len(content) > 0 && content[len(content)-1] == '\n' {
+		content = content[:len(content)-1]
+	}
+
+	return content
 }
 
 // truncatePath shortens a path to fit within maxLen characters
@@ -3788,5 +3844,21 @@ func (h *Home) renderGroupPreview(group *session.Group, width, height int) strin
 	hintStyle := lipgloss.NewStyle().Foreground(ColorComment).Italic(true)
 	b.WriteString(hintStyle.Render("Tab toggle • R rename • d delete • g subgroup"))
 
-	return b.String()
+	// Pad output to exact height to prevent layout shifts
+	content := b.String()
+	lines := strings.Split(content, "\n")
+	lineCount := len(lines)
+
+	if lineCount < height {
+		for i := lineCount; i < height; i++ {
+			content += "\n"
+		}
+	}
+
+	// Remove trailing newline (consistent with other render functions)
+	if len(content) > 0 && content[len(content)-1] == '\n' {
+		content = content[:len(content)-1]
+	}
+
+	return content
 }
