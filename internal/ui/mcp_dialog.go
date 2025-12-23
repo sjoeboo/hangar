@@ -28,6 +28,7 @@ const (
 type MCPItem struct {
 	Name        string
 	Description string
+	IsOrphan    bool // True if MCP is attached but not in config.toml pool
 }
 
 // MCPDialog handles MCP management for Claude sessions
@@ -105,6 +106,12 @@ func (m *MCPDialog) Show(projectPath string, sessionID string) error {
 		globalAttachedNames[name] = true
 	}
 
+	// Track which MCPs are in the config.toml pool
+	poolNames := make(map[string]bool)
+	for _, name := range allNames {
+		poolNames[name] = true
+	}
+
 	// Build attached/available lists for LOCAL
 	m.localAttached = nil
 	m.localAvailable = nil
@@ -118,6 +125,18 @@ func (m *MCPDialog) Show(projectPath string, sessionID string) error {
 		}
 	}
 
+	// Add orphan LOCAL MCPs (attached in .mcp.json but not in config.toml pool)
+	// These are "ghost" MCPs that Claude loads but agent-deck couldn't previously manage
+	for name := range localAttachedNames {
+		if !poolNames[name] {
+			m.localAttached = append(m.localAttached, MCPItem{
+				Name:        name,
+				Description: "(not in config.toml)",
+				IsOrphan:    true,
+			})
+		}
+	}
+
 	// Build attached/available lists for GLOBAL
 	m.globalAttached = nil
 	m.globalAvailable = nil
@@ -127,6 +146,17 @@ func (m *MCPDialog) Show(projectPath string, sessionID string) error {
 			m.globalAttached = append(m.globalAttached, item)
 		} else {
 			m.globalAvailable = append(m.globalAvailable, item)
+		}
+	}
+
+	// Add orphan GLOBAL MCPs (attached in Claude config but not in config.toml pool)
+	for name := range globalAttachedNames {
+		if !poolNames[name] {
+			m.globalAttached = append(m.globalAttached, MCPItem{
+				Name:        name,
+				Description: "(not in config.toml)",
+				IsOrphan:    true,
+			})
 		}
 	}
 
@@ -406,6 +436,27 @@ func (m *MCPDialog) View() string {
 	hintStyle := lipgloss.NewStyle().Foreground(ColorComment)
 	hint := hintStyle.Render("Tab scope │ ←→ column │ Space move │ Enter apply │ Esc cancel")
 
+	// Legend for orphan MCPs
+	orphanLegend := ""
+	hasOrphans := false
+	for _, item := range m.localAttached {
+		if item.IsOrphan {
+			hasOrphans = true
+			break
+		}
+	}
+	if !hasOrphans {
+		for _, item := range m.globalAttached {
+			if item.IsOrphan {
+				hasOrphans = true
+				break
+			}
+		}
+	}
+	if hasOrphans {
+		orphanLegend = lipgloss.NewStyle().Foreground(ColorYellow).Render("⚠ = not in config.toml (add to manage)")
+	}
+
 	// Responsive dialog width
 	dialogWidth := 64
 	if m.width > 0 && m.width < dialogWidth+10 {
@@ -429,6 +480,9 @@ func (m *MCPDialog) View() string {
 	}
 	if errText != "" {
 		parts = append(parts, "", errText)
+	}
+	if orphanLegend != "" {
+		parts = append(parts, orphanLegend)
 	}
 	parts = append(parts, "", hint)
 
@@ -473,6 +527,10 @@ func (m *MCPDialog) renderColumn(title string, items []MCPItem, selectedIdx int,
 	} else {
 		for i, item := range items {
 			name := item.Name
+			// Add orphan indicator for MCPs not in config.toml
+			if item.IsOrphan {
+				name = name + " ⚠"
+			}
 			if len(name) > 20 {
 				name = name[:17] + "..."
 			}
@@ -485,6 +543,12 @@ func (m *MCPDialog) renderColumn(title string, items []MCPItem, selectedIdx int,
 					Bold(true).
 					Width(colWidth).
 					Render(" > " + name)
+			} else if item.IsOrphan {
+				// Orphan MCPs shown in yellow/warning color
+				line = lipgloss.NewStyle().
+					Foreground(ColorYellow).
+					Width(colWidth).
+					Render("   " + name)
 			} else {
 				line = lipgloss.NewStyle().
 					Foreground(ColorText).

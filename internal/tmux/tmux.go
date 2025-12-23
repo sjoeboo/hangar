@@ -26,6 +26,106 @@ func debugLog(format string, args ...interface{}) {
 
 const SessionPrefix = "agentdeck_"
 
+// Session cache - reduces subprocess spawns from O(n) to O(1) per tick
+// Instead of calling `tmux has-session` and `tmux display-message` for each session,
+// we call `tmux list-sessions` ONCE and cache both existence and activity timestamps
+var (
+	sessionCacheMu   sync.RWMutex
+	sessionCacheData map[string]int64 // session_name -> activity_timestamp (0 if not in cache)
+	sessionCacheTime time.Time
+)
+
+// RefreshSessionCache updates the cache of existing tmux sessions and their activity
+// Call this ONCE per tick, then use Session.Exists() and Session.GetWindowActivity()
+// which read from cache. This reduces 30+ subprocess spawns to just 1 per tick cycle.
+func RefreshSessionCache() {
+	// Get both session name AND activity timestamp in single call
+	cmd := exec.Command("tmux", "list-sessions", "-F", "#{session_name}\t#{session_activity}")
+	output, err := cmd.Output()
+	if err != nil {
+		// tmux not running or error - clear cache
+		sessionCacheMu.Lock()
+		sessionCacheData = nil
+		sessionCacheTime = time.Time{}
+		sessionCacheMu.Unlock()
+		return
+	}
+
+	newCache := make(map[string]int64)
+	for _, line := range strings.Split(strings.TrimSpace(string(output)), "\n") {
+		if line == "" {
+			continue
+		}
+		parts := strings.SplitN(line, "\t", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		name := parts[0]
+		var activity int64
+		fmt.Sscanf(parts[1], "%d", &activity)
+		newCache[name] = activity
+	}
+
+	sessionCacheMu.Lock()
+	sessionCacheData = newCache
+	sessionCacheTime = time.Now()
+	sessionCacheMu.Unlock()
+}
+
+// RefreshExistingSessions is an alias for RefreshSessionCache for backwards compatibility
+func RefreshExistingSessions() {
+	RefreshSessionCache()
+}
+
+// sessionExistsFromCache checks if a session exists using the cached data
+// Returns (exists, cacheValid) - if cache is stale/empty, cacheValid is false
+func sessionExistsFromCache(name string) (bool, bool) {
+	sessionCacheMu.RLock()
+	defer sessionCacheMu.RUnlock()
+
+	// Cache is valid for 2 seconds (4 ticks at 500ms)
+	if sessionCacheData == nil || time.Since(sessionCacheTime) > 2*time.Second {
+		return false, false // Cache invalid
+	}
+
+	_, exists := sessionCacheData[name]
+	return exists, true
+}
+
+// registerSessionInCache adds a newly created session to the cache
+// This prevents the race condition where a new session isn't found
+// because the cache was refreshed before the session was created
+func registerSessionInCache(name string) {
+	sessionCacheMu.Lock()
+	defer sessionCacheMu.Unlock()
+
+	// Initialize cache if nil
+	if sessionCacheData == nil {
+		sessionCacheData = make(map[string]int64)
+	}
+
+	// Add session with current time as activity
+	sessionCacheData[name] = time.Now().Unix()
+}
+
+// sessionActivityFromCache gets session activity timestamp from cache
+// Returns (activity, cacheValid) - if cache is stale/empty, cacheValid is false
+func sessionActivityFromCache(name string) (int64, bool) {
+	sessionCacheMu.RLock()
+	defer sessionCacheMu.RUnlock()
+
+	// Cache is valid for 2 seconds (4 ticks at 500ms)
+	if sessionCacheData == nil || time.Since(sessionCacheTime) > 2*time.Second {
+		return 0, false // Cache invalid
+	}
+
+	activity, exists := sessionCacheData[name]
+	if !exists {
+		return 0, false // Session not in cache (doesn't exist)
+	}
+	return activity, true
+}
+
 // IsTmuxAvailable checks if tmux is installed and accessible
 // Returns nil if tmux is available, otherwise returns an error with details
 func IsTmuxAvailable() error {
@@ -448,6 +548,10 @@ func (s *Session) Start(command string) error {
 		return fmt.Errorf("failed to create tmux session: %w (output: %s)", err, string(output))
 	}
 
+	// Register session in cache immediately to prevent race condition
+	// where Exists() returns false because cache was refreshed before session creation
+	registerSessionInCache(s.Name)
+
 	// Set default window/pane styles to prevent color issues in some terminals (Warp, etc.)
 	// This ensures no unexpected background colors are applied
 	_ = exec.Command("tmux", "set-option", "-t", s.Name, "window-style", "default").Run()
@@ -513,7 +617,15 @@ func (s *Session) Start(command string) error {
 }
 
 // Exists checks if the tmux session exists
+// Uses cached session list when available (refreshed by RefreshExistingSessions)
+// Falls back to direct tmux call if cache is stale
 func (s *Session) Exists() bool {
+	// Try cache first (O(1) map lookup, no subprocess)
+	if exists, cacheValid := sessionExistsFromCache(s.Name); cacheValid {
+		return exists
+	}
+
+	// Cache miss/stale - fall back to direct check (spawns subprocess)
 	cmd := exec.Command("tmux", "has-session", "-t", s.Name)
 	return cmd.Run() == nil
 }
@@ -692,8 +804,15 @@ func (s *Session) RespawnPane(command string) error {
 }
 
 // GetWindowActivity returns Unix timestamp of last tmux window activity
-// This is a fast operation (~4ms) that checks when the window last had output
+// Uses cached data when available (refreshed by RefreshSessionCache)
+// Falls back to direct tmux call if cache is stale
 func (s *Session) GetWindowActivity() (int64, error) {
+	// Try cache first (O(1) map lookup, no subprocess)
+	if activity, cacheValid := sessionActivityFromCache(s.Name); cacheValid {
+		return activity, nil
+	}
+
+	// Cache miss/stale - fall back to direct check (spawns subprocess)
 	cmd := exec.Command("tmux", "display-message", "-t", s.Name, "-p", "#{window_activity}")
 	output, err := cmd.Output()
 	if err != nil {

@@ -430,6 +430,30 @@ func (s *Storage) recoverFromBackups() (*StorageData, error) {
 // convertToInstances converts StorageData to Instance slice
 func (s *Storage) convertToInstances(data *StorageData) ([]*Instance, []*GroupData, error) {
 
+	// ═══════════════════════════════════════════════════════════════════
+	// MIGRATION: Convert old "My Sessions" paths to normalized "my-sessions"
+	// Old versions used DefaultGroupName ("My Sessions") as both name AND path.
+	// This caused the group to be undeletable since path matched the protection check.
+	// Now we use DefaultGroupPath ("my-sessions") for paths, keeping name as display.
+	// ═══════════════════════════════════════════════════════════════════
+	migratedGroups := false
+	for i, g := range data.Groups {
+		if g.Path == DefaultGroupName {
+			data.Groups[i].Path = DefaultGroupPath
+			migratedGroups = true
+			log.Printf("Migration: Converted group path '%s' -> '%s'", DefaultGroupName, DefaultGroupPath)
+		}
+	}
+	for i, inst := range data.Instances {
+		if inst.GroupPath == DefaultGroupName {
+			data.Instances[i].GroupPath = DefaultGroupPath
+			migratedGroups = true
+		}
+	}
+	if migratedGroups {
+		log.Printf("Migration: Updated default group paths from '%s' to '%s'", DefaultGroupName, DefaultGroupPath)
+	}
+
 	// Convert to instances
 	instances := make([]*Instance, len(data.Instances))
 	for i, instData := range data.Instances {

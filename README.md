@@ -11,7 +11,7 @@
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/Platform-macOS%20%7C%20Linux%20%7C%20WSL-lightgrey)](https://github.com/asheshgoplani/agent-deck)
 
-[Features](#features) • [Installation](#installation) • [Usage](#usage) • [Documentation](#documentation)
+[Features](#features) • [Installation](#installation) • [Usage](#usage) • [CLI Commands](#cli-commands) • [Documentation](#documentation)
 
 </div>
 
@@ -204,6 +204,162 @@ agent-deck list               # List all sessions
 | `/` | Search |
 | `Ctrl+Q` | Detach from session |
 | `?` | Help |
+
+## CLI Commands
+
+Agent Deck provides a full CLI for automation and scripting. All commands support `--json` for machine-readable output and `-p, --profile` for profile selection.
+
+> **Note:** Flags must come BEFORE positional arguments (Go flag package standard).
+
+### Quick Reference
+
+```bash
+agent-deck                              # Launch TUI
+agent-deck add . -c claude              # Add session with Claude
+agent-deck list --json                  # List sessions as JSON
+agent-deck status                       # Quick status overview
+agent-deck session attach my-project    # Attach to session
+```
+
+### Session Commands
+
+Manage individual sessions. Sessions can be identified by:
+- **Title**: `my-project` (exact or partial match)
+- **ID prefix**: `a1b2c3` (first 6+ chars)
+- **Path**: `/Users/me/project`
+
+```bash
+# Start/Stop/Restart
+agent-deck session start <id>           # Start session's tmux process
+agent-deck session stop <id>            # Stop/kill session process
+agent-deck session restart <id>         # Restart (Claude: reloads MCPs)
+
+# Fork (Claude only)
+agent-deck session fork <id>            # Fork with inherited context
+agent-deck session fork <id> -t "exploration"       # Custom title
+agent-deck session fork <id> -g "experiments"       # Into specific group
+
+# Attach/Show
+agent-deck session attach <id>          # Attach interactively
+agent-deck session show <id>            # Show session details
+agent-deck session show                 # Auto-detect current session (in tmux)
+```
+
+**Fork flags:**
+| Flag | Description |
+|------|-------------|
+| `-t, --title` | Custom title for forked session |
+| `-g, --group` | Target group for forked session |
+
+### MCP Commands
+
+Manage Model Context Protocol servers for Claude sessions.
+
+```bash
+# List available MCPs (from config.toml)
+agent-deck mcp list
+agent-deck mcp list --json
+
+# Show attached MCPs for a session
+agent-deck mcp attached <id>
+agent-deck mcp attached                 # Auto-detect current session
+
+# Attach/Detach MCPs
+agent-deck mcp attach <id> github       # Attach to LOCAL scope
+agent-deck mcp attach <id> exa --global # Attach to GLOBAL scope
+agent-deck mcp attach <id> memory --restart  # Attach and restart session
+
+agent-deck mcp detach <id> github       # Detach from LOCAL
+agent-deck mcp detach <id> exa --global # Detach from GLOBAL
+```
+
+**MCP flags:**
+| Flag | Description |
+|------|-------------|
+| `--global` | Apply to global Claude config (all projects) |
+| `--restart` | Restart session after change (loads new MCPs) |
+
+### Group Commands
+
+Organize sessions into hierarchical groups.
+
+```bash
+# List groups
+agent-deck group list
+agent-deck group list --json
+
+# Create groups
+agent-deck group create work            # Create root group
+agent-deck group create frontend --parent work  # Create subgroup
+
+# Delete groups
+agent-deck group delete old-projects    # Delete (fails if has sessions)
+agent-deck group delete old-projects --force    # Move sessions to default, then delete
+
+# Move sessions
+agent-deck group move my-session work   # Move session to group
+```
+
+**Group flags:**
+| Flag | Description |
+|------|-------------|
+| `--parent` | Parent group for creating subgroups |
+| `--force` | Force delete by moving sessions to default group |
+
+### Status Command
+
+Quick status check without launching the TUI.
+
+```bash
+agent-deck status                       # Compact: "2 waiting - 5 running - 3 idle"
+agent-deck status -v                    # Verbose: detailed list by status
+agent-deck status -q                    # Quiet: just waiting count (for prompts)
+agent-deck status --json                # JSON output
+```
+
+### Global Flags
+
+These flags work with all commands:
+
+| Flag | Description |
+|------|-------------|
+| `--json` | Output as JSON (for automation) |
+| `-q, --quiet` | Minimal output, rely on exit codes |
+| `-p, --profile <name>` | Use specific profile |
+
+### Examples
+
+**Scripting with JSON output:**
+```bash
+# Get all running sessions
+agent-deck list --json | jq '.[] | select(.status == "running")'
+
+# Count waiting sessions
+agent-deck status -q  # Returns just the number
+
+# Check if specific session exists
+agent-deck session show my-project --json 2>/dev/null && echo "exists"
+```
+
+**Automation workflows:**
+```bash
+# Start all sessions in a group
+agent-deck list --json | jq -r '.[] | select(.group == "work") | .id' | \
+  xargs -I{} agent-deck session start {}
+
+# Attach MCP to all Claude sessions
+agent-deck list --json | jq -r '.[] | select(.tool == "claude") | .id' | \
+  xargs -I{} agent-deck mcp attach {} memory --restart
+```
+
+**Current session detection (inside tmux):**
+```bash
+# Show current session info
+agent-deck session show
+
+# Show MCPs for current session
+agent-deck mcp attached
+```
 
 ## Documentation
 

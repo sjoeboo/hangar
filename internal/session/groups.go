@@ -6,8 +6,11 @@ import (
 	"unicode"
 )
 
-// DefaultGroupName is the name used for the default group where ungrouped sessions go
+// DefaultGroupName is the display name for the default group where ungrouped sessions go
 const DefaultGroupName = "My Sessions"
+
+// DefaultGroupPath is the normalized path for the default group (used for lookups and protection)
+const DefaultGroupPath = "my-sessions"
 
 // ItemType represents the type of item in the flattened list
 type ItemType int
@@ -55,13 +58,18 @@ func NewGroupTree(instances []*Instance) *GroupTree {
 	for _, inst := range instances {
 		groupPath := inst.GroupPath
 		if groupPath == "" {
-			groupPath = DefaultGroupName
+			groupPath = DefaultGroupPath
 		}
 
 		group, exists := tree.Groups[groupPath]
 		if !exists {
+			// Use proper name for default group, otherwise use path as name
+			name := groupPath
+			if groupPath == DefaultGroupPath {
+				name = DefaultGroupName
+			}
 			group = &Group{
-				Name:     groupPath,
+				Name:     name,
 				Path:     groupPath,
 				Expanded: true, // Default expanded
 				Sessions: []*Instance{},
@@ -102,14 +110,19 @@ func NewGroupTreeWithGroups(instances []*Instance, storedGroups []*GroupData) *G
 	for _, inst := range instances {
 		groupPath := inst.GroupPath
 		if groupPath == "" {
-			groupPath = DefaultGroupName
+			groupPath = DefaultGroupPath
 		}
 
 		group, exists := tree.Groups[groupPath]
 		if !exists {
 			// Group doesn't exist in stored data, create it
+			// Use proper name for default group, otherwise use path as name
+			name := groupPath
+			if groupPath == DefaultGroupPath {
+				name = DefaultGroupName
+			}
 			group = &Group{
-				Name:     groupPath,
+				Name:     name,
 				Path:     groupPath,
 				Expanded: true,
 				Sessions: []*Instance{},
@@ -508,7 +521,7 @@ func (t *GroupTree) RenameGroup(oldPath, newName string) {
 // DeleteGroup deletes a group, all its subgroups, and moves all sessions to default
 func (t *GroupTree) DeleteGroup(path string) []*Instance {
 	group, exists := t.Groups[path]
-	if !exists || path == DefaultGroupName {
+	if !exists || path == DefaultGroupPath {
 		return nil
 	}
 
@@ -537,19 +550,19 @@ func (t *GroupTree) DeleteGroup(path string) []*Instance {
 
 	// Move all sessions to default group
 	for _, sess := range allMovedSessions {
-		sess.GroupPath = DefaultGroupName
+		sess.GroupPath = DefaultGroupPath
 	}
 
 	// Ensure default group exists
-	defaultGroup, exists := t.Groups[DefaultGroupName]
+	defaultGroup, exists := t.Groups[DefaultGroupPath]
 	if !exists {
 		defaultGroup = &Group{
 			Name:     DefaultGroupName,
-			Path:     DefaultGroupName,
+			Path:     DefaultGroupPath,
 			Expanded: true,
 			Sessions: []*Instance{},
 		}
-		t.Groups[DefaultGroupName] = defaultGroup
+		t.Groups[DefaultGroupPath] = defaultGroup
 	}
 	defaultGroup.Sessions = append(defaultGroup.Sessions, allMovedSessions...)
 
@@ -597,14 +610,19 @@ func (t *GroupTree) GroupCount() int {
 func (t *GroupTree) AddSession(inst *Instance) {
 	groupPath := inst.GroupPath
 	if groupPath == "" {
-		groupPath = DefaultGroupName
+		groupPath = DefaultGroupPath
 		inst.GroupPath = groupPath
 	}
 
 	group, exists := t.Groups[groupPath]
 	if !exists {
+		// Use proper name for default group, otherwise use path as name
+		name := groupPath
+		if groupPath == DefaultGroupPath {
+			name = DefaultGroupName
+		}
 		group = &Group{
-			Name:     groupPath,
+			Name:     name,
 			Path:     groupPath,
 			Expanded: true,
 			Sessions: []*Instance{},
@@ -621,7 +639,7 @@ func (t *GroupTree) AddSession(inst *Instance) {
 func (t *GroupTree) RemoveSession(inst *Instance) {
 	groupPath := inst.GroupPath
 	if groupPath == "" {
-		groupPath = DefaultGroupName
+		groupPath = DefaultGroupPath
 	}
 
 	if group, exists := t.Groups[groupPath]; exists {
@@ -656,15 +674,20 @@ func (t *GroupTree) SyncWithInstances(instances []*Instance) {
 	for _, inst := range instances {
 		groupPath := inst.GroupPath
 		if groupPath == "" {
-			groupPath = DefaultGroupName
+			groupPath = DefaultGroupPath
 			inst.GroupPath = groupPath
 		}
 
 		group, exists := t.Groups[groupPath]
 		if !exists {
 			// Create new group for this session's path
+			// Use proper name for default group, otherwise use path as name
+			name := groupPath
+			if groupPath == DefaultGroupPath {
+				name = DefaultGroupName
+			}
 			group = &Group{
-				Name:     groupPath,
+				Name:     name,
 				Path:     groupPath,
 				Expanded: true,
 				Sessions: []*Instance{},

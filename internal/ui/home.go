@@ -387,17 +387,18 @@ func (h *Home) syncViewport() {
 	}
 
 	// Calculate visible height for session list
-	// MUST match the calculation in View() and renderSessionList() exactly!
+	// MUST match the calculation in View() exactly!
 	//
 	// Layout breakdown:
-	// - Header: 2 lines
-	// - Filter bar: 0 or 1 line (when statusFilter active or multiple statuses exist)
+	// - Header: 1 line
+	// - Filter bar: 1 line (always shown)
 	// - Update banner: 0 or 1 line (when update available)
+	// - Main content: contentHeight lines
 	// - Help bar: 2 lines (border + content)
-	// - Panel title: 3 lines (title + underline + spacing)
-	// - "more below" indicator: 1 line (always reserved)
+	// Panel title within content: 2 lines (title + underline)
+	// Panel content: contentHeight - 2 lines
 	helpBarHeight := 2
-	panelTitleHeight := 3 // "SESSIONS" title + underline + spacing
+	panelTitleLines := 2 // SESSIONS title + underline (matches View())
 
 	// Filter bar is always shown for consistent layout (matches View())
 	filterBarHeight := 1
@@ -406,11 +407,13 @@ func (h *Home) syncViewport() {
 		updateBannerHeight = 1
 	}
 
-	// This matches: contentHeight-3 passed to renderSessionList, then height-1 in that function
+	// contentHeight = total height for main content area
 	// -1 for header line, -helpBarHeight for help bar, -updateBannerHeight, -filterBarHeight
 	contentHeight := h.height - 1 - helpBarHeight - updateBannerHeight - filterBarHeight
-	listHeight := contentHeight - panelTitleHeight
-	maxVisible := listHeight - 1 // -1 for "more below" indicator
+	// panelContentHeight = space available for session list (excluding title)
+	panelContentHeight := contentHeight - panelTitleLines
+	// maxVisible = how many items can be shown (reserving 1 for "more below" indicator)
+	maxVisible := panelContentHeight - 1
 	if maxVisible < 1 {
 		maxVisible = 1
 	}
@@ -565,6 +568,90 @@ func (h *Home) cleanupExpiredAnimations(animMap map[string]time.Time, claudeTime
 		delete(animMap, id)
 	}
 	return toDelete
+}
+
+// hasActiveAnimation checks if a session has an animation currently being displayed
+// Returns true only if the animation is actually showing (not just tracked in the map)
+// This MUST match the display logic in renderPreviewPane exactly
+func (h *Home) hasActiveAnimation(sessionID string) bool {
+	inst := h.instanceByID[sessionID]
+	if inst == nil {
+		return false
+	}
+
+	// Check forking first (always shows while tracked)
+	if _, ok := h.forkingSessions[sessionID]; ok {
+		return true
+	}
+
+	// Determine animation start time and type
+	var startTime time.Time
+	var hasAnimation bool
+	var isMcpLoading bool
+
+	if t, ok := h.launchingSessions[sessionID]; ok {
+		startTime = t
+		hasAnimation = true
+	} else if t, ok := h.resumingSessions[sessionID]; ok {
+		startTime = t
+		hasAnimation = true
+	} else if t, ok := h.mcpLoadingSessions[sessionID]; ok {
+		startTime = t
+		hasAnimation = true
+		isMcpLoading = true
+	}
+
+	if !hasAnimation {
+		return false
+	}
+
+	// MUST match renderPreviewPane display logic exactly:
+	// - Claude: 6s minimum, then check if ready, up to 15s total
+	// - Others: 3s fixed
+	timeSinceStart := time.Since(startTime)
+
+	if inst.Tool == "claude" {
+		minAnimationTime := 6 * time.Second
+		maxAnimationTime := 15 * time.Second
+
+		if timeSinceStart < minAnimationTime {
+			// Always block for first 6 seconds
+			return true
+		} else if timeSinceStart < maxAnimationTime {
+			// After 6 seconds, check if Claude is ready (same logic as renderPreviewPane)
+			h.previewCacheMu.RLock()
+			previewContent := h.previewCache[sessionID]
+			h.previewCacheMu.RUnlock()
+
+			// Claude is ready when we see its prompt or it is actively running
+			claudeReady := strings.Contains(previewContent, "No, and tell Claude what to do differently") ||
+				strings.Contains(previewContent, "\n> ") ||
+				strings.Contains(previewContent, "> \n") ||
+				strings.Contains(previewContent, "esc to interrupt") ||
+				strings.Contains(previewContent, "⠋") || strings.Contains(previewContent, "⠙") ||
+				strings.Contains(previewContent, "Thinking")
+
+			// If Claude not ready, animation is still showing (and should block)
+			// If Claude IS ready, animation stops (and should allow attachment)
+			if !claudeReady {
+				return true
+			}
+		}
+		// After 15 seconds or Claude is ready, allow attachment
+		return false
+	}
+
+	// Non-Claude: block for 3 seconds
+	if timeSinceStart < 3*time.Second {
+		return true
+	}
+
+	// Handle MCP loading for non-Claude (same 3s rule)
+	if isMcpLoading && timeSinceStart < 3*time.Second {
+		return true
+	}
+
+	return false
 }
 
 // fetchPreview returns a command that asynchronously fetches preview content
@@ -986,6 +1073,10 @@ func (h *Home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			h.clearError()
 		}
 
+		// Refresh session existence cache ONCE per tick (reduces ~15 subprocess spawns to 1)
+		// This must happen BEFORE triggerStatusUpdate so Exists() calls use fresh cache
+		tmux.RefreshExistingSessions()
+
 		// Background status updates (Priority 1C optimization)
 		// Triggers background worker to update session statuses without blocking UI
 		// Worker implements round-robin batching (Priority 1A + 1B)
@@ -1345,6 +1436,11 @@ func (h *Home) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if h.cursor < len(h.flatItems) {
 			item := h.flatItems[h.cursor]
 			if item.Type == session.ItemTypeSession && item.Session != nil {
+				// Block attachment during animations (must match renderPreviewPane display logic)
+				if h.hasActiveAnimation(item.Session.ID) {
+					h.setError(fmt.Errorf("session is starting, please wait..."))
+					return h, nil
+				}
 				if item.Session.Exists() {
 					h.isAttaching = true // Prevent View() output during transition
 					return h, h.attachSession(item.Session)
@@ -1588,7 +1684,7 @@ func (h *Home) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			item := h.flatItems[h.cursor]
 			if item.Type == session.ItemTypeSession && item.Session != nil {
 				h.confirmDialog.ShowDeleteSession(item.Session.ID, item.Session.Title)
-			} else if item.Type == session.ItemTypeGroup && item.Path != session.DefaultGroupName {
+			} else if item.Type == session.ItemTypeGroup && item.Path != session.DefaultGroupPath {
 				h.confirmDialog.ShowDeleteGroup(item.Path, item.Group.Name)
 			}
 		}
@@ -2443,25 +2539,26 @@ func (h *Home) View() string {
 	leftWidth := int(float64(h.width) * 0.35)
 	rightWidth := h.width - leftWidth - 3 // -3 for separator
 
+	// Panel title is exactly 2 lines (title + underline)
+	// Panel content gets the remaining space: contentHeight - 2
+	panelTitleLines := 2
+	panelContentHeight := contentHeight - panelTitleLines
+
 	// Build left panel (session list) with styled title
 	leftTitle := h.renderPanelTitle("SESSIONS", leftWidth)
-	leftContent := h.renderSessionList(leftWidth, contentHeight-3) // -3 for title + underline
-	leftPanel := lipgloss.JoinVertical(lipgloss.Left, leftTitle, leftContent)
-	leftPanel = lipgloss.NewStyle().
-		Width(leftWidth).
-		Height(contentHeight).
-		Render(leftPanel)
+	leftContent := h.renderSessionList(leftWidth, panelContentHeight)
+	// CRITICAL: Ensure left content has exactly panelContentHeight lines
+	leftContent = ensureExactHeight(leftContent, panelContentHeight)
+	leftPanel := leftTitle + "\n" + leftContent
 
 	// Build right panel (preview) with styled title
 	rightTitle := h.renderPanelTitle("PREVIEW", rightWidth)
-	rightContent := h.renderPreviewPane(rightWidth, contentHeight-3) // -3 for title + underline
-	rightPanel := lipgloss.JoinVertical(lipgloss.Left, rightTitle, rightContent)
-	rightPanel = lipgloss.NewStyle().
-		Width(rightWidth).
-		Height(contentHeight).
-		Render(rightPanel)
+	rightContent := h.renderPreviewPane(rightWidth, panelContentHeight)
+	// CRITICAL: Ensure right content has exactly panelContentHeight lines
+	rightContent = ensureExactHeight(rightContent, panelContentHeight)
+	rightPanel := rightTitle + "\n" + rightContent
 
-	// Build separator
+	// Build separator - must be exactly contentHeight lines
 	separatorStyle := lipgloss.NewStyle().Foreground(ColorBorder)
 	separatorLines := make([]string, contentHeight)
 	for i := range separatorLines {
@@ -2469,7 +2566,11 @@ func (h *Home) View() string {
 	}
 	separator := strings.Join(separatorLines, "\n")
 
-	// Join panels horizontally
+	// CRITICAL: Ensure both panels have exactly contentHeight lines before joining
+	leftPanel = ensureExactHeight(leftPanel, contentHeight)
+	rightPanel = ensureExactHeight(rightPanel, contentHeight)
+
+	// Join panels horizontally - all components have exact heights now
 	mainContent := lipgloss.JoinHorizontal(lipgloss.Top, leftPanel, separator, rightPanel)
 	b.WriteString(mainContent)
 	b.WriteString("\n")
@@ -2480,7 +2581,7 @@ func (h *Home) View() string {
 	helpBar := h.renderHelpBar()
 	b.WriteString(helpBar)
 
-	// Error display with auto-dismiss countdown
+	// Error and warning messages are displayed but may be truncated by final height constraint
 	if h.err != nil {
 		remaining := 5*time.Second - time.Since(h.errTime)
 		if remaining < 0 {
@@ -2493,20 +2594,21 @@ func (h *Home) View() string {
 		b.WriteString(errMsg)
 	}
 
-	// Storage warning (persistent until resolved)
 	if h.storageWarning != "" {
 		warnStyle := lipgloss.NewStyle().Foreground(ColorYellow)
 		b.WriteString("\n")
 		b.WriteString(warnStyle.Render(h.storageWarning))
 	}
 
-	// CRITICAL: Ensure output is EXACTLY h.height lines to prevent terminal scrolling
-	// This prevents the header from being clipped off the top when output exceeds terminal height
+	// CRITICAL: Use ensureExactHeight for robust, consistent output across all platforms
+	// This is the single source of truth for output height - guarantees exactly h.height lines
+	// regardless of component content, ANSI codes, or terminal differences
+	result := ensureExactHeight(b.String(), h.height)
+
+	// Apply width constraint via lipgloss (width handling is reliable)
 	return lipgloss.NewStyle().
 		Width(h.width).
-		Height(h.height).
-		MaxHeight(h.height).
-		Render(b.String())
+		Render(result)
 }
 
 // renderPanelTitle creates a styled section title with underline
@@ -2638,6 +2740,39 @@ func renderEmptyStateResponsive(config EmptyStateConfig, width, height int) stri
 		Align(lipgloss.Center).
 		Padding(vPad, hPad).
 		Render(content.String())
+}
+
+// ensureExactHeight is a critical helper that ensures any content has EXACTLY n lines.
+// This is essential for consistent TUI layout across all platforms and terminal sizes.
+//
+// Behavior:
+//   - If content has fewer lines than n: pads with blank lines at the end
+//   - If content has more lines than n: truncates from the end (keeps header/start)
+//   - Returns content with exactly n lines (n-1 internal newlines, no trailing newline)
+//
+// This function handles ANSI-styled content correctly by counting \n characters
+// rather than visual lines, which works reliably across all terminal emulators.
+func ensureExactHeight(content string, n int) string {
+	if n <= 0 {
+		return ""
+	}
+
+	// Split into lines
+	lines := strings.Split(content, "\n")
+
+	// Truncate or pad to exactly n lines
+	if len(lines) > n {
+		// Keep first n lines (preserves header info)
+		lines = lines[:n]
+	} else if len(lines) < n {
+		// Pad with blank lines
+		for len(lines) < n {
+			lines = append(lines, "")
+		}
+	}
+
+	// Join back - this creates n-1 newlines for n lines
+	return strings.Join(lines, "\n")
 }
 
 // renderSectionDivider creates a modern section divider with optional centered label
@@ -2800,8 +2935,6 @@ func (h *Home) renderSessionList(width, height int) string {
 	}
 
 	// Render items starting from viewOffset
-	// Track lines written to ensure exact height output (prevents layout shifts)
-	linesWritten := 0
 	visibleCount := 0
 	maxVisible := height - 1 // Leave room for scrolling indicator
 	if maxVisible < 1 {
@@ -2812,14 +2945,12 @@ func (h *Home) renderSessionList(width, height int) string {
 	if h.viewOffset > 0 {
 		b.WriteString(DimStyle.Render(fmt.Sprintf("  ⋮ +%d above", h.viewOffset)))
 		b.WriteString("\n")
-		linesWritten++
 		maxVisible-- // Account for the indicator line
 	}
 
 	for i := h.viewOffset; i < len(h.flatItems) && visibleCount < maxVisible; i++ {
 		item := h.flatItems[i]
 		h.renderItem(&b, item, i == h.cursor, i)
-		linesWritten++
 		visibleCount++
 	}
 
@@ -2827,23 +2958,10 @@ func (h *Home) renderSessionList(width, height int) string {
 	remaining := len(h.flatItems) - (h.viewOffset + visibleCount)
 	if remaining > 0 {
 		b.WriteString(DimStyle.Render(fmt.Sprintf("  ⋮ +%d below", remaining)))
-		linesWritten++
 	}
 
-	// Pad to exact height to prevent layout shifts during navigation
-	// Each item/indicator already has trailing newline, so we just add blank lines
-	for linesWritten < height {
-		b.WriteString("\n")
-		linesWritten++
-	}
-
-	// Remove trailing newline (content ends without final \n, height padding already applied)
-	result := b.String()
-	if len(result) > 0 && result[len(result)-1] == '\n' {
-		result = result[:len(result)-1]
-	}
-
-	return result
+	// Height padding is handled by ensureExactHeight() in View() for consistency
+	return b.String()
 }
 
 // renderItem renders a single item (group or session) for the left panel
@@ -3036,7 +3154,7 @@ func (h *Home) renderSessionItem(b *strings.Builder, item session.Item, selected
 }
 
 // renderLaunchingState renders the animated launching/resuming indicator for sessions
-func (h *Home) renderLaunchingState(inst *session.Instance, width int) string {
+func (h *Home) renderLaunchingState(inst *session.Instance, width int, startTime time.Time) string {
 	var b strings.Builder
 
 	// Check if this is a resume operation (vs new launch)
@@ -3046,12 +3164,12 @@ func (h *Home) renderLaunchingState(inst *session.Instance, width int) string {
 	spinnerFrames := []string{"⣾", "⣽", "⣻", "⢿", "⡿", "⣟", "⣯", "⣷"}
 	spinner := spinnerFrames[h.animationFrame]
 
-	// Tool-specific messaging
-	var toolName, toolDesc, actionVerb string
+	// Tool-specific messaging with emoji
+	var toolName, toolDesc, emoji string
 	if isResuming {
-		actionVerb = "Resuming"
+		emoji = "🔄"
 	} else {
-		actionVerb = "Launching"
+		emoji = "🚀"
 	}
 
 	switch inst.Tool {
@@ -3105,11 +3223,17 @@ func (h *Home) renderLaunchingState(inst *session.Instance, width int) string {
 	b.WriteString(centerStyle.Render(spinnerLine))
 	b.WriteString("\n\n")
 
-	// Tool name with action verb
-	toolStyle := lipgloss.NewStyle().
+	// Title with emoji
+	titleStyle := lipgloss.NewStyle().
 		Foreground(ColorPurple).
 		Bold(true)
-	b.WriteString(centerStyle.Render(toolStyle.Render(actionVerb + " " + toolName)))
+	var actionVerb string
+	if isResuming {
+		actionVerb = "Resuming"
+	} else {
+		actionVerb = "Launching"
+	}
+	b.WriteString(centerStyle.Render(titleStyle.Render(emoji + " " + actionVerb + " " + toolName)))
 	b.WriteString("\n\n")
 
 	// Description
@@ -3127,11 +3251,12 @@ func (h *Home) renderLaunchingState(inst *session.Instance, width int) string {
 	b.WriteString(centerStyle.Render(dotsStyle.Render(dots)))
 	b.WriteString("\n\n")
 
-	// Please wait message
-	waitStyle := lipgloss.NewStyle().
+	// Elapsed time (consistent with MCP and Fork animations)
+	elapsed := time.Since(startTime).Round(time.Second)
+	timeStyle := lipgloss.NewStyle().
 		Foreground(ColorYellow).
 		Italic(true)
-	b.WriteString(centerStyle.Render(waitStyle.Render("Please wait...")))
+	b.WriteString(centerStyle.Render(timeStyle.Render(fmt.Sprintf("Loading... %s", elapsed))))
 
 	return b.String()
 }
@@ -3232,18 +3357,12 @@ func (h *Home) renderForkingState(inst *session.Instance, width int, startTime t
 	b.WriteString(centerStyle.Render(dotsStyle.Render(dots)))
 	b.WriteString("\n\n")
 
-	// Elapsed time
+	// Elapsed time (consistent with other animations)
 	elapsed := time.Since(startTime).Round(time.Second)
 	timeStyle := lipgloss.NewStyle().
 		Foreground(ColorYellow).
 		Italic(true)
-	b.WriteString(centerStyle.Render(timeStyle.Render(fmt.Sprintf("Forking... %s", elapsed))))
-	b.WriteString("\n\n")
-
-	// Info text
-	infoStyle := lipgloss.NewStyle().
-		Foreground(ColorComment)
-	b.WriteString(centerStyle.Render(infoStyle.Render("This may take 10-30 seconds")))
+	b.WriteString(centerStyle.Render(timeStyle.Render(fmt.Sprintf("Loading... %s", elapsed))))
 
 	return b.String()
 }
@@ -3595,7 +3714,7 @@ func (h *Home) renderPreviewPane(width, height int) string {
 	} else if showLaunchingAnimation {
 		// Show launching animation for new sessions
 		b.WriteString("\n")
-		b.WriteString(h.renderLaunchingState(selected, width))
+		b.WriteString(h.renderLaunchingState(selected, width, animationStartTime))
 	} else if !hasCached {
 		// Show loading indicator while waiting for async fetch
 		loadingStyle := lipgloss.NewStyle().
@@ -3609,9 +3728,12 @@ func (h *Home) renderPreviewPane(width, height int) string {
 			Render("(terminal is empty)")
 		b.WriteString(emptyTerm)
 	} else {
-		// Limit preview to available height
+		// Calculate maxLines dynamically based on how many header lines we've already written
+		// This accounts for Claude sessions having more header lines than other sessions
+		currentContent := b.String()
+		headerLines := strings.Count(currentContent, "\n") + 1 // +1 for the current line
 		lines := strings.Split(preview, "\n")
-		maxLines := height - 8 // Account for header and info
+		maxLines := height - headerLines - 1 // -1 for potential truncation indicator
 		if maxLines < 1 {
 			maxLines = 1
 		}
@@ -3675,30 +3797,8 @@ func (h *Home) renderPreviewPane(width, height int) string {
 		}
 	}
 
-	// Ensure output is EXACTLY 'height' lines to prevent layout shifts
-	// This is critical - truncate if too long, pad if too short
-	content := b.String()
-	lines := strings.Split(content, "\n")
-	lineCount := len(lines)
-
-	if lineCount > height {
-		// Truncate to exactly 'height' lines
-		// Keep lines from the START to preserve header info, truncate terminal output
-		lines = lines[:height]
-		content = strings.Join(lines, "\n")
-	} else if lineCount < height {
-		// Pad with blank lines to reach 'height'
-		for i := lineCount; i < height; i++ {
-			content += "\n"
-		}
-	}
-
-	// Remove trailing newline (consistent with other render functions)
-	if len(content) > 0 && content[len(content)-1] == '\n' {
-		content = content[:len(content)-1]
-	}
-
-	return content
+	// Height consistency is handled by ensureExactHeight() in View()
+	return b.String()
 }
 
 // truncatePath shortens a path to fit within maxLen characters
@@ -3844,21 +3944,6 @@ func (h *Home) renderGroupPreview(group *session.Group, width, height int) strin
 	hintStyle := lipgloss.NewStyle().Foreground(ColorComment).Italic(true)
 	b.WriteString(hintStyle.Render("Tab toggle • R rename • d delete • g subgroup"))
 
-	// Pad output to exact height to prevent layout shifts
-	content := b.String()
-	lines := strings.Split(content, "\n")
-	lineCount := len(lines)
-
-	if lineCount < height {
-		for i := lineCount; i < height; i++ {
-			content += "\n"
-		}
-	}
-
-	// Remove trailing newline (consistent with other render functions)
-	if len(content) > 0 && content[len(content)-1] == '\n' {
-		content = content[:len(content)-1]
-	}
-
-	return content
+	// Height consistency is handled by ensureExactHeight() in View()
+	return b.String()
 }

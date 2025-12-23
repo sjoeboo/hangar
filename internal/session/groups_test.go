@@ -38,10 +38,10 @@ func TestNewGroupTreeEmptyGroupPath(t *testing.T) {
 
 	tree := NewGroupTree(instances)
 
-	// Empty group path should default to DefaultGroupName
-	defaultGroup := tree.Groups[DefaultGroupName]
+	// Empty group path should default to DefaultGroupPath
+	defaultGroup := tree.Groups[DefaultGroupPath]
 	if defaultGroup == nil {
-		t.Fatalf("default group '%s' not found", DefaultGroupName)
+		t.Fatalf("default group '%s' not found", DefaultGroupPath)
 	}
 	if len(defaultGroup.Sessions) != 1 {
 		t.Errorf("Expected 1 session in default, got %d", len(defaultGroup.Sessions))
@@ -383,8 +383,8 @@ func TestDeleteGroup(t *testing.T) {
 	if len(movedSessions) != 1 {
 		t.Errorf("Expected 1 moved session, got %d", len(movedSessions))
 	}
-	if movedSessions[0].GroupPath != DefaultGroupName {
-		t.Errorf("Session should be moved to %s, got '%s'", DefaultGroupName, movedSessions[0].GroupPath)
+	if movedSessions[0].GroupPath != DefaultGroupPath {
+		t.Errorf("Session should be moved to %s, got '%s'", DefaultGroupPath, movedSessions[0].GroupPath)
 	}
 }
 
@@ -419,8 +419,8 @@ func TestDeleteGroupWithSubgroups(t *testing.T) {
 	}
 
 	for _, sess := range movedSessions {
-		if sess.GroupPath != DefaultGroupName {
-			t.Errorf("Session should be moved to %s, got '%s'", DefaultGroupName, sess.GroupPath)
+		if sess.GroupPath != DefaultGroupPath {
+			t.Errorf("Session should be moved to %s, got '%s'", DefaultGroupPath, sess.GroupPath)
 		}
 	}
 }
@@ -432,18 +432,18 @@ func TestDeleteDefaultGroup(t *testing.T) {
 	}
 	tree := NewGroupTree(instances)
 
-	// Verify default group was created
-	if tree.Groups[DefaultGroupName] == nil {
-		t.Fatalf("Default group '%s' should exist after creating session with empty GroupPath", DefaultGroupName)
+	// Verify default group was created (uses normalized path now)
+	if tree.Groups[DefaultGroupPath] == nil {
+		t.Fatalf("Default group '%s' should exist after creating session with empty GroupPath", DefaultGroupPath)
 	}
 
 	// Should not be able to delete default
-	result := tree.DeleteGroup(DefaultGroupName)
+	result := tree.DeleteGroup(DefaultGroupPath)
 	if result != nil {
 		t.Error("Should not be able to delete default group")
 	}
-	if tree.Groups[DefaultGroupName] == nil {
-		t.Errorf("Default group '%s' should still exist after delete attempt", DefaultGroupName)
+	if tree.Groups[DefaultGroupPath] == nil {
+		t.Errorf("Default group '%s' should still exist after delete attempt", DefaultGroupPath)
 	}
 }
 

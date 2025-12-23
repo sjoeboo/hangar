@@ -23,6 +23,7 @@ Set PlaybackSpeed 1.3
 
 # ============================================
 # SETUP: Create a session with conversation (hidden)
+# IMPORTANT: Long waits to ensure Claude responds and saves
 # ============================================
 Hide
 
@@ -46,19 +47,20 @@ Tab
 Enter
 Sleep 12s
 
-# Enter the session and wait for Claude
+# Enter the session and wait for Claude to fully start
 Type "j"
 Sleep 500ms
 Enter
-Sleep 15s
+Sleep 20s
 
-# Start a conversation about authentication
+# Start a conversation about JWT
 Type "Explain JWT token validation best practices"
 Sleep 300ms
 Enter
 
-# Wait for Claude to respond (reasonable time)
-Sleep 25s
+# CRITICAL: Wait long enough for Claude to FULLY respond and save
+# Claude needs time to: process, respond, and write to .jsonl file
+Sleep 90s
 
 # Detach
 Ctrl+Q
@@ -77,7 +79,9 @@ Sleep 300ms
 Type "agent-deck -p search-demo"
 Sleep 400ms
 Enter
-Sleep 2.5s
+
+# Wait for Global Search index to load in background
+Sleep 4s
 
 # Navigate to session
 Type "j"
@@ -124,20 +128,20 @@ Sleep 1s
 
 # Press Tab to switch to Global Search
 Tab
-Sleep 1.5s
+Sleep 2s
 
 # ============================================
 # ACT 5: Search for content from the conversation
 # ============================================
 Type "JWT"
+Sleep 3s
+
+# Results should appear - conversation was found!
 Sleep 2s
 
-# Results appear - show the conversation was found!
-Sleep 1s
-
-# Navigate results
+# Navigate results if multiple
 Down
-Sleep 800ms
+Sleep 1s
 
 # ============================================
 # ACT 6: Preview with keyword highlighting
@@ -165,10 +169,10 @@ Sleep 800ms
 # ACT 7: RECOVER - Press Enter to resume
 # ============================================
 Enter
-Sleep 3s
+Sleep 5s
 
 # ============================================
-# FINALE: Session is back and active!
+# FINALE: Session is back! (will be cut in editing)
 # ============================================
 
 # Scroll to show the recovered conversation
@@ -180,16 +184,16 @@ Type "Can you show me a code example?"
 Sleep 300ms
 Enter
 
-# Wait for Claude to respond (reasonable time)
-Sleep 20s
+# Wait for response (will be cut in post)
+Sleep 30s
 
-# Scroll up to show the response
+# Scroll up to show response
 Ctrl+U
 Sleep 2s
 
-# Detach to show session is back in dashboard
+# Detach
 Ctrl+Q
 Sleep 1.5s
 
-# Final view - session recovered!
+# Final view
 Sleep 2s

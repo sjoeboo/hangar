@@ -23,7 +23,7 @@ import (
 	"github.com/muesli/termenv"
 )
 
-const Version = "0.5.8"
+const Version = "0.6.0"
 
 // Table column widths for list command output
 const (
@@ -136,6 +136,15 @@ func main() {
 			return
 		case "update":
 			handleUpdate(args[1:])
+			return
+		case "session":
+			handleSession(profile, args[1:])
+			return
+		case "mcp":
+			handleMCP(profile, args[1:])
+			return
+		case "group":
+			handleGroup(profile, args[1:])
 			return
 		}
 	}
@@ -973,10 +982,33 @@ func printHelp() {
 	fmt.Println("  list, ls         List all sessions")
 	fmt.Println("  remove, rm       Remove a session")
 	fmt.Println("  status           Show session status summary")
+	fmt.Println("  session          Manage session lifecycle")
+	fmt.Println("  mcp              Manage MCP servers")
+	fmt.Println("  group            Manage groups")
 	fmt.Println("  profile          Manage profiles")
 	fmt.Println("  update           Check for and install updates")
 	fmt.Println("  version          Show version")
 	fmt.Println("  help             Show this help")
+	fmt.Println()
+	fmt.Println("Session Commands:")
+	fmt.Println("  session start <id>        Start a session's tmux process")
+	fmt.Println("  session stop <id>         Stop session process")
+	fmt.Println("  session restart <id>      Restart session (reload MCPs)")
+	fmt.Println("  session fork <id>         Fork Claude session with context")
+	fmt.Println("  session attach <id>       Attach to session interactively")
+	fmt.Println("  session show [id]         Show session details")
+	fmt.Println()
+	fmt.Println("MCP Commands:")
+	fmt.Println("  mcp list                  List available MCPs from config.toml")
+	fmt.Println("  mcp attached [id]         Show MCPs attached to a session")
+	fmt.Println("  mcp attach <id> <mcp>     Attach MCP to session")
+	fmt.Println("  mcp detach <id> <mcp>     Detach MCP from session")
+	fmt.Println()
+	fmt.Println("Group Commands:")
+	fmt.Println("  group list                List all groups")
+	fmt.Println("  group create <name>       Create a new group")
+	fmt.Println("  group delete <name>       Delete a group")
+	fmt.Println("  group move <id> <group>   Move session to group")
 	fmt.Println()
 	fmt.Println("Profile Commands:")
 	fmt.Println("  profile list              List all profiles")
@@ -988,11 +1020,12 @@ func printHelp() {
 	fmt.Println("  agent-deck                            # Start TUI with default profile")
 	fmt.Println("  agent-deck -p work                    # Start TUI with 'work' profile")
 	fmt.Println("  agent-deck add .                      # Add current directory")
-	fmt.Println("  agent-deck -p work add .              # Add to 'work' profile")
 	fmt.Println("  agent-deck add -t \"My App\" -g dev .   # With title and group")
-	fmt.Println("  agent-deck list                       # List sessions")
-	fmt.Println("  agent-deck list --all                 # List sessions from all profiles")
-	fmt.Println("  agent-deck profile create work        # Create 'work' profile")
+	fmt.Println("  agent-deck session start my-project   # Start a session")
+	fmt.Println("  agent-deck session show               # Show current session (in tmux)")
+	fmt.Println("  agent-deck mcp list --json            # List MCPs as JSON")
+	fmt.Println("  agent-deck mcp attach my-app exa      # Attach MCP to session")
+	fmt.Println("  agent-deck group move my-app work     # Move session to group")
 	fmt.Println()
 	fmt.Println("Environment Variables:")
 	fmt.Println("  AGENTDECK_PROFILE    Default profile to use")
