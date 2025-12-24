@@ -1,10 +1,13 @@
 package ui_test
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
+	"github.com/asheshgoplani/agent-deck/internal/session"
 	"github.com/asheshgoplani/agent-deck/internal/tmux"
+	"github.com/asheshgoplani/agent-deck/internal/ui"
 	"github.com/mattn/go-runewidth"
 )
 
@@ -140,4 +143,46 @@ func TestWidthTestHelpers(t *testing.T) {
 		// Test that it would fail for wrong count (we can't directly test t.Errorf)
 		// This is just documenting the helper exists and compiles correctly
 	})
+}
+
+func TestRenderPreviewPane_RespectsMaxWidth(t *testing.T) {
+	// Create a minimal Home instance with test data
+	h := ui.NewTestHome()
+	h.SetFlatItemsForTest([]session.Item{
+		{
+			Type: session.ItemTypeSession,
+			Session: &session.Instance{
+				ID:              "test-123",
+				Title:           "Test Session with a Very Long Title That Should Be Truncated",
+				ProjectPath:     "/very/long/path/that/exceeds/width/limit/and/should/be/truncated",
+				GroupPath:       "test-group",
+				Tool:            "claude",
+				Status:          session.StatusRunning,
+				ClaudeSessionID: "session-abc-123",
+			},
+		},
+	})
+	h.SetCursorForTest(0)
+
+	// Test various widths
+	testCases := []struct {
+		width  int
+		height int
+	}{
+		{width: 50, height: 20},
+		{width: 80, height: 30},
+		{width: 120, height: 40},
+	}
+
+	for _, tc := range testCases {
+		t.Run(fmt.Sprintf("width=%d", tc.width), func(t *testing.T) {
+			output := h.RenderPreviewPaneForTest(tc.width, tc.height)
+
+			// CRITICAL: Every line must respect maxWidth
+			assertMaxWidth(t, output, tc.width, "renderPreviewPane")
+
+			// Should have exactly the requested height
+			assertExactHeight(t, output, tc.height, "renderPreviewPane")
+		})
+	}
 }
