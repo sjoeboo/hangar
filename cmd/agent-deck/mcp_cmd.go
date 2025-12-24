@@ -227,7 +227,7 @@ func handleMCPAttached(profile string, args []string) {
 	mcpInfo := session.GetMCPInfo(inst.ProjectPath)
 	globalMCPs := mcpInfo.Global
 	projectMCPs := mcpInfo.Project
-	localMCPs := mcpInfo.Local
+	localMCPs := mcpInfo.Local() // Call method for backward compatibility
 
 	if *jsonOutput {
 		out.Print("", map[string]interface{}{
@@ -405,14 +405,14 @@ func handleMCPAttach(profile string, args []string) {
 		// Add to local .mcp.json
 		mcpInfo := session.GetMCPInfo(inst.ProjectPath)
 		// Check if already attached locally
-		for _, name := range mcpInfo.Local {
+		for _, name := range mcpInfo.Local() {
 			if name == mcpName {
 				out.Error(fmt.Sprintf("MCP '%s' is already attached locally", mcpName), ErrCodeAlreadyExists)
 				os.Exit(1)
 			}
 		}
 		// Add to local MCPs
-		newLocal := append(mcpInfo.Local, mcpName)
+		newLocal := append(mcpInfo.Local(), mcpName)
 		if err := session.WriteMCPJsonFromConfig(inst.ProjectPath, newLocal); err != nil {
 			out.Error(fmt.Sprintf("failed to write .mcp.json: %v", err), ErrCodeInvalidOperation)
 			os.Exit(1)
@@ -545,8 +545,9 @@ func handleMCPDetach(profile string, args []string) {
 		// Remove from local .mcp.json
 		mcpInfo := session.GetMCPInfo(inst.ProjectPath)
 		found := false
-		newLocal := make([]string, 0, len(mcpInfo.Local))
-		for _, name := range mcpInfo.Local {
+		localMCPs := mcpInfo.Local()
+		newLocal := make([]string, 0, len(localMCPs))
+		for _, name := range localMCPs {
 			if name == mcpName {
 				found = true
 			} else {

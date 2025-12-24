@@ -363,21 +363,25 @@ func (h *Home) restoreState(state reloadState) {
 	h.rebuildFlatItems()
 
 	// Restore cursor to same session
+	found := false
 	if state.cursorSessionID != "" {
 		for i, item := range h.flatItems {
 			if item.Type == session.ItemTypeSession &&
 				item.Session != nil &&
 				item.Session.ID == state.cursorSessionID {
 				h.cursor = i
+				found = true
 				break
 			}
 		}
 	}
+	// Fallback if session ID not found after reload
+	if !found && h.cursor >= len(h.flatItems) {
+		h.cursor = max(0, len(h.flatItems)-1)
+	}
 
 	// Restore scroll position (clamped to valid range)
-	if state.viewOffset < len(h.flatItems) {
-		h.viewOffset = state.viewOffset
-	}
+	h.viewOffset = min(state.viewOffset, max(0, len(h.flatItems)-1))
 }
 
 // rebuildFlatItems rebuilds the flattened view from group tree

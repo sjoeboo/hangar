@@ -23,21 +23,37 @@ type ClaudeConfig struct {
 	Projects map[string]ClaudeProject `json:"projects"`
 }
 
+// LocalMCP represents an MCP defined in a local .mcp.json file
+type LocalMCP struct {
+	Name       string // MCP name
+	SourcePath string // Directory containing the .mcp.json file
+}
+
 // MCPInfo contains MCP server information for a session
 type MCPInfo struct {
-	Global  []string // From CLAUDE_CONFIG_DIR/.claude.json mcpServers
-	Project []string // From CLAUDE_CONFIG_DIR/.claude.json projects[path].mcpServers
-	Local   []string // From {projectPath}/.mcp.json mcpServers
+	Global    []string   // From CLAUDE_CONFIG_DIR/.claude.json mcpServers
+	Project   []string   // From CLAUDE_CONFIG_DIR/.claude.json projects[path].mcpServers
+	LocalMCPs []LocalMCP // From .mcp.json files (walks up parent directories)
+}
+
+// Local returns MCP names for backward compatibility
+// Use LocalMCPs directly if you need source path information
+func (m *MCPInfo) Local() []string {
+	names := make([]string, len(m.LocalMCPs))
+	for i, mcp := range m.LocalMCPs {
+		names[i] = mcp.Name
+	}
+	return names
 }
 
 // HasAny returns true if any MCPs are configured
 func (m *MCPInfo) HasAny() bool {
-	return len(m.Global) > 0 || len(m.Project) > 0 || len(m.Local) > 0
+	return len(m.Global) > 0 || len(m.Project) > 0 || len(m.LocalMCPs) > 0
 }
 
 // Total returns total number of MCPs across all sources
 func (m *MCPInfo) Total() int {
-	return len(m.Global) + len(m.Project) + len(m.Local)
+	return len(m.Global) + len(m.Project) + len(m.LocalMCPs)
 }
 
 // AllNames returns a deduplicated, sorted list of all MCP names across all sources
@@ -50,8 +66,8 @@ func (m *MCPInfo) AllNames() []string {
 	for _, name := range m.Project {
 		seen[name] = true
 	}
-	for _, name := range m.Local {
-		seen[name] = true
+	for _, mcp := range m.LocalMCPs {
+		seen[mcp.Name] = true
 	}
 
 	names := make([]string, 0, len(seen))
@@ -158,20 +174,38 @@ func getMCPInfoUncached(projectPath string) *MCPInfo {
 	}
 
 	// Read .mcp.json from project directory for local MCPs
-	mcpFile := filepath.Join(projectPath, ".mcp.json")
-	if data, err := os.ReadFile(mcpFile); err == nil {
-		var mcp projectMCPConfig
-		if json.Unmarshal(data, &mcp) == nil {
-			for name := range mcp.MCPServers {
-				info.Local = append(info.Local, name)
+	// Walk up parent directories to find .mcp.json (matches Claude Code behavior)
+	currentPath := projectPath
+	for {
+		mcpFile := filepath.Join(currentPath, ".mcp.json")
+		if data, err := os.ReadFile(mcpFile); err == nil {
+			var mcp projectMCPConfig
+			if json.Unmarshal(data, &mcp) == nil {
+				for name := range mcp.MCPServers {
+					info.LocalMCPs = append(info.LocalMCPs, LocalMCP{
+						Name:       name,
+						SourcePath: currentPath,
+					})
+				}
 			}
+			break // Stop at first .mcp.json found
 		}
+
+		// Move up to parent directory
+		parent := filepath.Dir(currentPath)
+		if parent == currentPath || parent == "/" || parent == "." {
+			break // Reached root or invalid path
+		}
+		currentPath = parent
 	}
 
 	// Sort for consistent display
 	sort.Strings(info.Global)
 	sort.Strings(info.Project)
-	sort.Strings(info.Local)
+	// Sort LocalMCPs by name
+	sort.Slice(info.LocalMCPs, func(i, j int) bool {
+		return info.LocalMCPs[i].Name < info.LocalMCPs[j].Name
+	})
 
 	return info
 }

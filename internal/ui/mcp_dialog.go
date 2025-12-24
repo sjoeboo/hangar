@@ -92,7 +92,7 @@ func (m *MCPDialog) Show(projectPath string, sessionID string) error {
 	// Load LOCAL attached from .mcp.json
 	localAttachedNames := make(map[string]bool)
 	mcpInfo := session.GetMCPInfo(projectPath)
-	for _, name := range mcpInfo.Local {
+	for _, name := range mcpInfo.Local() {
 		localAttachedNames[name] = true
 	}
 

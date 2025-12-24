@@ -558,7 +558,7 @@ func handleSessionShow(profile string, args []string) {
 
 		if mcpInfo != nil && mcpInfo.HasAny() {
 			var mcpParts []string
-			for _, name := range mcpInfo.Local {
+			for _, name := range mcpInfo.Local() {
 				mcpParts = append(mcpParts, name+" (local)")
 			}
 			for _, name := range mcpInfo.Global {

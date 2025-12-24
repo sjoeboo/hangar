@@ -85,8 +85,8 @@ func TestMCPInfo_HasAny(t *testing.T) {
 		{"empty", MCPInfo{}, false},
 		{"global only", MCPInfo{Global: []string{"server1"}}, true},
 		{"project only", MCPInfo{Project: []string{"server1"}}, true},
-		{"local only", MCPInfo{Local: []string{"server1"}}, true},
-		{"all", MCPInfo{Global: []string{"a"}, Project: []string{"b"}, Local: []string{"c"}}, true},
+		{"local only", MCPInfo{LocalMCPs: []LocalMCP{{Name: "server1", SourcePath: "/test"}}}, true},
+		{"all", MCPInfo{Global: []string{"a"}, Project: []string{"b"}, LocalMCPs: []LocalMCP{{Name: "c", SourcePath: "/test"}}}, true},
 	}
 
 	for _, tt := range tests {
@@ -102,7 +102,11 @@ func TestMCPInfo_Total(t *testing.T) {
 	info := MCPInfo{
 		Global:  []string{"a", "b"},
 		Project: []string{"c"},
-		Local:   []string{"d", "e", "f"},
+		LocalMCPs: []LocalMCP{
+			{Name: "d", SourcePath: "/test"},
+			{Name: "e", SourcePath: "/test"},
+			{Name: "f", SourcePath: "/test"},
+		},
 	}
 	if got := info.Total(); got != 6 {
 		t.Errorf("Total() = %d, want 6", got)
