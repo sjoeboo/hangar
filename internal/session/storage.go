@@ -536,6 +536,27 @@ func GetStoragePathForProfile(profile string) (string, error) {
 	return filepath.Join(profileDir, "sessions.json"), nil
 }
 
+// GetUpdatedAt returns the last modification timestamp of the storage file
+// This is read from the UpdatedAt field in the JSON file.
+// Returns an error if the file doesn't exist or can't be read.
+func (s *Storage) GetUpdatedAt() (time.Time, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	// Check if file exists
+	if _, err := os.Stat(s.path); os.IsNotExist(err) {
+		return time.Time{}, err
+	}
+
+	// Load and parse the file
+	data, err := s.loadFromFile(s.path)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("failed to load storage file: %w", err)
+	}
+
+	return data.UpdatedAt, nil
+}
+
 // statusToString converts a Status enum to the string expected by tmux.ReconnectSessionWithStatus
 func statusToString(s Status) string {
 	switch s {
