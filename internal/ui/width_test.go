@@ -231,3 +231,35 @@ func TestRenderSessionList_RespectsMaxWidth(t *testing.T) {
 		})
 	}
 }
+
+func TestView_PanelWidthConstraints(t *testing.T) {
+	// Create Home with realistic data
+	h := ui.NewTestHome()
+	h.SetFlatItemsForTest([]session.Item{
+		{
+			Type: session.ItemTypeSession,
+			Session: &session.Instance{
+				ID:          "test-1",
+				Title:       "Session with Very Long Title",
+				ProjectPath: "/path/to/project",
+				Tool:        "claude",
+				Status:      session.StatusRunning,
+			},
+		},
+	})
+	h.SetCursorForTest(0)
+	h.SetSizeForTest(120, 30)
+
+	// Render full view
+	output := h.View()
+
+	// Debug: show actual line count and any width violations
+	lines := strings.Split(output, "\n")
+	t.Logf("Actual line count: %d (expected 30)", len(lines))
+
+	// Each line of the entire view must not exceed terminal width
+	assertMaxWidth(t, output, 120, "Full View")
+
+	// View should have exactly h.height lines (accounting for ensureExactHeight)
+	assertExactHeight(t, output, 30, "Full View")
+}
