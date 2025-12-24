@@ -6,6 +6,7 @@ import (
 	"io"
 	"log"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
@@ -166,6 +167,13 @@ type Home struct {
 	viewBuilder strings.Builder
 }
 
+// reloadState preserves UI state during storage reload
+type reloadState struct {
+	cursorSessionID string          // ID of session at cursor
+	expandedGroups  map[string]bool // Expanded group paths
+	viewOffset      int             // Scroll position
+}
+
 // Messages
 type loadSessionsMsg struct {
 	instances []*session.Instance
@@ -313,6 +321,63 @@ func NewHomeWithProfile(profile string) *Home {
 	}()
 
 	return h
+}
+
+// preserveState captures current UI state before reload
+func (h *Home) preserveState() reloadState {
+	state := reloadState{
+		expandedGroups: make(map[string]bool),
+		viewOffset:     h.viewOffset,
+	}
+
+	// Capture session ID at cursor
+	if h.cursor < len(h.flatItems) {
+		item := h.flatItems[h.cursor]
+		if item.Type == session.ItemTypeSession && item.Session != nil {
+			state.cursorSessionID = item.Session.ID
+		}
+	}
+
+	// Capture expanded groups
+	if h.groupTree != nil {
+		for _, group := range h.groupTree.GroupList {
+			if group.Expanded {
+				state.expandedGroups[group.Path] = true
+			}
+		}
+	}
+
+	return state
+}
+
+// restoreState applies preserved UI state after reload
+func (h *Home) restoreState(state reloadState) {
+	// Restore expanded groups
+	if h.groupTree != nil {
+		for _, group := range h.groupTree.GroupList {
+			group.Expanded = state.expandedGroups[group.Path]
+		}
+	}
+
+	// Rebuild flat items with restored group states
+	h.rebuildFlatItems()
+
+	// Restore cursor to same session
+	if state.cursorSessionID != "" {
+		for i, item := range h.flatItems {
+			if item.Type == session.ItemTypeSession &&
+				item.Session != nil &&
+				item.Session.ID == state.cursorSessionID {
+				h.cursor = i
+				break
+			}
+		}
+	}
+
+	// Restore scroll position (clamped to valid range)
+	if state.viewOffset < len(h.flatItems) {
+		h.viewOffset = state.viewOffset
+	}
 }
 
 // rebuildFlatItems rebuilds the flattened view from group tree
@@ -3506,8 +3571,8 @@ func (h *Home) renderPreviewPane(width, height int) string {
 				for _, name := range mcpInfo.Project {
 					currentSet[name] = true
 				}
-				for _, name := range mcpInfo.Local {
-					currentSet[name] = true
+				for _, mcp := range mcpInfo.LocalMCPs {
+					currentSet[mcp.Name] = true
 				}
 			}
 
@@ -3540,8 +3605,14 @@ func (h *Home) renderPreviewPane(width, height int) string {
 				for _, name := range mcpInfo.Project {
 					addMCP(name, "p")
 				}
-				for _, name := range mcpInfo.Local {
-					addMCP(name, "l")
+				for _, mcp := range mcpInfo.LocalMCPs {
+					// Show source path if different from project path
+					sourceIndicator := "l"
+					if mcp.SourcePath != selected.ProjectPath {
+						// Show abbreviated path (just directory name)
+						sourceIndicator = "l:" + filepath.Base(mcp.SourcePath)
+					}
+					addMCP(mcp.Name, sourceIndicator)
 				}
 			}
 
