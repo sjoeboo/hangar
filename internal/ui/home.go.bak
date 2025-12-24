@@ -581,18 +581,11 @@ func (h *Home) jumpToRootGroup(n int) {
 
 // Init initializes the model
 func (h *Home) Init() tea.Cmd {
-	cmds := []tea.Cmd{
+	return tea.Batch(
 		h.loadSessions,
 		h.tick(),
 		h.checkForUpdate(),
-	}
-
-	// Start listening for storage changes
-	if h.storageWatcher != nil {
-		cmds = append(cmds, listenForReloads(h.storageWatcher))
-	}
-
-	return tea.Batch(cmds...)
+	)
 }
 
 // checkForUpdate checks for updates asynchronously
@@ -963,13 +956,6 @@ func (h *Home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			h.rebuildFlatItems()
 			h.search.SetItems(h.instances)
-
-			// Restore state if provided (from auto-reload)
-			if msg.restoreState != nil {
-				h.restoreState(*msg.restoreState)
-				h.syncViewport()
-			}
-
 			// Save after dedup to persist any ID changes
 			h.saveInstances()
 			// Trigger immediate preview fetch for initial selection (mutex-protected)
@@ -1521,10 +1507,6 @@ func (h *Home) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		<-h.statusWorkerDone
 		if h.logWatcher != nil {
 			h.logWatcher.Close()
-		}
-		// Close storage watcher
-		if h.storageWatcher != nil {
-			h.storageWatcher.Close()
 		}
 		// Close global search index
 		if h.globalSearchIndex != nil {
