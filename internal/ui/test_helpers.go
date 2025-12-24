@@ -24,3 +24,8 @@ func (h *Home) SetCursorForTest(cursor int) {
 func (h *Home) RenderPreviewPaneForTest(width, height int) string {
 	return h.renderPreviewPane(width, height)
 }
+
+// RenderSessionListForTest exposes renderSessionList for testing
+func (h *Home) RenderSessionListForTest(width, height int) string {
+	return h.renderSessionList(width, height)
+}

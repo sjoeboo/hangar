@@ -186,3 +186,48 @@ func TestRenderPreviewPane_RespectsMaxWidth(t *testing.T) {
 		})
 	}
 }
+
+func TestRenderSessionList_RespectsMaxWidth(t *testing.T) {
+	h := ui.NewTestHome()
+	h.SetFlatItemsForTest([]session.Item{
+		{
+			Type: session.ItemTypeGroup,
+			Group: &session.Group{
+				Name:     "Test Group with a Very Long Name That Should Be Truncated",
+				Path:     "long-group",
+				Expanded: true,
+			},
+			Level: 0,
+		},
+		{
+			Type: session.ItemTypeSession,
+			Session: &session.Instance{
+				ID:          "sess-1",
+				Title:       "Session with an Extremely Long Title That Should Be Truncated",
+				Tool:        "claude",
+				Status:      session.StatusRunning,
+				GroupPath:   "long-group",
+			},
+			Level: 1,
+		},
+	})
+	h.SetCursorForTest(0)
+
+	testCases := []struct {
+		width  int
+		height int
+	}{
+		{width: 30, height: 10},
+		{width: 50, height: 20},
+		{width: 80, height: 30},
+	}
+
+	for _, tc := range testCases {
+		t.Run(fmt.Sprintf("width=%d", tc.width), func(t *testing.T) {
+			output := h.RenderSessionListForTest(tc.width, tc.height)
+
+			assertMaxWidth(t, output, tc.width, "renderSessionList")
+			assertExactHeight(t, output, tc.height, "renderSessionList")
+		})
+	}
+}
