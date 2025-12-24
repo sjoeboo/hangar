@@ -972,10 +972,10 @@ func (h *Home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if msg.restoreState != nil {
 				h.restoreState(*msg.restoreState)
 				h.syncViewport()
+			} else {
+				// Save after dedup to persist any ID changes (initial load only)
+				h.saveInstances()
 			}
-
-			// Save after dedup to persist any ID changes
-			h.saveInstances()
 			// Trigger immediate preview fetch for initial selection (mutex-protected)
 			if selected := h.getSelectedSession(); selected != nil {
 				h.previewCacheMu.Lock()
