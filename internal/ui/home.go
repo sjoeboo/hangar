@@ -1869,6 +1869,22 @@ func (h *Home) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return h, nil
 
+	case "ctrl+r":
+		// Manual refresh (useful if watcher fails or for user preference)
+		state := h.preserveState()
+
+		cmd := func() tea.Msg {
+			instances, groups, err := h.storage.LoadWithGroups()
+			return loadSessionsMsg{
+				instances:    instances,
+				groups:       groups,
+				err:          err,
+				restoreState: &state,
+			}
+		}
+
+		return h, cmd
+
 	case "1", "2", "3", "4", "5", "6", "7", "8", "9":
 		// Quick jump to Nth root group (1-indexed)
 		targetNum := int(msg.String()[0] - '0') // Convert "1" -> 1, "2" -> 2, etc.
