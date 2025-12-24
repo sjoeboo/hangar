@@ -136,6 +136,9 @@ type Home struct {
 	// Event-driven status detection (Priority 2)
 	logWatcher *tmux.LogWatcher
 
+	// File watcher for external changes (auto-reload)
+	storageWatcher *StorageWatcher
+
 	// Storage warning (shown if storage initialization failed)
 	storageWarning string
 
@@ -176,9 +179,10 @@ type reloadState struct {
 
 // Messages
 type loadSessionsMsg struct {
-	instances []*session.Instance
-	groups    []*session.GroupData
-	err       error
+	instances    []*session.Instance
+	groups       []*session.GroupData
+	err          error
+	restoreState *reloadState // Optional state to restore after reload
 }
 
 type sessionCreatedMsg struct {
@@ -195,6 +199,9 @@ type sessionForkedMsg struct {
 type refreshMsg struct{}
 
 type statusUpdateMsg struct{} // Triggers immediate status update without reloading
+
+// storageChangedMsg signals that sessions.json was modified externally
+type storageChangedMsg struct{}
 
 type updateCheckMsg struct {
 	info *update.UpdateInfo
@@ -307,6 +314,23 @@ func NewHomeWithProfile(profile string) *Home {
 		} else {
 			h.globalSearchIndex = globalSearchIndex
 			h.globalSearch.SetIndex(globalSearchIndex)
+		}
+	}
+
+	// Initialize storage watcher for auto-reload
+	if storage != nil {
+		storagePath, err := session.GetStoragePathForProfile(actualProfile)
+		if err != nil {
+			log.Printf("Warning: failed to get storage path for watcher: %v", err)
+		} else {
+			watcher, err := NewStorageWatcher(storagePath)
+			if err != nil {
+				// Log warning but continue (fallback to manual refresh)
+				log.Printf("Warning: failed to initialize storage watcher: %v", err)
+			} else {
+				h.storageWatcher = watcher
+				watcher.Start()
+			}
 		}
 	}
 
@@ -557,11 +581,18 @@ func (h *Home) jumpToRootGroup(n int) {
 
 // Init initializes the model
 func (h *Home) Init() tea.Cmd {
-	return tea.Batch(
+	cmds := []tea.Cmd{
 		h.loadSessions,
 		h.tick(),
 		h.checkForUpdate(),
-	)
+	}
+
+	// Start listening for storage changes
+	if h.storageWatcher != nil {
+		cmds = append(cmds, listenForReloads(h.storageWatcher))
+	}
+
+	return tea.Batch(cmds...)
 }
 
 // checkForUpdate checks for updates asynchronously
@@ -569,6 +600,17 @@ func (h *Home) checkForUpdate() tea.Cmd {
 	return func() tea.Msg {
 		info, _ := update.CheckForUpdate(Version, false)
 		return updateCheckMsg{info: info}
+	}
+}
+
+// listenForReloads waits for storage change notification
+func listenForReloads(sw *StorageWatcher) tea.Cmd {
+	return func() tea.Msg {
+		if sw == nil {
+			return nil
+		}
+		<-sw.ReloadChannel()
+		return storageChangedMsg{}
 	}
 }
 
@@ -921,6 +963,12 @@ func (h *Home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			h.rebuildFlatItems()
 			h.search.SetItems(h.instances)
+
+			// Restore state if provided (from auto-reload)
+			if msg.restoreState != nil {
+				h.restoreState(*msg.restoreState)
+			}
+
 			// Save after dedup to persist any ID changes
 			h.saveInstances()
 			// Trigger immediate preview fetch for initial selection (mutex-protected)
@@ -1096,6 +1144,24 @@ func (h *Home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case refreshMsg:
 		return h, h.loadSessions
+
+	case storageChangedMsg:
+		// Preserve UI state before reload
+		state := h.preserveState()
+
+		// Reload from disk
+		cmd := func() tea.Msg {
+			instances, groups, err := h.storage.LoadWithGroups()
+			return loadSessionsMsg{
+				instances:    instances,
+				groups:       groups,
+				err:          err,
+				restoreState: &state, // Pass state to restore after load
+			}
+		}
+
+		// Continue listening for next change
+		return h, tea.Batch(cmd, listenForReloads(h.storageWatcher))
 
 	case statusUpdateMsg:
 		// Clear attach flag - we've returned from the attached session
@@ -1454,6 +1520,10 @@ func (h *Home) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		<-h.statusWorkerDone
 		if h.logWatcher != nil {
 			h.logWatcher.Close()
+		}
+		// Close storage watcher
+		if h.storageWatcher != nil {
+			h.storageWatcher.Close()
 		}
 		// Close global search index
 		if h.globalSearchIndex != nil {
