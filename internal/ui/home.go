@@ -116,6 +116,7 @@ type Home struct {
 	statusFilter session.Status // Filter sessions by status ("" = all, or specific status)
 	err          error
 	errTime      time.Time // When error occurred (for auto-dismiss)
+	isReloading  bool       // Visual feedback during auto-reload
 
 	// Preview cache (async fetching - View() must be pure, no blocking I/O)
 	previewCache       map[string]string    // sessionID -> cached preview content
@@ -932,6 +933,9 @@ func (h *Home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return h, nil
 
 	case loadSessionsMsg:
+		// Clear reload indicator
+		h.isReloading = false
+
 		if msg.err != nil {
 			h.setError(msg.err)
 		} else {
@@ -1147,6 +1151,9 @@ func (h *Home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return h, h.loadSessions
 
 	case storageChangedMsg:
+		// Show reload indicator
+		h.isReloading = true
+
 		// Preserve UI state before reload
 		state := h.preserveState()
 
@@ -3011,6 +3018,15 @@ func (h *Home) renderHelpBar() string {
 		shortcutsLine += sep + strings.Join(secondaryHints, " ")
 	}
 
+	// Reload indicator
+	var reloadIndicator string
+	if h.isReloading {
+		reloadStyle := lipgloss.NewStyle().
+			Foreground(ColorYellow).
+			Bold(true)
+		reloadIndicator = reloadStyle.Render("⟳ Reloading...")
+	}
+
 	// Global shortcuts (right side) - more compact with separators
 	globalStyle := lipgloss.NewStyle().Foreground(ColorComment)
 	globalHints := globalStyle.Render("↑↓ Nav") + sep +
@@ -3019,6 +3035,9 @@ func (h *Home) renderHelpBar() string {
 
 	// Calculate spacing between left (context) and right (global) portions
 	leftPart := contextLabel + " " + shortcutsLine
+	if reloadIndicator != "" {
+		leftPart = reloadIndicator + " │ " + leftPart
+	}
 	rightPart := globalHints
 	padding := h.width - lipgloss.Width(leftPart) - lipgloss.Width(rightPart) - spacingNormal
 	if padding < spacingNormal {
