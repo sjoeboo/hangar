@@ -5,11 +5,13 @@
 
 # Agent Deck
 
-**Terminal session manager for AI agents**
+**Your AI agent command center**
 
-[![Go Version](https://img.shields.io/badge/Go-1.24+-00ADD8?style=flat&logo=go)](https://go.dev)
-[![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![Platform](https://img.shields.io/badge/Platform-macOS%20%7C%20Linux%20%7C%20WSL-lightgrey)](https://github.com/asheshgoplani/agent-deck)
+[![GitHub Stars](https://img.shields.io/github/stars/asheshgoplani/agent-deck?style=for-the-badge&logo=github&color=yellow&labelColor=1a1b26)](https://github.com/asheshgoplani/agent-deck/stargazers)
+[![Go Version](https://img.shields.io/badge/Go-1.24+-00ADD8?style=for-the-badge&logo=go&labelColor=1a1b26)](https://go.dev)
+[![License](https://img.shields.io/badge/License-MIT-9ece6a?style=for-the-badge&labelColor=1a1b26)](LICENSE)
+[![Platform](https://img.shields.io/badge/Platform-macOS%20%7C%20Linux%20%7C%20WSL-7aa2f7?style=for-the-badge&labelColor=1a1b26)](https://github.com/asheshgoplani/agent-deck)
+[![Latest Release](https://img.shields.io/github/v/release/asheshgoplani/agent-deck?style=for-the-badge&color=e0af68&labelColor=1a1b26)](https://github.com/asheshgoplani/agent-deck/releases)
 
 [Features](#features) • [Installation](#installation) • [Usage](#usage) • [CLI Commands](#cli-commands) • [Documentation](#documentation)
 
@@ -19,38 +21,49 @@
 
 ![Agent Deck Demo](demos/agent-deck-overview.gif)
 
-## Why Agent Deck?
+## The Problem
 
-Managing multiple AI coding sessions across projects can get overwhelming. Agent Deck provides a single dashboard to monitor and switch between all your sessions: Claude Code, Gemini CLI, Aider, Codex, or any terminal tool.
+Running Claude Code on 10 projects? Aider on 5 more? Another agent somewhere in the background?
 
-**What it does:**
-- Organize sessions by project with collapsible groups
-- See at a glance which agents are running, waiting, or idle
-- Switch between sessions instantly with keyboard shortcuts
-- Search and filter to find what you need
-- Built on tmux for reliability
+**Managing multiple AI sessions gets messy fast.** Too many terminal tabs. Hard to track what's running, what's waiting, what's done. Switching between projects means hunting through windows.
+
+## The Solution
+
+**Agent Deck is mission control for your AI coding agents.**
+
+One terminal. All your agents. Complete visibility.
+
+- 🎯 **See everything at a glance** - Running, waiting, or idle - know the status of every agent instantly
+- ⚡ **Switch in milliseconds** - Jump between any session with a single keystroke
+- 🔍 **Never lose track** - Search across all conversations, filter by status, find anything in seconds
+- 🌳 **Stay organized** - Group sessions by project, client, or experiment with collapsible hierarchies
+- 🔌 **Zero config switching** - Built on tmux - sessions persist through disconnects and reboots
 
 ## Features
 
-### 🚀 Session Forking (Claude Code)
+### 🍴 Explore Multiple Solutions in Parallel
 
-Fork Claude conversations to explore multiple approaches in parallel. Each fork inherits full conversation context.
+**Try different approaches without losing context.** Fork any Claude conversation instantly. Each fork inherits the full conversation history - perfect for comparing solutions or experimenting without risk.
 
 ![Fork Session Demo](demos/fork-session.gif)
 
-- Press `f` to quick-fork, `F` for custom name/group
-- Forks inherit context and can be forked again
-- Auto-detects Claude session ID across restarts
+- Press `f` for quick fork, `F` to customize name/group
+- Fork your forks - explore as many branches as you need
+- Session IDs auto-detected even after restarts
 
-### 🔌 MCP Manager
+**Why this matters:** Ever wished you could try two different approaches to the same problem? Now you can. Fork, experiment, compare results, keep what works.
 
-Attach and detach MCP servers on the fly. No config editing required.
+### 🔌 Add Superpowers On-Demand
+
+**Attach MCP servers without touching config files.** Need web search? Browser automation? GitHub integration? Toggle them on per project or globally - Agent Deck handles the restart automatically.
 
 ![MCP Manager Demo](demos/mcp-manager.gif)
 
-- Press `M` to open, `Space` to toggle MCPs
-- **LOCAL** scope (project) or **GLOBAL** (all projects)
-- Session auto-restarts with new MCPs loaded
+- Press `M` to open, `Space` to toggle any MCP server
+- **LOCAL** scope (just this project) or **GLOBAL** (everywhere)
+- Session auto-restarts with new capabilities loaded
+
+**Why this matters:** Stop editing TOML files. Stop remembering restart commands. Just toggle what you need - Agent Deck takes care of the rest.
 
 **Adding Available MCPs:**
 
@@ -129,22 +142,28 @@ description = "Search Claude & Anthropic docs"
 
 </details>
 
-### 🔍 Search
+### 🔍 Find Anything in Seconds
 
-Press `/` to search across sessions with fuzzy matching. Filter by status with `!` (running), `@` (waiting), `#` (idle), `$` (error).
+**Fuzzy search across all sessions.** Type a few letters, instantly filter. Need to find that bug fix conversation from last week? The session where you were experimenting with authentication? Just start typing.
 
-### 🎯 Smart Status Detection
+Press `/` to search. Filter by status with `!` (running), `@` (waiting), `#` (idle), `$` (error).
 
-Automatically detects what your AI agent is doing:
+**Why this matters:** When you're managing 20+ sessions across different projects, memory fails. Search doesn't.
 
-| Status | Symbol | Meaning |
-|--------|--------|---------|
-| **Running** | `●` green | Agent is working |
-| **Waiting** | `◐` yellow | Needs input |
-| **Idle** | `○` gray | Ready |
-| **Error** | `✕` red | Error |
+### 🎯 Know What's Happening, Instantly
 
-Works with Claude Code, Gemini CLI, Aider, Codex, and any shell.
+**Smart status detection shows you what every agent is doing right now.** No more guessing which session is waiting for input, which is thinking, which finished an hour ago.
+
+| Status | Symbol | What It Means |
+|--------|--------|---------------|
+| **Running** | `●` green | Agent is actively working |
+| **Waiting** | `◐` yellow | Needs your input |
+| **Idle** | `○` gray | Ready for commands |
+| **Error** | `✕` red | Something went wrong |
+
+Works with Claude Code, Gemini CLI, Aider, Codex, Cursor, and any terminal tool.
+
+**Why this matters:** Stop checking every session manually. See the full picture at a glance. Respond when needed. Stay in flow.
 
 ## Installation
 
@@ -361,6 +380,75 @@ agent-deck session show
 agent-deck mcp attached
 ```
 
+## FAQ
+
+### How is this different from just using tmux?
+
+Agent Deck adds **AI-specific intelligence** on top of tmux:
+- **Smart status detection** - Knows when Claude is thinking vs. waiting for input (not just "session exists")
+- **Session forking** - Duplicate Claude conversations with full context inheritance
+- **MCP manager** - Visual interface for attaching/detaching Model Context Protocol servers
+- **Global search** - Find conversations across all sessions instantly
+- **Organized groups** - Hierarchical project organization instead of flat session lists
+
+Think of it as **tmux + AI awareness**. The sessions run in tmux (reliability), but Agent Deck adds the layer that understands what AI agents are doing.
+
+### Does it work with tools besides Claude Code?
+
+**Yes!** Agent Deck works with any terminal-based tool:
+- ✅ Claude Code
+- ✅ Aider
+- ✅ Gemini CLI
+- ✅ Cursor (terminal mode)
+- ✅ Codex
+- ✅ Custom shell scripts
+- ✅ Any command-line tool
+
+Some features are Claude-specific (session forking, MCP manager), but status detection, organization, and search work with everything.
+
+### Can I use it on Windows?
+
+**Yes, via WSL (Windows Subsystem for Linux).**
+
+1. [Install WSL](https://learn.microsoft.com/en-us/windows/wsl/install) (Ubuntu recommended)
+2. Open WSL terminal
+3. Run the installer: `curl -fsSL https://raw.githubusercontent.com/asheshgoplani/agent-deck/main/install.sh | bash`
+
+Agent Deck runs inside WSL and works exactly like it does on macOS/Linux.
+
+### Will it interfere with my existing tmux setup?
+
+**No.** Agent Deck creates its own tmux sessions with the prefix `agentdeck_*`. Your existing sessions are untouched.
+
+The installer adds optional tmux config (mouse support, clipboard integration) but:
+- It backs up your existing `~/.tmux.conf` first
+- You can skip it with `--skip-tmux-config` flag
+- It only adds to your config, never removes
+
+### How do I add more MCP servers?
+
+Edit `~/.agent-deck/config.toml` and add your servers:
+
+```toml
+[mcps.your-server]
+command = "npx"
+args = ["-y", "your-mcp-package"]
+env = { API_KEY = "your-key" }
+description = "What this server does"
+```
+
+Then press `M` in Agent Deck to toggle it on/off for any session. [See MCP examples](#adding-available-mcps).
+
+### What if a session crashes?
+
+tmux sessions persist even if Agent Deck closes. If a session crashes:
+
+1. **Check logs**: `~/.agent-deck/logs/agentdeck_<session-name>_<id>.log`
+2. **Restart it**: `agent-deck session restart <session-id>`
+3. **Or delete and recreate**: `agent-deck remove <id>` then `agent-deck add <path>`
+
+Sessions are stored in `~/.agent-deck/profiles/default/sessions.json` with automatic backups (`.bak`, `.bak.1`, `.bak.2`).
+
 ## Documentation
 
 ### Project Organization
@@ -407,7 +495,20 @@ make lint     # Lint
 
 ## Contributing
 
-Contributions welcome! Fork, create a branch, and open a PR.
+Contributions welcome! Found a bug? Have a feature idea? Want to improve the docs?
+
+1. Fork the repo
+2. Create a branch (`git checkout -b feature/amazing-feature`)
+3. Make your changes
+4. Open a PR
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for details.
+
+## Star History
+
+If Agent Deck saves you time, **give us a star!** ⭐ It helps others discover the project.
+
+[![Star History Chart](https://api.star-history.com/svg?repos=asheshgoplani/agent-deck&type=Date)](https://star-history.com/#asheshgoplani/agent-deck&Date)
 
 ## License
 
@@ -418,5 +519,7 @@ MIT License - see [LICENSE](LICENSE)
 <div align="center">
 
 Built with [Bubble Tea](https://github.com/charmbracelet/bubbletea) and [tmux](https://github.com/tmux/tmux)
+
+**[Documentation](https://github.com/asheshgoplani/agent-deck/wiki) • [Issues](https://github.com/asheshgoplani/agent-deck/issues) • [Discussions](https://github.com/asheshgoplani/agent-deck/discussions)**
 
 </div>
