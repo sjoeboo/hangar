@@ -60,3 +60,8 @@ func (h *Home) SetSizeForTest(width, height int) {
 func (h *Home) RenderPanelTitleForTest(title string, width int) string {
 	return h.renderPanelTitle(title, width)
 }
+
+// RenderEmptyStateResponsiveForTest exposes renderEmptyStateResponsive for testing
+func RenderEmptyStateResponsiveForTest(config EmptyStateConfig, width, height int) string {
+	return renderEmptyStateResponsive(config, width, height)
+}

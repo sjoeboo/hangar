@@ -307,3 +307,29 @@ func TestRenderPanelTitle_RespectsWidth(t *testing.T) {
 		})
 	}
 }
+
+func TestRenderEmptyStateResponsive_RespectsWidth(t *testing.T) {
+	testCases := []struct {
+		width  int
+		height int
+	}{
+		{width: 40, height: 15},
+		{width: 80, height: 25},
+	}
+
+	config := ui.EmptyStateConfig{
+		Icon:     "✦",
+		Title:    "Ready to Go",
+		Subtitle: "Your workspace is set up",
+		Hints:    []string{"Press n to create session"},
+	}
+
+	for _, tc := range testCases {
+		t.Run(fmt.Sprintf("width=%d", tc.width), func(t *testing.T) {
+			output := ui.RenderEmptyStateResponsiveForTest(config, tc.width, tc.height)
+
+			assertMaxWidth(t, output, tc.width, "renderEmptyStateResponsive")
+			assertExactHeight(t, output, tc.height, "renderEmptyStateResponsive")
+		})
+	}
+}

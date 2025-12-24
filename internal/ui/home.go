@@ -2910,10 +2910,16 @@ func renderEmptyStateResponsive(config EmptyStateConfig, width, height int) stri
 		}
 	}
 
-	return lipgloss.NewStyle().
+	contentStyle := lipgloss.NewStyle().
+		Foreground(ColorTextDim).
 		Align(lipgloss.Center).
 		Padding(vPad, hPad).
-		Render(content.String())
+		MaxWidth(width)
+
+	rendered := contentStyle.Render(content.String())
+
+	// Ensure exact height
+	return ensureExactHeight(rendered, height)
 }
 
 // ensureExactHeight is a critical helper that ensures any content has EXACTLY n lines.
@@ -3925,6 +3931,24 @@ func (h *Home) renderPreviewPane(width, height int) string {
 		currentContent := b.String()
 		headerLines := strings.Count(currentContent, "\n") + 1 // +1 for the current line
 		lines := strings.Split(preview, "\n")
+
+		// Strip trailing empty lines BEFORE truncation
+		// This ensures we show actual content, not empty trailing lines when space is limited
+		// (Terminal output often ends with empty lines at cursor position)
+		for len(lines) > 0 && strings.TrimSpace(lines[len(lines)-1]) == "" {
+			lines = lines[:len(lines)-1]
+		}
+
+		// If all lines were empty, show empty indicator
+		if len(lines) == 0 {
+			emptyTerm := lipgloss.NewStyle().
+				Foreground(ColorTextDim).
+				Italic(true).
+				Render("(terminal is empty)")
+			b.WriteString(emptyTerm)
+			return b.String()
+		}
+
 		maxLines := height - headerLines - 1 // -1 for potential truncation indicator
 		if maxLines < 1 {
 			maxLines = 1
