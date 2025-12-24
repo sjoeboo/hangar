@@ -5,9 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
     <!-- Primary Meta Tags - Problem-focused for search discovery -->
-    <title>Agent Deck - Manage Multiple Claude Code, Aider & AI Coding Sessions</title>
-    <meta name="title" content="Agent Deck - Manage Multiple Claude Code, Aider & AI Coding Sessions">
-    <meta name="description" content="Tired of juggling multiple AI coding agent terminals? Agent Deck is a free TUI dashboard to manage Claude Code, Gemini CLI, Aider, and Codex sessions. Fork Claude conversations, smart status detection, instant switching. Open source.">
+    <title>Agent Deck - Your AI Agent Command Center</title>
+    <meta name="title" content="Agent Deck - Your AI Agent Command Center">
+    <meta name="description" content="Mission control for AI coding agents. Manage Claude Code, Aider, Gemini CLI, and Codex from one terminal dashboard. Fork conversations, smart status detection, instant switching. Free & open source.">
 
     <!-- Problem-based keywords for search discovery -->
     <meta name="keywords" content="manage multiple Claude Code sessions, Claude Code session manager, switch between AI coding agents, tmux AI agents, Claude Code fork conversation, parallel AI coding sessions, Aider session manager, Gemini CLI manager, multiple terminal AI agents, AI pair programming dashboard, Claude Code TUI, vibe coding tools, AI coding workflow, developer productivity AI, terminal multiplexer AI agents, manage coding assistants">
@@ -25,20 +25,20 @@
     <!-- Open Graph / Facebook -->
     <meta property="og:type" content="website">
     <meta property="og:url" content="https://asheshgoplani.github.io/agent-deck/">
-    <meta property="og:title" content="Agent Deck - Stop Juggling AI Coding Agent Terminals">
-    <meta property="og:description" content="Free TUI dashboard to manage Claude Code, Aider, Gemini CLI sessions. Fork Claude conversations, smart status detection, instant switching between projects.">
+    <meta property="og:title" content="Agent Deck - Your AI Agent Command Center">
+    <meta property="og:description" content="Mission control for AI coding agents. Manage Claude Code, Aider, Gemini CLI from one terminal. Fork conversations, smart status detection, instant switching. Free & open source.">
     <meta property="og:image" content="https://asheshgoplani.github.io/agent-deck/og-image.svg">
     <meta property="og:image:width" content="1200">
     <meta property="og:image:height" content="630">
-    <meta property="og:image:alt" content="Agent Deck - Terminal session manager showing status indicators for AI coding agents">
+    <meta property="og:image:alt" content="Agent Deck - Your AI agent command center showing status indicators for multiple coding sessions">
     <meta property="og:site_name" content="Agent Deck">
     <meta property="og:locale" content="en_US">
 
     <!-- Twitter -->
     <meta name="twitter:card" content="summary_large_image">
     <meta name="twitter:url" content="https://asheshgoplani.github.io/agent-deck/">
-    <meta name="twitter:title" content="Agent Deck - Stop Juggling AI Coding Agent Terminals">
-    <meta name="twitter:description" content="Free TUI dashboard to manage Claude Code, Aider, Gemini CLI sessions. Fork Claude conversations, smart status detection.">
+    <meta name="twitter:title" content="Agent Deck - Your AI Agent Command Center">
+    <meta name="twitter:description" content="Mission control for AI coding agents. Manage Claude Code, Aider, Gemini CLI from one terminal. Fork conversations, smart status detection.">
     <meta name="twitter:image" content="https://asheshgoplani.github.io/agent-deck/og-image.svg">
     <meta name="twitter:creator" content="@AsheshGoplani">
 
@@ -255,12 +255,15 @@
                 <!-- Status Grid Logo SVG -->
                 <img src="logo.svg" alt="Agent Deck Logo" class="w-20 md:w-24">
 
-                <div class="text-left">
+                <div class="text-center md:text-left">
                     <h1 class="text-3xl md:text-4xl font-bold">
                         <span class="gradient-text">Agent Deck</span>
                     </h1>
-                    <p class="text-tn-dim text-sm md:text-base mt-1">
-                        Manage <span class="text-tn-cyan">Claude</span>, <span class="text-tn-purple">Gemini</span>, <span class="text-tn-green">Aider</span>, <span class="text-tn-orange">Codex</span> & more
+                    <p class="text-tn-text text-lg md:text-xl mt-2 font-medium">
+                        Your AI agent command center
+                    </p>
+                    <p class="text-tn-dim text-sm mt-1">
+                        <span class="text-tn-cyan">Claude</span> • <span class="text-tn-purple">Gemini</span> • <span class="text-tn-green">Aider</span> • <span class="text-tn-orange">Codex</span> • Any terminal tool
                     </p>
                 </div>
             </div>
@@ -272,6 +275,28 @@
                     alt="Agent Deck Demo - Managing multiple AI coding sessions"
                     class="w-full"
                 />
+            </div>
+        </section>
+
+        <!-- The Problem Section -->
+        <section class="max-w-3xl mx-auto px-6 py-12 text-center">
+            <h2 class="text-2xl md:text-3xl font-bold mb-4">The Problem</h2>
+            <p class="text-lg md:text-xl text-tn-dim mb-4">
+                Running Claude Code on 10 projects? Aider on 5 more? Another agent somewhere in the background?
+            </p>
+            <p class="text-base md:text-lg text-tn-dim">
+                <span class="text-tn-text font-medium">Managing multiple AI sessions gets messy fast.</span> Too many terminal tabs. Hard to track what's running, what's waiting, what's done. Switching between projects means hunting through windows.
+            </p>
+        </section>
+
+        <!-- Solution Callout -->
+        <section class="max-w-2xl mx-auto px-6 pb-12 text-center">
+            <div class="bg-gradient-to-r from-tn-accent/10 via-tn-purple/10 to-tn-cyan/10 rounded-lg border border-tn-accent/30 p-6">
+                <h3 class="text-xl font-bold mb-2">The Solution</h3>
+                <p class="text-tn-dim">
+                    <span class="text-tn-text">Agent Deck is mission control for your AI coding agents.</span><br>
+                    One terminal. All your agents. Complete visibility.
+                </p>
             </div>
         </section>
 
@@ -394,9 +419,14 @@ bind-key -T copy-mode MouseDragEnd1Pane send-keys -X copy-pipe-and-cancel "xclip
         <section class="py-16 bg-gradient-to-b from-tn-surface/50 to-transparent">
             <div class="max-w-4xl mx-auto px-6">
                 <div class="text-center mb-8">
-                    <span class="inline-block px-3 py-1 bg-tn-cyan/10 text-tn-cyan text-xs font-semibold rounded-full uppercase tracking-wide mb-4">New Feature</span>
-                    <h2 class="text-2xl font-semibold mb-4">Claude Code Deep Integration</h2>
-                    <p class="text-tn-dim max-w-2xl mx-auto">Fork Claude conversations to explore multiple approaches in parallel. Each fork inherits the full conversation context from its parent.</p>
+                    <span class="inline-block px-3 py-1 bg-tn-cyan/10 text-tn-cyan text-xs font-semibold rounded-full uppercase tracking-wide mb-4">Claude Code</span>
+                    <h2 class="text-2xl font-semibold mb-4">🍴 Explore Multiple Solutions in Parallel</h2>
+                    <p class="text-tn-dim max-w-2xl mx-auto mb-4">
+                        <span class="text-tn-text font-medium">Try different approaches without losing context.</span> Fork any Claude conversation instantly. Each fork inherits the full conversation history—perfect for comparing solutions or experimenting without risk.
+                    </p>
+                    <p class="text-sm text-tn-yellow max-w-xl mx-auto">
+                        <span class="font-semibold">Why this matters:</span> Ever wished you could try two different approaches to the same problem? Now you can. Fork, experiment, compare results, keep what works.
+                    </p>
                 </div>
 
                 <!-- Fork Demo GIF -->
@@ -447,8 +477,13 @@ bind-key -T copy-mode MouseDragEnd1Pane send-keys -X copy-pipe-and-cancel "xclip
             <div class="max-w-4xl mx-auto px-6">
                 <div class="text-center mb-8">
                     <span class="inline-block px-3 py-1 bg-tn-purple/10 text-tn-purple text-xs font-semibold rounded-full uppercase tracking-wide mb-4">MCP Support</span>
-                    <h2 class="text-2xl font-semibold mb-4">MCP Manager</h2>
-                    <p class="text-tn-dim max-w-2xl mx-auto">Attach and detach MCP servers to your Claude sessions on the fly. No manual config editing required.</p>
+                    <h2 class="text-2xl font-semibold mb-4">🔌 Add Superpowers On-Demand</h2>
+                    <p class="text-tn-dim max-w-2xl mx-auto mb-4">
+                        <span class="text-tn-text font-medium">Attach MCP servers without touching config files.</span> Need web search? Browser automation? GitHub integration? Toggle them on per project or globally—Agent Deck handles the restart automatically.
+                    </p>
+                    <p class="text-sm text-tn-yellow max-w-xl mx-auto">
+                        <span class="font-semibold">Why this matters:</span> Stop editing TOML files. Stop remembering restart commands. Just toggle what you need—Agent Deck takes care of the rest.
+                    </p>
                 </div>
 
                 <!-- MCP Demo GIF -->
@@ -511,33 +546,33 @@ bind-key -T copy-mode MouseDragEnd1Pane send-keys -X copy-pipe-and-cancel "xclip
         <!-- Features Section -->
         <section class="py-16">
             <div class="max-w-4xl mx-auto px-6">
-                <h2 class="text-2xl font-semibold text-center mb-12">Why Agent Deck?</h2>
+                <h2 class="text-2xl font-semibold text-center mb-12">What You Get</h2>
 
                 <div class="grid md:grid-cols-3 gap-8">
                     <!-- Feature 1 -->
                     <div class="text-center">
-                        <div class="text-3xl mb-4">🔌</div>
-                        <h3 class="font-semibold mb-2">Universal</h3>
+                        <div class="text-3xl mb-4">🎯</div>
+                        <h3 class="font-semibold mb-2">See Everything at a Glance</h3>
                         <p class="text-tn-dim text-sm">
-                            Works with any terminal tool. Not locked to a single AI agent.
+                            Running, waiting, or idle—know the status of every agent instantly. No more checking each session manually.
                         </p>
                     </div>
 
                     <!-- Feature 2 -->
                     <div class="text-center">
-                        <div class="text-3xl mb-4">🎯</div>
-                        <h3 class="font-semibold mb-2">Smart Status</h3>
+                        <div class="text-3xl mb-4">⚡</div>
+                        <h3 class="font-semibold mb-2">Switch in Milliseconds</h3>
                         <p class="text-tn-dim text-sm">
-                            Knows when your agent is busy, waiting for input, or idle.
+                            Jump between any session with a single keystroke. Work on 20 projects without losing your mind.
                         </p>
                     </div>
 
                     <!-- Feature 3 -->
                     <div class="text-center">
-                        <div class="text-3xl mb-4">📁</div>
-                        <h3 class="font-semibold mb-2">Organized</h3>
+                        <div class="text-3xl mb-4">🔍</div>
+                        <h3 class="font-semibold mb-2">Never Lose Track</h3>
                         <p class="text-tn-dim text-sm">
-                            Project-based hierarchy with collapsible groups and search.
+                            Search across all conversations, filter by status, find anything in seconds. Memory fails. Search doesn't.
                         </p>
                     </div>
                 </div>
