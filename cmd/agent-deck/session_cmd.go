@@ -991,7 +991,9 @@ func handleSessionSend(profile string, args []string) {
 	fs := flag.NewFlagSet("session send", flag.ExitOnError)
 	jsonOutput := fs.Bool("json", false, "Output as JSON")
 	quiet := fs.Bool("q", false, "Quiet mode")
-	fs.Parse(args)
+	if err := fs.Parse(args); err != nil {
+		os.Exit(1)
+	}
 	remaining := fs.Args()
 
 	out := NewCLIOutput(*jsonOutput, *quiet)

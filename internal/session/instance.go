@@ -237,23 +237,6 @@ func (i *Instance) buildClaudeCommandWithMessage(baseCommand, message string) st
 	return baseCommand
 }
 
-// wrapCommandWithMessage wraps any command with wait-and-send logic for initial message
-// This is the generic version for non-Claude tools (Gemini, OpenCode, shell, etc.)
-func (i *Instance) wrapCommandWithMessage(baseCommand, message string) string {
-	if message == "" {
-		return baseCommand
-	}
-
-	// Escape single quotes in message for bash
-	escapedMsg := strings.ReplaceAll(message, "'", "'\"'\"'")
-
-	// Run wait-and-send in background, keep main command in foreground
-	// The grep pattern matches Claude (">"), Codex ("›"), Gemini, and shell prompts (❯, ➜)
-	return fmt.Sprintf(
-		`(sleep 2; SESSION_NAME=$(tmux display-message -p '#S'); while ! tmux capture-pane -p -t "$SESSION_NAME" | tail -5 | grep -qE "^>|> |›|❯|➜"; do sleep 0.2; done; tmux send-keys -l -t "$SESSION_NAME" '%s'; tmux send-keys -t "$SESSION_NAME" Enter) & %s`,
-		escapedMsg, baseCommand)
-}
-
 // Start starts the session in tmux
 func (i *Instance) Start() error {
 	if i.tmuxSession == nil {
@@ -400,10 +383,6 @@ func (i *Instance) sendMessageWhenReady(message string) error {
 // Ghost sessions (in JSON but not in tmux) are rechecked at this interval
 // instead of every 500ms tick, dramatically reducing subprocess spawns
 const errorRecheckInterval = 30 * time.Second
-
-// startupGracePeriod - time window after Start() during which we skip Exists() check
-// This prevents error flash while tmux session is being created
-const startupGracePeriod = 3 * time.Second
 
 // UpdateStatus updates the session status by checking tmux
 func (i *Instance) UpdateStatus() error {

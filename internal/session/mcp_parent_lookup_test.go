@@ -61,7 +61,7 @@ func TestGetMCPInfo_ParentDirectoryLookup(t *testing.T) {
 		"mcpServers": map[string]interface{}{},
 	}
 	claudeConfigData, _ := json.MarshalIndent(claudeConfig, "", "  ")
-	os.WriteFile(filepath.Join(tmpClaudeConfig, ".claude.json"), claudeConfigData, 0600)
+	_ = os.WriteFile(filepath.Join(tmpClaudeConfig, ".claude.json"), claudeConfigData, 0600)
 
 	// TEST 1: Project in subdir should find parent's .mcp.json
 	t.Run("finds MCP in parent directory", func(t *testing.T) {
@@ -139,7 +139,7 @@ func TestGetMCPInfo_StopsAtFirstMCPJson(t *testing.T) {
 		},
 	}
 	rootData, _ := json.MarshalIndent(rootMCP, "", "  ")
-	os.WriteFile(filepath.Join(tmpRoot, ".mcp.json"), rootData, 0644)
+	_ = os.WriteFile(filepath.Join(tmpRoot, ".mcp.json"), rootData, 0644)
 
 	// Project .mcp.json (exa, firecrawl)
 	projectMCP := map[string]interface{}{
@@ -155,7 +155,7 @@ func TestGetMCPInfo_StopsAtFirstMCPJson(t *testing.T) {
 		},
 	}
 	projectData, _ := json.MarshalIndent(projectMCP, "", "  ")
-	os.WriteFile(filepath.Join(projectDir, ".mcp.json"), projectData, 0644)
+	_ = os.WriteFile(filepath.Join(projectDir, ".mcp.json"), projectData, 0644)
 
 	// Setup Claude config
 	oldConfigDir := os.Getenv("CLAUDE_CONFIG_DIR")

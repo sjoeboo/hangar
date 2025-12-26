@@ -81,50 +81,6 @@ func InitializeGlobalPool(ctx context.Context, config *UserConfig, sessions []*I
 	return pool, nil
 }
 
-// discoverMCPsInUse finds all unique MCPs used across sessions
-func discoverMCPsInUse(sessions []*Instance) map[string]bool {
-	mcps := make(map[string]bool)
-
-	for _, sess := range sessions {
-		for _, mcpName := range sess.LoadedMCPNames {
-			mcps[mcpName] = true
-		}
-	}
-
-	return mcps
-}
-
-// startPoolMCPs starts MCP servers in the pool
-func startPoolMCPs(pool *mcppool.Pool, config *UserConfig) error {
-	availableMCPs := GetAvailableMCPs()
-
-	// Determine which MCPs to start
-	mcpsToStart := config.MCPPool.PoolMCPs
-	if len(mcpsToStart) == 0 {
-		// Auto-detect common MCPs
-		mcpsToStart = []string{"memory", "exa", "firecrawl", "github", "playwright", "airbnb", "notion"}
-	}
-
-	// Start each MCP
-	for _, mcpName := range mcpsToStart {
-		def, ok := availableMCPs[mcpName]
-		if !ok {
-			log.Printf("MCP %s not found in config.toml, skipping", mcpName)
-			continue
-		}
-
-		// Start the MCP server
-		if err := pool.Start(mcpName, def.Command, def.Args, def.Env); err != nil {
-			log.Printf("Failed to start MCP %s: %v", mcpName, err)
-			// Continue with other MCPs
-		} else {
-			log.Printf("Starting MCP %s in pool...", mcpName)
-		}
-	}
-
-	return nil
-}
-
 // GetGlobalPool returns the global pool instance (may be nil if disabled)
 func GetGlobalPool() *mcppool.Pool {
 	globalPoolMu.RLock()
@@ -144,13 +100,4 @@ func ShutdownGlobalPool() error {
 	}
 
 	return nil
-}
-
-// keysFromMap returns keys from a map
-func keysFromMap(m map[string]bool) []string {
-	keys := make([]string, 0, len(m))
-	for k := range m {
-		keys = append(keys, k)
-	}
-	return keys
 }

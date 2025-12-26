@@ -177,8 +177,8 @@ func (p *SocketProxy) handleClient(sessionID string, conn net.Conn) {
 			p.requestMu.Unlock()
 		}
 
-		p.mcpStdin.Write(line)
-		p.mcpStdin.Write([]byte("\n"))
+		_, _ = p.mcpStdin.Write(line)
+		_, _ = p.mcpStdin.Write([]byte("\n"))
 	}
 }
 
@@ -219,8 +219,8 @@ func (p *SocketProxy) routeToClient(responseID interface{}, line []byte) {
 	p.clientsMu.RUnlock()
 
 	if exists {
-		conn.Write(line)
-		conn.Write([]byte("\n"))
+		_, _ = conn.Write(line)
+		_, _ = conn.Write([]byte("\n"))
 	}
 }
 
@@ -229,8 +229,8 @@ func (p *SocketProxy) broadcastToAll(line []byte) {
 	defer p.clientsMu.RUnlock()
 
 	for _, conn := range p.clients {
-		conn.Write(line)
-		conn.Write([]byte("\n"))
+		_, _ = conn.Write(line)
+		_, _ = conn.Write([]byte("\n"))
 	}
 }
 
@@ -241,8 +241,8 @@ func (p *SocketProxy) Stop() error {
 	}
 	if p.mcpProcess != nil {
 		p.mcpStdin.Close()
-		p.mcpProcess.Process.Signal(syscall.SIGTERM)
-		p.mcpProcess.Wait()
+		_ = p.mcpProcess.Process.Signal(syscall.SIGTERM)
+		_ = p.mcpProcess.Wait()
 	}
 	os.Remove(p.socketPath)
 	if p.logWriter != nil {
