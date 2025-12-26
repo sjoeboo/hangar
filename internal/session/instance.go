@@ -842,6 +842,44 @@ func parseClaudeLastAssistantMessage(data []byte, sessionID string) (*ResponseOu
 	}, nil
 }
 
+// parseGeminiLastAssistantMessage parses a Gemini JSON file to extract the last assistant message
+// VERIFIED: Message type is "gemini" (NOT role: "assistant")
+func parseGeminiLastAssistantMessage(data []byte) (*ResponseOutput, error) {
+	var session struct {
+		SessionID string `json:"sessionId"` // VERIFIED: camelCase
+		Messages  []struct {
+			ID        string          `json:"id"`
+			Timestamp string          `json:"timestamp"`
+			Type      string          `json:"type"` // VERIFIED: "user" or "gemini"
+			Content   string          `json:"content"`
+			ToolCalls []json.RawMessage `json:"toolCalls,omitempty"`
+			Thoughts  []json.RawMessage `json:"thoughts,omitempty"`
+			Model     string          `json:"model,omitempty"`
+			Tokens    json.RawMessage `json:"tokens,omitempty"`
+		} `json:"messages"`
+	}
+
+	if err := json.Unmarshal(data, &session); err != nil {
+		return nil, fmt.Errorf("failed to parse session file: %w", err)
+	}
+
+	// Find last "gemini" type message
+	for i := len(session.Messages) - 1; i >= 0; i-- {
+		msg := session.Messages[i]
+		if msg.Type == "gemini" {
+			return &ResponseOutput{
+				Tool:      "gemini",
+				Role:      "assistant",
+				Content:   msg.Content,
+				Timestamp: msg.Timestamp,
+				SessionID: session.SessionID,
+			}, nil
+		}
+	}
+
+	return nil, fmt.Errorf("no assistant response found in session")
+}
+
 // getTerminalLastResponse extracts the last response from terminal output
 // This is used for Gemini, Codex, and other tools without structured output
 func (i *Instance) getTerminalLastResponse() (*ResponseOutput, error) {

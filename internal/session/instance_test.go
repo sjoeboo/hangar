@@ -590,6 +590,83 @@ func TestInstance_GetMCPInfo_Unknown(t *testing.T) {
 	}
 }
 
+func TestParseGeminiLastAssistantMessage(t *testing.T) {
+	// VERIFIED: Actual Gemini session JSON structure
+	sessionJSON := `{
+  "sessionId": "abc-123-def",
+  "messages": [
+    {
+      "id": "1",
+      "timestamp": "2025-12-23T00:00:00Z",
+      "type": "user",
+      "content": "Hello"
+    },
+    {
+      "id": "2",
+      "timestamp": "2025-12-23T00:00:05Z",
+      "type": "gemini",
+      "content": "Hi there! How can I help you?",
+      "model": "gemini-3-pro",
+      "tokens": {"input": 100, "output": 50, "total": 150}
+    }
+  ]
+}`
+
+	output, err := parseGeminiLastAssistantMessage([]byte(sessionJSON))
+	if err != nil {
+		t.Fatalf("parseGeminiLastAssistantMessage() error = %v", err)
+	}
+
+	if output.Tool != "gemini" {
+		t.Errorf("Tool = %q, want 'gemini'", output.Tool)
+	}
+
+	if output.Content != "Hi there! How can I help you?" {
+		t.Errorf("Content = %q, want 'Hi there! How can I help you?'", output.Content)
+	}
+
+	if output.SessionID != "abc-123-def" {
+		t.Errorf("SessionID = %q, want 'abc-123-def'", output.SessionID)
+	}
+}
+
+func TestParseGeminiLastAssistantMessage_MultipleMessages(t *testing.T) {
+	// Test with multiple user/gemini exchanges - should return last gemini message
+	sessionJSON := `{
+  "sessionId": "test-456",
+  "messages": [
+    {"id": "1", "type": "user", "content": "First question"},
+    {"id": "2", "type": "gemini", "content": "First answer", "timestamp": "2025-12-23T00:00:05Z"},
+    {"id": "3", "type": "user", "content": "Second question"},
+    {"id": "4", "type": "gemini", "content": "Second answer - this is the last", "timestamp": "2025-12-23T00:00:10Z"}
+  ]
+}`
+
+	output, err := parseGeminiLastAssistantMessage([]byte(sessionJSON))
+	if err != nil {
+		t.Fatalf("parseGeminiLastAssistantMessage() error = %v", err)
+	}
+
+	if output.Content != "Second answer - this is the last" {
+		t.Errorf("Content = %q, want 'Second answer - this is the last'", output.Content)
+	}
+}
+
+func TestParseGeminiLastAssistantMessage_NoGeminiMessage(t *testing.T) {
+	// Test with only user messages - should return error
+	sessionJSON := `{
+  "sessionId": "test-789",
+  "messages": [
+    {"id": "1", "type": "user", "content": "Hello"}
+  ]
+}`
+
+	_, err := parseGeminiLastAssistantMessage([]byte(sessionJSON))
+	if err == nil {
+		t.Error("parseGeminiLastAssistantMessage() should return error when no gemini message found")
+	}
+}
+
 func TestInstance_CanRestart_Gemini(t *testing.T) {
 	if _, err := exec.LookPath("tmux"); err != nil {
 		t.Skip("tmux not available")
