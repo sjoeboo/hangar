@@ -141,8 +141,8 @@ func FindGeminiSessionForInstance(projectPath string, createdAfter time.Time, ex
 			continue
 		}
 
-		// Only consider sessions created after instance
-		if !session.StartTime.Before(createdAfter) {
+		// Only consider sessions created STRICTLY after instance
+		if session.StartTime.After(createdAfter) {
 			return session.SessionID
 		}
 	}
