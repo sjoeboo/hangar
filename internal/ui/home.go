@@ -110,13 +110,14 @@ type Home struct {
 	mcpDialog     *MCPDialog     // For managing MCPs
 
 	// State
-	cursor       int           // Selected item index in flatItems
-	viewOffset   int           // First visible item index (for scrolling)
-	isAttaching  bool          // Prevents View() output during attach (fixes Bubble Tea Issue #431)
-	statusFilter session.Status // Filter sessions by status ("" = all, or specific status)
-	err          error
-	errTime      time.Time // When error occurred (for auto-dismiss)
-	isReloading  bool       // Visual feedback during auto-reload
+	cursor        int            // Selected item index in flatItems
+	viewOffset    int            // First visible item index (for scrolling)
+	isAttaching   bool           // Prevents View() output during attach (fixes Bubble Tea Issue #431)
+	statusFilter  session.Status // Filter sessions by status ("" = all, or specific status)
+	err           error
+	errTime       time.Time // When error occurred (for auto-dismiss)
+	isReloading   bool      // Visual feedback during auto-reload
+	reloadVersion uint64    // Incremented on each reload to prevent stale background saves
 
 	// Preview cache (async fetching - View() must be pure, no blocking I/O)
 	previewCache       map[string]string    // sessionID -> cached preview content
@@ -1055,6 +1056,14 @@ func (h *Home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return h, nil
 
 	case sessionCreatedMsg:
+		// CRITICAL FIX: Skip processing during reload to prevent state corruption
+		// If we modify h.instances during reload, the loadSessionsMsg will overwrite
+		// our changes, but by then we've already modified groupTree inconsistently
+		if h.isReloading {
+			// The reload will provide fresh data - don't modify state now
+			log.Printf("[RELOAD-DEBUG] sessionCreatedMsg: skipping during reload")
+			return h, nil
+		}
 		if msg.err != nil {
 			h.setError(msg.err)
 		} else {
@@ -1103,6 +1112,12 @@ func (h *Home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			delete(h.forkingSessions, msg.sourceID)
 		}
 
+		// CRITICAL FIX: Skip processing during reload to prevent state corruption
+		if h.isReloading {
+			log.Printf("[RELOAD-DEBUG] sessionForkedMsg: skipping during reload")
+			return h, nil
+		}
+
 		if msg.err != nil {
 			h.setError(msg.err)
 		} else {
@@ -1147,6 +1162,12 @@ func (h *Home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return h, nil
 
 	case sessionDeletedMsg:
+		// CRITICAL FIX: Skip processing during reload to prevent state corruption
+		if h.isReloading {
+			log.Printf("[RELOAD-DEBUG] sessionDeletedMsg: skipping during reload")
+			return h, nil
+		}
+
 		// Report kill error if any (session may still be running in tmux)
 		if msg.killErr != nil {
 			h.setError(fmt.Errorf("warning: tmux session may still be running: %w", msg.killErr))
@@ -1221,8 +1242,9 @@ func (h *Home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case storageChangedMsg:
 		log.Printf("[RELOAD-DEBUG] storageChangedMsg received (profile=%s, current instances=%d)", h.profile, len(h.instances))
 
-		// Show reload indicator
+		// Show reload indicator and increment version to invalidate in-flight background saves
 		h.isReloading = true
+		h.reloadVersion++
 
 		// Preserve UI state before reload
 		state := h.preserveState()
@@ -1262,6 +1284,7 @@ func (h *Home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		h.instancesMu.RLock()
 		instancesCopy := make([]*session.Instance, len(h.instances))
 		copy(instancesCopy, h.instances)
+		instanceCount := len(h.instances)
 		h.instancesMu.RUnlock()
 
 		// Deep copy group tree to avoid race condition with main thread
@@ -1273,12 +1296,37 @@ func (h *Home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		storageCopy := h.storage
 		watcherCopy := h.storageWatcher
 
+		// Capture reload version to detect if a reload happens while goroutine is running
+		capturedVersion := h.reloadVersion
+
 		go func() {
 			// Deduplicate Claude session IDs
 			session.UpdateClaudeSessionsWithDedup(instancesCopy)
 
 			// Save state to persist acknowledged state
 			if storageCopy != nil {
+				// CRITICAL: Check if a reload happened while we were running
+				// If so, our data is stale and we must NOT overwrite the new data
+				// Defense-in-depth: Check BOTH version number AND isReloading flag
+				if capturedVersion != h.reloadVersion {
+					log.Printf("[SAVE-DEBUG] Aborting background save - reload happened (version %d -> %d)", capturedVersion, h.reloadVersion)
+					return
+				}
+				// Additional check: Don't save if reload is currently in progress
+				// This catches edge cases where reload started but version hasn't been checked yet
+				if h.isReloading {
+					log.Printf("[SAVE-DEBUG] Aborting background save - reload in progress")
+					return
+				}
+
+				// DEFENSIVE: Never save empty instances if storage has data
+				if instanceCount == 0 {
+					if info, err := os.Stat(storageCopy.Path()); err == nil && info.Size() > 100 {
+						log.Printf("[SAVE-DEBUG] Background save: Refusing to save empty instances - storage has %d bytes", info.Size())
+						return
+					}
+				}
+
 				// Notify watcher to ignore this save (prevents self-triggered reload)
 				if watcherCopy != nil {
 					watcherCopy.NotifySave()
@@ -2262,11 +2310,6 @@ func (h *Home) saveInstances() {
 			return
 		}
 
-		// Notify watcher to ignore this save (prevents self-triggered reload)
-		if h.storageWatcher != nil {
-			h.storageWatcher.NotifySave()
-		}
-
 		// Take snapshot under lock for defensive programming
 		// This ensures consistency even if architecture changes in the future
 		h.instancesMu.RLock()
@@ -2277,7 +2320,24 @@ func (h *Home) saveInstances() {
 
 		log.Printf("[SAVE-DEBUG] Saving %d instances to profile %s (path=%s)", instanceCount, h.profile, h.storage.Path())
 
+		// DEFENSIVE: Never save empty instances if storage file has data
+		// This prevents catastrophic data loss from transient load failures
+		if instanceCount == 0 {
+			// Check if storage file exists and has data before overwriting with empty
+			if info, err := os.Stat(h.storage.Path()); err == nil && info.Size() > 100 {
+				log.Printf("[SAVE-DEBUG] WARNING: Refusing to save empty instances - storage file has %d bytes (potential data loss)", info.Size())
+				return
+			}
+		}
+
 		groupTreeCopy := h.groupTree.ShallowCopyForSave()
+
+		// CRITICAL FIX: NotifySave MUST be called immediately before SaveWithGroups
+		// Previously it was called 25 lines earlier, creating a race window where the
+		// 500ms ignore window could expire before the save completed under load
+		if h.storageWatcher != nil {
+			h.storageWatcher.NotifySave()
+		}
 
 		// Save both instances and groups (including empty ones)
 		if err := h.storage.SaveWithGroups(instancesCopy, groupTreeCopy); err != nil {
@@ -2449,22 +2509,34 @@ func (h *Home) attachSession(inst *session.Instance) tea.Cmd {
 
 	// Mark session as accessed (for recency-sorted path suggestions)
 	inst.MarkAccessed()
-	if h.storage != nil {
-		// Notify watcher to ignore this save (prevents self-triggered reload)
-		if h.storageWatcher != nil {
-			h.storageWatcher.NotifySave()
-		}
 
+	// Skip saving during reload to avoid overwriting external changes
+	if !h.isReloading && h.storage != nil {
 		// Take snapshot under lock for defensive programming
 		h.instancesMu.RLock()
 		instancesCopy := make([]*session.Instance, len(h.instances))
 		copy(instancesCopy, h.instances)
+		instanceCount := len(h.instances)
 		h.instancesMu.RUnlock()
+
+		// DEFENSIVE: Never save empty instances if storage has data
+		if instanceCount == 0 {
+			if info, err := os.Stat(h.storage.Path()); err == nil && info.Size() > 100 {
+				log.Printf("[SAVE-DEBUG] attachSession: Refusing to save empty instances - storage has %d bytes", info.Size())
+				goto skipSave
+			}
+		}
 
 		groupTreeCopy := h.groupTree.ShallowCopyForSave()
 
+		// CRITICAL FIX: NotifySave MUST be called immediately before SaveWithGroups
+		// Previously it was called 18 lines earlier, creating a race window
+		if h.storageWatcher != nil {
+			h.storageWatcher.NotifySave()
+		}
 		_ = h.storage.SaveWithGroups(instancesCopy, groupTreeCopy)
 	}
+skipSave:
 
 	// NOTE: We DON'T call Acknowledge() here. Setting acknowledged=true before attach
 	// would cause brief "idle" status if a poll happens before content changes.
@@ -2477,6 +2549,9 @@ func (h *Home) attachSession(inst *session.Instance) tea.Cmd {
 	return tea.Exec(attachCmd{session: tmuxSess}, func(err error) tea.Msg {
 		// Clear screen with synchronized output for atomic rendering
 		fmt.Print(syncOutputBegin + clearScreen + syncOutputEnd)
+
+		// Update last accessed time to detach time (more accurate than attach time)
+		inst.MarkAccessed()
 
 		// Baseline the content the user just saw to avoid a green flash on return
 		tmuxSess.AcknowledgeWithSnapshot()
@@ -3911,7 +3986,57 @@ func (h *Home) renderPreviewPane(width, height int) string {
 				}
 			}
 
-			b.WriteString(strings.Join(mcpParts, ", "))
+			// Calculate available width for MCPs (width - 4 for panel padding - 9 for "MCPs:    " label)
+			mcpMaxWidth := width - 4 - 9
+			if mcpMaxWidth < 20 {
+				mcpMaxWidth = 20 // Minimum sensible width
+			}
+
+			// Build MCPs progressively to fit within available width
+			var mcpResult strings.Builder
+			mcpCount := 0
+			currentWidth := 0
+
+			for i, part := range mcpParts {
+				// Strip ANSI codes to measure actual display width
+				plainPart := tmux.StripANSI(part)
+				partWidth := runewidth.StringWidth(plainPart)
+
+				// Calculate width including separator if not first
+				addedWidth := partWidth
+				if mcpCount > 0 {
+					addedWidth += 2 // ", " separator
+				}
+
+				// Check if we'd exceed width (leaving room for "+N more" indicator)
+				remaining := len(mcpParts) - i
+				moreIndicator := fmt.Sprintf(" (+%d more)", remaining)
+				moreWidth := runewidth.StringWidth(moreIndicator)
+
+				if currentWidth+addedWidth+moreWidth > mcpMaxWidth && remaining > 1 {
+					// Would exceed - show indicator for remaining
+					if mcpCount > 0 {
+						// Style the indicator
+						moreStyle := lipgloss.NewStyle().Foreground(ColorTextDim).Italic(true)
+						mcpResult.WriteString(moreStyle.Render(moreIndicator))
+					} else {
+						// No MCPs fit - just show count
+						moreStyle := lipgloss.NewStyle().Foreground(ColorTextDim).Italic(true)
+						mcpResult.WriteString(moreStyle.Render(fmt.Sprintf("(%d MCPs)", len(mcpParts))))
+					}
+					break
+				}
+
+				// Add separator if not first
+				if mcpCount > 0 {
+					mcpResult.WriteString(", ")
+				}
+				mcpResult.WriteString(part)
+				currentWidth += addedWidth
+				mcpCount++
+			}
+
+			b.WriteString(mcpResult.String())
 			b.WriteString("\n")
 		}
 

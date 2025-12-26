@@ -148,3 +148,52 @@ func TestStorageWatcher_ExternalChangesStillDetected(t *testing.T) {
 		t.Fatal("Expected reload signal for external change but got timeout")
 	}
 }
+
+// TestStorageWatcher_CrossProfileIsolation verifies that watchers for different profiles
+// do NOT trigger on each other's file changes. This prevents the catastrophic data loss
+// bug where creating a session in work profile would wipe out default profile sessions.
+func TestStorageWatcher_CrossProfileIsolation(t *testing.T) {
+	// Create two profile directories simulating ~/.agent-deck/profiles/default and /work
+	profile1Dir := filepath.Join(t.TempDir(), "profile1")
+	profile2Dir := filepath.Join(t.TempDir(), "profile2")
+	require.NoError(t, os.MkdirAll(profile1Dir, 0700))
+	require.NoError(t, os.MkdirAll(profile2Dir, 0700))
+
+	// Create sessions.json in each profile
+	profile1File := filepath.Join(profile1Dir, "sessions.json")
+	profile2File := filepath.Join(profile2Dir, "sessions.json")
+	require.NoError(t, os.WriteFile(profile1File, []byte(`{"instances":[]}`), 0644))
+	require.NoError(t, os.WriteFile(profile2File, []byte(`{"instances":[]}`), 0644))
+
+	// Create watcher for profile1 only
+	watcher1, err := NewStorageWatcher(profile1File)
+	require.NoError(t, err)
+	defer watcher1.Close()
+	watcher1.Start()
+
+	// Wait for watcher to initialize
+	time.Sleep(100 * time.Millisecond)
+
+	// Modify profile2's sessions.json (simulating work profile TUI saving)
+	err = os.WriteFile(profile2File, []byte(`{"instances":[{"id":"test"}]}`), 0644)
+	require.NoError(t, err)
+
+	// Profile1's watcher should NOT fire (this is the critical test!)
+	select {
+	case <-watcher1.ReloadChannel():
+		t.Fatal("CRITICAL BUG: Profile1 watcher fired when profile2 file changed! Cross-profile contamination detected!")
+	case <-time.After(500 * time.Millisecond):
+		// Success - watcher correctly ignored the other profile's change
+	}
+
+	// Verify profile1 watcher DOES fire when its own file changes
+	err = os.WriteFile(profile1File, []byte(`{"instances":[{"id":"profile1-session"}]}`), 0644)
+	require.NoError(t, err)
+
+	select {
+	case <-watcher1.ReloadChannel():
+		// Success - detected change to its own file
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("Profile1 watcher should have detected change to its own file")
+	}
+}

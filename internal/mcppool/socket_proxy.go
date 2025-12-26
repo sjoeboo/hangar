@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"sync"
 	"syscall"
+	"time"
 )
 
 // SocketProxy wraps a stdio MCP process with a Unix socket
@@ -58,9 +59,46 @@ type JSONRPCResponse struct {
 	ID      interface{} `json:"id,omitempty"`
 }
 
+// isSocketAlive checks if a Unix socket exists and is accepting connections
+func isSocketAlive(socketPath string) bool {
+	// Check if socket file exists
+	if _, err := os.Stat(socketPath); os.IsNotExist(err) {
+		return false
+	}
+
+	// Try to connect - if successful, socket is alive
+	conn, err := net.DialTimeout("unix", socketPath, 500*time.Millisecond)
+	if err != nil {
+		// Socket file exists but no one listening - it's stale
+		return false
+	}
+	conn.Close()
+	return true
+}
+
 func NewSocketProxy(ctx context.Context, name, command string, args []string, env map[string]string) (*SocketProxy, error) {
 	ctx, cancel := context.WithCancel(ctx)
 	socketPath := filepath.Join("/tmp", fmt.Sprintf("agentdeck-mcp-%s.sock", name))
+
+	// Check if socket already exists and is alive (another agent-deck instance owns it)
+	if isSocketAlive(socketPath) {
+		log.Printf("[Pool] Socket %s already alive (owned by another agent-deck), reusing", name)
+		// Return a proxy that just points to the existing socket (no process to manage)
+		return &SocketProxy{
+			name:       name,
+			socketPath: socketPath,
+			command:    command,
+			args:       args,
+			env:        env,
+			clients:    make(map[string]net.Conn),
+			requestMap: make(map[interface{}]string),
+			ctx:        ctx,
+			cancel:     cancel,
+			Status:     StatusRunning, // Mark as running since external socket is alive
+		}, nil
+	}
+
+	// Socket doesn't exist or is stale - remove and create fresh
 	os.Remove(socketPath)
 
 	return &SocketProxy{
@@ -78,6 +116,12 @@ func NewSocketProxy(ctx context.Context, name, command string, args []string, en
 }
 
 func (p *SocketProxy) Start() error {
+	// If already running (reusing external socket), skip process creation
+	if p.Status == StatusRunning {
+		log.Printf("[Pool] %s: Reusing existing socket, no process to start", p.name)
+		return nil
+	}
+
 	logDir := filepath.Join(os.Getenv("HOME"), ".agent-deck", "logs", "mcppool")
 	_ = os.MkdirAll(logDir, 0755)
 	p.logFile = filepath.Join(logDir, fmt.Sprintf("%s_socket.log", p.name))
@@ -239,12 +283,17 @@ func (p *SocketProxy) Stop() error {
 	if p.listener != nil {
 		p.listener.Close()
 	}
+	// Only kill process and remove socket if we OWN it (mcpProcess != nil)
+	// If mcpProcess is nil, we're just reusing an external socket
 	if p.mcpProcess != nil {
 		p.mcpStdin.Close()
 		_ = p.mcpProcess.Process.Signal(syscall.SIGTERM)
 		_ = p.mcpProcess.Wait()
+		os.Remove(p.socketPath) // Only remove socket if we created it
+		log.Printf("[Pool] %s: Stopped owned process and removed socket", p.name)
+	} else {
+		log.Printf("[Pool] %s: Disconnected from external socket (not removing)", p.name)
 	}
-	os.Remove(p.socketPath)
 	if p.logWriter != nil {
 		p.logWriter.Close()
 	}

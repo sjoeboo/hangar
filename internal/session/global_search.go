@@ -78,6 +78,7 @@ func (e *SearchEntry) Match(query string) []MatchRange {
 
 // GetSnippet extracts a context window around the first match
 // Uses rune-based indexing to safely handle UTF-8 content
+// Optimized: Single rune conversion instead of triple conversion
 func (e *SearchEntry) GetSnippet(query string, windowSize int) string {
 	matches := e.Match(query)
 	runes := []rune(e.Content)
@@ -91,9 +92,10 @@ func (e *SearchEntry) GetSnippet(query string, windowSize int) string {
 	}
 
 	match := matches[0]
-	// Convert byte indices to rune indices for safe slicing
-	runeStart := len([]rune(e.Content[:match.Start]))
-	runeEnd := len([]rune(e.Content[:match.End]))
+	// Convert byte indices to rune indices efficiently (single pass)
+	// Count runes up to each byte position without creating substring copies
+	runeStart := byteIndexToRuneIndex(e.Content, match.Start)
+	runeEnd := byteIndexToRuneIndex(e.Content, match.End)
 
 	start := runeStart - windowSize
 	if start < 0 {
@@ -123,6 +125,26 @@ func (e *SearchEntry) GetSnippet(query string, windowSize int) string {
 	}
 
 	return prefix + strings.TrimSpace(snippet) + suffix
+}
+
+// byteIndexToRuneIndex converts a byte index to a rune index efficiently
+// This avoids creating substring copies which was causing O(n) allocations
+func byteIndexToRuneIndex(s string, byteIdx int) int {
+	if byteIdx <= 0 {
+		return 0
+	}
+	if byteIdx >= len(s) {
+		return len([]rune(s))
+	}
+	// Count runes up to the byte index without creating a substring
+	runeCount := 0
+	for i := range s {
+		if i >= byteIdx {
+			break
+		}
+		runeCount++
+	}
+	return runeCount
 }
 
 // claudeJSONLRecord represents a single line in Claude's JSONL files

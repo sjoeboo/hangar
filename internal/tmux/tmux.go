@@ -323,12 +323,18 @@ type StateTracker struct {
 	lastHash              string    // SHA256 of normalized content (for fallback)
 	lastChangeTime        time.Time // When sustained activity was last confirmed
 	acknowledged          bool      // User has seen this state (yellow vs gray)
+	acknowledgedAt        time.Time // When acknowledged was set (for grace period)
 	lastActivityTimestamp int64     // tmux window_activity timestamp for spike detection
 
 	// Non-blocking spike detection: track changes across tick cycles
-	activityCheckStart time.Time // When we started tracking for sustained activity
-	activityChangeCount int      // How many timestamp changes seen in current window
+	activityCheckStart  time.Time // When we started tracking for sustained activity
+	activityChangeCount int       // How many timestamp changes seen in current window
 }
+
+// acknowledgeGracePeriod is how long after user detaches before content changes
+// can reset the acknowledged flag. This prevents brief GREEN flashes when Claude
+// outputs a final message right after user detaches.
+const acknowledgeGracePeriod = 300 * time.Millisecond
 
 // activityCooldown is how long to show GREEN after content stops changing.
 // This prevents flickering during natural micro-pauses in AI output.
@@ -1001,6 +1007,7 @@ func (s *Session) AcknowledgeWithSnapshot() {
 	prevHash := s.stateTracker.lastHash
 	s.stateTracker.lastHash = newHash
 	s.stateTracker.acknowledged = true
+	s.stateTracker.acknowledgedAt = time.Now() // Set grace period start
 	s.lastStableStatus = "idle"
 
 	// If Claude isn't actively busy, expire the cooldown for immediate GRAY status.
@@ -1252,9 +1259,14 @@ func (s *Session) getStatusFallback() (string, error) {
 	if s.stateTracker.lastHash != currentHash {
 		s.stateTracker.lastHash = currentHash
 		s.stateTracker.lastChangeTime = time.Now()
-		s.stateTracker.acknowledged = false
+		// Only reset acknowledged if we're outside the grace period
+		// This prevents brief YELLOW flash when Claude outputs right after user detaches
+		if time.Since(s.stateTracker.acknowledgedAt) > acknowledgeGracePeriod {
+			s.stateTracker.acknowledged = false
+		}
 		s.lastStableStatus = "active"
-		debugLog("%s: FALLBACK CHANGED → active", shortName)
+		debugLog("%s: FALLBACK CHANGED → active (ack grace: %v)", shortName,
+			time.Since(s.stateTracker.acknowledgedAt) <= acknowledgeGracePeriod)
 		return "active", nil
 	}
 

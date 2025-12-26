@@ -252,6 +252,13 @@ func handleAdd(profile string, args []string) {
 	parent := fs.String("parent", "", "Parent session (creates sub-session, inherits group)")
 	parentShort := fs.String("p", "", "Parent session (short)")
 
+	// MCP flag - can be specified multiple times
+	var mcpFlags []string
+	fs.Func("mcp", "MCP to attach (can specify multiple times)", func(s string) error {
+		mcpFlags = append(mcpFlags, s)
+		return nil
+	})
+
 	fs.Usage = func() {
 		fmt.Println("Usage: agent-deck add [path] [options]")
 		fmt.Println()
@@ -270,6 +277,7 @@ func handleAdd(profile string, args []string) {
 		fmt.Println("  agent-deck add -c claude .")
 		fmt.Println("  agent-deck -p work add               # Add to 'work' profile")
 		fmt.Println("  agent-deck add -t \"Sub-task\" --parent \"Main Project\"  # Create sub-session")
+		fmt.Println("  agent-deck add -t \"Research\" -c claude --mcp memory --mcp sequential-thinking /tmp/x")
 	}
 
 	if err := fs.Parse(args); err != nil {
@@ -390,6 +398,28 @@ func handleAdd(profile string, args []string) {
 		os.Exit(1)
 	}
 
+	// Attach MCPs if specified
+	if len(mcpFlags) > 0 {
+		// Validate MCPs exist in config.toml
+		availableMCPs := session.GetAvailableMCPs()
+		for _, mcpName := range mcpFlags {
+			if _, exists := availableMCPs[mcpName]; !exists {
+				fmt.Printf("Error: MCP '%s' not found in config.toml\n", mcpName)
+				fmt.Println("\nAvailable MCPs:")
+				for name := range availableMCPs {
+					fmt.Printf("  • %s\n", name)
+				}
+				os.Exit(1)
+			}
+		}
+
+		// Write MCPs to .mcp.json
+		if err := session.WriteMCPJsonFromConfig(path, mcpFlags); err != nil {
+			fmt.Printf("Error: failed to write MCPs: %v\n", err)
+			os.Exit(1)
+		}
+	}
+
 	fmt.Printf("✓ Added session: %s\n", sessionTitle)
 	fmt.Printf("  Profile: %s\n", storage.Profile())
 	fmt.Printf("  Path:    %s\n", path)
@@ -397,6 +427,9 @@ func handleAdd(profile string, args []string) {
 	fmt.Printf("  ID:      %s\n", newInstance.ID)
 	if sessionCommand != "" {
 		fmt.Printf("  Cmd:     %s\n", sessionCommand)
+	}
+	if len(mcpFlags) > 0 {
+		fmt.Printf("  MCPs:    %s\n", strings.Join(mcpFlags, ", "))
 	}
 	if parentInstance != nil {
 		fmt.Printf("  Parent:  %s (%s)\n", parentInstance.Title, parentInstance.ID[:8])

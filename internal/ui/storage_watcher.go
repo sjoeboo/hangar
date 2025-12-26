@@ -2,6 +2,7 @@ package ui
 
 import (
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"sync"
@@ -37,6 +38,18 @@ func NewStorageWatcher(storagePath string) (*StorageWatcher, error) {
 		return nil, fmt.Errorf("storage file does not exist: %s", storagePath)
 	}
 
+	// Resolve path ONCE at initialization for consistent comparison
+	// This handles symlinks (e.g., /tmp -> /private/tmp on macOS) and ensures
+	// we always compare against the same canonical path
+	resolvedPath := storagePath
+	if absPath, err := filepath.Abs(storagePath); err == nil {
+		if resolved, err := filepath.EvalSymlinks(absPath); err == nil {
+			resolvedPath = resolved
+		} else {
+			resolvedPath = absPath
+		}
+	}
+
 	// Create fsnotify watcher
 	w, err := fsnotify.NewWatcher()
 	if err != nil {
@@ -44,14 +57,14 @@ func NewStorageWatcher(storagePath string) (*StorageWatcher, error) {
 	}
 
 	// Watch parent directory (handles atomic renames)
-	dir := filepath.Dir(storagePath)
+	dir := filepath.Dir(resolvedPath)
 	if err := w.Add(dir); err != nil {
 		w.Close()
 		return nil, fmt.Errorf("failed to watch directory %s: %w", dir, err)
 	}
 
 	// Get initial mod time
-	info, _ := os.Stat(storagePath)
+	info, _ := os.Stat(resolvedPath)
 	lastMod := time.Time{}
 	if info != nil {
 		lastMod = info.ModTime()
@@ -59,7 +72,7 @@ func NewStorageWatcher(storagePath string) (*StorageWatcher, error) {
 
 	return &StorageWatcher{
 		watcher:      w,
-		storagePath:  storagePath,
+		storagePath:  resolvedPath, // Use pre-resolved path
 		lastModified: lastMod,
 		reloadCh:     make(chan struct{}, 1), // Buffered to prevent blocking
 		closeCh:      make(chan struct{}),
@@ -86,8 +99,23 @@ func (sw *StorageWatcher) watchLoop() {
 				return
 			}
 
-			// Only care about our specific file
-			if filepath.Base(event.Name) != filepath.Base(sw.storagePath) {
+			// Only care about our specific file (compare FULL paths, not just basename)
+			// CRITICAL FIX: filepath.Base() check was matching ALL profiles' sessions.json files!
+			// This caused cross-profile contamination where work profile saves triggered
+			// default profile reloads, wiping out all sessions
+			//
+			// NOTE: sw.storagePath is pre-resolved at initialization (symlinks, absolute path)
+			// We only need to resolve the event path for comparison
+			eventPath := event.Name
+			if absPath, err := filepath.Abs(event.Name); err == nil {
+				if resolved, err := filepath.EvalSymlinks(absPath); err == nil {
+					eventPath = resolved
+				} else {
+					eventPath = absPath
+				}
+			}
+
+			if eventPath != sw.storagePath {
 				continue
 			}
 
@@ -128,11 +156,13 @@ func (sw *StorageWatcher) checkAndNotify() {
 			sw.lastModified = info.ModTime()
 			sw.modMu.Unlock()
 		}
+		log.Printf("[WATCHER-DEBUG] Ignoring own save (path=%s, within %v window)", sw.storagePath, ignoreWindow)
 		return
 	}
 
 	info, err := os.Stat(sw.storagePath)
 	if err != nil {
+		log.Printf("[WATCHER-DEBUG] File stat failed (path=%s, err=%v)", sw.storagePath, err)
 		return // File might be temporarily gone during atomic rename
 	}
 
@@ -142,10 +172,13 @@ func (sw *StorageWatcher) checkAndNotify() {
 		sw.lastModified = modTime
 		sw.modMu.Unlock()
 
+		log.Printf("[WATCHER-DEBUG] File changed detected, triggering reload (path=%s, size=%d bytes)", sw.storagePath, info.Size())
+
 		// Non-blocking send (drop if channel full)
 		select {
 		case sw.reloadCh <- struct{}{}:
 		default:
+			log.Printf("[WATCHER-DEBUG] Reload channel full, dropping reload signal")
 		}
 	} else {
 		sw.modMu.Unlock()

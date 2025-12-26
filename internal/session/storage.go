@@ -154,6 +154,11 @@ func (s *Storage) Profile() string {
 	return s.profile
 }
 
+// Path returns the file path this storage is using
+func (s *Storage) Path() string {
+	return s.path
+}
+
 // cleanupTempFiles removes any leftover .tmp files from previous crashes
 func (s *Storage) cleanupTempFiles() {
 	tmpPath := s.path + ".tmp"
@@ -369,6 +374,7 @@ func (s *Storage) LoadWithGroups() ([]*Instance, []*GroupData, error) {
 
 	// Check if file exists
 	if _, err := os.Stat(s.path); os.IsNotExist(err) {
+		log.Printf("[STORAGE-DEBUG] LoadWithGroups: file does not exist (profile=%s, path=%s), returning empty instances", s.profile, s.path)
 		return []*Instance{}, nil, nil
 	}
 
