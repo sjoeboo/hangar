@@ -37,5 +37,8 @@ func HashProjectPath(projectPath string) string {
 func GetGeminiSessionsDir(projectPath string) string {
 	configDir := GetGeminiConfigDir()
 	projectHash := HashProjectPath(projectPath)
+	if projectHash == "" {
+		return "" // Cannot determine sessions dir without valid hash
+	}
 	return filepath.Join(configDir, "tmp", projectHash, "chats")
 }

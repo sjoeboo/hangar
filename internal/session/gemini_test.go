@@ -75,3 +75,17 @@ func TestGetGeminiSessionsDir(t *testing.T) {
 		t.Errorf("GetGeminiSessionsDir(%q) = %q, want %q", projectPath, dir, expected)
 	}
 }
+
+func TestGetGeminiSessionsDir_InvalidPath(t *testing.T) {
+	// Test with a path that might fail (empty string)
+	// HashProjectPath("") should return empty
+	dir := GetGeminiSessionsDir("")
+	// Should return empty string, not invalid path
+	if dir != "" {
+		// Only test if HashProjectPath returns empty for invalid input
+		hash := HashProjectPath("")
+		if hash == "" && dir != "" {
+			t.Errorf("GetGeminiSessionsDir with empty hash should return empty, got %q", dir)
+		}
+	}
+}
