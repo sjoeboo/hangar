@@ -483,6 +483,11 @@ func (i *Instance) UpdateStatus() error {
 	// Pass nil for excludeIDs - deduplication happens at manager level
 	i.UpdateClaudeSession(nil)
 
+	// Update Gemini session tracking (non-blocking, best-effort)
+	if i.Tool == "gemini" {
+		i.UpdateGeminiSession(nil)
+	}
+
 	return nil
 }
 
