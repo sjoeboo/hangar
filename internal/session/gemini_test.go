@@ -89,3 +89,62 @@ func TestGetGeminiSessionsDir_InvalidPath(t *testing.T) {
 		}
 	}
 }
+
+func TestParseGeminiSessionFile(t *testing.T) {
+	tmpDir := t.TempDir()
+	sessionFile := filepath.Join(tmpDir, "session-2025-12-26T15-09-4d8fcb4d.json")
+
+	// VERIFIED structure from actual Gemini session file
+	sessionData := `{
+  "sessionId": "4d8fcb4d-d8d0-4749-b977-334c376dc8a2",
+  "projectHash": "791e1ce1b3651ae5c05fc40e2ff27287a9a59008bcd7a449daf0cfb365d43bac",
+  "startTime": "2025-12-26T15:09:16.547Z",
+  "lastUpdated": "2025-12-26T15:09:52.422Z",
+  "messages": [
+    {
+      "id": "msg-1",
+      "timestamp": "2025-12-26T15:09:16.547Z",
+      "type": "user",
+      "content": "test prompt"
+    },
+    {
+      "id": "msg-2",
+      "timestamp": "2025-12-26T15:09:52.422Z",
+      "type": "gemini",
+      "content": "test response"
+    }
+  ]
+}`
+
+	if err := os.WriteFile(sessionFile, []byte(sessionData), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	info, err := parseGeminiSessionFile(sessionFile)
+	if err != nil {
+		t.Fatalf("parseGeminiSessionFile() error = %v", err)
+	}
+
+	// Verify sessionId (camelCase)
+	if info.SessionID != "4d8fcb4d-d8d0-4749-b977-334c376dc8a2" {
+		t.Errorf("SessionID = %q, want %q", info.SessionID, "4d8fcb4d-d8d0-4749-b977-334c376dc8a2")
+	}
+
+	// Verify message count
+	if info.MessageCount != 2 {
+		t.Errorf("MessageCount = %d, want 2", info.MessageCount)
+	}
+
+	// Verify filename
+	if info.Filename != "session-2025-12-26T15-09-4d8fcb4d.json" {
+		t.Errorf("Filename = %q, want %q", info.Filename, "session-2025-12-26T15-09-4d8fcb4d.json")
+	}
+
+	// Verify timestamps parsed correctly
+	if info.StartTime.IsZero() {
+		t.Error("StartTime should be parsed")
+	}
+	if info.LastUpdated.IsZero() {
+		t.Error("LastUpdated should be parsed")
+	}
+}
