@@ -724,8 +724,9 @@ func (h *Home) cleanupExpiredAnimations(animMap map[string]time.Time, claudeTime
 			continue
 		}
 		// Use appropriate timeout based on tool
+		// Claude and Gemini use longer timeout (MCP loading can be slow)
 		timeout := defaultTimeout
-		if inst.Tool == "claude" {
+		if inst.Tool == "claude" || inst.Tool == "gemini" {
 			timeout = claudeTimeout
 		}
 		if time.Since(startTime) > timeout {
@@ -774,11 +775,11 @@ func (h *Home) hasActiveAnimation(sessionID string) bool {
 	}
 
 	// MUST match renderPreviewPane display logic exactly:
-	// - Claude: 6s minimum, then check if ready, up to 15s total
+	// - Claude and Gemini: 6s minimum, then check if ready, up to 15s total
 	// - Others: 3s fixed
 	timeSinceStart := time.Since(startTime)
 
-	if inst.Tool == "claude" {
+	if inst.Tool == "claude" || inst.Tool == "gemini" {
 		minAnimationTime := 6 * time.Second
 		maxAnimationTime := 15 * time.Second
 
@@ -786,35 +787,43 @@ func (h *Home) hasActiveAnimation(sessionID string) bool {
 			// Always block for first 6 seconds
 			return true
 		} else if timeSinceStart < maxAnimationTime {
-			// After 6 seconds, check if Claude is ready (same logic as renderPreviewPane)
+			// After 6 seconds, check if agent is ready (same logic as renderPreviewPane)
 			h.previewCacheMu.RLock()
 			previewContent := h.previewCache[sessionID]
 			h.previewCacheMu.RUnlock()
 
-			// Claude is ready when we see its prompt or it is actively running
-			claudeReady := strings.Contains(previewContent, "No, and tell Claude what to do differently") ||
+			// Agent is ready when we see its prompt or it is actively running
+			// Claude prompts
+			agentReady := strings.Contains(previewContent, "No, and tell Claude what to do differently") ||
 				strings.Contains(previewContent, "\n> ") ||
 				strings.Contains(previewContent, "> \n") ||
 				strings.Contains(previewContent, "esc to interrupt") ||
 				strings.Contains(previewContent, "⠋") || strings.Contains(previewContent, "⠙") ||
 				strings.Contains(previewContent, "Thinking")
 
-			// If Claude not ready, animation is still showing (and should block)
-			// If Claude IS ready, animation stops (and should allow attachment)
-			if !claudeReady {
+			// Gemini prompts (triangular prompt indicator)
+			if inst.Tool == "gemini" {
+				agentReady = agentReady ||
+					strings.Contains(previewContent, "▸") ||
+					strings.Contains(previewContent, "gemini>")
+			}
+
+			// If agent not ready, animation is still showing (and should block)
+			// If agent IS ready, animation stops (and should allow attachment)
+			if !agentReady {
 				return true
 			}
 		}
-		// After 15 seconds or Claude is ready, allow attachment
+		// After 15 seconds or agent is ready, allow attachment
 		return false
 	}
 
-	// Non-Claude: block for 3 seconds
+	// Non-Claude/Gemini: block for 3 seconds
 	if timeSinceStart < 3*time.Second {
 		return true
 	}
 
-	// Handle MCP loading for non-Claude (same 3s rule)
+	// Handle MCP loading for non-Claude/Gemini (same 3s rule)
 	if isMcpLoading && timeSinceStart < 3*time.Second {
 		return true
 	}
@@ -2240,6 +2249,19 @@ func (h *Home) saveInstances() {
 	}
 
 	if h.storage != nil {
+		// DEFENSIVE CHECK: Verify we're saving to the correct profile's file
+		// This prevents catastrophic cross-profile contamination
+		expectedPath, err := session.GetStoragePathForProfile(h.profile)
+		if err != nil {
+			log.Printf("[SAVE-DEBUG] Failed to get expected path for profile %s: %v", h.profile, err)
+			return
+		}
+		if h.storage.Path() != expectedPath {
+			log.Printf("[SAVE-DEBUG] CRITICAL: Storage path mismatch! Profile=%s, Expected=%s, Got=%s - ABORTING SAVE TO PREVENT DATA LOSS", h.profile, expectedPath, h.storage.Path())
+			h.setError(fmt.Errorf("storage path mismatch (profile=%s): expected %s, got %s", h.profile, expectedPath, h.storage.Path()))
+			return
+		}
+
 		// Notify watcher to ignore this save (prevents self-triggered reload)
 		if h.storageWatcher != nil {
 			h.storageWatcher.NotifySave()
@@ -2250,7 +2272,10 @@ func (h *Home) saveInstances() {
 		h.instancesMu.RLock()
 		instancesCopy := make([]*session.Instance, len(h.instances))
 		copy(instancesCopy, h.instances)
+		instanceCount := len(h.instances)
 		h.instancesMu.RUnlock()
+
+		log.Printf("[SAVE-DEBUG] Saving %d instances to profile %s (path=%s)", instanceCount, h.profile, h.storage.Path())
 
 		groupTreeCopy := h.groupTree.ShallowCopyForSave()
 
