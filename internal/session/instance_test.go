@@ -547,3 +547,45 @@ func TestBuildGeminiCommand(t *testing.T) {
 		t.Errorf("buildGeminiCommand(custom) = %q, want %q", cmd, customCmd)
 	}
 }
+
+func TestInstance_GetMCPInfo_Gemini(t *testing.T) {
+	inst := NewInstanceWithTool("test", "/tmp/test", "gemini")
+
+	info := inst.GetMCPInfo()
+	if info == nil {
+		t.Fatal("GetMCPInfo() should return info for Gemini")
+	}
+
+	// Should have Global MCPs only (no Project or Local for Gemini)
+	// Actual content depends on settings.json existing
+	// Here we just verify it returns a valid MCPInfo (not nil)
+}
+
+func TestInstance_GetMCPInfo_Claude(t *testing.T) {
+	inst := NewInstanceWithTool("test", "/tmp/test", "claude")
+
+	info := inst.GetMCPInfo()
+	if info == nil {
+		t.Fatal("GetMCPInfo() should return info for Claude")
+	}
+
+	// Claude uses GetMCPInfo() which can have Global, Project, and Local
+}
+
+func TestInstance_GetMCPInfo_Shell(t *testing.T) {
+	inst := NewInstanceWithTool("test", "/tmp/test", "shell")
+
+	info := inst.GetMCPInfo()
+	if info != nil {
+		t.Error("GetMCPInfo() should return nil for shell")
+	}
+}
+
+func TestInstance_GetMCPInfo_Unknown(t *testing.T) {
+	inst := NewInstanceWithTool("test", "/tmp/test", "unknown-tool")
+
+	info := inst.GetMCPInfo()
+	if info != nil {
+		t.Error("GetMCPInfo() should return nil for unknown tools")
+	}
+}

@@ -278,8 +278,16 @@ func (i *Instance) Start() error {
 		return fmt.Errorf("tmux session not initialized")
 	}
 
-	// Build command (adds config dir for claude)
-	command := i.buildClaudeCommand(i.Command)
+	// Build command (adds config dir for claude, capture-resume for gemini)
+	var command string
+	switch i.Tool {
+	case "claude":
+		command = i.buildClaudeCommand(i.Command)
+	case "gemini":
+		command = i.buildGeminiCommand(i.Command)
+	default:
+		command = i.Command
+	}
 
 	// Start the tmux session
 	if err := i.tmuxSession.Start(command); err != nil {
@@ -312,9 +320,12 @@ func (i *Instance) StartWithMessage(message string) error {
 
 	// Start session normally (no embedded message logic)
 	var command string
-	if i.Tool == "claude" {
+	switch i.Tool {
+	case "claude":
 		command = i.buildClaudeCommand(i.Command)
-	} else {
+	case "gemini":
+		command = i.buildGeminiCommand(i.Command)
+	default:
 		command = i.Command
 	}
 
@@ -1025,8 +1036,18 @@ func (i *Instance) Restart() error {
 	var command string
 	if i.Tool == "claude" && i.ClaudeSessionID != "" {
 		command = i.buildClaudeResumeCommand()
+	} else if i.Tool == "gemini" && i.GeminiSessionID != "" {
+		command = fmt.Sprintf("gemini --resume %s", i.GeminiSessionID)
 	} else {
-		command = i.buildClaudeCommand(i.Command)
+		// Route to appropriate command builder based on tool
+		switch i.Tool {
+		case "claude":
+			command = i.buildClaudeCommand(i.Command)
+		case "gemini":
+			command = i.buildGeminiCommand(i.Command)
+		default:
+			command = i.Command
+		}
 	}
 	log.Printf("[MCP-DEBUG] Starting new tmux session with command: %s", command)
 
@@ -1174,12 +1195,16 @@ func (i *Instance) GetSessionIDFromTmux() string {
 }
 
 // GetMCPInfo returns MCP server information for this session
-// Returns nil if not a Claude session
+// Returns nil if not a Claude or Gemini session
 func (i *Instance) GetMCPInfo() *MCPInfo {
-	if i.Tool != "claude" {
+	switch i.Tool {
+	case "claude":
+		return GetMCPInfo(i.ProjectPath)
+	case "gemini":
+		return GetGeminiMCPInfo(i.ProjectPath)
+	default:
 		return nil
 	}
-	return GetMCPInfo(i.ProjectPath)
 }
 
 // CaptureLoadedMCPs captures the current MCP names as the "loaded" state
