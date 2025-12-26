@@ -302,8 +302,9 @@ var toolDetectionPatterns = map[string][]*regexp.Regexp{
 		regexp.MustCompile(`(?i)gemini`),
 		regexp.MustCompile(`(?i)google ai`),
 	},
-	"aider": {
-		regexp.MustCompile(`(?i)aider`),
+	"opencode": {
+		regexp.MustCompile(`(?i)opencode`),
+		regexp.MustCompile(`(?i)open code`),
 	},
 	"codex": {
 		regexp.MustCompile(`(?i)codex`),
@@ -902,8 +903,8 @@ func (s *Session) DetectTool() string {
 			tool = "claude"
 		} else if strings.Contains(cmdLower, "gemini") {
 			tool = "gemini"
-		} else if strings.Contains(cmdLower, "aider") {
-			tool = "aider"
+		} else if strings.Contains(cmdLower, "opencode") || strings.Contains(cmdLower, "open code") {
+			tool = "opencode"
 		} else if strings.Contains(cmdLower, "codex") {
 			tool = "codex"
 		}
@@ -1324,7 +1325,7 @@ func (s *Session) GetLastActivityTime() time.Time {
 // Busy indicators for different tools:
 // - Claude Code: "esc to interrupt", spinner chars, "Thinking...", "Connecting..."
 // - Gemini: Similar spinner patterns
-// - Aider: Processing indicators
+// - OpenCode: TUI elements, mode indicators, input box
 // - Shell: Running commands (no prompt visible)
 func (s *Session) hasBusyIndicator(content string) bool {
 	shortName := s.DisplayName
@@ -1356,16 +1357,16 @@ func (s *Session) hasBusyIndicator(content string) bool {
 		}
 	}
 
-	// Check for "Thinking... (Xs · Y tokens)" pattern
-	if strings.Contains(recentContent, "thinking") && strings.Contains(recentContent, "tokens") {
-		debugLog("%s: BUSY_REASON=thinking+tokens pattern", shortName)
-		return true
-	}
-
-	// Check for "Connecting..." pattern
-	if strings.Contains(recentContent, "connecting") && strings.Contains(recentContent, "tokens") {
-		debugLog("%s: BUSY_REASON=connecting+tokens pattern", shortName)
-		return true
+	// Check for whimsical thinking words with "tokens" pattern
+	// Claude Code shows status like "Flibbertigibbeting... (25s · 340 tokens)"
+	// We check for any of the 90 whimsical words + "tokens" in content
+	if strings.Contains(recentContent, "tokens") {
+		for _, word := range claudeWhimsicalWords {
+			if strings.Contains(recentContent, word) {
+				debugLog("%s: BUSY_REASON=%s+tokens pattern", shortName, word)
+				return true
+			}
+		}
 	}
 
 	// ═══════════════════════════════════════════════════════════════════════
@@ -1468,9 +1469,44 @@ var (
 	// Matches Claude Code status line: "(45s · 1234 tokens · esc to interrupt)"
 	dynamicStatusPattern = regexp.MustCompile(`\([^)]*\d+s\s*·[^)]*tokens[^)]*\)`)
 
-	// Matches "Thinking..." or "Connecting..." with timing info
-	thinkingPattern = regexp.MustCompile(`(Thinking|Connecting)[^(]*\([^)]*\)`)
+	// Matches whimsical thinking words with timing info (e.g., "Flibbertigibbeting... (25s · 340 tokens)")
+	// Updated to include all 90 Claude Code whimsical words
+	thinkingPattern = regexp.MustCompile(`(?i)(` + whimsicalWordsPattern + `)[^(]*\([^)]*\)`)
+
+	// Progress bar patterns for normalization (Fix 2.1)
+	// These cause hash changes when progress updates
+	progressBarPattern = regexp.MustCompile(`\[=*>?\s*\]\s*\d+%`)           // [====>   ] 45%
+	downloadPattern    = regexp.MustCompile(`\d+\.?\d*[KMGT]?B/\d+\.?\d*[KMGT]?B`) // 1.2MB/5.6MB
+	percentagePattern  = regexp.MustCompile(`\b\d{1,3}%`)                   // 45% (word boundary to avoid false matches)
 )
+
+// claudeWhimsicalWords contains all 90 whimsical "thinking" words used by Claude Code
+// Source: https://github.com/levindixon/tengu_spinner_words
+// These words appear as status messages like "Flibbertigibbeting... (25s · 340 tokens)"
+var claudeWhimsicalWords = []string{
+	"accomplishing", "actioning", "actualizing", "baking", "booping",
+	"brewing", "calculating", "cerebrating", "channelling", "churning",
+	"clauding", "coalescing", "cogitating", "combobulating", "computing",
+	"concocting", "conjuring", "considering", "contemplating", "cooking",
+	"crafting", "creating", "crunching", "deciphering", "deliberating",
+	"determining", "discombobulating", "divining", "doing", "effecting",
+	"elucidating", "enchanting", "envisioning", "finagling", "flibbertigibbeting",
+	"forging", "forming", "frolicking", "generating", "germinating",
+	"hatching", "herding", "honking", "hustling", "ideating",
+	"imagining", "incubating", "inferring", "jiving", "manifesting",
+	"marinating", "meandering", "moseying", "mulling", "mustering",
+	"musing", "noodling", "percolating", "perusing", "philosophising",
+	"pondering", "pontificating", "processing", "puttering", "puzzling",
+	"reticulating", "ruminating", "scheming", "schlepping", "shimmying",
+	"shucking", "simmering", "smooshing", "spelunking", "spinning",
+	"stewing", "sussing", "synthesizing", "thinking", "tinkering",
+	"transmuting", "unfurling", "unravelling", "vibing", "wandering",
+	"whirring", "wibbling", "wizarding", "working", "wrangling",
+}
+
+// whimsicalWordsPattern is the regex alternation of all whimsical words
+// Built at init time for performance
+var whimsicalWordsPattern = strings.Join(claudeWhimsicalWords, "|")
 
 // normalizeContent strips ANSI codes, spinner characters, and normalizes whitespace
 // This is critical for stable hashing - prevents flickering from:
@@ -1499,6 +1535,12 @@ func (s *Session) normalizeContent(content string) string {
 	// which updates to "(46s · 1234 tokens · esc to interrupt)" one second later
 	result = dynamicStatusPattern.ReplaceAllString(result, "(STATUS)")
 	result = thinkingPattern.ReplaceAllString(result, "$1...")
+
+	// Strip progress indicators that change frequently (Fix 2.1)
+	// These cause hash changes during downloads, builds, etc.
+	result = progressBarPattern.ReplaceAllString(result, "[PROGRESS]")  // [====>   ] 45%
+	result = downloadPattern.ReplaceAllString(result, "X.XMB/Y.YMB")    // 1.2MB/5.6MB
+	result = percentagePattern.ReplaceAllString(result, "N%")           // 45%
 
 	// Normalize trailing whitespace per line (fixes resize false positives)
 	// tmux capture-pane -J can add trailing spaces when terminal is resized

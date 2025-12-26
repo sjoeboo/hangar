@@ -17,7 +17,7 @@ Managing 40+ AI coding sessions across projects?
 
 [ATTACH: GIF showing agent-deck TUI with grouped sessions, status indicators]
 
-agent-deck gives you a terminal dashboard for all your Claude/Gemini/Aider sessions.
+agent-deck gives you a terminal dashboard for all your Claude/Gemini/OpenCode sessions.
 
 ✓ See what's running/waiting at a glance
 ✓ Group by project
@@ -209,7 +209,7 @@ agent-deck in 30 seconds
 
 [ATTACH: 30-second video with captions]
 
-Terminal session manager for Claude, Gemini, Aider, etc.
+Terminal session manager for Claude, Gemini, OpenCode, etc.
 
 github.com/asheshgoplani/agent-deck
 ```

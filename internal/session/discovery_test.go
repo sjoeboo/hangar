@@ -91,7 +91,7 @@ func TestDetectToolFromName(t *testing.T) {
 		{"Claude uppercase", "CLAUDE-session", "claude"},
 		{"claude lowercase", "my-claude-session", "claude"},
 		{"Gemini mixed case", "Gemini-AI", "gemini"},
-		{"Aider", "aider-code", "aider"},
+		{"OpenCode", "opencode-session", "opencode"},
 		{"Codex", "codex-test", "codex"},
 		{"Unknown", "random-session", "shell"},
 	}

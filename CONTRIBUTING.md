@@ -55,7 +55,7 @@ Use clear, descriptive commit messages:
 
 ```
 feat: add support for custom commands
-fix: resolve status detection for Aider
+fix: resolve status detection for OpenCode
 docs: update installation instructions
 refactor: simplify group management logic
 ```

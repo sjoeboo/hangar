@@ -98,7 +98,7 @@ Sleep 200ms
 Tab
 Sleep 200ms
 
-# Select Codex (3 Rights: claude -> gemini -> aider -> codex)
+# Select Codex (3 Rights: claude -> gemini -> opencode -> codex)
 Right
 Sleep 100ms
 Right

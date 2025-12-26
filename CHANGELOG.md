@@ -5,6 +5,16 @@ All notable changes to Agent Deck will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.1] - 2025-12-24
+
+### Changed
+
+- **Replaced Aider with OpenCode** - Full integration of OpenCode (open-source AI coding agent)
+  - OpenCode replaces Aider as the default alternative to Claude Code
+  - New icon: 🌐 representing OpenCode's open and universal approach
+  - Detection patterns for OpenCode's TUI (input box, mode indicators, logo)
+  - Updated all documentation, examples, and tests
+
 ## [0.1.0] - 2025-12-03
 
 ### Added
@@ -30,7 +40,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Intelligent Status Detection**
   - 3-state model: Running (green), Waiting (yellow), Idle (gray)
   - Tool-specific busy indicator detection
-  - Prompt detection for Claude Code, Gemini CLI, Aider, Codex
+  - Prompt detection for Claude Code, Gemini CLI, OpenCode, Codex
   - Content hashing with 2-second activity cooldown
   - Status persistence across restarts
 
@@ -43,7 +53,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Tool Support**
   - Claude Code - Full status detection
   - Gemini CLI - Activity and prompt detection
-  - Aider - Y/N prompt detection
+  - OpenCode - TUI element detection
   - Codex - Prompt detection
   - Generic shell support
 

@@ -123,22 +123,23 @@ func TestPromptDetector(t *testing.T) {
 		}
 	}
 
-	// Test Aider prompt detection
-	aiderDetector := NewPromptDetector("aider")
+	// Test OpenCode prompt detection
+	opencodeDetector := NewPromptDetector("opencode")
 
-	aiderTests := []struct {
+	opencodeTests := []struct {
 		content  string
 		expected bool
 	}{
-		{"(Y)es/(N)o/(D)on't ask again", true},
-		{"aider>", true},
-		{"aider> ", true},
+		{"Ask anything... \"What is the tech stack\"", true},
+		{"┃  hello", true},
+		{"Build  Big Pickle  OpenCode Zen", true},
+		{"Plan mode indicator", true},
 	}
 
-	for _, tt := range aiderTests {
-		result := aiderDetector.HasPrompt(tt.content)
+	for _, tt := range opencodeTests {
+		result := opencodeDetector.HasPrompt(tt.content)
 		if result != tt.expected {
-			t.Errorf("aider.HasPrompt(%q) = %v, want %v", tt.content, result, tt.expected)
+			t.Errorf("opencode.HasPrompt(%q) = %v, want %v", tt.content, result, tt.expected)
 		}
 	}
 }

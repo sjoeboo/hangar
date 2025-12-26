@@ -8,7 +8,7 @@ Based on comprehensive research across Hacker News, Product Hunt, Twitter/X, Red
 
 ## Executive Summary
 
-Agent-deck is a terminal session manager for AI coding agents built with Go + Bubble Tea. With the AI coding tools market exploding (Claude Code, Cursor, Aider, Gemini Code Assist), there's a massive opportunity to solve the session management problem.
+Agent-deck is a terminal session manager for AI coding agents built with Go + Bubble Tea. With the AI coding tools market exploding (Claude Code, Cursor, OpenCode, Gemini Code Assist), there's a massive opportunity to solve the session management problem.
 
 **Target Audience:** Developers managing 10+ AI coding sessions across projects (estimated 50K+ users based on Claude Code adoption)
 
@@ -149,7 +149,7 @@ track of which agent was waiting for my input, and manually juggling MCP
 configurations.
 
 agent-deck gives you a Tokyo Night-themed TUI to manage all your Claude/
-Gemini/Aider sessions in one place. Key features:
+Gemini/OpenCode sessions in one place. Key features:
 
 - Smart status detection (running/waiting/idle)
 - MCP Manager for attaching Model Context Protocol servers
@@ -200,7 +200,7 @@ Install: brew install asheshgoplani/tap/agent-deck
 
 **Tagline (60 characters max):**
 - ✅ "Manage multiple AI coding sessions in one TUI"
-- ✅ "Terminal session manager for Claude/Gemini/Aider"
+- ✅ "Terminal session manager for Claude/Gemini/OpenCode"
 - ❌ "The ultimate terminal productivity tool" (too generic)
 
 **Gallery Images (7 images, 2540x1520px):**
@@ -227,7 +227,7 @@ working on what, and manually managing MCPs became overwhelming.
 
 agent-deck is a terminal session manager built specifically for AI coding
 agents. It gives you a Tokyo Night-themed TUI to manage all your Claude/
-Gemini/Aider sessions in one place, with built-in MCP management and
+Gemini/OpenCode sessions in one place, with built-in MCP management and
 session forking.
 
 Key features:
@@ -293,7 +293,7 @@ Managing multiple AI coding agents is chaos.
 
 15 Claude sessions open.
 4 Cursor instances.
-3 Aider terminals.
+3 OpenCode terminals.
 
 Which one has the error you need to fix?
 
@@ -325,7 +325,7 @@ Never lose context again. [30-second demo video]
 
 (2/7) Problem: You're managing 10+ AI agent sessions across projects.
 
-Claude for backend, Cursor for frontend, Aider for scripts.
+Claude for backend, Cursor for frontend, OpenCode for scripts.
 
 Which one was working on the auth bug? Which one's waiting for you?
 
@@ -442,7 +442,7 @@ Built with Go + Bubble Tea. MIT licensed. No telemetry.
 
 **Posting Template for r/commandline**
 
-**Title:** "I built a TUI session manager for AI coding agents (Claude/Aider/Cursor)"
+**Title:** "I built a TUI session manager for AI coding agents (Claude/OpenCode/Cursor)"
 
 **Body:**
 ```markdown
@@ -708,7 +708,7 @@ gifsicle -O3 --lossy=80 -o demo-optimized.gif demo.gif
 **Tier 3: AI Coding Tool Reviewers (10)**
 - Tech YouTubers reviewing Claude Code
 - Cursor power users
-- Aider contributors
+- OpenCode contributors
 - AI coding tool comparison bloggers
 - Developer productivity content creators
 

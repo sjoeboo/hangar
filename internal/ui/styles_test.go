@@ -45,7 +45,7 @@ func TestToolIcon(t *testing.T) {
 	}{
 		{"claude", IconClaude},
 		{"gemini", IconGemini},
-		{"aider", IconAider},
+		{"opencode", IconOpenCode},
 		{"codex", IconCodex},
 		{"shell", IconShell},
 		{"unknown", IconShell},

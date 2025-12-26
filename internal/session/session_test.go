@@ -82,7 +82,7 @@ func TestFilterByQuery(t *testing.T) {
 	instances := []*Instance{
 		{Title: "devops-claude", ProjectPath: "/home/user/devops", Tool: "claude"},
 		{Title: "frontend-shell", ProjectPath: "/home/user/frontend", Tool: "shell"},
-		{Title: "backend-aider", ProjectPath: "/home/user/backend", Tool: "aider"},
+		{Title: "backend-opencode", ProjectPath: "/home/user/backend", Tool: "opencode"},
 	}
 
 	tests := []struct {

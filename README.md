@@ -23,7 +23,7 @@
 
 ## The Problem
 
-Running Claude Code on 10 projects? Aider on 5 more? Another agent somewhere in the background?
+Running Claude Code on 10 projects? OpenCode on 5 more? Another agent somewhere in the background?
 
 **Managing multiple AI sessions gets messy fast.** Too many terminal tabs. Hard to track what's running, what's waiting, what's done. Switching between projects means hunting through windows.
 
@@ -161,7 +161,7 @@ Press `/` to search. Filter by status with `!` (running), `@` (waiting), `#` (id
 | **Idle** | `○` gray | Ready for commands |
 | **Error** | `✕` red | Something went wrong |
 
-Works with Claude Code, Gemini CLI, Aider, Codex, Cursor, and any terminal tool.
+Works with Claude Code, Gemini CLI, OpenCode, Codex, Cursor, and any terminal tool.
 
 **Why this matters:** Stop checking every session manually. See the full picture at a glance. Respond when needed. Stay in flow.
 
@@ -397,7 +397,7 @@ Think of it as **tmux + AI awareness**. The sessions run in tmux (reliability), 
 
 **Yes!** Agent Deck works with any terminal-based tool:
 - ✅ Claude Code
-- ✅ Aider
+- ✅ OpenCode
 - ✅ Gemini CLI
 - ✅ Cursor (terminal mode)
 - ✅ Codex

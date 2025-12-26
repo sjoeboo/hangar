@@ -23,7 +23,7 @@ import (
 	"github.com/muesli/termenv"
 )
 
-const Version = "0.6.0"
+const Version = "0.6.1"
 
 // Table column widths for list command output
 const (
@@ -247,7 +247,7 @@ func handleAdd(profile string, args []string) {
 	titleShort := fs.String("t", "", "Session title (short)")
 	group := fs.String("group", "", "Group path (defaults to parent folder)")
 	groupShort := fs.String("g", "", "Group path (short)")
-	command := fs.String("cmd", "", "Command to run (e.g., 'claude', 'aider')")
+	command := fs.String("cmd", "", "Command to run (e.g., 'claude', 'opencode')")
 	commandShort := fs.String("c", "", "Command to run (short)")
 
 	fs.Usage = func() {
@@ -1068,8 +1068,8 @@ func detectTool(cmd string) string {
 	switch {
 	case strings.Contains(cmd, "claude"):
 		return "claude"
-	case strings.Contains(cmd, "aider"):
-		return "aider"
+	case strings.Contains(cmd, "opencode") || strings.Contains(cmd, "open-code"):
+		return "opencode"
 	case strings.Contains(cmd, "gemini"):
 		return "gemini"
 	case strings.Contains(cmd, "codex"):

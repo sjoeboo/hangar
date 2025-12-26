@@ -36,10 +36,14 @@ func (d *PromptDetector) HasPrompt(content string) bool {
 	case "claude":
 		return d.hasClaudePrompt(content)
 
-	case "aider":
-		// From Claude Squad: session/tmux/tmux.go line 282
-		return strings.Contains(content, "(Y)es/(N)o/(D)on't ask again") ||
-			strings.Contains(content, "aider>") ||
+	case "opencode":
+		// OpenCode TUI - look for characteristic UI elements
+		// OpenCode displays a visual TUI with input box, mode indicator, and logo
+		return strings.Contains(content, "Ask anything") || // Input placeholder
+			strings.Contains(content, "┃") || // Input box border characters
+			strings.Contains(content, "open code") || // ASCII logo (with space)
+			strings.Contains(content, "Build") || // Build mode indicator
+			strings.Contains(content, "Plan") || // Plan mode indicator
 			d.hasLineEndingWith(content, ">")
 
 	case "gemini":

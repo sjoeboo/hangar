@@ -15,7 +15,7 @@ const UserConfigFileName = "config.toml"
 // UserConfig represents user-facing configuration in TOML format
 type UserConfig struct {
 	// DefaultTool is the pre-selected AI tool when creating new sessions
-	// Valid values: "claude", "gemini", "aider", "codex", or any custom tool name
+	// Valid values: "claude", "gemini", "opencode", "codex", or any custom tool name
 	// If empty or invalid, defaults to "shell" (no pre-selection)
 	DefaultTool string `toml:"default_tool"`
 
@@ -222,8 +222,8 @@ func GetToolIcon(toolName string) string {
 		return "🤖"
 	case "gemini":
 		return "✨"
-	case "aider":
-		return "🔧"
+	case "opencode":
+		return "🌐"
 	case "codex":
 		return "💻"
 	case "cursor":
@@ -305,7 +305,7 @@ func CreateExampleConfig() error {
 
 # Default AI tool for new sessions
 # When creating a new session (pressing 'n'), this tool will be pre-selected
-# Valid values: "claude", "gemini", "aider", "codex", or any custom tool name
+# Valid values: "claude", "gemini", "opencode", "codex", or any custom tool name
 # Leave commented out or empty to default to shell (no pre-selection)
 # default_tool = "claude"
 

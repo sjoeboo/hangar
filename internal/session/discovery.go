@@ -133,8 +133,8 @@ func detectToolFromName(name string) string {
 	if strings.Contains(nameLower, "gemini") {
 		return "gemini"
 	}
-	if strings.Contains(nameLower, "aider") {
-		return "aider"
+	if strings.Contains(nameLower, "opencode") || strings.Contains(nameLower, "open-code") {
+		return "opencode"
 	}
 	if strings.Contains(nameLower, "codex") {
 		return "codex"

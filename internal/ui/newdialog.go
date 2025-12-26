@@ -62,7 +62,7 @@ func NewNewDialog() *NewDialog {
 		commandInput:    commandInput,
 		focusIndex:      0,
 		visible:         false,
-		presetCommands:  []string{"", "claude", "gemini", "aider", "codex"},
+		presetCommands:  []string{"", "claude", "gemini", "opencode", "codex"},
 		commandCursor:   0,
 		parentGroupPath: "default",
 		parentGroupName: "default",

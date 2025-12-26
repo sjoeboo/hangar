@@ -171,11 +171,11 @@ var (
 
 // Tool Icons
 const (
-	IconClaude = "🤖"
-	IconGemini = "✨"
-	IconAider  = "🔧"
-	IconCodex  = "💻"
-	IconShell  = "🐚"
+	IconClaude   = "🤖"
+	IconGemini   = "✨"
+	IconOpenCode = "🌐"
+	IconCodex    = "💻"
+	IconShell    = "🐚"
 )
 
 // Helper Functions
@@ -217,8 +217,8 @@ func ToolIcon(tool string) string {
 		return IconClaude
 	case "gemini":
 		return IconGemini
-	case "aider":
-		return IconAider
+	case "opencode":
+		return IconOpenCode
 	case "codex":
 		return IconCodex
 	case "cursor":
