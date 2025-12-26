@@ -165,3 +165,51 @@ func TestParseGeminiSessionFile_InvalidJSON(t *testing.T) {
 		t.Errorf("Error should be wrapped, got: %v", err)
 	}
 }
+
+func TestListGeminiSessions(t *testing.T) {
+	tmpDir := t.TempDir()
+	geminiConfigDirOverride = tmpDir
+	defer func() { geminiConfigDirOverride = "" }()
+
+	projectPath := "/Users/ashesh/test-project"
+
+	// Create sessions directory
+	sessionsDir := GetGeminiSessionsDir(projectPath)
+	if err := os.MkdirAll(sessionsDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	// Create session 1 (older)
+	session1 := filepath.Join(sessionsDir, "session-2025-12-23T00-24-abc12345.json")
+	session1Data := `{
+  "sessionId": "abc12345-1111-1111-1111-111111111111",
+  "startTime": "2025-12-23T00:24:00.000Z",
+  "lastUpdated": "2025-12-23T00:30:00.000Z",
+  "messages": [{"id": "1", "type": "user", "content": "old"}]
+}`
+	os.WriteFile(session1, []byte(session1Data), 0644)
+
+	// Create session 2 (newer)
+	session2 := filepath.Join(sessionsDir, "session-2025-12-24T10-00-def67890.json")
+	session2Data := `{
+  "sessionId": "def67890-2222-2222-2222-222222222222",
+  "startTime": "2025-12-24T10:00:00.000Z",
+  "lastUpdated": "2025-12-24T10:15:00.000Z",
+  "messages": [{"id": "1", "type": "user", "content": "new"}]
+}`
+	os.WriteFile(session2, []byte(session2Data), 0644)
+
+	sessions, err := ListGeminiSessions(projectPath)
+	if err != nil {
+		t.Fatalf("ListGeminiSessions() error = %v", err)
+	}
+
+	if len(sessions) != 2 {
+		t.Fatalf("Expected 2 sessions, got %d", len(sessions))
+	}
+
+	// Should be sorted by LastUpdated (most recent first)
+	if sessions[0].SessionID != "def67890-2222-2222-2222-222222222222" {
+		t.Errorf("First session should be most recent, got %s", sessions[0].SessionID)
+	}
+}

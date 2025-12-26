@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"time"
 )
 
@@ -94,4 +95,31 @@ func parseGeminiSessionFile(filePath string) (GeminiSessionInfo, error) {
 		LastUpdated:  lastUpdated,
 		MessageCount: len(session.Messages),
 	}, nil
+}
+
+// ListGeminiSessions returns all sessions for a project path
+// Scans ~/.gemini/tmp/<hash>/chats/ and parses session files
+// Sorted by LastUpdated (most recent first)
+func ListGeminiSessions(projectPath string) ([]GeminiSessionInfo, error) {
+	sessionsDir := GetGeminiSessionsDir(projectPath)
+	files, err := filepath.Glob(filepath.Join(sessionsDir, "session-*.json"))
+	if err != nil {
+		return nil, err
+	}
+
+	var sessions []GeminiSessionInfo
+	for _, file := range files {
+		info, err := parseGeminiSessionFile(file)
+		if err != nil {
+			continue // Skip malformed files
+		}
+		sessions = append(sessions, info)
+	}
+
+	// Sort by LastUpdated (most recent first)
+	sort.Slice(sessions, func(i, j int) bool {
+		return sessions[i].LastUpdated.After(sessions[j].LastUpdated)
+	})
+
+	return sessions, nil
 }
