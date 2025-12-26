@@ -333,3 +333,65 @@ func TestRenderEmptyStateResponsive_RespectsWidth(t *testing.T) {
 		})
 	}
 }
+
+func TestWidthConstraints_EdgeCases(t *testing.T) {
+	testCases := []struct {
+		name   string
+		width  int
+		height int
+	}{
+		{name: "Very Narrow Terminal", width: 40, height: 10},
+		{name: "Tiny Terminal", width: 20, height: 5},
+		{name: "Standard Terminal", width: 80, height: 24},
+		{name: "Wide Terminal", width: 200, height: 50},
+		{name: "Ultra Wide", width: 300, height: 60},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			h := ui.NewTestHome()
+			h.SetFlatItemsForTest([]session.Item{
+				{
+					Type: session.ItemTypeSession,
+					Session: &session.Instance{
+						ID:              "test-1",
+						Title:           strings.Repeat("A", 200), // Very long title
+						ProjectPath:     strings.Repeat("/path", 50), // Very long path
+						Tool:            "claude",
+						Status:          session.StatusRunning,
+						ClaudeSessionID: strings.Repeat("x", 100),
+					},
+				},
+			})
+			h.SetCursorForTest(0)
+			h.SetSizeForTest(tc.width, tc.height)
+
+			// Render and verify constraints
+			output := h.View()
+			assertMaxWidth(t, output, tc.width, tc.name)
+			assertExactHeight(t, output, tc.height, tc.name)
+		})
+	}
+}
+
+func TestWidthConstraints_UnicodeEmoji(t *testing.T) {
+	h := ui.NewTestHome()
+	h.SetFlatItemsForTest([]session.Item{
+		{
+			Type: session.ItemTypeSession,
+			Session: &session.Instance{
+				ID:          "unicode-test",
+				Title:       "🔥 Session with 中文字符 and Émojis 🚀",
+				ProjectPath: "/path/with/日本語/characters",
+				Tool:        "claude",
+				Status:      session.StatusRunning,
+			},
+		},
+	})
+	h.SetCursorForTest(0)
+	h.SetSizeForTest(80, 30)
+
+	output := h.View()
+	assertMaxWidth(t, output, 80, "Unicode/Emoji Test")
+	assertExactHeight(t, output, 30, "Unicode/Emoji Test")
+}
