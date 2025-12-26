@@ -589,3 +589,38 @@ func TestInstance_GetMCPInfo_Unknown(t *testing.T) {
 		t.Error("GetMCPInfo() should return nil for unknown tools")
 	}
 }
+
+func TestInstance_CanRestart_Gemini(t *testing.T) {
+	if _, err := exec.LookPath("tmux"); err != nil {
+		t.Skip("tmux not available")
+	}
+
+	// Create and start a Gemini session so tmux session exists
+	inst := NewInstanceWithTool("gemini-restart-test", "/tmp", "gemini")
+	inst.Command = "sleep 60"
+	err := inst.Start()
+	if err != nil {
+		t.Fatalf("Failed to start session: %v", err)
+	}
+	defer func() { _ = inst.Kill() }()
+
+	// Make it a "running" session
+	inst.Status = StatusRunning
+
+	// Without session ID, cannot restart (session exists and is running)
+	if inst.CanRestart() {
+		t.Error("CanRestart() should be false without session ID for running session")
+	}
+
+	// With session ID, can restart (even while running)
+	inst.GeminiSessionID = "abc-123-def-456"
+	if !inst.CanRestart() {
+		t.Error("CanRestart() should be true with session ID")
+	}
+
+	// Stale session ID (>5 min) should still allow restart
+	inst.GeminiDetectedAt = time.Now().Add(-10 * time.Minute)
+	if !inst.CanRestart() {
+		t.Error("CanRestart() should work with stale session ID")
+	}
+}

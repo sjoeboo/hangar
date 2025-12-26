@@ -1094,12 +1094,19 @@ func (i *Instance) buildClaudeResumeCommand() string {
 
 // CanRestart returns true if the session can be restarted
 // For Claude sessions with known ID: can always restart (interrupt and resume)
+// For Gemini sessions with known ID: can always restart (interrupt and resume)
 // For other sessions: only if dead/error state
 func (i *Instance) CanRestart() bool {
+	// Gemini sessions with known session ID can always be restarted
+	if i.Tool == "gemini" && i.GeminiSessionID != "" {
+		return true
+	}
+
 	// Claude sessions with known session ID can always be restarted
 	if i.Tool == "claude" && i.ClaudeSessionID != "" {
 		return true
 	}
+
 	// Other sessions: only if dead or error
 	return i.Status == StatusError || i.tmuxSession == nil || !i.tmuxSession.Exists()
 }
