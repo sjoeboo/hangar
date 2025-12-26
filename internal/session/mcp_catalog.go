@@ -11,15 +11,17 @@ import (
 // MCPServerConfig represents an MCP server configuration (Claude's format)
 type MCPServerConfig struct {
 	Type    string            `json:"type,omitempty"`
-	Command string            `json:"command"`
+	Command string            `json:"command,omitempty"`
 	Args    []string          `json:"args,omitempty"`
 	Env     map[string]string `json:"env,omitempty"`
+	URL     string            `json:"url,omitempty"` // For HTTP transport
 }
 
 // WriteMCPJsonFromConfig writes enabled MCPs from config.toml to project's .mcp.json
 func WriteMCPJsonFromConfig(projectPath string, enabledNames []string) error {
 	mcpFile := filepath.Join(projectPath, ".mcp.json")
 	availableMCPs := GetAvailableMCPs()
+	pool := GetGlobalPool() // Get pool instance (may be nil)
 
 	// Build the .mcp.json content using MCPServerConfig format (Claude's expected format)
 	mcpConfig := struct {
@@ -30,20 +32,30 @@ func WriteMCPJsonFromConfig(projectPath string, enabledNames []string) error {
 
 	for _, name := range enabledNames {
 		if def, ok := availableMCPs[name]; ok {
-			// Initialize empty slices/maps to avoid null in JSON output
-			args := def.Args
-			if args == nil {
-				args = []string{}
-			}
-			env := def.Env
-			if env == nil {
-				env = map[string]string{}
-			}
-			mcpConfig.MCPServers[name] = MCPServerConfig{
-				Type:    "stdio", // Default to stdio for npx/command-based MCPs
-				Command: def.Command,
-				Args:    args,
-				Env:     env,
+			// Check if should use socket pool mode
+			if pool != nil && pool.ShouldPool(name) && pool.IsRunning(name) {
+				// Use Unix socket (nc connects to socket proxy)
+				socketPath := pool.GetSocketPath(name)
+				mcpConfig.MCPServers[name] = MCPServerConfig{
+					Command: "nc",
+					Args:    []string{"-U", socketPath},
+				}
+			} else {
+				// Fallback to stdio mode (per-session spawning)
+				args := def.Args
+				if args == nil {
+					args = []string{}
+				}
+				env := def.Env
+				if env == nil {
+					env = map[string]string{}
+				}
+				mcpConfig.MCPServers[name] = MCPServerConfig{
+					Type:    "stdio",
+					Command: def.Command,
+					Args:    args,
+					Env:     env,
+				}
 			}
 		}
 	}
@@ -85,23 +97,35 @@ func WriteGlobalMCP(enabledNames []string) error {
 
 	// Build new mcpServers from enabled names using config.toml definitions
 	availableMCPs := GetAvailableMCPs()
+	pool := GetGlobalPool() // Get pool instance (may be nil)
 	mcpServers := make(map[string]MCPServerConfig)
 
 	for _, name := range enabledNames {
 		if def, ok := availableMCPs[name]; ok {
-			args := def.Args
-			if args == nil {
-				args = []string{}
-			}
-			env := def.Env
-			if env == nil {
-				env = map[string]string{}
-			}
-			mcpServers[name] = MCPServerConfig{
-				Type:    "stdio",
-				Command: def.Command,
-				Args:    args,
-				Env:     env,
+			// Check if should use socket pool mode
+			if pool != nil && pool.ShouldPool(name) && pool.IsRunning(name) {
+				// Use Unix socket (nc connects to socket proxy)
+				socketPath := pool.GetSocketPath(name)
+				mcpServers[name] = MCPServerConfig{
+					Command: "nc",
+					Args:    []string{"-U", socketPath},
+				}
+			} else {
+				// Fallback to stdio mode (per-session spawning)
+				args := def.Args
+				if args == nil {
+					args = []string{}
+				}
+				env := def.Env
+				if env == nil {
+					env = map[string]string{}
+				}
+				mcpServers[name] = MCPServerConfig{
+					Type:    "stdio",
+					Command: def.Command,
+					Args:    args,
+					Env:     env,
+				}
 			}
 		}
 	}

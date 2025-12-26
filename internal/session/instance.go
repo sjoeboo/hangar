@@ -16,10 +16,11 @@ import (
 type Status string
 
 const (
-	StatusRunning Status = "running"
-	StatusWaiting Status = "waiting"
-	StatusIdle    Status = "idle"
-	StatusError   Status = "error"
+	StatusRunning  Status = "running"
+	StatusWaiting  Status = "waiting"
+	StatusIdle     Status = "idle"
+	StatusError    Status = "error"
+	StatusStarting Status = "starting" // Session is being created (tmux initializing)
 )
 
 // Instance represents a single agent/shell session
@@ -48,6 +49,11 @@ type Instance struct {
 	// Used to skip expensive Exists() checks for ghost sessions (sessions in JSON but not in tmux)
 	// Not serialized - resets on load, but that's fine since we'll recheck on first poll
 	lastErrorCheck time.Time
+
+	// lastStartTime tracks when Start() was called
+	// Used to provide grace period for tmux session creation (prevents error flash)
+	// Not serialized - only relevant for current TUI session
+	lastStartTime time.Time
 }
 
 // MarkAccessed updates the LastAccessedAt timestamp to now
@@ -141,6 +147,11 @@ func extractGroupPath(projectPath string) string {
 // This ensures we always know the session ID for fork/restart features
 // Respects: CLAUDE_CONFIG_DIR, dangerous_mode from user config
 func (i *Instance) buildClaudeCommand(baseCommand string) string {
+	return i.buildClaudeCommandWithMessage(baseCommand, "")
+}
+
+// buildClaudeCommandWithMessage builds the command with optional initial message
+func (i *Instance) buildClaudeCommandWithMessage(baseCommand, message string) string {
 	if i.Tool != "claude" {
 		return baseCommand
 	}
@@ -158,23 +169,66 @@ func (i *Instance) buildClaudeCommand(baseCommand string) string {
 	// 1. Starts Claude in print mode to get session ID
 	// 2. Stores session ID in tmux environment (for retrieval by agent-deck)
 	// 3. Resumes that session interactively (with dangerous mode if enabled)
+	// 4. Optionally waits for prompt and sends initial message
 	if baseCommand == "claude" {
+		var baseCmd string
 		if dangerousMode {
-			return fmt.Sprintf(
+			baseCmd = fmt.Sprintf(
 				`session_id=$(CLAUDE_CONFIG_DIR=%s claude -p "." --output-format json 2>/dev/null | jq -r '.session_id') && `+
 					`tmux set-environment CLAUDE_SESSION_ID "$session_id" && `+
 					`CLAUDE_CONFIG_DIR=%s claude --resume "$session_id" --dangerously-skip-permissions`,
 				configDir, configDir)
+		} else {
+			baseCmd = fmt.Sprintf(
+				`session_id=$(CLAUDE_CONFIG_DIR=%s claude -p "." --output-format json 2>/dev/null | jq -r '.session_id') && `+
+					`tmux set-environment CLAUDE_SESSION_ID "$session_id" && `+
+					`CLAUDE_CONFIG_DIR=%s claude --resume "$session_id"`,
+				configDir, configDir)
 		}
-		return fmt.Sprintf(
-			`session_id=$(CLAUDE_CONFIG_DIR=%s claude -p "." --output-format json 2>/dev/null | jq -r '.session_id') && `+
-				`tmux set-environment CLAUDE_SESSION_ID "$session_id" && `+
-				`CLAUDE_CONFIG_DIR=%s claude --resume "$session_id"`,
-			configDir, configDir)
+
+		// If message provided, append wait-and-send logic
+		if message != "" {
+			// Escape single quotes in message for bash
+			escapedMsg := strings.ReplaceAll(message, "'", "'\"'\"'")
+
+			// Run wait-and-send in background, keep Claude in foreground
+			// The wait loop runs in a subshell that polls for ">" prompt (Claude's input prompt)
+			// Once detected, sends the message via tmux send-keys (text + Enter separately)
+			baseCmd = fmt.Sprintf(
+				`session_id=$(CLAUDE_CONFIG_DIR=%s claude -p "." --output-format json 2>/dev/null | jq -r '.session_id') && `+
+					`tmux set-environment CLAUDE_SESSION_ID "$session_id" && `+
+					`(sleep 2; SESSION_NAME=$(tmux display-message -p '#S'); while ! tmux capture-pane -p -t "$SESSION_NAME" | tail -5 | grep -qE "^>"; do sleep 0.2; done; tmux send-keys -l -t "$SESSION_NAME" '%s'; tmux send-keys -t "$SESSION_NAME" Enter) & `+
+					`CLAUDE_CONFIG_DIR=%s claude --resume "$session_id"%s`,
+				configDir, escapedMsg, configDir, func() string {
+					if dangerousMode {
+						return " --dangerously-skip-permissions"
+					}
+					return ""
+				}())
+		}
+
+		return baseCmd
 	}
 
 	// For custom commands (e.g., fork commands), return as-is
 	return baseCommand
+}
+
+// wrapCommandWithMessage wraps any command with wait-and-send logic for initial message
+// This is the generic version for non-Claude tools (Gemini, OpenCode, shell, etc.)
+func (i *Instance) wrapCommandWithMessage(baseCommand, message string) string {
+	if message == "" {
+		return baseCommand
+	}
+
+	// Escape single quotes in message for bash
+	escapedMsg := strings.ReplaceAll(message, "'", "'\"'\"'")
+
+	// Run wait-and-send in background, keep main command in foreground
+	// The grep pattern matches Claude (">"), Codex ("›"), Gemini, and shell prompts (❯, ➜)
+	return fmt.Sprintf(
+		`(sleep 2; SESSION_NAME=$(tmux display-message -p '#S'); while ! tmux capture-pane -p -t "$SESSION_NAME" | tail -5 | grep -qE "^>|> |›|❯|➜"; do sleep 0.2; done; tmux send-keys -l -t "$SESSION_NAME" '%s'; tmux send-keys -t "$SESSION_NAME" Enter) & %s`,
+		escapedMsg, baseCommand)
 }
 
 // Start starts the session in tmux
@@ -194,11 +248,51 @@ func (i *Instance) Start() error {
 	// Capture MCPs that are now loaded (for sync tracking)
 	i.CaptureLoadedMCPs()
 
-	// New sessions start as WAITING (yellow) - they need attention.
-	// Status will change to RUNNING (green) on first tick if Claude shows busy indicator.
-	// This prevents the initial GREEN flash before actual status detection.
+	// Record start time for grace period (prevents error flash during tmux startup)
+	i.lastStartTime = time.Now()
+
+	// New sessions start as STARTING - shows they're initializing
+	// After 5s grace period, status will be properly detected from tmux
 	if command != "" {
-		i.Status = StatusWaiting
+		i.Status = StatusStarting
+	}
+
+	return nil
+}
+
+// StartWithMessage starts the session and sends an initial message when ready
+// The message is sent automatically once the agent shows a prompt
+// The wait-and-send logic runs inside the tmux session itself (not in CLI process)
+// Works for Claude, Gemini, OpenCode, and other agents
+func (i *Instance) StartWithMessage(message string) error {
+	if i.tmuxSession == nil {
+		return fmt.Errorf("tmux session not initialized")
+	}
+
+	var command string
+	if i.Tool == "claude" {
+		// Claude has special session capture logic
+		command = i.buildClaudeCommandWithMessage(i.Command, message)
+	} else {
+		// For other tools (Gemini, OpenCode, etc.), wrap with wait-and-send
+		command = i.wrapCommandWithMessage(i.Command, message)
+	}
+
+	// Start the tmux session
+	if err := i.tmuxSession.Start(command); err != nil {
+		return fmt.Errorf("failed to start tmux session: %w", err)
+	}
+
+	// Capture MCPs that are now loaded (for sync tracking)
+	i.CaptureLoadedMCPs()
+
+	// Record start time for grace period (prevents error flash during tmux startup)
+	i.lastStartTime = time.Now()
+
+	// New sessions start as STARTING - shows they're initializing
+	// After 5s grace period, status will be properly detected from tmux
+	if command != "" {
+		i.Status = StatusStarting
 	}
 
 	return nil
@@ -209,8 +303,23 @@ func (i *Instance) Start() error {
 // instead of every 500ms tick, dramatically reducing subprocess spawns
 const errorRecheckInterval = 30 * time.Second
 
+// startupGracePeriod - time window after Start() during which we skip Exists() check
+// This prevents error flash while tmux session is being created
+const startupGracePeriod = 3 * time.Second
+
 // UpdateStatus updates the session status by checking tmux
 func (i *Instance) UpdateStatus() error {
+	// Grace period FIRST: Skip all checks for recently created sessions
+	// If session was created within last 5 seconds, keep status as starting
+	// This prevents error flash during auto-reload while tmux initializes
+	if time.Since(i.CreatedAt) < 5*time.Second {
+		// Keep status as starting during grace period
+		if i.Status != StatusRunning && i.Status != StatusIdle {
+			i.Status = StatusStarting
+		}
+		return nil
+	}
+
 	if i.tmuxSession == nil {
 		i.Status = StatusError
 		return nil
@@ -436,6 +545,12 @@ func (i *Instance) Restart() error {
 	log.Printf("[MCP-DEBUG] Instance.Restart() called - Tool=%s, ClaudeSessionID=%q, tmuxSession=%v, tmuxExists=%v",
 		i.Tool, i.ClaudeSessionID, i.tmuxSession != nil, i.tmuxSession != nil && i.tmuxSession.Exists())
 
+	// Regenerate .mcp.json before restart to use socket pool if available
+	// This ensures Claude picks up socket configs instead of stdio
+	if i.Tool == "claude" {
+		i.regenerateMCPConfig()
+	}
+
 	// If Claude session with known ID AND tmux session exists, use respawn-pane
 	if i.Tool == "claude" && i.ClaudeSessionID != "" && i.tmuxSession != nil && i.tmuxSession.Exists() {
 		// Build the resume command with proper config
@@ -641,6 +756,29 @@ func (i *Instance) CaptureLoadedMCPs() {
 	}
 
 	i.LoadedMCPNames = mcpInfo.AllNames()
+}
+
+// regenerateMCPConfig regenerates .mcp.json with current pool status
+// If socket pool is running, MCPs will use socket configs (nc -U /tmp/...)
+// Otherwise, MCPs will use stdio configs (npx ...)
+func (i *Instance) regenerateMCPConfig() {
+	mcpInfo := GetMCPInfo(i.ProjectPath)
+	if mcpInfo == nil {
+		return
+	}
+
+	localMCPs := mcpInfo.Local()
+	if len(localMCPs) == 0 {
+		return
+	}
+
+	// Regenerate .mcp.json - WriteMCPJsonFromConfig checks pool status
+	// and writes socket configs if pool is running
+	if err := WriteMCPJsonFromConfig(i.ProjectPath, localMCPs); err != nil {
+		log.Printf("[MCP-DEBUG] Failed to regenerate .mcp.json: %v", err)
+	} else {
+		log.Printf("[MCP-DEBUG] Regenerated .mcp.json for %s with %d MCPs", i.Title, len(localMCPs))
+	}
 }
 
 // generateID generates a unique session ID

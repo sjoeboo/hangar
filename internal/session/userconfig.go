@@ -34,6 +34,46 @@ type UserConfig struct {
 
 	// Logs defines session log management settings
 	Logs LogSettings `toml:"logs"`
+
+	// MCPPool defines HTTP MCP pool settings for shared MCP servers
+	MCPPool MCPPoolSettings `toml:"mcp_pool"`
+}
+
+// MCPPoolSettings defines HTTP MCP pool configuration
+type MCPPoolSettings struct {
+	// Enabled enables HTTP pool mode (default: false)
+	Enabled bool `toml:"enabled"`
+
+	// AutoStart starts pool when agent-deck launches (default: true)
+	AutoStart bool `toml:"auto_start"`
+
+	// PortStart is the first port in the pool range (default: 8001)
+	PortStart int `toml:"port_start"`
+
+	// PortEnd is the last port in the pool range (default: 8050)
+	PortEnd int `toml:"port_end"`
+
+	// StartOnDemand starts MCPs lazily on first attach (default: false)
+	StartOnDemand bool `toml:"start_on_demand"`
+
+	// ShutdownOnExit stops HTTP servers when agent-deck quits (default: true)
+	ShutdownOnExit bool `toml:"shutdown_on_exit"`
+
+	// PoolMCPs is the list of MCPs to run in pool mode
+	// Empty = auto-detect common MCPs (memory, exa, firecrawl, etc.)
+	PoolMCPs []string `toml:"pool_mcps"`
+
+	// FallbackStdio uses stdio for MCPs without socket support (default: true)
+	FallbackStdio bool `toml:"fallback_to_stdio"`
+
+	// ShowStatus shows pool status in TUI (default: true)
+	ShowStatus bool `toml:"show_pool_status"`
+
+	// PoolAll pools all MCPs by default (default: false)
+	PoolAll bool `toml:"pool_all"`
+
+	// ExcludeMCPs excludes specific MCPs from pool when pool_all = true
+	ExcludeMCPs []string `toml:"exclude_mcps"`
 }
 
 // LogSettings defines log file management configuration

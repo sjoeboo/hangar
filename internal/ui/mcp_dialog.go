@@ -29,6 +29,7 @@ type MCPItem struct {
 	Name        string
 	Description string
 	IsOrphan    bool // True if MCP is attached but not in config.toml pool
+	IsPooled    bool // True if this MCP uses socket pool
 }
 
 // MCPDialog handles MCP management for Claude sessions
@@ -79,14 +80,16 @@ func (m *MCPDialog) Show(projectPath string, sessionID string) error {
 	availableMCPs := session.GetAvailableMCPs()
 	allNames := session.GetAvailableMCPNames()
 
-	// Build items lookup for descriptions
+	// Build items lookup for descriptions and pool status
+	pool := session.GetGlobalPool()
 	itemsMap := make(map[string]MCPItem)
 	for _, name := range allNames {
 		desc := ""
 		if def, ok := availableMCPs[name]; ok {
 			desc = def.Description
 		}
-		itemsMap[name] = MCPItem{Name: name, Description: desc}
+		isPooled := pool != nil && pool.ShouldPool(name) && pool.IsRunning(name)
+		itemsMap[name] = MCPItem{Name: name, Description: desc, IsPooled: isPooled}
 	}
 
 	// Load LOCAL attached from .mcp.json
@@ -527,6 +530,10 @@ func (m *MCPDialog) renderColumn(title string, items []MCPItem, selectedIdx int,
 	} else {
 		for i, item := range items {
 			name := item.Name
+			// Add pool indicator for MCPs in socket pool
+			if item.IsPooled {
+				name = name + " 🔌"
+			}
 			// Add orphan indicator for MCPs not in config.toml
 			if item.IsOrphan {
 				name = name + " ⚠"

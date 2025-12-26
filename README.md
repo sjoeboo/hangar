@@ -142,6 +142,41 @@ description = "Search Claude & Anthropic docs"
 
 </details>
 
+### 🧠 MCP Socket Pool (Heavy Users)
+
+**Running 20+ Claude sessions? Each one spawns separate MCP processes.** That's a lot of memory - 30 sessions with 5 MCPs each = 150 node processes eating gigabytes of RAM.
+
+**MCP Socket Pool shares MCP processes across all sessions via Unix sockets.** One memory server. One exa server. One firecrawl server. All sessions share them.
+
+```
+Without pool:              With pool:
+Session 1 → memory         Session 1 ─┐
+Session 2 → memory         Session 2 ─┼─→ memory (shared)
+Session 3 → memory         Session 3 ─┘
+= 3 processes              = 1 process
+
+Memory savings: 85-90% for MCP processes
+```
+
+**Enable in `~/.agent-deck/config.toml`:**
+
+```toml
+[mcp_pool]
+enabled = true     # Enable socket pooling
+pool_all = true    # Pool all available MCPs
+
+# Optional: exclude specific MCPs from pool
+exclude_mcps = ["chrome-devtools"]
+```
+
+When enabled, all MCPs defined in `[mcps.*]` start as socket proxies at launch. Sessions connect via Unix sockets instead of spawning separate processes.
+
+**Indicators:**
+- 🔌 in MCP Manager shows pooled MCPs
+- Sessions auto-use socket configs on restart
+
+**Why this matters:** If you're a power user running many Claude sessions, this dramatically reduces memory usage. Your laptop stops struggling. Swap stops thrashing. Everything runs smoother.
+
 ### 🔍 Find Anything in Seconds
 
 **Fuzzy search across all sessions.** Type a few letters, instantly filter. Need to find that bug fix conversation from last week? The session where you were experimenting with authentication? Just start typing.
@@ -438,6 +473,21 @@ description = "What this server does"
 ```
 
 Then press `M` in Agent Deck to toggle it on/off for any session. [See MCP examples](#adding-available-mcps).
+
+### Why is Agent Deck using so much memory?
+
+If you're running many Claude sessions (10+), each spawns its own MCP processes. This adds up fast.
+
+**Enable MCP Socket Pool** to share processes across sessions:
+
+```toml
+# ~/.agent-deck/config.toml
+[mcp_pool]
+enabled = true
+pool_all = true
+```
+
+Restart Agent Deck. All sessions now share MCP processes via Unix sockets. Memory usage drops 85-90% for MCP-related processes.
 
 ### What if a session crashes?
 

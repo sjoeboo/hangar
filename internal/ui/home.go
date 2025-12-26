@@ -173,7 +173,8 @@ type Home struct {
 
 // reloadState preserves UI state during storage reload
 type reloadState struct {
-	cursorSessionID string          // ID of session at cursor
+	cursorSessionID string          // ID of session at cursor (if cursor on session)
+	cursorGroupPath string          // Path of group at cursor (if cursor on group)
 	expandedGroups  map[string]bool // Expanded group paths
 	viewOffset      int             // Scroll position
 }
@@ -184,6 +185,8 @@ type loadSessionsMsg struct {
 	groups       []*session.GroupData
 	err          error
 	restoreState *reloadState // Optional state to restore after reload
+	poolProxies  int          // Number of socket proxies started
+	poolError    error        // Pool initialization error
 }
 
 type sessionCreatedMsg struct {
@@ -318,24 +321,28 @@ func NewHomeWithProfile(profile string) *Home {
 		}
 	}
 
-	// DISABLED: Auto-reload was causing cursor jumping issues
-	// TODO: Fix state restoration before re-enabling
+	// Initialize MCP socket pool if enabled
+	// Note: Pool initialization happens AFTER loading sessions so we can discover MCPs in use
+	// Pool will be initialized in Init() after sessions are loaded
+
 	// Initialize storage watcher for auto-reload
-	// if storage != nil {
-	// 	storagePath, err := session.GetStoragePathForProfile(actualProfile)
-	// 	if err != nil {
-	// 		log.Printf("Warning: failed to get storage path for watcher: %v", err)
-	// 	} else {
-	// 		watcher, err := NewStorageWatcher(storagePath)
-	// 		if err != nil {
-	// 			// Log warning but continue (fallback to manual refresh)
-	// 			log.Printf("Warning: failed to initialize storage watcher: %v", err)
-	// 		} else {
-	// 			h.storageWatcher = watcher
-	// 			watcher.Start()
-	// 		}
-	// 	}
-	// }
+	// Watches sessions.json for external changes (CLI commands) and triggers reload
+	// with state preservation to maintain cursor position and expanded groups
+	if storage != nil {
+		storagePath, err := session.GetStoragePathForProfile(actualProfile)
+		if err != nil {
+			log.Printf("Warning: failed to get storage path for watcher: %v", err)
+		} else {
+			watcher, err := NewStorageWatcher(storagePath)
+			if err != nil {
+				// Log warning but continue (fallback to manual refresh with Ctrl+R)
+				log.Printf("Warning: failed to initialize storage watcher: %v", err)
+			} else {
+				h.storageWatcher = watcher
+				watcher.Start()
+			}
+		}
+	}
 
 	// Run log maintenance at startup (non-blocking)
 	// This truncates large log files and removes orphaned logs based on user config
@@ -357,11 +364,16 @@ func (h *Home) preserveState() reloadState {
 		viewOffset:     h.viewOffset,
 	}
 
-	// Capture session ID at cursor
+	// Capture cursor position (session ID or group path)
 	if h.cursor < len(h.flatItems) {
 		item := h.flatItems[h.cursor]
-		if item.Type == session.ItemTypeSession && item.Session != nil {
-			state.cursorSessionID = item.Session.ID
+		switch item.Type {
+		case session.ItemTypeSession:
+			if item.Session != nil {
+				state.cursorSessionID = item.Session.ID
+			}
+		case session.ItemTypeGroup:
+			state.cursorGroupPath = item.Path
 		}
 	}
 
@@ -389,8 +401,10 @@ func (h *Home) restoreState(state reloadState) {
 	// Rebuild flat items with restored group states
 	h.rebuildFlatItems()
 
-	// Restore cursor to same session
+	// Restore cursor position
 	found := false
+
+	// First, try to restore cursor to session if we had one selected
 	if state.cursorSessionID != "" {
 		for i, item := range h.flatItems {
 			if item.Type == session.ItemTypeSession &&
@@ -402,13 +416,35 @@ func (h *Home) restoreState(state reloadState) {
 			}
 		}
 	}
-	// Fallback if session ID not found after reload
-	if !found && h.cursor >= len(h.flatItems) {
-		h.cursor = max(0, len(h.flatItems)-1)
+
+	// If session not found, try to restore cursor to group if we had one selected
+	if !found && state.cursorGroupPath != "" {
+		for i, item := range h.flatItems {
+			if item.Type == session.ItemTypeGroup && item.Path == state.cursorGroupPath {
+				h.cursor = i
+				found = true
+				break
+			}
+		}
+	}
+
+	// Fallback: clamp cursor to valid range if target not found or cursor out of bounds
+	if !found || h.cursor >= len(h.flatItems) {
+		if len(h.flatItems) > 0 {
+			h.cursor = min(h.cursor, len(h.flatItems)-1)
+			h.cursor = max(h.cursor, 0)
+		} else {
+			h.cursor = 0
+		}
 	}
 
 	// Restore scroll position (clamped to valid range)
-	h.viewOffset = min(state.viewOffset, max(0, len(h.flatItems)-1))
+	if len(h.flatItems) > 0 {
+		h.viewOffset = min(state.viewOffset, len(h.flatItems)-1)
+		h.viewOffset = max(h.viewOffset, 0)
+	} else {
+		h.viewOffset = 0
+	}
 }
 
 // rebuildFlatItems rebuilds the flattened view from group tree
@@ -586,6 +622,7 @@ func (h *Home) jumpToRootGroup(n int) {
 func (h *Home) Init() tea.Cmd {
 	cmds := []tea.Cmd{
 		h.loadSessions,
+		
 		h.tick(),
 		h.checkForUpdate(),
 	}
@@ -597,6 +634,7 @@ func (h *Home) Init() tea.Cmd {
 
 	return tea.Batch(cmds...)
 }
+
 
 // checkForUpdate checks for updates asynchronously
 func (h *Home) checkForUpdate() tea.Cmd {
@@ -617,14 +655,30 @@ func listenForReloads(sw *StorageWatcher) tea.Cmd {
 	}
 }
 
-// loadSessions loads sessions from storage
+// loadSessions loads sessions from storage and initializes the pool
 func (h *Home) loadSessions() tea.Msg {
 	if h.storage == nil {
 		return loadSessionsMsg{instances: []*session.Instance{}, err: fmt.Errorf("storage not initialized")}
 	}
 
 	instances, groups, err := h.storage.LoadWithGroups()
-	return loadSessionsMsg{instances: instances, groups: groups, err: err}
+	msg := loadSessionsMsg{instances: instances, groups: groups, err: err}
+
+	// Initialize pool AFTER sessions are loaded
+	userConfig, configErr := session.LoadUserConfig()
+	if configErr == nil && userConfig != nil && userConfig.MCPPool.Enabled {
+		pool, poolErr := session.InitializeGlobalPool(h.ctx, userConfig, instances)
+		if poolErr != nil {
+			log.Printf("Warning: failed to initialize MCP pool: %v", poolErr)
+			msg.poolError = poolErr
+		} else if pool != nil {
+			proxies := pool.ListServers()
+			log.Printf("✓ MCP Socket Pool initialized (%d proxies)", len(proxies))
+			msg.poolProxies = len(proxies)
+		}
+	}
+
+	return msg
 }
 
 // tick returns a command that sends a tick message at regular intervals
@@ -1184,18 +1238,32 @@ func (h *Home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		h.triggerStatusUpdate()
 
 		// Run dedup and save in background to avoid blocking UI
-		go func() {
-			h.instancesMu.RLock()
-			instancesCopy := make([]*session.Instance, len(h.instances))
-			copy(instancesCopy, h.instances)
-			h.instancesMu.RUnlock()
+		// IMPORTANT: Copy all data needed by goroutine to avoid race conditions
+		h.instancesMu.RLock()
+		instancesCopy := make([]*session.Instance, len(h.instances))
+		copy(instancesCopy, h.instances)
+		h.instancesMu.RUnlock()
 
+		// Deep copy group tree to avoid race condition with main thread
+		// SaveWithGroups only reads GroupList, so we create a minimal copy
+		var groupTreeCopy *session.GroupTree
+		if h.groupTree != nil {
+			groupTreeCopy = h.groupTree.ShallowCopyForSave()
+		}
+		storageCopy := h.storage
+		watcherCopy := h.storageWatcher
+
+		go func() {
 			// Deduplicate Claude session IDs
 			session.UpdateClaudeSessionsWithDedup(instancesCopy)
 
 			// Save state to persist acknowledged state
-			if h.storage != nil {
-				_ = h.storage.SaveWithGroups(instancesCopy, h.groupTree)
+			if storageCopy != nil {
+				// Notify watcher to ignore this save (prevents self-triggered reload)
+				if watcherCopy != nil {
+					watcherCopy.NotifySave()
+				}
+				_ = storageCopy.SaveWithGroups(instancesCopy, groupTreeCopy)
 			}
 		}()
 		return h, nil
@@ -1538,6 +1606,10 @@ func (h *Home) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// Close global search index
 		if h.globalSearchIndex != nil {
 			h.globalSearchIndex.Close()
+		}
+		// Shutdown MCP pool if running
+		if err := session.ShutdownGlobalPool(); err != nil {
+			log.Printf("Warning: error shutting down MCP pool: %v", err)
 		}
 		// Save both instances AND groups on quit (critical fix: was losing groups!)
 		h.saveInstances()
@@ -2151,8 +2223,22 @@ func (h *Home) handleForkDialogKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 // saveInstances saves instances to storage
 func (h *Home) saveInstances() {
 	if h.storage != nil {
+		// Notify watcher to ignore this save (prevents self-triggered reload)
+		if h.storageWatcher != nil {
+			h.storageWatcher.NotifySave()
+		}
+
+		// Take snapshot under lock for defensive programming
+		// This ensures consistency even if architecture changes in the future
+		h.instancesMu.RLock()
+		instancesCopy := make([]*session.Instance, len(h.instances))
+		copy(instancesCopy, h.instances)
+		h.instancesMu.RUnlock()
+
+		groupTreeCopy := h.groupTree.ShallowCopyForSave()
+
 		// Save both instances and groups (including empty ones)
-		if err := h.storage.SaveWithGroups(h.instances, h.groupTree); err != nil {
+		if err := h.storage.SaveWithGroups(instancesCopy, groupTreeCopy); err != nil {
 			h.setError(fmt.Errorf("failed to save: %w", err))
 		}
 	}
@@ -2322,7 +2408,20 @@ func (h *Home) attachSession(inst *session.Instance) tea.Cmd {
 	// Mark session as accessed (for recency-sorted path suggestions)
 	inst.MarkAccessed()
 	if h.storage != nil {
-		_ = h.storage.SaveWithGroups(h.instances, h.groupTree)
+		// Notify watcher to ignore this save (prevents self-triggered reload)
+		if h.storageWatcher != nil {
+			h.storageWatcher.NotifySave()
+		}
+
+		// Take snapshot under lock for defensive programming
+		h.instancesMu.RLock()
+		instancesCopy := make([]*session.Instance, len(h.instances))
+		copy(instancesCopy, h.instances)
+		h.instancesMu.RUnlock()
+
+		groupTreeCopy := h.groupTree.ShallowCopyForSave()
+
+		_ = h.storage.SaveWithGroups(instancesCopy, groupTreeCopy)
 	}
 
 	// NOTE: We DON'T call Acknowledge() here. Setting acknowledged=true before attach
