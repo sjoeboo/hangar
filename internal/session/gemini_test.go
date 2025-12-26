@@ -3,6 +3,7 @@ package session
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -146,5 +147,21 @@ func TestParseGeminiSessionFile(t *testing.T) {
 	}
 	if info.LastUpdated.IsZero() {
 		t.Error("LastUpdated should be parsed")
+	}
+}
+
+func TestParseGeminiSessionFile_InvalidJSON(t *testing.T) {
+	tmpDir := t.TempDir()
+	sessionFile := filepath.Join(tmpDir, "invalid.json")
+
+	// Write malformed JSON
+	os.WriteFile(sessionFile, []byte("not valid json{"), 0644)
+
+	_, err := parseGeminiSessionFile(sessionFile)
+	if err == nil {
+		t.Error("parseGeminiSessionFile should fail with invalid JSON")
+	}
+	if !strings.Contains(err.Error(), "failed to parse session") {
+		t.Errorf("Error should be wrapped, got: %v", err)
 	}
 }

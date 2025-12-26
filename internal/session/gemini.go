@@ -60,7 +60,7 @@ type GeminiSessionInfo struct {
 func parseGeminiSessionFile(filePath string) (GeminiSessionInfo, error) {
 	data, err := os.ReadFile(filePath)
 	if err != nil {
-		return GeminiSessionInfo{}, err
+		return GeminiSessionInfo{}, fmt.Errorf("failed to read session file: %w", err)
 	}
 
 	var session struct {
@@ -74,8 +74,18 @@ func parseGeminiSessionFile(filePath string) (GeminiSessionInfo, error) {
 		return GeminiSessionInfo{}, fmt.Errorf("failed to parse session: %w", err)
 	}
 
-	startTime, _ := time.Parse(time.RFC3339, session.StartTime)
-	lastUpdated, _ := time.Parse(time.RFC3339, session.LastUpdated)
+	// Parse timestamps with fallback for milliseconds (like claude.go)
+	startTime, err := time.Parse(time.RFC3339, session.StartTime)
+	if err != nil {
+		// Try with milliseconds (Gemini uses .999Z format)
+		startTime, _ = time.Parse("2006-01-02T15:04:05.999Z", session.StartTime)
+	}
+
+	lastUpdated, err := time.Parse(time.RFC3339, session.LastUpdated)
+	if err != nil {
+		// Try with milliseconds
+		lastUpdated, _ = time.Parse("2006-01-02T15:04:05.999Z", session.LastUpdated)
+	}
 
 	return GeminiSessionInfo{
 		SessionID:    session.SessionID,
