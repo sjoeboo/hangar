@@ -297,6 +297,9 @@ agent-deck session fork <id> -g "experiments"       # Into specific group
 agent-deck session attach <id>          # Attach interactively
 agent-deck session show <id>            # Show session details
 agent-deck session show                 # Auto-detect current session (in tmux)
+agent-deck session current              # Auto-detect current session and profile
+agent-deck session current -q           # Just session name (for scripting)
+agent-deck session current --json       # JSON output (for automation)
 ```
 
 **Fork flags:**
@@ -408,11 +411,21 @@ agent-deck list --json | jq -r '.[] | select(.tool == "claude") | .id' | \
 
 **Current session detection (inside tmux):**
 ```bash
-# Show current session info
+# Auto-detect current session and profile (NEW!)
+agent-deck session current              # Full info with auto-detected profile
+agent-deck session current -q           # Just session name (for scripting)
+agent-deck session current --json       # JSON output (for automation)
+
+# Show current session info (legacy, still works)
 agent-deck session show
 
 # Show MCPs for current session
 agent-deck mcp attached
+
+# Use in workflows (auto-detect parent and profile)
+PARENT=$(agent-deck session current -q)
+PROFILE=$(agent-deck session current --json | jq -r '.profile')
+agent-deck -p "$PROFILE" add -t "Subtask" --parent "$PARENT" -c claude /tmp/subtask
 ```
 
 ## FAQ

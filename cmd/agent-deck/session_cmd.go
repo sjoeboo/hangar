@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/asheshgoplani/agent-deck/internal/profile"
 	"github.com/asheshgoplani/agent-deck/internal/session"
 )
 
@@ -32,6 +33,8 @@ func handleSession(profile string, args []string) {
 		handleSessionAttach(profile, args[1:])
 	case "show":
 		handleSessionShow(profile, args[1:])
+	case "current":
+		handleSessionCurrent(profile, args[1:])
 	case "set-parent":
 		handleSessionSetParent(profile, args[1:])
 	case "unset-parent":
@@ -62,6 +65,7 @@ func printSessionHelp() {
 	fmt.Println("  fork <id>               Fork Claude session with context")
 	fmt.Println("  attach <id>             Attach to session interactively")
 	fmt.Println("  show [id]               Show session details (auto-detect current if no id)")
+	fmt.Println("  current                 Show current session and profile (auto-detect)")
 	fmt.Println("  send <id> <message>     Send a message to a running session")
 	fmt.Println("  output <id>             Get the last response from a session")
 	fmt.Println("  set-parent <id> <parent>  Link session as sub-session of parent")
@@ -1133,6 +1137,101 @@ func handleSessionOutput(profile string, args []string) {
 	}
 	sb.WriteString("---\n")
 	sb.WriteString(response.Content)
+
+	out.Print(sb.String(), jsonData)
+}
+
+// handleSessionCurrent shows current session and profile (auto-detected)
+func handleSessionCurrent(profileArg string, args []string) {
+	fs := flag.NewFlagSet("session current", flag.ExitOnError)
+	jsonOutput := fs.Bool("json", false, "Output as JSON")
+	quiet := fs.Bool("quiet", false, "Minimal output")
+	quietShort := fs.Bool("q", false, "Minimal output (short)")
+
+	fs.Usage = func() {
+		fmt.Println("Usage: agent-deck session current [options]")
+		fmt.Println()
+		fmt.Println("Show current session and profile (auto-detected from environment).")
+		fmt.Println()
+		fmt.Println("Options:")
+		fs.PrintDefaults()
+	}
+
+	if err := fs.Parse(args); err != nil {
+		os.Exit(1)
+	}
+
+	quietMode := *quiet || *quietShort
+	out := NewCLIOutput(*jsonOutput, quietMode)
+
+	// Check if we're in a tmux session
+	if os.Getenv("TMUX") == "" {
+		out.Error("not in a tmux session", ErrCodeNotFound)
+		os.Exit(1)
+	}
+
+	// Detect profile: use explicit arg if provided, otherwise auto-detect
+	detectedProfile := profileArg
+	if detectedProfile == "" || detectedProfile == session.DefaultProfile {
+		detectedProfile = profile.DetectCurrentProfile()
+	}
+
+	// Load sessions for detected profile first
+	_, instances, _, err := loadSessionData(detectedProfile)
+	if err != nil {
+		out.Error(err.Error(), ErrCodeNotFound)
+		os.Exit(1)
+	}
+
+	// Try to find session in detected profile
+	inst := findSessionByTmux(instances)
+
+	// If not found in detected profile, search all profiles
+	if inst == nil {
+		var foundProfile string
+		inst, foundProfile = findSessionByTmuxAcrossProfiles()
+		if inst != nil && foundProfile != "" {
+			detectedProfile = foundProfile
+		}
+	}
+
+	if inst == nil {
+		out.Error("current tmux session is not an agent-deck session\nHint: Run 'agent-deck list' to see available sessions", ErrCodeNotFound)
+		os.Exit(1)
+	}
+
+	// Update status
+	_ = inst.UpdateStatus()
+
+	// Quiet mode: just print session name
+	if quietMode {
+		fmt.Println(inst.Title)
+		return
+	}
+
+	// Prepare JSON output
+	jsonData := map[string]interface{}{
+		"session": inst.Title,
+		"profile": detectedProfile,
+		"id":      inst.ID,
+		"path":    inst.ProjectPath,
+		"status":  StatusString(inst.Status),
+	}
+
+	if inst.GroupPath != "" {
+		jsonData["group"] = inst.GroupPath
+	}
+
+	// Build human-readable output
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("Session: %s\n", inst.Title))
+	sb.WriteString(fmt.Sprintf("Profile: %s\n", detectedProfile))
+	sb.WriteString(fmt.Sprintf("ID:      %s\n", inst.ID))
+	sb.WriteString(fmt.Sprintf("Status:  %s %s\n", StatusSymbol(inst.Status), StatusString(inst.Status)))
+	sb.WriteString(fmt.Sprintf("Path:    %s\n", FormatPath(inst.ProjectPath)))
+	if inst.GroupPath != "" {
+		sb.WriteString(fmt.Sprintf("Group:   %s\n", inst.GroupPath))
+	}
 
 	out.Print(sb.String(), jsonData)
 }
