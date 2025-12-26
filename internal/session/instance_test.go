@@ -464,3 +464,27 @@ func TestInstance_Restart_InterruptsAndResumes(t *testing.T) {
 		t.Error("tmux session should still exist after restart")
 	}
 }
+
+func TestInstance_GeminiSessionFields(t *testing.T) {
+	inst := NewInstanceWithTool("test", "/tmp/test", "gemini")
+
+	// Should have empty Gemini session ID initially
+	if inst.GeminiSessionID != "" {
+		t.Errorf("GeminiSessionID should be empty initially, got %s", inst.GeminiSessionID)
+	}
+
+	// Should be able to set Gemini session ID
+	testID := "abc-123-def-456"
+	inst.GeminiSessionID = testID
+	inst.GeminiDetectedAt = time.Now()
+
+	if inst.GeminiSessionID != testID {
+		t.Errorf("GeminiSessionID = %s, want %s", inst.GeminiSessionID, testID)
+	}
+
+	// Non-Gemini tools should not have Gemini ID
+	claudeInst := NewInstanceWithTool("test", "/tmp/test", "claude")
+	if claudeInst.GeminiSessionID != "" {
+		t.Error("Claude session should not have GeminiSessionID")
+	}
+}

@@ -47,6 +47,10 @@ type Instance struct {
 	ClaudeSessionID  string    `json:"claude_session_id,omitempty"`
 	ClaudeDetectedAt time.Time `json:"claude_detected_at,omitempty"`
 
+	// Gemini CLI integration
+	GeminiSessionID  string    `json:"gemini_session_id,omitempty"`
+	GeminiDetectedAt time.Time `json:"gemini_detected_at,omitempty"`
+
 	// MCP tracking - which MCPs were loaded when session started/restarted
 	// Used to detect pending MCPs (added after session start) and stale MCPs (removed but still running)
 	LoadedMCPNames []string `json:"loaded_mcp_names,omitempty"`

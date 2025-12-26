@@ -74,6 +74,10 @@ type InstanceData struct {
 	ClaudeSessionID  string    `json:"claude_session_id,omitempty"`
 	ClaudeDetectedAt time.Time `json:"claude_detected_at,omitempty"`
 
+	// Gemini session (persisted for resume after app restart)
+	GeminiSessionID  string    `json:"gemini_session_id,omitempty"`
+	GeminiDetectedAt time.Time `json:"gemini_detected_at,omitempty"`
+
 	// MCP tracking (persisted for sync status display)
 	LoadedMCPNames []string `json:"loaded_mcp_names,omitempty"`
 }
@@ -203,6 +207,8 @@ func (s *Storage) SaveWithGroups(instances []*Instance, groupTree *GroupTree) er
 			TmuxSession:      tmuxName,
 			ClaudeSessionID:  inst.ClaudeSessionID,
 			ClaudeDetectedAt: inst.ClaudeDetectedAt,
+			GeminiSessionID:  inst.GeminiSessionID,
+			GeminiDetectedAt: inst.GeminiDetectedAt,
 			LoadedMCPNames:   inst.LoadedMCPNames,
 		}
 	}
@@ -503,6 +509,8 @@ func (s *Storage) convertToInstances(data *StorageData) ([]*Instance, []*GroupDa
 			LastAccessedAt:   instData.LastAccessedAt,
 			ClaudeSessionID:  instData.ClaudeSessionID,
 			ClaudeDetectedAt: instData.ClaudeDetectedAt,
+			GeminiSessionID:  instData.GeminiSessionID,
+			GeminiDetectedAt: instData.GeminiDetectedAt,
 			LoadedMCPNames:   instData.LoadedMCPNames,
 			tmuxSession:      tmuxSess,
 		}
