@@ -1,10 +1,17 @@
 package session
 
 import (
+	"bufio"
+	"bytes"
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"log"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -29,6 +36,7 @@ type Instance struct {
 	Title          string    `json:"title"`
 	ProjectPath    string    `json:"project_path"`
 	GroupPath      string    `json:"group_path"` // e.g., "projects/devops"
+	ParentSessionID string   `json:"parent_session_id,omitempty"` // Links to parent session (makes this a sub-session)
 	Command        string    `json:"command"`
 	Tool           string    `json:"tool"`
 	Status         Status    `json:"status"`
@@ -72,6 +80,21 @@ func (inst *Instance) GetLastActivityTime() time.Time {
 	}
 	// Fallback to CreatedAt
 	return inst.CreatedAt
+}
+
+// IsSubSession returns true if this session has a parent
+func (inst *Instance) IsSubSession() bool {
+	return inst.ParentSessionID != ""
+}
+
+// SetParent sets the parent session ID
+func (inst *Instance) SetParent(parentID string) {
+	inst.ParentSessionID = parentID
+}
+
+// ClearParent removes the parent session link
+func (inst *Instance) ClearParent() {
+	inst.ParentSessionID = ""
 }
 
 // NewInstance creates a new session instance
@@ -261,21 +284,20 @@ func (i *Instance) Start() error {
 }
 
 // StartWithMessage starts the session and sends an initial message when ready
-// The message is sent automatically once the agent shows a prompt
-// The wait-and-send logic runs inside the tmux session itself (not in CLI process)
+// The message is sent synchronously after detecting the agent's prompt
+// This approach is more reliable than embedding send logic in the tmux command
 // Works for Claude, Gemini, OpenCode, and other agents
 func (i *Instance) StartWithMessage(message string) error {
 	if i.tmuxSession == nil {
 		return fmt.Errorf("tmux session not initialized")
 	}
 
+	// Start session normally (no embedded message logic)
 	var command string
 	if i.Tool == "claude" {
-		// Claude has special session capture logic
-		command = i.buildClaudeCommandWithMessage(i.Command, message)
+		command = i.buildClaudeCommand(i.Command)
 	} else {
-		// For other tools (Gemini, OpenCode, etc.), wrap with wait-and-send
-		command = i.wrapCommandWithMessage(i.Command, message)
+		command = i.Command
 	}
 
 	// Start the tmux session
@@ -289,13 +311,89 @@ func (i *Instance) StartWithMessage(message string) error {
 	// Record start time for grace period (prevents error flash during tmux startup)
 	i.lastStartTime = time.Now()
 
-	// New sessions start as STARTING - shows they're initializing
-	// After 5s grace period, status will be properly detected from tmux
-	if command != "" {
-		i.Status = StatusStarting
+	// New sessions start as STARTING
+	i.Status = StatusStarting
+
+	// Send message synchronously (CLI will wait)
+	if message != "" {
+		return i.sendMessageWhenReady(message)
 	}
 
 	return nil
+}
+
+// sendMessageWhenReady waits for the agent to be ready and sends the message
+// Uses the existing status detection system which is robust and works for all tools
+//
+// The status flow for a new session:
+//  1. Initial "waiting" (session just started, hash set)
+//  2. "active" (content changing as agent loads)
+//  3. "waiting" (content stable, agent ready for input)
+//
+// We wait for this full cycle: initial → active → waiting
+// Exception: If Claude already finished processing "." from session capture,
+// we may see "waiting" immediately - detect this by checking for input prompt
+func (i *Instance) sendMessageWhenReady(message string) error {
+	if i.tmuxSession == nil {
+		return fmt.Errorf("tmux session not initialized")
+	}
+
+	sessionName := i.tmuxSession.Name
+
+	// Track state transitions: we need to see "active" before accepting "waiting"
+	// This ensures we don't send the message during initial startup (false "waiting")
+	sawActive := false
+	waitingCount := 0 // Track consecutive "waiting" states to detect already-ready sessions
+	maxAttempts := 300 // 60 seconds max (300 * 200ms) - Claude with MCPs can take 40-60s
+
+	for attempt := 0; attempt < maxAttempts; attempt++ {
+		time.Sleep(200 * time.Millisecond)
+
+		// Use the existing robust status detection
+		status, err := i.tmuxSession.GetStatus()
+		if err != nil {
+			waitingCount = 0 // Reset on error
+			continue
+		}
+
+		if status == "active" {
+			sawActive = true
+			waitingCount = 0
+			continue
+		}
+
+		if status == "waiting" {
+			waitingCount++
+		} else {
+			waitingCount = 0
+		}
+
+		// Agent is ready when either:
+		// 1. We've seen "active" (loading) and now see "waiting" (ready)
+		// 2. We've seen "waiting" 10+ times consecutively (already processed initial ".")
+		//    This handles the race where Claude finishes before we start checking
+		alreadyReady := waitingCount >= 10 && attempt >= 15 // At least 3s elapsed
+		if (sawActive && status == "waiting") || alreadyReady {
+			// Small delay to ensure UI is fully rendered
+			time.Sleep(300 * time.Millisecond)
+
+			// Send the message using tmux send-keys
+			// -l flag for literal text, then Enter separately
+			cmd := exec.Command("tmux", "send-keys", "-l", "-t", sessionName, message)
+			if err := cmd.Run(); err != nil {
+				return fmt.Errorf("failed to send message: %w", err)
+			}
+
+			cmd = exec.Command("tmux", "send-keys", "-t", sessionName, "Enter")
+			if err := cmd.Run(); err != nil {
+				return fmt.Errorf("failed to send Enter: %w", err)
+			}
+
+			return nil
+		}
+	}
+
+	return fmt.Errorf("timeout waiting for agent to be ready")
 }
 
 // errorRecheckInterval - how often to recheck sessions that don't exist
@@ -523,6 +621,302 @@ func (i *Instance) HasUpdated() bool {
 	}
 
 	return updated
+}
+
+// ResponseOutput represents a parsed response from an agent session
+type ResponseOutput struct {
+	Tool      string `json:"tool"`                 // Tool type (claude, gemini, etc.)
+	Role      string `json:"role"`                 // Always "assistant" for now
+	Content   string `json:"content"`              // The actual response text
+	Timestamp string `json:"timestamp,omitempty"`  // When the response was generated (Claude only)
+	SessionID string `json:"session_id,omitempty"` // Claude session ID (if available)
+}
+
+// GetLastResponse returns the last assistant response from the session
+// For Claude: Parses the JSONL file for the last assistant message
+// For Gemini/Codex: Attempts to parse terminal output
+func (i *Instance) GetLastResponse() (*ResponseOutput, error) {
+	if i.Tool == "claude" {
+		return i.getClaudeLastResponse()
+	}
+	return i.getTerminalLastResponse()
+}
+
+// getClaudeLastResponse extracts the last assistant message from Claude's JSONL file
+func (i *Instance) getClaudeLastResponse() (*ResponseOutput, error) {
+	configDir := GetClaudeConfigDir()
+
+	// Convert project path to Claude's directory format
+	// /Users/ashesh/claude-deck -> -Users-ashesh-claude-deck
+	projectDirName := strings.ReplaceAll(i.ProjectPath, "/", "-")
+	projectDir := filepath.Join(configDir, "projects", projectDirName)
+
+	// Find the session file
+	var sessionFile string
+	if i.ClaudeSessionID != "" {
+		// Known session ID
+		sessionFile = filepath.Join(projectDir, i.ClaudeSessionID+".jsonl")
+		if _, err := os.Stat(sessionFile); os.IsNotExist(err) {
+			// Try to find it by detection
+			sessionID := FindSessionForInstance(i.ProjectPath, i.CreatedAt.Add(-time.Hour), nil)
+			if sessionID != "" {
+				sessionFile = filepath.Join(projectDir, sessionID+".jsonl")
+			}
+		}
+	} else {
+		// Detect session
+		sessionID := FindSessionForInstance(i.ProjectPath, i.CreatedAt.Add(-time.Hour), nil)
+		if sessionID == "" {
+			return nil, fmt.Errorf("no Claude session found for this instance")
+		}
+		sessionFile = filepath.Join(projectDir, sessionID+".jsonl")
+	}
+
+	// Check file exists
+	if _, err := os.Stat(sessionFile); os.IsNotExist(err) {
+		return nil, fmt.Errorf("session file not found: %s", sessionFile)
+	}
+
+	// Read and parse the JSONL file
+	data, err := os.ReadFile(sessionFile)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read session file: %w", err)
+	}
+
+	return parseClaudeLastAssistantMessage(data, filepath.Base(sessionFile))
+}
+
+// parseClaudeLastAssistantMessage parses a Claude JSONL file to extract the last assistant message
+func parseClaudeLastAssistantMessage(data []byte, sessionID string) (*ResponseOutput, error) {
+	// JSONL record structure (same as global_search.go)
+	type claudeMessage struct {
+		Role    string          `json:"role"`
+		Content json.RawMessage `json:"content"`
+	}
+	type claudeRecord struct {
+		SessionID string          `json:"sessionId"`
+		Type      string          `json:"type"`
+		Message   json.RawMessage `json:"message"`
+		Timestamp string          `json:"timestamp"`
+	}
+
+	var lastAssistantContent string
+	var lastTimestamp string
+	var foundSessionID string
+
+	scanner := bufio.NewScanner(bytes.NewReader(data))
+	// Handle large lines
+	buf := make([]byte, 0, 64*1024)
+	scanner.Buffer(buf, 1024*1024)
+
+	for scanner.Scan() {
+		line := scanner.Bytes()
+		if len(line) == 0 {
+			continue
+		}
+
+		var record claudeRecord
+		if err := json.Unmarshal(line, &record); err != nil {
+			continue // Skip malformed lines
+		}
+
+		// Capture session ID
+		if foundSessionID == "" && record.SessionID != "" {
+			foundSessionID = record.SessionID
+		}
+
+		// Only care about messages
+		if len(record.Message) == 0 {
+			continue
+		}
+
+		var msg claudeMessage
+		if err := json.Unmarshal(record.Message, &msg); err != nil {
+			continue
+		}
+
+		// Only care about assistant messages
+		if msg.Role != "assistant" {
+			continue
+		}
+
+		// Extract content (can be string or array of blocks)
+		var contentStr string
+		var extractedText string
+		if err := json.Unmarshal(msg.Content, &contentStr); err == nil {
+			// Simple string content
+			extractedText = contentStr
+		} else {
+			// Try as array of content blocks
+			var blocks []map[string]interface{}
+			if err := json.Unmarshal(msg.Content, &blocks); err == nil {
+				var sb strings.Builder
+				for _, block := range blocks {
+					// Check for text type blocks
+					if blockType, ok := block["type"].(string); ok && blockType == "text" {
+						if text, ok := block["text"].(string); ok {
+							sb.WriteString(text)
+							sb.WriteString("\n")
+						}
+					}
+				}
+				extractedText = strings.TrimSpace(sb.String())
+			}
+		}
+		// Only update if we found actual text content
+		if extractedText != "" {
+			lastAssistantContent = extractedText
+			lastTimestamp = record.Timestamp
+		}
+	}
+
+	if lastAssistantContent == "" {
+		return nil, fmt.Errorf("no assistant response found in session")
+	}
+
+	return &ResponseOutput{
+		Tool:      "claude",
+		Role:      "assistant",
+		Content:   lastAssistantContent,
+		Timestamp: lastTimestamp,
+		SessionID: foundSessionID,
+	}, nil
+}
+
+// getTerminalLastResponse extracts the last response from terminal output
+// This is used for Gemini, Codex, and other tools without structured output
+func (i *Instance) getTerminalLastResponse() (*ResponseOutput, error) {
+	if i.tmuxSession == nil {
+		return nil, fmt.Errorf("tmux session not initialized")
+	}
+
+	// Capture full history
+	content, err := i.tmuxSession.CaptureFullHistory()
+	if err != nil {
+		return nil, fmt.Errorf("failed to capture terminal output: %w", err)
+	}
+
+	// Parse based on tool type
+	switch i.Tool {
+	case "gemini":
+		return parseGeminiOutput(content)
+	case "codex":
+		return parseCodexOutput(content)
+	default:
+		return parseGenericOutput(content, i.Tool)
+	}
+}
+
+// parseGeminiOutput parses Gemini CLI output to extract the last response
+func parseGeminiOutput(content string) (*ResponseOutput, error) {
+	lines := strings.Split(content, "\n")
+
+	// Gemini typically shows responses after "▸" prompt and before the next ">"
+	// Look for response blocks in reverse order
+	var responseLines []string
+	inResponse := false
+
+	for idx := len(lines) - 1; idx >= 0; idx-- {
+		line := lines[idx]
+		trimmed := strings.TrimSpace(line)
+
+		// Skip empty lines at the end
+		if trimmed == "" && !inResponse {
+			continue
+		}
+
+		// Detect prompt line (end of response when reading backwards)
+		// Common prompts: "> ", ">>> ", "$", "❯", "➜"
+		isPrompt := regexp.MustCompile(`^(>|>>>|\$|❯|➜|gemini>)\s*$`).MatchString(trimmed)
+
+		if isPrompt && inResponse {
+			// We've found the start of the response block
+			break
+		}
+
+		// Detect user input line (also marks start of assistant response when reading backwards)
+		if strings.HasPrefix(trimmed, "> ") && len(trimmed) > 5 && inResponse {
+			break
+		}
+
+		// We're in a response
+		inResponse = true
+		responseLines = append([]string{line}, responseLines...)
+	}
+
+	if len(responseLines) == 0 {
+		return nil, fmt.Errorf("no response found in Gemini output")
+	}
+
+	// Clean up the response
+	response := strings.TrimSpace(strings.Join(responseLines, "\n"))
+	// Remove ANSI codes
+	ansiRegex := regexp.MustCompile(`\x1b\[[0-9;]*m`)
+	response = ansiRegex.ReplaceAllString(response, "")
+
+	return &ResponseOutput{
+		Tool:    "gemini",
+		Role:    "assistant",
+		Content: response,
+	}, nil
+}
+
+// parseCodexOutput parses OpenAI Codex CLI output
+func parseCodexOutput(content string) (*ResponseOutput, error) {
+	// Codex has similar structure - adapt as needed
+	return parseGenericOutput(content, "codex")
+}
+
+// parseGenericOutput is a fallback parser for unknown tools
+func parseGenericOutput(content, tool string) (*ResponseOutput, error) {
+	lines := strings.Split(content, "\n")
+
+	// Look for the last substantial block of text (more than 2 lines)
+	// before a prompt character
+	var responseLines []string
+	inResponse := false
+	promptPattern := regexp.MustCompile(`^[\s]*(>|>>>|\$|❯|➜|#|%)\s*$`)
+
+	for idx := len(lines) - 1; idx >= 0; idx-- {
+		line := lines[idx]
+		trimmed := strings.TrimSpace(line)
+
+		// Skip empty lines at the end
+		if trimmed == "" && !inResponse {
+			continue
+		}
+
+		// Detect prompt line
+		if promptPattern.MatchString(trimmed) {
+			if inResponse {
+				break
+			}
+			continue
+		}
+
+		inResponse = true
+		responseLines = append([]string{line}, responseLines...)
+
+		// Stop if we've collected enough lines (limit to prevent huge outputs)
+		if len(responseLines) > 500 {
+			break
+		}
+	}
+
+	if len(responseLines) == 0 {
+		return nil, fmt.Errorf("no response found in terminal output")
+	}
+
+	// Clean up
+	response := strings.TrimSpace(strings.Join(responseLines, "\n"))
+	ansiRegex := regexp.MustCompile(`\x1b\[[0-9;]*m`)
+	response = ansiRegex.ReplaceAllString(response, "")
+
+	return &ResponseOutput{
+		Tool:    tool,
+		Role:    "assistant",
+		Content: response,
+	}, nil
 }
 
 // Kill terminates the tmux session

@@ -22,13 +22,15 @@ const (
 
 // Item represents a single item in the flattened group tree view
 type Item struct {
-	Type          ItemType
-	Group         *Group
-	Session       *Instance
-	Level         int    // Indentation level (0 for root groups, 1 for sessions)
-	Path          string // Group path for this item
-	IsLastInGroup bool   // True if this is the last session in its group (for tree rendering)
-	RootGroupNum  int    // Pre-computed root group number for hotkey display (1-9, 0 if not a root group)
+	Type            ItemType
+	Group           *Group
+	Session         *Instance
+	Level           int    // Indentation level (0 for root groups, 1 for sessions)
+	Path            string // Group path for this item
+	IsLastInGroup   bool   // True if this is the last session in its group (for tree rendering)
+	RootGroupNum    int    // Pre-computed root group number for hotkey display (1-9, 0 if not a root group)
+	IsSubSession    bool   // True if this session has a parent session
+	IsLastSubSession bool  // True if this is the last sub-session of its parent (for tree rendering)
 }
 
 // Group represents a group of sessions
@@ -227,15 +229,89 @@ func (t *GroupTree) Flatten() []Item {
 
 		// Add sessions if expanded
 		if group.Expanded {
-			sessionCount := len(group.Sessions)
-			for i, sess := range group.Sessions {
+			// Separate parent sessions from sub-sessions
+			parentSessions := []*Instance{}
+			subSessionsByParent := make(map[string][]*Instance) // parentID -> sub-sessions
+
+			for _, sess := range group.Sessions {
+				if sess.IsSubSession() {
+					subSessionsByParent[sess.ParentSessionID] = append(subSessionsByParent[sess.ParentSessionID], sess)
+				} else {
+					parentSessions = append(parentSessions, sess)
+				}
+			}
+
+			// Count total top-level items (parent sessions + orphan sub-sessions whose parent is in different group)
+			// For determining IsLastInGroup, we need to know how many top-level items there are
+			topLevelCount := len(parentSessions)
+			for parentID, subs := range subSessionsByParent {
+				// Check if parent is in this group
+				parentInGroup := false
+				for _, p := range parentSessions {
+					if p.ID == parentID {
+						parentInGroup = true
+						break
+					}
+				}
+				if !parentInGroup {
+					// Parent is not in this group, so sub-sessions appear as top-level
+					topLevelCount += len(subs)
+				}
+			}
+
+			topLevelIndex := 0
+			for _, sess := range parentSessions {
+				isLastTopLevel := topLevelIndex == topLevelCount-1
+
+				// Get sub-sessions for this parent
+				subs := subSessionsByParent[sess.ID]
+				// If this session has sub-sessions, it's not the last in group visually
+				isLastInGroup := isLastTopLevel && len(subs) == 0
+
 				items = append(items, Item{
 					Type:          ItemTypeSession,
 					Session:       sess,
 					Level:         groupLevel + 1,
 					Path:          group.Path,
-					IsLastInGroup: i == sessionCount-1, // Mark last session for tree rendering
+					IsLastInGroup: isLastInGroup,
 				})
+
+				// Add sub-sessions immediately after parent
+				for subIdx, sub := range subs {
+					isLastSub := subIdx == len(subs)-1
+					// Sub-session is last in group if parent was last top-level and this is last sub
+					isSubLastInGroup := isLastTopLevel && isLastSub
+
+					items = append(items, Item{
+						Type:             ItemTypeSession,
+						Session:          sub,
+						Level:            groupLevel + 2, // One more level of indentation
+						Path:             group.Path,
+						IsLastInGroup:    isSubLastInGroup,
+						IsSubSession:     true,
+						IsLastSubSession: isLastSub,
+					})
+				}
+
+				// Remove these subs from the map so we don't add them again
+				delete(subSessionsByParent, sess.ID)
+
+				topLevelIndex++
+			}
+
+			// Add any orphaned sub-sessions (parent not in this group)
+			for _, subs := range subSessionsByParent {
+				for _, sub := range subs {
+					topLevelIndex++
+					items = append(items, Item{
+						Type:          ItemTypeSession,
+						Session:       sub,
+						Level:         groupLevel + 1,
+						Path:          group.Path,
+						IsLastInGroup: topLevelIndex == topLevelCount,
+						IsSubSession:  true, // Still a sub-session, just orphaned in this group
+					})
+				}
 			}
 		}
 	}
@@ -705,4 +781,33 @@ func (t *GroupTree) SyncWithInstances(instances []*Instance) {
 	// could be empty while instances has data (filter bar shows counts
 	// but main panel shows "No Sessions Yet").
 	t.rebuildGroupList()
+}
+
+// ShallowCopyForSave creates a copy of the GroupTree that's safe to use
+// from a goroutine for saving purposes. It deep copies the Group structs
+// to prevent data races when the main thread modifies group fields
+// (Name, Path, Expanded, Order) while a background goroutine reads them.
+func (t *GroupTree) ShallowCopyForSave() *GroupTree {
+	if t == nil {
+		return nil
+	}
+
+	// Deep copy Group structs to prevent data races
+	// The save goroutine reads Name, Path, Expanded, Order fields
+	// which could be modified by the main thread (e.g., renaming, collapsing)
+	groupListCopy := make([]*Group, len(t.GroupList))
+	for i, g := range t.GroupList {
+		groupListCopy[i] = &Group{
+			Name:     g.Name,
+			Path:     g.Path,
+			Expanded: g.Expanded,
+			Order:    g.Order,
+			// Don't copy Sessions - not needed for save, only metadata is saved
+		}
+	}
+
+	return &GroupTree{
+		GroupList: groupListCopy,
+		// Groups and Expanded maps not needed since only GroupList is iterated in save
+	}
 }

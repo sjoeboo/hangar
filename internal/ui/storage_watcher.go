@@ -4,18 +4,30 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 
 	"github.com/fsnotify/fsnotify"
 )
 
+// ignoreWindow is the time window after NotifySave during which file changes are ignored.
+// This prevents the watcher from triggering reload when the TUI itself saves.
+const ignoreWindow = 500 * time.Millisecond
+
 // StorageWatcher monitors sessions.json for external changes
 type StorageWatcher struct {
-	watcher      *fsnotify.Watcher
-	storagePath  string
+	watcher     *fsnotify.Watcher
+	storagePath string
+	reloadCh    chan struct{}
+	closeCh     chan struct{}
+
+	// lastModified tracks file modification time for change detection
 	lastModified time.Time
-	reloadCh     chan struct{}
-	closeCh      chan struct{}
+	modMu        sync.RWMutex
+
+	// Tracks when TUI saved, to ignore self-triggered changes
+	lastSaveTime time.Time
+	saveMu       sync.RWMutex
 }
 
 // NewStorageWatcher creates a watcher for the given storage file
@@ -103,26 +115,54 @@ func (sw *StorageWatcher) watchLoop() {
 
 // checkAndNotify checks file modification time and notifies if changed
 func (sw *StorageWatcher) checkAndNotify() {
+	// Check if we should ignore this change (TUI's own save)
+	sw.saveMu.RLock()
+	lastSave := sw.lastSaveTime
+	sw.saveMu.RUnlock()
+
+	if time.Since(lastSave) < ignoreWindow {
+		// This change was likely caused by TUI's own save, ignore it
+		// Still update lastModified to avoid re-triggering later
+		if info, err := os.Stat(sw.storagePath); err == nil {
+			sw.modMu.Lock()
+			sw.lastModified = info.ModTime()
+			sw.modMu.Unlock()
+		}
+		return
+	}
+
 	info, err := os.Stat(sw.storagePath)
 	if err != nil {
 		return // File might be temporarily gone during atomic rename
 	}
 
 	modTime := info.ModTime()
+	sw.modMu.Lock()
 	if modTime.After(sw.lastModified) {
 		sw.lastModified = modTime
+		sw.modMu.Unlock()
 
 		// Non-blocking send (drop if channel full)
 		select {
 		case sw.reloadCh <- struct{}{}:
 		default:
 		}
+	} else {
+		sw.modMu.Unlock()
 	}
 }
 
 // ReloadChannel returns the channel that signals when reload is needed
 func (sw *StorageWatcher) ReloadChannel() <-chan struct{} {
 	return sw.reloadCh
+}
+
+// NotifySave should be called by the TUI right before it saves to storage.
+// This marks the current time so the watcher can ignore the resulting file change.
+func (sw *StorageWatcher) NotifySave() {
+	sw.saveMu.Lock()
+	sw.lastSaveTime = time.Now()
+	sw.saveMu.Unlock()
 }
 
 // Close stops the watcher and releases resources

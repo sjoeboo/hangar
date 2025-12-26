@@ -58,16 +58,17 @@ type StorageData struct {
 
 // InstanceData represents the serializable session data
 type InstanceData struct {
-	ID             string    `json:"id"`
-	Title          string    `json:"title"`
-	ProjectPath    string    `json:"project_path"`
-	GroupPath      string    `json:"group_path"`
-	Command        string    `json:"command"`
-	Tool           string    `json:"tool"`
-	Status         Status    `json:"status"`
-	CreatedAt      time.Time `json:"created_at"`
-	LastAccessedAt time.Time `json:"last_accessed_at,omitempty"`
-	TmuxSession    string    `json:"tmux_session"`
+	ID              string    `json:"id"`
+	Title           string    `json:"title"`
+	ProjectPath     string    `json:"project_path"`
+	GroupPath       string    `json:"group_path"`
+	ParentSessionID string    `json:"parent_session_id,omitempty"` // Links to parent session (sub-session support)
+	Command         string    `json:"command"`
+	Tool            string    `json:"tool"`
+	Status          Status    `json:"status"`
+	CreatedAt       time.Time `json:"created_at"`
+	LastAccessedAt  time.Time `json:"last_accessed_at,omitempty"`
+	TmuxSession     string    `json:"tmux_session"`
 
 	// Claude session (persisted for resume after app restart)
 	ClaudeSessionID  string    `json:"claude_session_id,omitempty"`
@@ -193,6 +194,7 @@ func (s *Storage) SaveWithGroups(instances []*Instance, groupTree *GroupTree) er
 			Title:            inst.Title,
 			ProjectPath:      inst.ProjectPath,
 			GroupPath:        inst.GroupPath,
+			ParentSessionID:  inst.ParentSessionID,
 			Command:          inst.Command,
 			Tool:             inst.Tool,
 			Status:           inst.Status,
@@ -493,6 +495,7 @@ func (s *Storage) convertToInstances(data *StorageData) ([]*Instance, []*GroupDa
 			Title:            instData.Title,
 			ProjectPath:      projectPath,
 			GroupPath:        groupPath,
+			ParentSessionID:  instData.ParentSessionID,
 			Command:          instData.Command,
 			Tool:             instData.Tool,
 			Status:           instData.Status,

@@ -1237,6 +1237,11 @@ func (h *Home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Now we trigger the background worker which uses round-robin batching.
 		h.triggerStatusUpdate()
 
+		// Skip save during reload to avoid overwriting external changes (CLI)
+		if h.isReloading {
+			return h, nil
+		}
+
 		// Run dedup and save in background to avoid blocking UI
 		// IMPORTANT: Copy all data needed by goroutine to avoid race conditions
 		h.instancesMu.RLock()
@@ -2222,6 +2227,11 @@ func (h *Home) handleForkDialogKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 // saveInstances saves instances to storage
 func (h *Home) saveInstances() {
+	// Skip saving during reload to avoid overwriting external changes (CLI)
+	if h.isReloading {
+		return
+	}
+
 	if h.storage != nil {
 		// Notify watcher to ignore this save (prevents self-triggered reload)
 		if h.storageWatcher != nil {
@@ -3348,6 +3358,9 @@ const (
 	treeLast   = "└─" // Last item in group (no siblings below)
 	treeLine   = "│ " // Continuation line
 	treeEmpty  = "  " // Empty space (for alignment)
+	// Sub-session connectors (nested under parent)
+	subBranch = "├─" // Sub-session with siblings below
+	subLast   = "└─" // Last sub-session
 )
 
 // renderSessionItem renders a single session item for the left panel
@@ -3359,13 +3372,26 @@ func (h *Home) renderSessionItem(b *strings.Builder, item session.Item, selected
 	baseIndent := ""
 	if item.Level > 1 {
 		// For deeply nested items, add spacing for parent levels
-		baseIndent = strings.Repeat(treeEmpty, item.Level-1)
+		// Sub-sessions get extra indentation (they're at Level = groupLevel + 2)
+		if item.IsSubSession {
+			// Sub-session: indent for group level, then extra for nesting under parent
+			baseIndent = strings.Repeat(treeEmpty, item.Level-2) + "  " // Group indent + parent indent
+		} else {
+			baseIndent = strings.Repeat(treeEmpty, item.Level-1)
+		}
 	}
 
 	// Tree connector: └─ for last item, ├─ for others
 	treeStyle := lipgloss.NewStyle().Foreground(ColorBorder)
 	treeConnector := treeBranch
-	if item.IsLastInGroup {
+	if item.IsSubSession {
+		// Sub-session uses its own last-in-group logic
+		if item.IsLastSubSession {
+			treeConnector = subLast
+		} else {
+			treeConnector = subBranch
+		}
+	} else if item.IsLastInGroup {
 		treeConnector = treeLast
 	}
 
@@ -3439,6 +3465,7 @@ func (h *Home) renderSessionItem(b *strings.Builder, item session.Item, selected
 
 	// Build row: [baseIndent][selection][tree][status] [title] [tool]
 	// Format: " ├─ ● session-name tool" or "▶└─ ● session-name tool"
+	// Sub-sessions get extra indent: "   ├─◐ sub-session tool"
 	row := fmt.Sprintf("%s%s%s %s %s%s", baseIndent, selectionPrefix, treeStyle.Render(treeConnector), status, title, tool)
 	b.WriteString(row)
 	b.WriteString("\n")

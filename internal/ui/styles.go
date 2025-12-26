@@ -190,7 +190,7 @@ func MenuKey(key, description string) string {
 }
 
 // StatusIndicator returns a styled status indicator
-// Standard symbols: ● running, ◐ waiting, ○ idle, ✕ error
+// Standard symbols: ● running, ◐ waiting, ○ idle, ✕ error, ⟳ starting
 func StatusIndicator(status string) string {
 	switch status {
 	case "running":
@@ -201,6 +201,8 @@ func StatusIndicator(status string) string {
 		return IdleStyle.Render("○")
 	case "error":
 		return ErrorIndicatorStyle.Render("✕")
+	case "starting":
+		return WaitingStyle.Render("⟳") // Use yellow color, spinning arrow symbol
 	default:
 		return IdleStyle.Render("○")
 	}

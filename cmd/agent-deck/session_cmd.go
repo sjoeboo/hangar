@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"os/exec"
 	"strings"
 	"time"
 
@@ -31,6 +32,14 @@ func handleSession(profile string, args []string) {
 		handleSessionAttach(profile, args[1:])
 	case "show":
 		handleSessionShow(profile, args[1:])
+	case "set-parent":
+		handleSessionSetParent(profile, args[1:])
+	case "unset-parent":
+		handleSessionUnsetParent(profile, args[1:])
+	case "send":
+		handleSessionSend(profile, args[1:])
+	case "output":
+		handleSessionOutput(profile, args[1:])
 	case "help", "--help", "-h":
 		printSessionHelp()
 	default:
@@ -47,12 +56,16 @@ func printSessionHelp() {
 	fmt.Println("Manage individual sessions.")
 	fmt.Println()
 	fmt.Println("Commands:")
-	fmt.Println("  start <id>        Start a session's tmux process")
-	fmt.Println("  stop <id>         Stop/kill session process")
-	fmt.Println("  restart <id>      Restart session (Claude: reload MCPs)")
-	fmt.Println("  fork <id>         Fork Claude session with context")
-	fmt.Println("  attach <id>       Attach to session interactively")
-	fmt.Println("  show [id]         Show session details (auto-detect current if no id)")
+	fmt.Println("  start <id>              Start a session's tmux process")
+	fmt.Println("  stop <id>               Stop/kill session process")
+	fmt.Println("  restart <id>            Restart session (Claude: reload MCPs)")
+	fmt.Println("  fork <id>               Fork Claude session with context")
+	fmt.Println("  attach <id>             Attach to session interactively")
+	fmt.Println("  show [id]               Show session details (auto-detect current if no id)")
+	fmt.Println("  send <id> <message>     Send a message to a running session")
+	fmt.Println("  output <id>             Get the last response from a session")
+	fmt.Println("  set-parent <id> <parent>  Link session as sub-session of parent")
+	fmt.Println("  unset-parent <id>       Remove sub-session link")
 	fmt.Println()
 	fmt.Println("Global Options:")
 	fmt.Println("  -p, --profile <name>   Use specific profile")
@@ -67,6 +80,10 @@ func printSessionHelp() {
 	fmt.Println("  agent-deck session attach my-project")
 	fmt.Println("  agent-deck session show                  # Auto-detect current session")
 	fmt.Println("  agent-deck session show my-project --json")
+	fmt.Println("  agent-deck session set-parent sub-task main-project  # Make sub-task a sub-session")
+	fmt.Println("  agent-deck session unset-parent sub-task             # Remove sub-session link")
+	fmt.Println("  agent-deck session output my-project                 # Get last response from session")
+	fmt.Println("  agent-deck session output my-project --json          # Get response as JSON")
 }
 
 // handleSessionStart starts a session's tmux process
@@ -75,6 +92,8 @@ func handleSessionStart(profile string, args []string) {
 	jsonOutput := fs.Bool("json", false, "Output as JSON")
 	quiet := fs.Bool("quiet", false, "Minimal output")
 	quietShort := fs.Bool("q", false, "Minimal output (short)")
+	message := fs.String("message", "", "Initial message to send once agent is ready")
+	messageShort := fs.String("m", "", "Initial message to send once agent is ready (short)")
 
 	fs.Usage = func() {
 		fmt.Println("Usage: agent-deck session start <id|title> [options]")
@@ -83,6 +102,11 @@ func handleSessionStart(profile string, args []string) {
 		fmt.Println()
 		fmt.Println("Options:")
 		fs.PrintDefaults()
+		fmt.Println()
+		fmt.Println("Examples:")
+		fmt.Println("  agent-deck session start my-project")
+		fmt.Println("  agent-deck session start my-project --message \"Research MCP patterns\"")
+		fmt.Println("  agent-deck session start my-project -m \"Explain this codebase\"")
 	}
 
 	if err := fs.Parse(args); err != nil {
@@ -92,6 +116,9 @@ func handleSessionStart(profile string, args []string) {
 	identifier := fs.Arg(0)
 	quietMode := *quiet || *quietShort
 	out := NewCLIOutput(*jsonOutput, quietMode)
+
+	// Merge message flags
+	initialMessage := mergeFlags(*message, *messageShort)
 
 	// Load sessions
 	storage, instances, _, err := loadSessionData(profile)
@@ -116,10 +143,17 @@ func handleSessionStart(profile string, args []string) {
 		os.Exit(1)
 	}
 
-	// Start the session
-	if err := inst.Start(); err != nil {
-		out.Error(fmt.Sprintf("failed to start session: %v", err), ErrCodeInvalidOperation)
-		os.Exit(1)
+	// Start the session (with or without initial message)
+	if initialMessage != "" {
+		if err := inst.StartWithMessage(initialMessage); err != nil {
+			out.Error(fmt.Sprintf("failed to start session: %v", err), ErrCodeInvalidOperation)
+			os.Exit(1)
+		}
+	} else {
+		if err := inst.Start(); err != nil {
+			out.Error(fmt.Sprintf("failed to start session: %v", err), ErrCodeInvalidOperation)
+			os.Exit(1)
+		}
 	}
 
 	// Save updated state
@@ -137,7 +171,13 @@ func handleSessionStart(profile string, args []string) {
 	if tmuxSess := inst.GetTmuxSession(); tmuxSess != nil {
 		jsonData["tmux"] = tmuxSess.Name
 	}
-	out.Success(fmt.Sprintf("Started session: %s", inst.Title), jsonData)
+	if initialMessage != "" {
+		jsonData["message"] = initialMessage
+		jsonData["message_pending"] = true
+		out.Success(fmt.Sprintf("Started session: %s (message will be sent when ready)", inst.Title), jsonData)
+	} else {
+		out.Success(fmt.Sprintf("Started session: %s", inst.Title), jsonData)
+	}
 }
 
 // handleSessionStop stops a session process
@@ -471,11 +511,32 @@ func handleSessionShow(profile string, args []string) {
 	// Resolve session (allow current session detection)
 	inst, errMsg, errCode := ResolveSessionOrCurrent(identifier, instances)
 	if inst == nil {
-		out.Error(errMsg, errCode)
-		if errCode == ErrCodeNotFound {
-			os.Exit(2)
+		// If no identifier was provided and we're in tmux, try fallback detection
+		if identifier == "" && os.Getenv("TMUX") != "" {
+			// First try current profile
+			inst = findSessionByTmux(instances)
+			if inst == nil {
+				// Search ALL profiles for matching tmux session
+				var foundProfile string
+				inst, foundProfile = findSessionByTmuxAcrossProfiles()
+				if inst != nil && foundProfile != profile {
+					// Found in a different profile - show which profile
+					// (jsonData will include the profile info)
+					profile = foundProfile
+				}
+			}
+			if inst == nil {
+				// Still not found, show raw tmux info
+				showTmuxSessionInfo(out, *jsonOutput)
+				return
+			}
+		} else {
+			out.Error(errMsg, errCode)
+			if errCode == ErrCodeNotFound {
+				os.Exit(2)
+			}
+			os.Exit(1)
 		}
-		os.Exit(1)
 	}
 
 	// Update status
@@ -491,6 +552,7 @@ func handleSessionShow(profile string, args []string) {
 	jsonData := map[string]interface{}{
 		"id":         inst.ID,
 		"title":      inst.Title,
+		"profile":    profile,
 		"status":     StatusString(inst.Status),
 		"path":       inst.ProjectPath,
 		"group":      inst.GroupPath,
@@ -527,6 +589,7 @@ func handleSessionShow(profile string, args []string) {
 	var sb strings.Builder
 
 	sb.WriteString(fmt.Sprintf("Session: %s\n", inst.Title))
+	sb.WriteString(fmt.Sprintf("Profile: %s\n", profile))
 	sb.WriteString(fmt.Sprintf("ID:      %s\n", inst.ID))
 	sb.WriteString(fmt.Sprintf("Status:  %s %s\n", StatusSymbol(inst.Status), StatusString(inst.Status)))
 	sb.WriteString(fmt.Sprintf("Path:    %s\n", FormatPath(inst.ProjectPath)))
@@ -610,4 +673,464 @@ func saveSessionData(storage *session.Storage, instances []*session.Instance) er
 	// Rebuild group tree from instances
 	groupTree := session.NewGroupTree(instances)
 	return storage.SaveWithGroups(instances, groupTree)
+}
+
+// findSessionByTmuxAcrossProfiles searches all profiles for a session matching current tmux session
+// Returns the instance and the profile it was found in
+func findSessionByTmuxAcrossProfiles() (*session.Instance, string) {
+	profiles, err := session.ListProfiles()
+	if err != nil {
+		return nil, ""
+	}
+
+	for _, p := range profiles {
+		_, instances, _, err := loadSessionData(p)
+		if err != nil {
+			continue
+		}
+		if inst := findSessionByTmux(instances); inst != nil {
+			return inst, p
+		}
+	}
+	return nil, ""
+}
+
+// findSessionByTmux tries to find a session by matching tmux session name or working directory
+func findSessionByTmux(instances []*session.Instance) *session.Instance {
+	// Get current tmux session name
+	cmd := exec.Command("tmux", "display-message", "-p", "#{session_name}\t#{pane_current_path}")
+	output, err := cmd.Output()
+	if err != nil {
+		return nil
+	}
+
+	parts := strings.Split(strings.TrimSpace(string(output)), "\t")
+	if len(parts) < 2 {
+		return nil
+	}
+
+	sessionName := parts[0]
+	currentPath := parts[1]
+
+	// Parse agent-deck session name: agentdeck_<title>_<id>
+	if strings.HasPrefix(sessionName, "agentdeck_") {
+		// Extract title (everything between agentdeck_ and the last _id)
+		withoutPrefix := strings.TrimPrefix(sessionName, "agentdeck_")
+		lastUnderscore := strings.LastIndex(withoutPrefix, "_")
+		if lastUnderscore > 0 {
+			title := withoutPrefix[:lastUnderscore]
+
+			// Try to find by title
+			for _, inst := range instances {
+				if strings.EqualFold(inst.Title, title) {
+					return inst
+				}
+			}
+
+			// Try to find by sanitized title (replace - with space, etc.)
+			normalizedTitle := strings.ReplaceAll(title, "-", " ")
+			for _, inst := range instances {
+				if strings.EqualFold(inst.Title, normalizedTitle) {
+					return inst
+				}
+			}
+
+			// For agentdeck sessions, we have the title - don't fall back to path matching
+			// as that could match a different session with same path in another profile
+			return nil
+		}
+	}
+
+	// Try to find by path (only for non-agentdeck tmux sessions)
+	for _, inst := range instances {
+		if inst.ProjectPath == currentPath {
+			return inst
+		}
+	}
+
+	return nil
+}
+
+// showTmuxSessionInfo shows information about the current tmux session (unregistered)
+func showTmuxSessionInfo(out *CLIOutput, jsonOutput bool) {
+	// Get tmux session info
+	cmd := exec.Command("tmux", "display-message", "-p",
+		"#{session_name}\t#{pane_current_path}\t#{session_created}\t#{window_name}")
+	output, err := cmd.Output()
+	if err != nil {
+		out.Error("failed to get tmux session info", ErrCodeNotFound)
+		os.Exit(1)
+	}
+
+	parts := strings.Split(strings.TrimSpace(string(output)), "\t")
+	sessionName := ""
+	currentPath := ""
+	windowName := ""
+	if len(parts) >= 1 {
+		sessionName = parts[0]
+	}
+	if len(parts) >= 2 {
+		currentPath = parts[1]
+	}
+	if len(parts) >= 4 {
+		windowName = parts[3]
+	}
+
+	// Parse title from session name
+	title := sessionName
+	idFragment := ""
+	if strings.HasPrefix(sessionName, "agentdeck_") {
+		withoutPrefix := strings.TrimPrefix(sessionName, "agentdeck_")
+		lastUnderscore := strings.LastIndex(withoutPrefix, "_")
+		if lastUnderscore > 0 {
+			title = withoutPrefix[:lastUnderscore]
+			idFragment = withoutPrefix[lastUnderscore+1:]
+		}
+	}
+
+	jsonData := map[string]interface{}{
+		"tmux_session": sessionName,
+		"title":        title,
+		"path":         currentPath,
+		"window":       windowName,
+		"registered":   false,
+	}
+	if idFragment != "" {
+		jsonData["id_fragment"] = idFragment
+	}
+
+	var sb strings.Builder
+	sb.WriteString("⚠ Session not registered in agent-deck\n")
+	sb.WriteString(fmt.Sprintf("Tmux:    %s\n", sessionName))
+	sb.WriteString(fmt.Sprintf("Title:   %s\n", title))
+	if idFragment != "" {
+		sb.WriteString(fmt.Sprintf("ID:      %s (stale)\n", idFragment))
+	}
+	sb.WriteString(fmt.Sprintf("Path:    %s\n", FormatPath(currentPath)))
+	if windowName != "" {
+		sb.WriteString(fmt.Sprintf("Window:  %s\n", windowName))
+	}
+	sb.WriteString("\nTo register this session:\n")
+	sb.WriteString(fmt.Sprintf("  agent-deck add -t \"%s\" -g <group> -c claude %s\n", title, currentPath))
+
+	out.Print(sb.String(), jsonData)
+}
+
+// handleSessionSetParent links a session as a sub-session of another
+func handleSessionSetParent(profile string, args []string) {
+	fs := flag.NewFlagSet("session set-parent", flag.ExitOnError)
+	jsonOutput := fs.Bool("json", false, "Output as JSON")
+	quiet := fs.Bool("quiet", false, "Minimal output")
+	quietShort := fs.Bool("q", false, "Minimal output (short)")
+
+	fs.Usage = func() {
+		fmt.Println("Usage: agent-deck session set-parent <session> <parent>")
+		fmt.Println()
+		fmt.Println("Link a session as a sub-session of another session.")
+		fmt.Println("The session will inherit the parent's group.")
+		fmt.Println()
+		fmt.Println("Options:")
+		fs.PrintDefaults()
+	}
+
+	if err := fs.Parse(args); err != nil {
+		os.Exit(1)
+	}
+
+	if fs.NArg() < 2 {
+		fs.Usage()
+		os.Exit(1)
+	}
+
+	sessionID := fs.Arg(0)
+	parentID := fs.Arg(1)
+	quietMode := *quiet || *quietShort
+	out := NewCLIOutput(*jsonOutput, quietMode)
+
+	// Load sessions
+	storage, instances, groupsData, err := loadSessionData(profile)
+	if err != nil {
+		out.Error(err.Error(), ErrCodeNotFound)
+		os.Exit(1)
+	}
+
+	// Resolve the session to be linked
+	inst, errMsg, errCode := ResolveSession(sessionID, instances)
+	if inst == nil {
+		out.Error(errMsg, errCode)
+		os.Exit(2)
+	}
+
+	// Resolve the parent session
+	parentInst, errMsg, errCode := ResolveSession(parentID, instances)
+	if parentInst == nil {
+		out.Error(errMsg, errCode)
+		os.Exit(2)
+	}
+
+	// Validate: can't set self as parent
+	if inst.ID == parentInst.ID {
+		out.Error("cannot set session as its own parent", ErrCodeInvalidOperation)
+		os.Exit(1)
+	}
+
+	// Validate: parent can't be a sub-session (single level only)
+	if parentInst.IsSubSession() {
+		out.Error("cannot set parent to a sub-session (single level only)", ErrCodeInvalidOperation)
+		os.Exit(1)
+	}
+
+	// Validate: session can't already have sub-sessions
+	for _, other := range instances {
+		if other.ParentSessionID == inst.ID {
+			out.Error(fmt.Sprintf("session '%s' already has sub-sessions, cannot become a sub-session", inst.Title), ErrCodeInvalidOperation)
+			os.Exit(1)
+		}
+	}
+
+	// Set parent and inherit group
+	inst.SetParent(parentInst.ID)
+	inst.GroupPath = parentInst.GroupPath
+
+	// Save
+	groupTree := session.NewGroupTreeWithGroups(instances, groupsData)
+	if err := storage.SaveWithGroups(instances, groupTree); err != nil {
+		out.Error(fmt.Sprintf("failed to save: %v", err), ErrCodeInvalidOperation)
+		os.Exit(1)
+	}
+
+	out.Success(fmt.Sprintf("Linked '%s' as sub-session of '%s'", inst.Title, parentInst.Title), map[string]interface{}{
+		"success":           true,
+		"session_id":        inst.ID,
+		"session_title":     inst.Title,
+		"parent_id":         parentInst.ID,
+		"parent_title":      parentInst.Title,
+		"inherited_group":   inst.GroupPath,
+	})
+}
+
+// handleSessionUnsetParent removes the sub-session link
+func handleSessionUnsetParent(profile string, args []string) {
+	fs := flag.NewFlagSet("session unset-parent", flag.ExitOnError)
+	jsonOutput := fs.Bool("json", false, "Output as JSON")
+	quiet := fs.Bool("quiet", false, "Minimal output")
+	quietShort := fs.Bool("q", false, "Minimal output (short)")
+
+	fs.Usage = func() {
+		fmt.Println("Usage: agent-deck session unset-parent <session>")
+		fmt.Println()
+		fmt.Println("Remove the sub-session link from a session.")
+		fmt.Println("The session will remain in its current group.")
+		fmt.Println()
+		fmt.Println("Options:")
+		fs.PrintDefaults()
+	}
+
+	if err := fs.Parse(args); err != nil {
+		os.Exit(1)
+	}
+
+	if fs.NArg() < 1 {
+		fs.Usage()
+		os.Exit(1)
+	}
+
+	sessionID := fs.Arg(0)
+	quietMode := *quiet || *quietShort
+	out := NewCLIOutput(*jsonOutput, quietMode)
+
+	// Load sessions
+	storage, instances, groupsData, err := loadSessionData(profile)
+	if err != nil {
+		out.Error(err.Error(), ErrCodeNotFound)
+		os.Exit(1)
+	}
+
+	// Resolve the session
+	inst, errMsg, errCode := ResolveSession(sessionID, instances)
+	if inst == nil {
+		out.Error(errMsg, errCode)
+		os.Exit(2)
+	}
+
+	// Check if it's actually a sub-session
+	if !inst.IsSubSession() {
+		out.Error(fmt.Sprintf("session '%s' is not a sub-session", inst.Title), ErrCodeInvalidOperation)
+		os.Exit(1)
+	}
+
+	// Get parent title for output
+	var parentTitle string
+	for _, other := range instances {
+		if other.ID == inst.ParentSessionID {
+			parentTitle = other.Title
+			break
+		}
+	}
+
+	// Clear parent
+	inst.ClearParent()
+
+	// Save
+	groupTree := session.NewGroupTreeWithGroups(instances, groupsData)
+	if err := storage.SaveWithGroups(instances, groupTree); err != nil {
+		out.Error(fmt.Sprintf("failed to save: %v", err), ErrCodeInvalidOperation)
+		os.Exit(1)
+	}
+
+	out.Success(fmt.Sprintf("Removed sub-session link from '%s' (was linked to '%s')", inst.Title, parentTitle), map[string]interface{}{
+		"success":        true,
+		"session_id":     inst.ID,
+		"session_title":  inst.Title,
+		"former_parent":  parentTitle,
+	})
+}
+
+// handleSessionSend sends a message to a running session
+func handleSessionSend(profile string, args []string) {
+	fs := flag.NewFlagSet("session send", flag.ExitOnError)
+	jsonOutput := fs.Bool("json", false, "Output as JSON")
+	quiet := fs.Bool("q", false, "Quiet mode")
+	fs.Parse(args)
+	remaining := fs.Args()
+
+	out := NewCLIOutput(*jsonOutput, *quiet)
+
+	if len(remaining) < 2 {
+		out.Error("usage: agent-deck session send <id> <message>", ErrCodeInvalidOperation)
+		os.Exit(1)
+	}
+
+	sessionRef := remaining[0]
+	message := strings.Join(remaining[1:], " ")
+
+	// Load sessions
+	_, instances, _, err := loadSessionData(profile)
+	if err != nil {
+		out.Error(err.Error(), ErrCodeNotFound)
+		os.Exit(1)
+	}
+
+	// Resolve session
+	inst, errMsg, errCode := ResolveSession(sessionRef, instances)
+	if inst == nil {
+		out.Error(errMsg, errCode)
+		if errCode == ErrCodeNotFound {
+			os.Exit(2)
+		}
+		os.Exit(1)
+	}
+
+	// Check if session is running
+	if !inst.Exists() {
+		out.Error(fmt.Sprintf("session '%s' is not running", inst.Title), ErrCodeInvalidOperation)
+		os.Exit(1)
+	}
+
+	// Get tmux session name
+	tmuxSess := inst.GetTmuxSession()
+	if tmuxSess == nil {
+		out.Error("could not determine tmux session", ErrCodeInvalidOperation)
+		os.Exit(1)
+	}
+	tmuxName := tmuxSess.Name
+
+	// Send message via tmux
+	cmd := exec.Command("tmux", "send-keys", "-l", "-t", tmuxName, message)
+	if err := cmd.Run(); err != nil {
+		out.Error(fmt.Sprintf("failed to send message: %v", err), ErrCodeInvalidOperation)
+		os.Exit(1)
+	}
+
+	// Send Enter
+	cmd = exec.Command("tmux", "send-keys", "-t", tmuxName, "Enter")
+	if err := cmd.Run(); err != nil {
+		out.Error(fmt.Sprintf("failed to send Enter: %v", err), ErrCodeInvalidOperation)
+		os.Exit(1)
+	}
+
+	out.Success(fmt.Sprintf("Sent message to '%s'", inst.Title), map[string]interface{}{
+		"success":       true,
+		"session_id":    inst.ID,
+		"session_title": inst.Title,
+		"message":       message,
+	})
+}
+
+// handleSessionOutput gets the last response from a session
+func handleSessionOutput(profile string, args []string) {
+	fs := flag.NewFlagSet("session output", flag.ExitOnError)
+	jsonOutput := fs.Bool("json", false, "Output as JSON")
+	quiet := fs.Bool("quiet", false, "Minimal output")
+	quietShort := fs.Bool("q", false, "Minimal output (short)")
+
+	fs.Usage = func() {
+		fmt.Println("Usage: agent-deck session output [id|title] [options]")
+		fmt.Println()
+		fmt.Println("Get the last response from a session. If no ID is provided, auto-detects current session.")
+		fmt.Println()
+		fmt.Println("Options:")
+		fs.PrintDefaults()
+	}
+
+	if err := fs.Parse(args); err != nil {
+		os.Exit(1)
+	}
+
+	identifier := fs.Arg(0)
+	quietMode := *quiet || *quietShort
+	out := NewCLIOutput(*jsonOutput, quietMode)
+
+	// Load sessions
+	_, instances, _, err := loadSessionData(profile)
+	if err != nil {
+		out.Error(fmt.Sprintf("failed to load sessions: %v", err), ErrCodeNotFound)
+		os.Exit(1)
+	}
+
+	// Resolve session (allow current session detection)
+	inst, errMsg, errCode := ResolveSessionOrCurrent(identifier, instances)
+	if inst == nil {
+		out.Error(errMsg, errCode)
+		if errCode == ErrCodeNotFound {
+			os.Exit(2)
+		}
+		os.Exit(1)
+	}
+
+	// Get the last response
+	response, err := inst.GetLastResponse()
+	if err != nil {
+		out.Error(fmt.Sprintf("failed to get response: %v", err), ErrCodeInvalidOperation)
+		os.Exit(1)
+	}
+
+	// Quiet mode: just print raw content
+	if quietMode {
+		fmt.Println(response.Content)
+		return
+	}
+
+	// Build JSON data
+	jsonData := map[string]interface{}{
+		"success":           true,
+		"session_id":        inst.ID,
+		"session_title":     inst.Title,
+		"tool":              response.Tool,
+		"role":              response.Role,
+		"content":           response.Content,
+		"timestamp":         response.Timestamp,
+		"claude_session_id": response.SessionID,
+	}
+
+	// Build human-readable output
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("Session: %s (%s)\n", inst.Title, response.Tool))
+	if response.Timestamp != "" {
+		sb.WriteString(fmt.Sprintf("Time: %s\n", response.Timestamp))
+	}
+	sb.WriteString("---\n")
+	sb.WriteString(response.Content)
+
+	out.Print(sb.String(), jsonData)
 }

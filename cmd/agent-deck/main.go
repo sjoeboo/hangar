@@ -23,7 +23,7 @@ import (
 	"github.com/muesli/termenv"
 )
 
-const Version = "0.6.2"
+const Version = "0.7.0"
 
 // Table column widths for list command output
 const (
@@ -249,40 +249,36 @@ func handleAdd(profile string, args []string) {
 	groupShort := fs.String("g", "", "Group path (short)")
 	command := fs.String("cmd", "", "Command to run (e.g., 'claude', 'opencode')")
 	commandShort := fs.String("c", "", "Command to run (short)")
+	parent := fs.String("parent", "", "Parent session (creates sub-session, inherits group)")
+	parentShort := fs.String("p", "", "Parent session (short)")
 
 	fs.Usage = func() {
-		fmt.Println("Usage: agent-deck add <path> [options]")
+		fmt.Println("Usage: agent-deck add [path] [options]")
 		fmt.Println()
 		fmt.Println("Add a new session to Agent Deck.")
 		fmt.Println()
 		fmt.Println("Arguments:")
-		fmt.Println("  <path>    Project directory (use '.' for current directory)")
+		fmt.Println("  [path]    Project directory (defaults to current directory)")
 		fmt.Println()
 		fmt.Println("Options:")
 		fs.PrintDefaults()
 		fmt.Println()
 		fmt.Println("Examples:")
-		fmt.Println("  agent-deck add .")
+		fmt.Println("  agent-deck add                       # Use current directory")
 		fmt.Println("  agent-deck add /path/to/project")
-		fmt.Println("  agent-deck add -t \"My Project\" -g \"work\" .")
+		fmt.Println("  agent-deck add -t \"My Project\" -g \"work\"")
 		fmt.Println("  agent-deck add -c claude .")
-		fmt.Println("  agent-deck -p work add .             # Add to 'work' profile")
+		fmt.Println("  agent-deck -p work add               # Add to 'work' profile")
+		fmt.Println("  agent-deck add -t \"Sub-task\" --parent \"Main Project\"  # Create sub-session")
 	}
 
 	if err := fs.Parse(args); err != nil {
 		os.Exit(1)
 	}
 
-	// Get path argument
+	// Get path argument (defaults to current directory)
 	path := fs.Arg(0)
-	if path == "" {
-		fmt.Println("Error: path is required")
-		fmt.Println("Usage: agent-deck add <path> [options]")
-		os.Exit(1)
-	}
-
-	// Resolve path
-	if path == "." {
+	if path == "" || path == "." {
 		var err error
 		path, err = os.Getwd()
 		if err != nil {
@@ -313,6 +309,7 @@ func handleAdd(profile string, args []string) {
 	sessionTitle := mergeFlags(*title, *titleShort)
 	sessionGroup := mergeFlags(*group, *groupShort)
 	sessionCommand := mergeFlags(*command, *commandShort)
+	sessionParent := mergeFlags(*parent, *parentShort)
 
 	// Default title to folder name
 	if sessionTitle == "" {
@@ -332,6 +329,24 @@ func handleAdd(profile string, args []string) {
 		os.Exit(1)
 	}
 
+	// Resolve parent session if specified
+	var parentInstance *session.Instance
+	if sessionParent != "" {
+		var errMsg string
+		parentInstance, errMsg, _ = ResolveSession(sessionParent, instances)
+		if parentInstance == nil {
+			fmt.Printf("Error: %s\n", errMsg)
+			os.Exit(1)
+		}
+		// Sub-sessions cannot have sub-sessions (single level only)
+		if parentInstance.IsSubSession() {
+			fmt.Printf("Error: cannot create sub-session of a sub-session (single level only)\n")
+			os.Exit(1)
+		}
+		// Inherit group from parent
+		sessionGroup = parentInstance.GroupPath
+	}
+
 	// Check for duplicate (same path)
 	for _, inst := range instances {
 		if inst.ProjectPath == path {
@@ -346,6 +361,11 @@ func handleAdd(profile string, args []string) {
 		newInstance = session.NewInstanceWithGroup(sessionTitle, path, sessionGroup)
 	} else {
 		newInstance = session.NewInstance(sessionTitle, path)
+	}
+
+	// Set parent if specified
+	if parentInstance != nil {
+		newInstance.SetParent(parentInstance.ID)
 	}
 
 	// Set command if provided
@@ -377,6 +397,9 @@ func handleAdd(profile string, args []string) {
 	fmt.Printf("  ID:      %s\n", newInstance.ID)
 	if sessionCommand != "" {
 		fmt.Printf("  Cmd:     %s\n", sessionCommand)
+	}
+	if parentInstance != nil {
+		fmt.Printf("  Parent:  %s (%s)\n", parentInstance.Title, parentInstance.ID[:8])
 	}
 }
 

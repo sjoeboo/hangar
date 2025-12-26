@@ -1658,6 +1658,77 @@ func (s *Session) WaitForShellPrompt(timeout time.Duration) bool {
 	return false
 }
 
+// WaitForReady polls the terminal until the agent is ready for input
+// Ready state = NO busy indicator AND prompt visible
+// This works for Claude ("> "), Gemini, and other agents
+func (s *Session) WaitForReady(timeout time.Duration) bool {
+	deadline := time.Now().Add(timeout)
+	pollInterval := 100 * time.Millisecond
+	attempts := 0
+
+	for time.Now().Before(deadline) {
+		attempts++
+		content, err := s.CapturePane()
+		if err != nil {
+			log.Printf("[WaitForReady] Attempt %d: CapturePane error: %v", attempts, err)
+			time.Sleep(pollInterval)
+			continue
+		}
+
+		busy := s.hasBusyIndicator(content)
+		prompt := hasPrompt(content)
+
+		if attempts%10 == 0 { // Log every 10th attempt (every second)
+			log.Printf("[WaitForReady] Attempt %d: busy=%v, prompt=%v", attempts, busy, prompt)
+		}
+
+		// Check: NOT busy AND has prompt
+		if !busy && prompt {
+			log.Printf("[WaitForReady] READY detected after %d attempts (%.1fs)", attempts, float64(attempts)*0.1)
+			return true // Ready for input!
+		}
+
+		time.Sleep(pollInterval)
+	}
+
+	log.Printf("[WaitForReady] TIMEOUT after %d attempts", attempts)
+	return false // Timeout
+}
+
+// hasPrompt checks for input prompts (Claude, shell, other agents)
+func hasPrompt(content string) bool {
+	lines := strings.Split(content, "\n")
+	if len(lines) == 0 {
+		return false
+	}
+
+	// Check last 5 lines (Claude's "> " might be above permissions dialog)
+	start := len(lines) - 5
+	if start < 0 {
+		start = 0
+	}
+
+	for _, line := range lines[start:] {
+		trimmed := strings.TrimSpace(line)
+
+		// Claude prompt: "> " or just ">"
+		if strings.Contains(line, "> ") || trimmed == ">" {
+			return true
+		}
+
+		// Shell prompts: $, #, %, ❯, ➜
+		if strings.HasSuffix(trimmed, "$") ||
+			strings.HasSuffix(trimmed, "#") ||
+			strings.HasSuffix(trimmed, "%") ||
+			strings.Contains(line, "❯") ||
+			strings.Contains(line, "➜") {
+			return true
+		}
+	}
+
+	return false
+}
+
 // IsClaudeRunning checks if Claude appears to be running in the session
 // Returns true if Claude indicators are found
 func (s *Session) IsClaudeRunning() bool {
