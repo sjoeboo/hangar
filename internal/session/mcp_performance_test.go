@@ -39,7 +39,7 @@ func BenchmarkGetMCPInfo_NoMCPJson(b *testing.B) {
 	}()
 	claudeConfig := map[string]interface{}{"mcpServers": map[string]interface{}{}}
 	claudeData, _ := json.MarshalIndent(claudeConfig, "", "  ")
-	os.WriteFile(filepath.Join(tmpClaudeConfig, ".claude.json"), claudeData, 0600)
+	_ = os.WriteFile(filepath.Join(tmpClaudeConfig, ".claude.json"), claudeData, 0600)
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
@@ -69,7 +69,7 @@ func BenchmarkGetMCPInfo_WithMCPJson(b *testing.B) {
 		},
 	}
 	mcpData, _ := json.MarshalIndent(mcpConfig, "", "  ")
-	os.WriteFile(filepath.Join(tmpDir, ".mcp.json"), mcpData, 0644)
+	_ = os.WriteFile(filepath.Join(tmpDir, ".mcp.json"), mcpData, 0644)
 
 	// Setup minimal Claude config
 	oldConfigDir := os.Getenv("CLAUDE_CONFIG_DIR")
@@ -85,7 +85,7 @@ func BenchmarkGetMCPInfo_WithMCPJson(b *testing.B) {
 	}()
 	claudeConfig := map[string]interface{}{"mcpServers": map[string]interface{}{}}
 	claudeData, _ := json.MarshalIndent(claudeConfig, "", "  ")
-	os.WriteFile(filepath.Join(tmpClaudeConfig, ".claude.json"), claudeData, 0600)
+	_ = os.WriteFile(filepath.Join(tmpClaudeConfig, ".claude.json"), claudeData, 0600)
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
@@ -111,7 +111,7 @@ func BenchmarkGetMCPInfo_ParentDirectory(b *testing.B) {
 		},
 	}
 	mcpData, _ := json.MarshalIndent(mcpConfig, "", "  ")
-	os.WriteFile(filepath.Join(tmpRoot, ".mcp.json"), mcpData, 0644)
+	_ = os.WriteFile(filepath.Join(tmpRoot, ".mcp.json"), mcpData, 0644)
 
 	// Create subdir (project will be here)
 	projectDir := filepath.Join(tmpRoot, "project", "subdir")
@@ -133,7 +133,7 @@ func BenchmarkGetMCPInfo_ParentDirectory(b *testing.B) {
 	}()
 	claudeConfig := map[string]interface{}{"mcpServers": map[string]interface{}{}}
 	claudeData, _ := json.MarshalIndent(claudeConfig, "", "  ")
-	os.WriteFile(filepath.Join(tmpClaudeConfig, ".claude.json"), claudeData, 0600)
+	_ = os.WriteFile(filepath.Join(tmpClaudeConfig, ".claude.json"), claudeData, 0600)
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
