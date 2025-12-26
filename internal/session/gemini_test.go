@@ -5,7 +5,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 )
 
 func TestGetGeminiConfigDir_Default(t *testing.T) {
@@ -215,50 +214,5 @@ func TestListGeminiSessions(t *testing.T) {
 	}
 }
 
-func TestFindGeminiSessionForInstance(t *testing.T) {
-	tmpDir := t.TempDir()
-	geminiConfigDirOverride = tmpDir
-	defer func() { geminiConfigDirOverride = "" }()
-
-	projectPath := "/Users/ashesh/test-project"
-	sessionsDir := GetGeminiSessionsDir(projectPath)
-	os.MkdirAll(sessionsDir, 0755)
-
-	// Create session BEFORE instance creation time
-	oldSession := filepath.Join(sessionsDir, "session-2025-12-20T00-00-old00000.json")
-	oldData := `{
-  "sessionId": "old00000-0000-0000-0000-000000000000",
-  "startTime": "2025-12-20T00:00:00.000Z",
-  "lastUpdated": "2025-12-20T00:01:00.000Z",
-  "messages": []
-}`
-	os.WriteFile(oldSession, []byte(oldData), 0644)
-
-	// Create session AFTER instance creation time
-	newSession := filepath.Join(sessionsDir, "session-2025-12-23T00-00-new11111.json")
-	newData := `{
-  "sessionId": "new11111-1111-1111-1111-111111111111",
-  "startTime": "2025-12-23T00:00:00.000Z",
-  "lastUpdated": "2025-12-23T00:01:00.000Z",
-  "messages": []
-}`
-	os.WriteFile(newSession, []byte(newData), 0644)
-
-	// Instance created on 2025-12-22
-	createdAfter := time.Date(2025, 12, 22, 0, 0, 0, 0, time.UTC)
-
-	// Should find new session (created after instance)
-	sessionID := FindGeminiSessionForInstance(projectPath, createdAfter, nil)
-	if sessionID != "new11111-1111-1111-1111-111111111111" {
-		t.Errorf("Should find new session, got %s", sessionID)
-	}
-
-	// Test exclusion
-	excludeIDs := map[string]bool{
-		"new11111-1111-1111-1111-111111111111": true,
-	}
-	sessionID2 := FindGeminiSessionForInstance(projectPath, createdAfter, excludeIDs)
-	if sessionID2 != "" {
-		t.Errorf("Should not find excluded session, got %s", sessionID2)
-	}
-}
+// TestFindGeminiSessionForInstance was removed - file scanning is no longer used.
+// Session ID detection now uses tmux environment variables exclusively.

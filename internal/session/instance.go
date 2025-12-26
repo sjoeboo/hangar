@@ -502,98 +502,61 @@ func (i *Instance) UpdateStatus() error {
 	return nil
 }
 
-// UpdateClaudeSession updates the Claude session ID using detection
-// Priority: 1) tmux environment (for sessions we started), 2) file scanning (legacy/imported)
-// excludeIDs contains session IDs already claimed by other instances
-// Pass nil to skip deduplication (when called from UpdateStatus)
+// UpdateClaudeSession updates the Claude session ID from tmux environment.
+// The capture-resume pattern (used in Start/Fork/Restart) sets CLAUDE_SESSION_ID
+// in the tmux environment, making this the single authoritative source.
+//
+// No file scanning fallback - we rely on the consistent capture-resume pattern.
 func (i *Instance) UpdateClaudeSession(excludeIDs map[string]bool) {
 	if i.Tool != "claude" {
 		return
 	}
 
-	// If we already have a session ID and it's recent, just refresh timestamp
-	if i.ClaudeSessionID != "" && time.Since(i.ClaudeDetectedAt) < 5*time.Minute {
-		return
-	}
-
-	// PRIMARY: Try tmux environment first (most reliable for sessions we started)
+	// Read from tmux environment (set by capture-resume pattern)
 	if sessionID := i.GetSessionIDFromTmux(); sessionID != "" {
-		i.ClaudeSessionID = sessionID
-		i.ClaudeDetectedAt = time.Now()
-		return
-	}
-
-	// FALLBACK: File scanning (for imported/legacy sessions)
-	workDir := i.ProjectPath
-	if i.tmuxSession != nil {
-		if wd := i.tmuxSession.GetWorkDir(); wd != "" {
-			workDir = wd
+		if i.ClaudeSessionID != sessionID {
+			i.ClaudeSessionID = sessionID
 		}
-	}
-
-	// Use the new FindSessionForInstance with timestamp filtering and deduplication
-	sessionID := FindSessionForInstance(workDir, i.CreatedAt, excludeIDs)
-	if sessionID != "" {
-		i.ClaudeSessionID = sessionID
 		i.ClaudeDetectedAt = time.Now()
 	}
 }
 
-// UpdateGeminiSession updates the Gemini session ID using detection
-// Priority: 1) tmux environment (we set it manually), 2) file scanning
+// UpdateGeminiSession updates the Gemini session ID from tmux environment.
+// The capture-resume pattern (used in Start/Restart) sets GEMINI_SESSION_ID
+// in the tmux environment, making this the single authoritative source.
+//
+// No file scanning fallback - we rely on the consistent capture-resume pattern.
 func (i *Instance) UpdateGeminiSession(excludeIDs map[string]bool) {
 	if i.Tool != "gemini" {
 		return
 	}
 
-	// If we already have a recent session ID, skip
-	if i.GeminiSessionID != "" && time.Since(i.GeminiDetectedAt) < 5*time.Minute {
-		return
-	}
-
-	// PRIMARY: Try tmux environment first (we set this manually during session start)
+	// Read from tmux environment (set by capture-resume pattern)
 	if i.tmuxSession != nil {
 		if sessionID, err := i.tmuxSession.GetEnvironment("GEMINI_SESSION_ID"); err == nil && sessionID != "" {
-			i.GeminiSessionID = sessionID
+			if i.GeminiSessionID != sessionID {
+				i.GeminiSessionID = sessionID
+			}
 			i.GeminiDetectedAt = time.Now()
-			return
 		}
-	}
-
-	// FALLBACK: File scanning
-	sessionID := FindGeminiSessionForInstance(i.ProjectPath, i.CreatedAt, excludeIDs)
-	if sessionID != "" {
-		i.GeminiSessionID = sessionID
-		i.GeminiDetectedAt = time.Now()
 	}
 }
 
-// WaitForClaudeSession waits for Claude to create a session file (for forked sessions)
-// Returns the detected session ID or empty string after timeout
-// Uses FindSessionForInstance with timestamp filtering to ensure we only detect
-// session files created AFTER this instance started (not parent's pre-existing file)
+// WaitForClaudeSession waits for the tmux environment variable to be set.
+// The capture-resume pattern sets CLAUDE_SESSION_ID in tmux env, so we poll for that.
+// Returns the detected session ID or empty string after timeout.
 func (i *Instance) WaitForClaudeSession(maxWait time.Duration) string {
 	if i.Tool != "claude" {
 		return ""
 	}
 
-	workDir := i.ProjectPath
-	if i.tmuxSession != nil {
-		if wd := i.tmuxSession.GetWorkDir(); wd != "" {
-			workDir = wd
-		}
-	}
-
 	// Poll every 200ms for up to maxWait
 	interval := 200 * time.Millisecond
 	deadline := time.Now().Add(maxWait)
 
 	for time.Now().Before(deadline) {
-		// Use FindSessionForInstance with timestamp filtering
-		// This ensures we only match files created AFTER this instance started
-		// Critical for forks: prevents detecting parent's file instead of new fork file
-		sessionID := FindSessionForInstance(workDir, i.CreatedAt, nil)
-		if sessionID != "" {
+		// Check tmux environment (set by capture-resume pattern)
+		if sessionID := i.GetSessionIDFromTmux(); sessionID != "" {
 			i.ClaudeSessionID = sessionID
 			i.ClaudeDetectedAt = time.Now()
 			return sessionID
@@ -604,40 +567,12 @@ func (i *Instance) WaitForClaudeSession(maxWait time.Duration) string {
 	return ""
 }
 
-// WaitForClaudeSessionWithExclude waits for Claude to create a session file with exclusion list
-// This is more robust than WaitForClaudeSession as it explicitly excludes known session IDs
-// Use this when forking to ensure the fork's new session is detected, not an existing one
+// WaitForClaudeSessionWithExclude waits for the tmux environment variable to be set.
+// The excludeIDs parameter is kept for API compatibility but not used since tmux env
+// is authoritative and won't return duplicate IDs.
 func (i *Instance) WaitForClaudeSessionWithExclude(maxWait time.Duration, excludeIDs map[string]bool) string {
-	if i.Tool != "claude" {
-		return ""
-	}
-
-	workDir := i.ProjectPath
-	if i.tmuxSession != nil {
-		if wd := i.tmuxSession.GetWorkDir(); wd != "" {
-			workDir = wd
-		}
-	}
-
-	// Poll every 200ms for up to maxWait
-	interval := 200 * time.Millisecond
-	deadline := time.Now().Add(maxWait)
-
-	for time.Now().Before(deadline) {
-		// Use FindSessionForInstance with timestamp filtering AND exclusion list
-		// This ensures we only match files:
-		// 1. Created AFTER this instance started (timestamp filter)
-		// 2. Not already claimed by another session (excludeIDs)
-		sessionID := FindSessionForInstance(workDir, i.CreatedAt, excludeIDs)
-		if sessionID != "" {
-			i.ClaudeSessionID = sessionID
-			i.ClaudeDetectedAt = time.Now()
-			return sessionID
-		}
-		time.Sleep(interval)
-	}
-
-	return ""
+	// tmux env is authoritative - no need for exclusion logic
+	return i.WaitForClaudeSession(maxWait)
 }
 
 // Preview returns the last 3 lines of terminal output
@@ -707,6 +642,11 @@ func (i *Instance) GetLastResponse() (*ResponseOutput, error) {
 
 // getClaudeLastResponse extracts the last assistant message from Claude's JSONL file
 func (i *Instance) getClaudeLastResponse() (*ResponseOutput, error) {
+	// Require stored session ID - no fallback to file scanning
+	if i.ClaudeSessionID == "" {
+		return nil, fmt.Errorf("no Claude session ID available for this instance")
+	}
+
 	configDir := GetClaudeConfigDir()
 
 	// Convert project path to Claude's directory format
@@ -714,26 +654,8 @@ func (i *Instance) getClaudeLastResponse() (*ResponseOutput, error) {
 	projectDirName := strings.ReplaceAll(i.ProjectPath, "/", "-")
 	projectDir := filepath.Join(configDir, "projects", projectDirName)
 
-	// Find the session file
-	var sessionFile string
-	if i.ClaudeSessionID != "" {
-		// Known session ID
-		sessionFile = filepath.Join(projectDir, i.ClaudeSessionID+".jsonl")
-		if _, err := os.Stat(sessionFile); os.IsNotExist(err) {
-			// Try to find it by detection
-			sessionID := FindSessionForInstance(i.ProjectPath, i.CreatedAt.Add(-time.Hour), nil)
-			if sessionID != "" {
-				sessionFile = filepath.Join(projectDir, sessionID+".jsonl")
-			}
-		}
-	} else {
-		// Detect session
-		sessionID := FindSessionForInstance(i.ProjectPath, i.CreatedAt.Add(-time.Hour), nil)
-		if sessionID == "" {
-			return nil, fmt.Errorf("no Claude session found for this instance")
-		}
-		sessionFile = filepath.Join(projectDir, sessionID+".jsonl")
-	}
+	// Use stored session ID directly
+	sessionFile := filepath.Join(projectDir, i.ClaudeSessionID+".jsonl")
 
 	// Check file exists
 	if _, err := os.Stat(sessionFile); os.IsNotExist(err) {
@@ -848,38 +770,21 @@ func parseClaudeLastAssistantMessage(data []byte, sessionID string) (*ResponseOu
 
 // getGeminiLastResponse extracts the last assistant message from Gemini's JSON file
 func (i *Instance) getGeminiLastResponse() (*ResponseOutput, error) {
+	// Require stored session ID - no fallback to file scanning
+	if i.GeminiSessionID == "" || len(i.GeminiSessionID) < 8 {
+		return nil, fmt.Errorf("no Gemini session ID available for this instance")
+	}
+
 	sessionsDir := GetGeminiSessionsDir(i.ProjectPath)
 
-	// Find the session file
-	var sessionFile string
-	if i.GeminiSessionID != "" && len(i.GeminiSessionID) >= 8 {
-		// Try to find file by session ID (first 8 chars in filename)
-		// VERIFIED: Filename format is session-YYYY-MM-DDTHH-MM-<uuid8>.json
-		pattern := filepath.Join(sessionsDir, "session-*-"+i.GeminiSessionID[:8]+".json")
-		files, _ := filepath.Glob(pattern)
-		if len(files) > 0 {
-			sessionFile = files[0]
-		}
+	// Find file by session ID (first 8 chars in filename)
+	// Filename format is session-YYYY-MM-DDTHH-MM-<uuid8>.json
+	pattern := filepath.Join(sessionsDir, "session-*-"+i.GeminiSessionID[:8]+".json")
+	files, _ := filepath.Glob(pattern)
+	if len(files) == 0 {
+		return nil, fmt.Errorf("session file not found for ID: %s", i.GeminiSessionID)
 	}
-
-	if sessionFile == "" {
-		// Detect session by scanning
-		sessionID := FindGeminiSessionForInstance(i.ProjectPath, i.CreatedAt.Add(-time.Hour), nil)
-		if sessionID == "" {
-			return nil, fmt.Errorf("no Gemini session found for this instance")
-		}
-
-		if len(sessionID) >= 8 {
-			pattern := filepath.Join(sessionsDir, "session-*-"+sessionID[:8]+".json")
-			files, _ := filepath.Glob(pattern)
-			if len(files) == 0 {
-				return nil, fmt.Errorf("session file not found")
-			}
-			sessionFile = files[0]
-		} else {
-			return nil, fmt.Errorf("invalid session ID length")
-		}
-	}
+	sessionFile := files[0]
 
 	// Read and parse the JSON file
 	data, err := os.ReadFile(sessionFile)
@@ -1123,7 +1028,9 @@ func (i *Instance) Restart() error {
 	if i.Tool == "claude" && i.ClaudeSessionID != "" {
 		command = i.buildClaudeResumeCommand()
 	} else if i.Tool == "gemini" && i.GeminiSessionID != "" {
-		command = fmt.Sprintf("gemini --resume %s", i.GeminiSessionID)
+		// Set GEMINI_SESSION_ID in tmux env so detection works after restart
+		command = fmt.Sprintf("tmux set-environment GEMINI_SESSION_ID %s && gemini --resume %s",
+			i.GeminiSessionID, i.GeminiSessionID)
 	} else {
 		// Route to appropriate command builder based on tool
 		switch i.Tool {
@@ -1160,6 +1067,7 @@ func (i *Instance) Restart() error {
 
 // buildClaudeResumeCommand builds the claude resume command with proper config options
 // Respects: CLAUDE_CONFIG_DIR, dangerous_mode from user config
+// IMPORTANT: Also sets CLAUDE_SESSION_ID in tmux environment so detection works after restart
 func (i *Instance) buildClaudeResumeCommand() string {
 	configDir := GetClaudeConfigDir()
 
@@ -1169,13 +1077,15 @@ func (i *Instance) buildClaudeResumeCommand() string {
 		dangerousMode = userConfig.Claude.DangerousMode
 	}
 
-	// Build the command
+	// Build the command with tmux environment update
+	// This ensures CLAUDE_SESSION_ID is set in tmux env after restart,
+	// so GetSessionIDFromTmux() works correctly and detects the session
 	if dangerousMode {
-		return fmt.Sprintf("CLAUDE_CONFIG_DIR=%s claude --resume %s --dangerously-skip-permissions",
-			configDir, i.ClaudeSessionID)
+		return fmt.Sprintf("tmux set-environment CLAUDE_SESSION_ID %s && CLAUDE_CONFIG_DIR=%s claude --resume %s --dangerously-skip-permissions",
+			i.ClaudeSessionID, configDir, i.ClaudeSessionID)
 	}
-	return fmt.Sprintf("CLAUDE_CONFIG_DIR=%s claude --resume %s",
-		configDir, i.ClaudeSessionID)
+	return fmt.Sprintf("tmux set-environment CLAUDE_SESSION_ID %s && CLAUDE_CONFIG_DIR=%s claude --resume %s",
+		i.ClaudeSessionID, configDir, i.ClaudeSessionID)
 }
 
 // CanRestart returns true if the session can be restarted
@@ -1361,17 +1271,17 @@ func randomString(length int) string {
 	return hex.EncodeToString(bytes)
 }
 
-// UpdateClaudeSessionsWithDedup updates Claude sessions for all instances with deduplication
-// This should be called from the manager/storage layer that has access to all instances
-// It both fixes existing duplicates AND prevents new duplicates during detection
+// UpdateClaudeSessionsWithDedup clears duplicate Claude session IDs across instances.
+// The oldest session (by CreatedAt) keeps its ID, newer duplicates are cleared.
+// With tmux env being authoritative, duplicates shouldn't occur in normal use,
+// but we handle them defensively for loaded/migrated sessions.
 func UpdateClaudeSessionsWithDedup(instances []*Instance) {
 	// Sort instances by CreatedAt (older first get priority for keeping IDs)
 	sort.Slice(instances, func(i, j int) bool {
 		return instances[i].CreatedAt.Before(instances[j].CreatedAt)
 	})
 
-	// Step 1: Find and clear duplicate IDs (keep only the oldest session's claim)
-	// Map from session ID to the instance that owns it (oldest one)
+	// Find and clear duplicate IDs (keep only the oldest session's claim)
 	idOwner := make(map[string]*Instance)
 	for _, inst := range instances {
 		if inst.Tool != "claude" || inst.ClaudeSessionID == "" {
@@ -1379,7 +1289,7 @@ func UpdateClaudeSessionsWithDedup(instances []*Instance) {
 		}
 		if owner, exists := idOwner[inst.ClaudeSessionID]; exists {
 			// Duplicate found! The older session (owner) keeps the ID
-			// Clear the newer session's ID so it can re-detect
+			// Clear the newer session's ID (it will get a new one from tmux env)
 			inst.ClaudeSessionID = ""
 			inst.ClaudeDetectedAt = time.Time{}
 			_ = owner // Older session keeps its ID
@@ -1387,21 +1297,6 @@ func UpdateClaudeSessionsWithDedup(instances []*Instance) {
 			idOwner[inst.ClaudeSessionID] = inst
 		}
 	}
-
-	// Step 2: Build usedIDs from remaining assigned IDs
-	usedIDs := make(map[string]bool)
-	for id := range idOwner {
-		usedIDs[id] = true
-	}
-
-	// Step 3: Re-detect for sessions that need it (empty or cleared IDs)
-	for _, inst := range instances {
-		if inst.Tool == "claude" && inst.ClaudeSessionID == "" {
-			inst.UpdateClaudeSession(usedIDs)
-			// If we found one, add to used IDs
-			if inst.ClaudeSessionID != "" {
-				usedIDs[inst.ClaudeSessionID] = true
-			}
-		}
-	}
+	// No re-detection step - tmux env is the authoritative source
+	// Sessions will get their IDs from UpdateClaudeSession() during normal status updates
 }

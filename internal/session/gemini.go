@@ -124,28 +124,3 @@ func ListGeminiSessions(projectPath string) ([]GeminiSessionInfo, error) {
 	return sessions, nil
 }
 
-// FindGeminiSessionForInstance finds session created after instance start
-// Parameters:
-//   - projectPath: project directory
-//   - createdAfter: only consider sessions created after this time
-//   - excludeIDs: session IDs already claimed by other instances
-func FindGeminiSessionForInstance(projectPath string, createdAfter time.Time, excludeIDs map[string]bool) string {
-	sessions, err := ListGeminiSessions(projectPath)
-	if err != nil {
-		return ""
-	}
-
-	for _, session := range sessions {
-		// Skip if already claimed
-		if excludeIDs != nil && excludeIDs[session.SessionID] {
-			continue
-		}
-
-		// Only consider sessions created STRICTLY after instance
-		if session.StartTime.After(createdAfter) {
-			return session.SessionID
-		}
-	}
-
-	return ""
-}

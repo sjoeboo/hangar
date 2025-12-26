@@ -375,6 +375,58 @@ func TestInstance_UpdateClaudeSession_TmuxFirst(t *testing.T) {
 	}
 }
 
+// TestInstance_UpdateClaudeSession_PreservesExistingID verifies that existing
+// session IDs from storage are preserved when tmux env is empty.
+// With the new tmux-only approach, we only update when tmux env has a value.
+func TestInstance_UpdateClaudeSession_PreservesExistingID(t *testing.T) {
+	// Create instance with known session ID (simulating loaded from storage)
+	inst := NewInstanceWithTool("preserve-id-test", "/tmp", "claude")
+	existingID := "existing-session-id-abc123"
+	inst.ClaudeSessionID = existingID
+	oldDetectedAt := time.Now().Add(-10 * time.Minute)
+	inst.ClaudeDetectedAt = oldDetectedAt
+
+	// Call UpdateClaudeSession - without tmux session, nothing should change
+	inst.UpdateClaudeSession(nil)
+
+	// Existing session ID must be preserved (tmux env is empty, so no change)
+	if inst.ClaudeSessionID != existingID {
+		t.Errorf("ClaudeSessionID was changed from %q to %q - should preserve stored ID when tmux env is empty",
+			existingID, inst.ClaudeSessionID)
+	}
+
+	// Timestamp should NOT change (no tmux env = no update)
+	if inst.ClaudeDetectedAt != oldDetectedAt {
+		t.Error("ClaudeDetectedAt should not change when tmux env is empty")
+	}
+}
+
+// TestInstance_UpdateGeminiSession_PreservesExistingID verifies that existing
+// Gemini session IDs from storage are preserved when tmux env is empty.
+// With the new tmux-only approach, we only update when tmux env has a value.
+func TestInstance_UpdateGeminiSession_PreservesExistingID(t *testing.T) {
+	// Create instance with known session ID (simulating loaded from storage)
+	inst := NewInstanceWithTool("preserve-gemini-test", "/tmp", "gemini")
+	existingID := "existing-gemini-id-xyz789"
+	inst.GeminiSessionID = existingID
+	oldDetectedAt := time.Now().Add(-10 * time.Minute)
+	inst.GeminiDetectedAt = oldDetectedAt
+
+	// Call UpdateGeminiSession - without tmux session, nothing should change
+	inst.UpdateGeminiSession(nil)
+
+	// Existing session ID must be preserved (tmux env is empty, so no change)
+	if inst.GeminiSessionID != existingID {
+		t.Errorf("GeminiSessionID was changed from %q to %q - should preserve stored ID when tmux env is empty",
+			existingID, inst.GeminiSessionID)
+	}
+
+	// Timestamp should NOT change (no tmux env = no update)
+	if inst.GeminiDetectedAt != oldDetectedAt {
+		t.Error("GeminiDetectedAt should not change when tmux env is empty")
+	}
+}
+
 func TestInstance_Restart_ResumesClaudeSession(t *testing.T) {
 	if _, err := exec.LookPath("tmux"); err != nil {
 		t.Skip("tmux not available")
