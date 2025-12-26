@@ -444,15 +444,20 @@ Think of it as **tmux + AI awareness**. The sessions run in tmux (reliability), 
 ### Does it work with tools besides Claude Code?
 
 **Yes!** Agent Deck works with any terminal-based tool:
-- ✅ Claude Code
+- ✅ **Claude Code** - Full integration (session detection, MCP management, fork, resume)
+- ✅ **Gemini CLI** - Full integration (session detection, MCP management, resume)
+  - Session detection from `~/.gemini/tmp/<project-hash>/chats/`
+  - Resume with `gemini --resume <id>`
+  - MCP management via UI (press `M`)
+  - Response extraction via `session output`
+  - **Note:** No fork support (use sub-sessions instead)
 - ✅ OpenCode
-- ✅ Gemini CLI
 - ✅ Cursor (terminal mode)
 - ✅ Codex
 - ✅ Custom shell scripts
 - ✅ Any command-line tool
 
-Some features are Claude-specific (session forking, MCP manager), but status detection, organization, and search work with everything.
+Claude and Gemini get full integration with session management, MCP configuration, and response extraction. Other tools get status detection, organization, and search.
 
 ### Can I use it on Windows?
 
