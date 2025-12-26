@@ -241,6 +241,37 @@ func (i *Instance) buildClaudeCommandWithMessage(baseCommand, message string) st
 	return baseCommand
 }
 
+// buildGeminiCommand builds the gemini command with session capture
+// For new sessions: captures session ID via stream-json, stores in tmux env, then resumes
+// For sessions with known ID: uses simple resume
+// This ensures we always know the session ID for restart features
+// VERIFIED: gemini --output-format stream-json provides immediate session ID in first message
+func (i *Instance) buildGeminiCommand(baseCommand string) string {
+	if i.Tool != "gemini" {
+		return baseCommand
+	}
+
+	// If baseCommand is just "gemini", handle specially
+	if baseCommand == "gemini" {
+		// If we already have a session ID, use simple resume
+		if i.GeminiSessionID != "" {
+			return fmt.Sprintf("gemini --resume %s", i.GeminiSessionID)
+		}
+
+		// Build the capture-resume command for new sessions
+		// This command:
+		// 1. Starts Gemini with stream-json to get session ID from first message
+		// 2. Stores session ID in tmux environment (for retrieval by agent-deck)
+		// 3. Resumes that session interactively
+		return `session_id=$(gemini --output-format stream-json -i 2>/dev/null | head -1 | jq -r '.session_id') && ` +
+			`tmux set-environment GEMINI_SESSION_ID "$session_id" && ` +
+			`gemini --resume "$session_id"`
+	}
+
+	// For custom commands (e.g., resume commands), return as-is
+	return baseCommand
+}
+
 // Start starts the session in tmux
 func (i *Instance) Start() error {
 	if i.tmuxSession == nil {

@@ -514,3 +514,36 @@ func TestInstance_UpdateGeminiSession(t *testing.T) {
 		t.Error("Should not redetect when ID is recent")
 	}
 }
+
+func TestBuildGeminiCommand(t *testing.T) {
+	inst := NewInstanceWithTool("test", "/tmp/test", "gemini")
+
+	// Without session ID, should return capture-resume pattern
+	cmd := inst.buildGeminiCommand("gemini")
+
+	// Should contain stream-json and session ID capture
+	if !strings.Contains(cmd, "--output-format stream-json") {
+		t.Error("Should use stream-json for session ID capture")
+	}
+	if !strings.Contains(cmd, "GEMINI_SESSION_ID") {
+		t.Error("Should set GEMINI_SESSION_ID in tmux environment")
+	}
+	if !strings.Contains(cmd, "--resume") {
+		t.Error("Should resume captured session")
+	}
+
+	// With session ID, should use simple resume
+	inst.GeminiSessionID = "abc-123-def"
+	cmd = inst.buildGeminiCommand("gemini")
+	expected := "gemini --resume abc-123-def"
+	if cmd != expected {
+		t.Errorf("buildGeminiCommand('gemini') = %q, want %q", cmd, expected)
+	}
+
+	// Custom commands should pass through
+	customCmd := "gemini --some-flag"
+	cmd = inst.buildGeminiCommand(customCmd)
+	if cmd != customCmd {
+		t.Errorf("buildGeminiCommand(custom) = %q, want %q", cmd, customCmd)
+	}
+}
