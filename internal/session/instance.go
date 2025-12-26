@@ -693,10 +693,14 @@ type ResponseOutput struct {
 
 // GetLastResponse returns the last assistant response from the session
 // For Claude: Parses the JSONL file for the last assistant message
-// For Gemini/Codex: Attempts to parse terminal output
+// For Gemini: Parses the JSON session file for the last assistant message
+// For Codex/Others: Attempts to parse terminal output
 func (i *Instance) GetLastResponse() (*ResponseOutput, error) {
 	if i.Tool == "claude" {
 		return i.getClaudeLastResponse()
+	}
+	if i.Tool == "gemini" {
+		return i.getGeminiLastResponse()
 	}
 	return i.getTerminalLastResponse()
 }
@@ -840,6 +844,50 @@ func parseClaudeLastAssistantMessage(data []byte, sessionID string) (*ResponseOu
 		Timestamp: lastTimestamp,
 		SessionID: foundSessionID,
 	}, nil
+}
+
+// getGeminiLastResponse extracts the last assistant message from Gemini's JSON file
+func (i *Instance) getGeminiLastResponse() (*ResponseOutput, error) {
+	sessionsDir := GetGeminiSessionsDir(i.ProjectPath)
+
+	// Find the session file
+	var sessionFile string
+	if i.GeminiSessionID != "" && len(i.GeminiSessionID) >= 8 {
+		// Try to find file by session ID (first 8 chars in filename)
+		// VERIFIED: Filename format is session-YYYY-MM-DDTHH-MM-<uuid8>.json
+		pattern := filepath.Join(sessionsDir, "session-*-"+i.GeminiSessionID[:8]+".json")
+		files, _ := filepath.Glob(pattern)
+		if len(files) > 0 {
+			sessionFile = files[0]
+		}
+	}
+
+	if sessionFile == "" {
+		// Detect session by scanning
+		sessionID := FindGeminiSessionForInstance(i.ProjectPath, i.CreatedAt.Add(-time.Hour), nil)
+		if sessionID == "" {
+			return nil, fmt.Errorf("no Gemini session found for this instance")
+		}
+
+		if len(sessionID) >= 8 {
+			pattern := filepath.Join(sessionsDir, "session-*-"+sessionID[:8]+".json")
+			files, _ := filepath.Glob(pattern)
+			if len(files) == 0 {
+				return nil, fmt.Errorf("session file not found")
+			}
+			sessionFile = files[0]
+		} else {
+			return nil, fmt.Errorf("invalid session ID length")
+		}
+	}
+
+	// Read and parse the JSON file
+	data, err := os.ReadFile(sessionFile)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read session file: %w", err)
+	}
+
+	return parseGeminiLastAssistantMessage(data)
 }
 
 // parseGeminiLastAssistantMessage parses a Gemini JSON file to extract the last assistant message
