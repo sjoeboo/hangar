@@ -39,6 +39,8 @@ func handleSession(profile string, args []string) {
 		handleSessionSetParent(profile, args[1:])
 	case "unset-parent":
 		handleSessionUnsetParent(profile, args[1:])
+	case "set":
+		handleSessionSet(profile, args[1:])
 	case "send":
 		handleSessionSend(profile, args[1:])
 	case "output":
@@ -66,6 +68,7 @@ func printSessionHelp() {
 	fmt.Println("  attach <id>             Attach to session interactively")
 	fmt.Println("  show [id]               Show session details (auto-detect current if no id)")
 	fmt.Println("  current                 Show current session and profile (auto-detect)")
+	fmt.Println("  set <id> <field> <value>  Update session property")
 	fmt.Println("  send <id> <message>     Send a message to a running session")
 	fmt.Println("  output <id>             Get the last response from a session")
 	fmt.Println("  set-parent <id> <parent>  Link session as sub-session of parent")
@@ -88,6 +91,19 @@ func printSessionHelp() {
 	fmt.Println("  agent-deck session unset-parent sub-task             # Remove sub-session link")
 	fmt.Println("  agent-deck session output my-project                 # Get last response from session")
 	fmt.Println("  agent-deck session output my-project --json          # Get response as JSON")
+	fmt.Println()
+	fmt.Println("Set command fields:")
+	fmt.Println("  title              Session title")
+	fmt.Println("  path               Project path")
+	fmt.Println("  command            Command to run")
+	fmt.Println("  tool               Tool type (claude, gemini, shell, etc.)")
+	fmt.Println("  claude-session-id  Claude conversation ID (for fork/resume)")
+	fmt.Println("  gemini-session-id  Gemini conversation ID (for resume)")
+	fmt.Println()
+	fmt.Println("Set examples:")
+	fmt.Println("  agent-deck session set my-project title \"New Title\"")
+	fmt.Println("  agent-deck session set my-project claude-session-id \"abc123-def456\"")
+	fmt.Println("  agent-deck session set my-project tool claude")
 }
 
 // handleSessionStart starts a session's tmux process
@@ -652,6 +668,135 @@ func handleSessionShow(profile string, args []string) {
 	}
 
 	out.Print(sb.String(), jsonData)
+}
+
+// handleSessionSet updates a session property
+func handleSessionSet(profile string, args []string) {
+	fs := flag.NewFlagSet("session set", flag.ExitOnError)
+	jsonOutput := fs.Bool("json", false, "Output as JSON")
+	quiet := fs.Bool("quiet", false, "Minimal output")
+	quietShort := fs.Bool("q", false, "Minimal output (short)")
+
+	fs.Usage = func() {
+		fmt.Println("Usage: agent-deck session set <id|title> <field> <value> [options]")
+		fmt.Println()
+		fmt.Println("Update a session property.")
+		fmt.Println()
+		fmt.Println("Fields:")
+		fmt.Println("  title              Session title")
+		fmt.Println("  path               Project path")
+		fmt.Println("  command            Command to run")
+		fmt.Println("  tool               Tool type (claude, gemini, shell, etc.)")
+		fmt.Println("  claude-session-id  Claude conversation ID")
+		fmt.Println("  gemini-session-id  Gemini conversation ID")
+		fmt.Println()
+		fmt.Println("Options:")
+		fs.PrintDefaults()
+		fmt.Println()
+		fmt.Println("Examples:")
+		fmt.Println("  agent-deck session set my-project title \"New Title\"")
+		fmt.Println("  agent-deck session set my-project claude-session-id \"abc123-def456\"")
+		fmt.Println("  agent-deck session set my-project path /new/path/to/project")
+	}
+
+	if err := fs.Parse(args); err != nil {
+		os.Exit(1)
+	}
+
+	if fs.NArg() < 3 {
+		fs.Usage()
+		os.Exit(1)
+	}
+
+	identifier := fs.Arg(0)
+	field := fs.Arg(1)
+	value := fs.Arg(2)
+	quietMode := *quiet || *quietShort
+	out := NewCLIOutput(*jsonOutput, quietMode)
+
+	// Validate field name
+	validFields := map[string]bool{
+		"title":              true,
+		"path":               true,
+		"command":            true,
+		"tool":               true,
+		"claude-session-id":  true,
+		"gemini-session-id":  true,
+	}
+
+	if !validFields[field] {
+		out.Error(fmt.Sprintf("invalid field: %s\nValid fields: title, path, command, tool, claude-session-id, gemini-session-id", field), ErrCodeInvalidOperation)
+		os.Exit(1)
+	}
+
+	// Load sessions
+	storage, instances, groupsData, err := loadSessionData(profile)
+	if err != nil {
+		out.Error(err.Error(), ErrCodeNotFound)
+		os.Exit(1)
+	}
+
+	// Resolve session
+	inst, errMsg, errCode := ResolveSession(identifier, instances)
+	if inst == nil {
+		out.Error(errMsg, errCode)
+		if errCode == ErrCodeNotFound {
+			os.Exit(2)
+		}
+		os.Exit(1)
+	}
+
+	// Store old value for output
+	var oldValue string
+
+	// Apply the update
+	switch field {
+	case "title":
+		oldValue = inst.Title
+		inst.Title = value
+	case "path":
+		oldValue = inst.ProjectPath
+		inst.ProjectPath = value
+	case "command":
+		oldValue = inst.Command
+		inst.Command = value
+	case "tool":
+		oldValue = inst.Tool
+		inst.Tool = value
+	case "claude-session-id":
+		oldValue = inst.ClaudeSessionID
+		inst.ClaudeSessionID = value
+		inst.ClaudeDetectedAt = time.Now()
+		// Also update tmux environment if session is running
+		if tmuxSess := inst.GetTmuxSession(); tmuxSess != nil && tmuxSess.Exists() {
+			exec.Command("tmux", "set-environment", "-t", tmuxSess.Name, "CLAUDE_SESSION_ID", value).Run()
+		}
+	case "gemini-session-id":
+		oldValue = inst.GeminiSessionID
+		inst.GeminiSessionID = value
+		inst.GeminiDetectedAt = time.Now()
+		// Also update tmux environment if session is running
+		if tmuxSess := inst.GetTmuxSession(); tmuxSess != nil && tmuxSess.Exists() {
+			exec.Command("tmux", "set-environment", "-t", tmuxSess.Name, "GEMINI_SESSION_ID", value).Run()
+		}
+	}
+
+	// Save
+	groupTree := session.NewGroupTreeWithGroups(instances, groupsData)
+	if err := storage.SaveWithGroups(instances, groupTree); err != nil {
+		out.Error(fmt.Sprintf("failed to save: %v", err), ErrCodeInvalidOperation)
+		os.Exit(1)
+	}
+
+	// Output success
+	out.Success(fmt.Sprintf("Updated %s: %q -> %q", field, oldValue, value), map[string]interface{}{
+		"success":   true,
+		"id":        inst.ID,
+		"title":     inst.Title,
+		"field":     field,
+		"old_value": oldValue,
+		"new_value": value,
+	})
 }
 
 // loadSessionData loads storage and session data for a profile

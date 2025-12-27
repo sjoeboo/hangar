@@ -2,7 +2,6 @@ package mcppool
 
 import (
 	"context"
-	
 	"log"
 	"sync"
 )
@@ -96,6 +95,11 @@ func (p *Pool) GetURL(name string) string {
 
 func (p *Pool) GetSocketPath(name string) string {
 	return p.GetURL(name)
+}
+
+// FallbackEnabled returns whether stdio fallback is allowed when pool isn't working
+func (p *Pool) FallbackEnabled() bool {
+	return p.config.FallbackStdio
 }
 
 func (p *Pool) Shutdown() error {

@@ -252,13 +252,13 @@ func handleGroupList(profile string, args []string) {
 			}
 			var parts []string
 			if running > 0 {
-				parts = append(parts, fmt.Sprintf("●%d", running))
+				parts = append(parts, fmt.Sprintf("● %d", running))
 			}
 			if waiting > 0 {
-				parts = append(parts, fmt.Sprintf("◐%d", waiting))
+				parts = append(parts, fmt.Sprintf("◐ %d", waiting))
 			}
 			if idle > 0 {
-				parts = append(parts, fmt.Sprintf("○%d", idle))
+				parts = append(parts, fmt.Sprintf("○ %d", idle))
 			}
 			statusStr = strings.Join(parts, " ")
 		}

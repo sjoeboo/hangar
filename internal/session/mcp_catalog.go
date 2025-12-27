@@ -3,9 +3,11 @@ package session
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"sort"
+	"time"
 )
 
 // MCPServerConfig represents an MCP server configuration (Claude's format)
@@ -15,6 +17,27 @@ type MCPServerConfig struct {
 	Args    []string          `json:"args,omitempty"`
 	Env     map[string]string `json:"env,omitempty"`
 	URL     string            `json:"url,omitempty"` // For HTTP transport
+}
+
+// waitForSocketReady waits for an MCP socket to become ready, with timeout
+// Returns true if socket is ready, false if timeout reached
+func waitForSocketReady(mcpName string, timeout time.Duration) bool {
+	pool := GetGlobalPool()
+	if pool == nil {
+		return false
+	}
+
+	deadline := time.Now().Add(timeout)
+	checkInterval := 100 * time.Millisecond
+
+	for time.Now().Before(deadline) {
+		if pool.IsRunning(mcpName) {
+			return true
+		}
+		time.Sleep(checkInterval)
+	}
+
+	return false
 }
 
 // WriteMCPJsonFromConfig writes enabled MCPs from config.toml to project's .mcp.json
@@ -33,30 +56,49 @@ func WriteMCPJsonFromConfig(projectPath string, enabledNames []string) error {
 	for _, name := range enabledNames {
 		if def, ok := availableMCPs[name]; ok {
 			// Check if should use socket pool mode
-			if pool != nil && pool.ShouldPool(name) && pool.IsRunning(name) {
-				// Use Unix socket (nc connects to socket proxy)
-				socketPath := pool.GetSocketPath(name)
-				mcpConfig.MCPServers[name] = MCPServerConfig{
-					Command: "nc",
-					Args:    []string{"-U", socketPath},
+			if pool != nil && pool.ShouldPool(name) {
+				// Wait for socket to be ready (up to 3 seconds)
+				if !pool.IsRunning(name) {
+					log.Printf("[MCP-POOL] %s: socket not ready, waiting...", name)
+					if waitForSocketReady(name, 3*time.Second) {
+						log.Printf("[MCP-POOL] %s: socket became ready", name)
+					}
 				}
-			} else {
-				// Fallback to stdio mode (per-session spawning)
-				args := def.Args
-				if args == nil {
-					args = []string{}
+
+				if pool.IsRunning(name) {
+					// Use Unix socket (nc connects to socket proxy)
+					socketPath := pool.GetSocketPath(name)
+					mcpConfig.MCPServers[name] = MCPServerConfig{
+						Command: "nc",
+						Args:    []string{"-U", socketPath},
+					}
+					log.Printf("[MCP-POOL] %s: using socket %s", name, socketPath)
+					continue
 				}
-				env := def.Env
-				if env == nil {
-					env = map[string]string{}
+
+				// Socket still not ready after waiting - check fallback policy
+				if !pool.FallbackEnabled() {
+					return fmt.Errorf("MCP '%s' socket not ready after waiting (fallback disabled)", name)
 				}
-				mcpConfig.MCPServers[name] = MCPServerConfig{
-					Type:    "stdio",
-					Command: def.Command,
-					Args:    args,
-					Env:     env,
-				}
+				log.Printf("[MCP-POOL] WARNING: %s socket not ready after 3s - falling back to stdio", name)
 			}
+
+			// Fallback to stdio mode (pool disabled, excluded, or socket failed)
+			args := def.Args
+			if args == nil {
+				args = []string{}
+			}
+			env := def.Env
+			if env == nil {
+				env = map[string]string{}
+			}
+			mcpConfig.MCPServers[name] = MCPServerConfig{
+				Type:    "stdio",
+				Command: def.Command,
+				Args:    args,
+				Env:     env,
+			}
+			log.Printf("[MCP-POOL] %s: using stdio (fallback)", name)
 		}
 	}
 
@@ -103,30 +145,49 @@ func WriteGlobalMCP(enabledNames []string) error {
 	for _, name := range enabledNames {
 		if def, ok := availableMCPs[name]; ok {
 			// Check if should use socket pool mode
-			if pool != nil && pool.ShouldPool(name) && pool.IsRunning(name) {
-				// Use Unix socket (nc connects to socket proxy)
-				socketPath := pool.GetSocketPath(name)
-				mcpServers[name] = MCPServerConfig{
-					Command: "nc",
-					Args:    []string{"-U", socketPath},
+			if pool != nil && pool.ShouldPool(name) {
+				// Wait for socket to be ready (up to 3 seconds)
+				if !pool.IsRunning(name) {
+					log.Printf("[MCP-POOL] Global %s: socket not ready, waiting...", name)
+					if waitForSocketReady(name, 3*time.Second) {
+						log.Printf("[MCP-POOL] Global %s: socket became ready", name)
+					}
 				}
-			} else {
-				// Fallback to stdio mode (per-session spawning)
-				args := def.Args
-				if args == nil {
-					args = []string{}
+
+				if pool.IsRunning(name) {
+					// Use Unix socket (nc connects to socket proxy)
+					socketPath := pool.GetSocketPath(name)
+					mcpServers[name] = MCPServerConfig{
+						Command: "nc",
+						Args:    []string{"-U", socketPath},
+					}
+					log.Printf("[MCP-POOL] Global %s: using socket %s", name, socketPath)
+					continue
 				}
-				env := def.Env
-				if env == nil {
-					env = map[string]string{}
+
+				// Socket still not ready after waiting - check fallback policy
+				if !pool.FallbackEnabled() {
+					return fmt.Errorf("MCP '%s' socket not ready after waiting (fallback disabled)", name)
 				}
-				mcpServers[name] = MCPServerConfig{
-					Type:    "stdio",
-					Command: def.Command,
-					Args:    args,
-					Env:     env,
-				}
+				log.Printf("[MCP-POOL] WARNING: Global %s socket not ready after 3s - falling back to stdio", name)
 			}
+
+			// Fallback to stdio mode (pool disabled, excluded, or socket failed)
+			args := def.Args
+			if args == nil {
+				args = []string{}
+			}
+			env := def.Env
+			if env == nil {
+				env = map[string]string{}
+			}
+			mcpServers[name] = MCPServerConfig{
+				Type:    "stdio",
+				Command: def.Command,
+				Args:    args,
+				Env:     env,
+			}
+			log.Printf("[MCP-POOL] Global %s: using stdio (fallback)", name)
 		}
 	}
 

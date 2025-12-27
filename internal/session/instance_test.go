@@ -573,9 +573,11 @@ func TestBuildGeminiCommand(t *testing.T) {
 	// Without session ID, should return capture-resume pattern
 	cmd := inst.buildGeminiCommand("gemini")
 
-	// Should contain stream-json and session ID capture
-	if !strings.Contains(cmd, "--output-format stream-json") {
-		t.Error("Should use stream-json for session ID capture")
+	// Should contain json output format and session ID capture
+	// NOTE: We use --output-format json (not stream-json) to let Gemini complete
+	// and save the session before extracting session_id
+	if !strings.Contains(cmd, "--output-format json") {
+		t.Error("Should use json output format for session ID capture")
 	}
 	if !strings.Contains(cmd, "GEMINI_SESSION_ID") {
 		t.Error("Should set GEMINI_SESSION_ID in tmux environment")

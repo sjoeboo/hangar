@@ -251,17 +251,11 @@ func ToolColor(tool string) lipgloss.Color {
 	}
 }
 
-// List Item Styles
+// List Item Styles (used by legacy list.go component in tests)
 var (
 	ListItemStyle = lipgloss.NewStyle().
 			Foreground(ColorText).
 			PaddingLeft(2)
-
-	ListItemSelectedStyle = lipgloss.NewStyle().
-				Foreground(ColorBg).
-				Background(ColorAccent).
-				Bold(true).
-				PaddingLeft(1)
 
 	ListItemActiveStyle = lipgloss.NewStyle().
 				Foreground(ColorAccent).

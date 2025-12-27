@@ -260,10 +260,14 @@ func (i *Instance) buildGeminiCommand(baseCommand string) string {
 
 		// Build the capture-resume command for new sessions
 		// This command:
-		// 1. Starts Gemini with stream-json to get session ID from first message
-		// 2. Stores session ID in tmux environment (for retrieval by agent-deck)
-		// 3. Resumes that session interactively
-		return `session_id=$(gemini --output-format stream-json -i 2>/dev/null | head -1 | jq -r '.session_id') && ` +
+		// 1. Runs Gemini with a minimal prompt "." to completion (saves session to disk)
+		// 2. Extracts session_id from the JSON output
+		// 3. Stores session ID in tmux environment (for retrieval by agent-deck)
+		// 4. Resumes that session interactively
+		// NOTE: Using --output-format json (not stream-json with head -1) because:
+		// - head -1 sends SIGPIPE which kills Gemini before it saves the session
+		// - json mode runs to completion, ensuring session file is written
+		return `session_id=$(gemini --output-format json "." 2>/dev/null | jq -r '.session_id') && ` +
 			`tmux set-environment GEMINI_SESSION_ID "$session_id" && ` +
 			`gemini --resume "$session_id"`
 	}
@@ -649,9 +653,15 @@ func (i *Instance) getClaudeLastResponse() (*ResponseOutput, error) {
 
 	configDir := GetClaudeConfigDir()
 
+	// Resolve symlinks in project path (macOS: /tmp -> /private/tmp)
+	resolvedPath := i.ProjectPath
+	if resolved, err := filepath.EvalSymlinks(i.ProjectPath); err == nil {
+		resolvedPath = resolved
+	}
+
 	// Convert project path to Claude's directory format
 	// /Users/ashesh/claude-deck -> -Users-ashesh-claude-deck
-	projectDirName := strings.ReplaceAll(i.ProjectPath, "/", "-")
+	projectDirName := strings.ReplaceAll(resolvedPath, "/", "-")
 	projectDir := filepath.Join(configDir, "projects", projectDirName)
 
 	// Use stored session ID directly
