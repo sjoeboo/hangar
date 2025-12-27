@@ -234,6 +234,17 @@ git clone https://github.com/asheshgoplani/agent-deck.git && cd agent-deck && ma
 
 </details>
 
+### Claude Code Skill
+
+If you use Claude Code, install the agent-deck skill for AI-assisted session management:
+
+```bash
+/plugin marketplace add asheshgoplani/agent-deck
+/plugin install agent-deck@agent-deck
+```
+
+This teaches Claude how to create sessions, manage MCPs, fork conversations, and orchestrate sub-agents.
+
 ## Usage
 
 ```bash
