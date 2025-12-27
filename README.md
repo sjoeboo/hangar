@@ -19,7 +19,7 @@
 
 ---
 
-![Agent Deck Demo](demos/agent-deck-overview.gif?v=2)
+![Agent Deck Demo](demos/agent-deck-overview.gif?v=3)
 
 ## The Problem
 
