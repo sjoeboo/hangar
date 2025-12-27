@@ -50,6 +50,13 @@ func InitializeGlobalPool(ctx context.Context, config *UserConfig, sessions []*I
 		return nil, err
 	}
 
+	// FIRST: Discover existing sockets from another agent-deck instance
+	// This allows multiple TUI instances to share the same pool
+	discovered := pool.DiscoverExistingSockets()
+	if discovered > 0 {
+		log.Printf("[Pool] Reusing %d sockets from another agent-deck instance", discovered)
+	}
+
 	// Get all available MCPs from config.toml
 	availableMCPs := GetAvailableMCPs()
 	log.Printf("[Pool] Available MCPs in config: %d", len(availableMCPs))
@@ -57,12 +64,20 @@ func InitializeGlobalPool(ctx context.Context, config *UserConfig, sessions []*I
 	// When pool_all = true, pool ALL available MCPs (not just those in use)
 	// This ensures any MCP can be attached via socket immediately
 	startedCount := 0
+	skippedCount := 0
 	for mcpName, def := range availableMCPs {
 		shouldPool := pool.ShouldPool(mcpName)
 		log.Printf("[Pool] MCP '%s' - should pool: %v", mcpName, shouldPool)
 
 		if !shouldPool {
 			continue // Excluded or not in pool_mcps list
+		}
+
+		// Skip if already running (discovered from another instance)
+		if pool.IsRunning(mcpName) {
+			log.Printf("[Pool] %s: already running (discovered from another instance), skipping", mcpName)
+			skippedCount++
+			continue
 		}
 
 		// Start socket proxy for this MCP
@@ -75,7 +90,7 @@ func InitializeGlobalPool(ctx context.Context, config *UserConfig, sessions []*I
 		}
 	}
 
-	log.Printf("[Pool] Started %d socket proxies total", startedCount)
+	log.Printf("[Pool] Started %d socket proxies, reused %d from other instance", startedCount, skippedCount)
 
 	globalPool = pool
 	return pool, nil

@@ -3,7 +3,12 @@ package mcppool
 import (
 	"context"
 	"log"
+	"net"
+	"os"
+	"path/filepath"
+	"strings"
 	"sync"
+	"time"
 )
 
 type Pool struct {
@@ -137,4 +142,92 @@ type ProxyInfo struct {
 	SocketPath string
 	Status     string
 	Clients    int
+}
+
+// DiscoverExistingSockets scans for existing pool sockets owned by another agent-deck instance
+// and registers them so this instance can use them too. Returns count of discovered sockets.
+func (p *Pool) DiscoverExistingSockets() int {
+	pattern := filepath.Join("/tmp", "agentdeck-mcp-*.sock")
+	matches, err := filepath.Glob(pattern)
+	if err != nil {
+		log.Printf("[Pool] Failed to scan for existing sockets: %v", err)
+		return 0
+	}
+
+	discovered := 0
+	for _, socketPath := range matches {
+		// Extract MCP name from socket path: /tmp/agentdeck-mcp-{name}.sock
+		base := filepath.Base(socketPath)
+		if !strings.HasPrefix(base, "agentdeck-mcp-") || !strings.HasSuffix(base, ".sock") {
+			continue
+		}
+		name := strings.TrimPrefix(base, "agentdeck-mcp-")
+		name = strings.TrimSuffix(name, ".sock")
+
+		// Skip if we already have this MCP
+		p.mu.RLock()
+		_, exists := p.proxies[name]
+		p.mu.RUnlock()
+		if exists {
+			continue
+		}
+
+		// Check if socket is alive (owned by another instance)
+		if !isSocketAliveCheck(socketPath) {
+			log.Printf("[Pool] Socket %s exists but not alive, skipping", name)
+			continue
+		}
+
+		// Register the external socket
+		if err := p.RegisterExternalSocket(name, socketPath); err != nil {
+			log.Printf("[Pool] Failed to register external socket %s: %v", name, err)
+			continue
+		}
+
+		log.Printf("[Pool] ✓ Discovered external socket: %s → %s", name, socketPath)
+		discovered++
+	}
+
+	if discovered > 0 {
+		log.Printf("[Pool] Discovered %d existing sockets from another agent-deck instance", discovered)
+	}
+	return discovered
+}
+
+// isSocketAliveCheck checks if a Unix socket exists and is accepting connections
+func isSocketAliveCheck(socketPath string) bool {
+	if _, err := os.Stat(socketPath); os.IsNotExist(err) {
+		return false
+	}
+	conn, err := net.DialTimeout("unix", socketPath, 500*time.Millisecond)
+	if err != nil {
+		return false
+	}
+	conn.Close()
+	return true
+}
+
+// RegisterExternalSocket registers an external socket owned by another agent-deck instance.
+// This creates a proxy entry that points to the existing socket without starting a new process.
+func (p *Pool) RegisterExternalSocket(name, socketPath string) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	if _, exists := p.proxies[name]; exists {
+		return nil // Already registered
+	}
+
+	// Create a SocketProxy that points to the external socket (no process to manage)
+	proxy := &SocketProxy{
+		name:       name,
+		socketPath: socketPath,
+		clients:    make(map[string]net.Conn),
+		requestMap: make(map[interface{}]string),
+		ctx:        p.ctx,
+		Status:     StatusRunning, // External socket is alive
+		// mcpProcess is nil - we don't own this process
+	}
+
+	p.proxies[name] = proxy
+	return nil
 }
