@@ -270,11 +270,19 @@
 
             <!-- Demo Video - Bigger and higher -->
             <div class="video-container max-w-5xl mx-auto mb-8 bg-tn-surface">
-                <img
-                    src="https://raw.githubusercontent.com/asheshgoplani/agent-deck/main/demos/agent-deck-overview.gif"
-                    alt="Agent Deck Demo - Managing multiple AI coding sessions"
+                <video
+                    autoplay
+                    muted
+                    loop
+                    playsinline
+                    poster="https://raw.githubusercontent.com/asheshgoplani/agent-deck/main/demos/agent-deck-poster.webp"
                     class="w-full"
-                />
+                >
+                    <source src="https://raw.githubusercontent.com/asheshgoplani/agent-deck/main/demos/agent-deck-overview-web.webm" type="video/webm">
+                    <source src="https://raw.githubusercontent.com/asheshgoplani/agent-deck/main/demos/agent-deck-overview-web.mp4" type="video/mp4">
+                    <!-- Fallback for very old browsers -->
+                    <img src="https://raw.githubusercontent.com/asheshgoplani/agent-deck/main/demos/agent-deck-overview.gif" alt="Agent Deck Demo">
+                </video>
             </div>
         </section>
 
@@ -429,13 +437,13 @@ bind-key -T copy-mode MouseDragEnd1Pane send-keys -X copy-pipe-and-cancel "xclip
                     </p>
                 </div>
 
-                <!-- Fork Demo GIF -->
+                <!-- Fork Demo Video -->
                 <div class="video-container max-w-4xl mx-auto mb-8 bg-tn-surface rounded-lg border border-tn-border overflow-hidden">
-                    <img
-                        src="https://raw.githubusercontent.com/asheshgoplani/agent-deck/main/demos/fork-session.gif"
-                        alt="Fork Session Demo - Creating parallel Claude conversations"
-                        class="w-full"
-                    />
+                    <video autoplay muted loop playsinline class="w-full">
+                        <source src="https://raw.githubusercontent.com/asheshgoplani/agent-deck/main/demos/fork-session.webm" type="video/webm">
+                        <source src="https://raw.githubusercontent.com/asheshgoplani/agent-deck/main/demos/fork-session.mp4" type="video/mp4">
+                        <img src="https://raw.githubusercontent.com/asheshgoplani/agent-deck/main/demos/fork-session.gif" alt="Fork Session Demo">
+                    </video>
                 </div>
 
                 <!-- Fork Use Cases -->
@@ -486,13 +494,13 @@ bind-key -T copy-mode MouseDragEnd1Pane send-keys -X copy-pipe-and-cancel "xclip
                     </p>
                 </div>
 
-                <!-- MCP Demo GIF -->
+                <!-- MCP Demo Video -->
                 <div class="video-container max-w-4xl mx-auto mb-8 bg-tn-surface rounded-lg border border-tn-border overflow-hidden">
-                    <img
-                        src="https://raw.githubusercontent.com/asheshgoplani/agent-deck/main/demos/mcp-manager.gif"
-                        alt="MCP Manager Demo - Attaching MCP servers to Claude sessions"
-                        class="w-full"
-                    />
+                    <video autoplay muted loop playsinline class="w-full">
+                        <source src="https://raw.githubusercontent.com/asheshgoplani/agent-deck/main/demos/mcp-manager.webm" type="video/webm">
+                        <source src="https://raw.githubusercontent.com/asheshgoplani/agent-deck/main/demos/mcp-manager.mp4" type="video/mp4">
+                        <img src="https://raw.githubusercontent.com/asheshgoplani/agent-deck/main/demos/mcp-manager.gif" alt="MCP Manager Demo">
+                    </video>
                 </div>
 
                 <!-- MCP Features -->
