@@ -55,13 +55,13 @@ func WriteMCPJsonFromConfig(projectPath string, enabledNames []string) error {
 
 	for _, name := range enabledNames {
 		if def, ok := availableMCPs[name]; ok {
-			// Check if should use socket pool mode
+			// Check if pool exists and should pool this MCP
 			if pool != nil && pool.ShouldPool(name) {
 				// Wait for socket to be ready (up to 3 seconds)
 				if !pool.IsRunning(name) {
-					log.Printf("[MCP-POOL] %s: socket not ready, waiting...", name)
+					log.Printf("[MCP-POOL] ⏳ %s: socket not ready, waiting up to 3s...", name)
 					if waitForSocketReady(name, 3*time.Second) {
-						log.Printf("[MCP-POOL] %s: socket became ready", name)
+						log.Printf("[MCP-POOL] ✓ %s: socket became ready", name)
 					}
 				}
 
@@ -72,18 +72,30 @@ func WriteMCPJsonFromConfig(projectPath string, enabledNames []string) error {
 						Command: "nc",
 						Args:    []string{"-U", socketPath},
 					}
-					log.Printf("[MCP-POOL] %s: using socket %s", name, socketPath)
+					log.Printf("[MCP-POOL] ✓ %s: using socket %s", name, socketPath)
 					continue
 				}
 
 				// Socket still not ready after waiting - check fallback policy
 				if !pool.FallbackEnabled() {
-					return fmt.Errorf("MCP '%s' socket not ready after waiting (fallback disabled)", name)
+					log.Printf("[MCP-POOL] ✗ %s: SOCKET NOT READY - fallback disabled, skipping MCP", name)
+					return fmt.Errorf("MCP '%s' socket not ready after 3s (fallback_to_stdio=false in config)", name)
 				}
-				log.Printf("[MCP-POOL] WARNING: %s socket not ready after 3s - falling back to stdio", name)
+				log.Printf("[MCP-POOL] ⚠️ %s: socket not ready after 3s - falling back to stdio", name)
+			} else if pool != nil && !pool.ShouldPool(name) {
+				// MCP is explicitly excluded from pool - use stdio
+				log.Printf("[MCP-POOL] %s: excluded from pool, using stdio", name)
+			} else if pool == nil {
+				// Pool not initialized - check if we should error or use stdio
+				config, _ := LoadUserConfig()
+				if config != nil && config.MCPPool.Enabled && !config.MCPPool.FallbackStdio {
+					log.Printf("[MCP-POOL] ✗ %s: pool enabled but not initialized - fallback disabled, skipping MCP", name)
+					return fmt.Errorf("MCP '%s' cannot start: pool enabled but not initialized (fallback_to_stdio=false)", name)
+				}
+				log.Printf("[MCP-POOL] %s: pool not initialized, using stdio", name)
 			}
 
-			// Fallback to stdio mode (pool disabled, excluded, or socket failed)
+			// Fallback to stdio mode (pool disabled, excluded, or socket failed with fallback enabled)
 			args := def.Args
 			if args == nil {
 				args = []string{}
@@ -98,7 +110,7 @@ func WriteMCPJsonFromConfig(projectPath string, enabledNames []string) error {
 				Args:    args,
 				Env:     env,
 			}
-			log.Printf("[MCP-POOL] %s: using stdio (fallback)", name)
+			log.Printf("[MCP-POOL] ⚠️ %s: using stdio (NOT pooled)", name)
 		}
 	}
 
@@ -144,13 +156,13 @@ func WriteGlobalMCP(enabledNames []string) error {
 
 	for _, name := range enabledNames {
 		if def, ok := availableMCPs[name]; ok {
-			// Check if should use socket pool mode
+			// Check if pool exists and should pool this MCP
 			if pool != nil && pool.ShouldPool(name) {
 				// Wait for socket to be ready (up to 3 seconds)
 				if !pool.IsRunning(name) {
-					log.Printf("[MCP-POOL] Global %s: socket not ready, waiting...", name)
+					log.Printf("[MCP-POOL] ⏳ Global %s: socket not ready, waiting up to 3s...", name)
 					if waitForSocketReady(name, 3*time.Second) {
-						log.Printf("[MCP-POOL] Global %s: socket became ready", name)
+						log.Printf("[MCP-POOL] ✓ Global %s: socket became ready", name)
 					}
 				}
 
@@ -161,18 +173,30 @@ func WriteGlobalMCP(enabledNames []string) error {
 						Command: "nc",
 						Args:    []string{"-U", socketPath},
 					}
-					log.Printf("[MCP-POOL] Global %s: using socket %s", name, socketPath)
+					log.Printf("[MCP-POOL] ✓ Global %s: using socket %s", name, socketPath)
 					continue
 				}
 
 				// Socket still not ready after waiting - check fallback policy
 				if !pool.FallbackEnabled() {
-					return fmt.Errorf("MCP '%s' socket not ready after waiting (fallback disabled)", name)
+					log.Printf("[MCP-POOL] ✗ Global %s: SOCKET NOT READY - fallback disabled, skipping MCP", name)
+					return fmt.Errorf("MCP '%s' socket not ready after 3s (fallback_to_stdio=false in config)", name)
 				}
-				log.Printf("[MCP-POOL] WARNING: Global %s socket not ready after 3s - falling back to stdio", name)
+				log.Printf("[MCP-POOL] ⚠️ Global %s: socket not ready after 3s - falling back to stdio", name)
+			} else if pool != nil && !pool.ShouldPool(name) {
+				// MCP is explicitly excluded from pool - use stdio
+				log.Printf("[MCP-POOL] Global %s: excluded from pool, using stdio", name)
+			} else if pool == nil {
+				// Pool not initialized - check if we should error or use stdio
+				config, _ := LoadUserConfig()
+				if config != nil && config.MCPPool.Enabled && !config.MCPPool.FallbackStdio {
+					log.Printf("[MCP-POOL] ✗ Global %s: pool enabled but not initialized - fallback disabled", name)
+					return fmt.Errorf("MCP '%s' cannot start: pool enabled but not initialized (fallback_to_stdio=false)", name)
+				}
+				log.Printf("[MCP-POOL] Global %s: pool not initialized, using stdio", name)
 			}
 
-			// Fallback to stdio mode (pool disabled, excluded, or socket failed)
+			// Fallback to stdio mode (pool disabled, excluded, or socket failed with fallback enabled)
 			args := def.Args
 			if args == nil {
 				args = []string{}
@@ -187,7 +211,7 @@ func WriteGlobalMCP(enabledNames []string) error {
 				Args:    args,
 				Env:     env,
 			}
-			log.Printf("[MCP-POOL] Global %s: using stdio (fallback)", name)
+			log.Printf("[MCP-POOL] ⚠️ Global %s: using stdio (NOT pooled)", name)
 		}
 	}
 
