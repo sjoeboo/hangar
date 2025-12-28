@@ -23,7 +23,7 @@ import (
 	"github.com/muesli/termenv"
 )
 
-const Version = "0.8.1"
+const Version = "0.8.2"
 
 // Table column widths for list command output
 const (
@@ -36,6 +36,53 @@ const (
 // init sets up color profile for consistent terminal colors across environments
 func init() {
 	initColorProfile()
+	initUpdateSettings()
+}
+
+// initUpdateSettings configures update checking from user config
+func initUpdateSettings() {
+	settings := session.GetUpdateSettings()
+	update.SetCheckInterval(settings.CheckIntervalHours)
+}
+
+// printUpdateNotice checks for updates and prints a one-liner if available
+// Uses cache to avoid API calls - only prints if update was already detected
+func printUpdateNotice() {
+	settings := session.GetUpdateSettings()
+	if !settings.CheckEnabled || !settings.NotifyInCLI {
+		return
+	}
+
+	info, err := update.CheckForUpdate(Version, false)
+	if err != nil || info == nil || !info.Available {
+		return
+	}
+
+	// Print update notice to stderr so it doesn't interfere with JSON output
+	fmt.Fprintf(os.Stderr, "\n💡 Update available: v%s → v%s (run: agent-deck update)\n",
+		info.CurrentVersion, info.LatestVersion)
+}
+
+// maybeAutoUpdate checks if auto-update is enabled and performs update if available
+func maybeAutoUpdate() bool {
+	settings := session.GetUpdateSettings()
+	if !settings.AutoUpdate || !settings.CheckEnabled {
+		return false
+	}
+
+	info, err := update.CheckForUpdate(Version, false)
+	if err != nil || info == nil || !info.Available {
+		return false
+	}
+
+	fmt.Printf("Auto-updating: v%s → v%s\n", info.CurrentVersion, info.LatestVersion)
+	if err := update.PerformUpdate(info.DownloadURL); err != nil {
+		fmt.Fprintf(os.Stderr, "Auto-update failed: %v\n", err)
+		return false
+	}
+
+	fmt.Println("Restart agent-deck to use the new version.")
+	return true
 }
 
 // initColorProfile configures lipgloss color profile based on terminal capabilities.
@@ -151,6 +198,12 @@ func main() {
 
 	// Set version for UI update checking
 	ui.SetVersion(Version)
+
+	// Check for auto-update before launching TUI
+	if maybeAutoUpdate() {
+		// Update was performed, exit so user can restart with new version
+		return
+	}
 
 	// Check if tmux is available
 	if _, err := exec.LookPath("tmux"); err != nil {
@@ -532,6 +585,9 @@ func handleList(profile string, args []string) {
 		fmt.Printf("%-*s %-*s %-*s %s\n", tableColTitle, title, tableColGroup, group, tableColPath, path, idDisplay)
 	}
 	fmt.Printf("\nTotal: %d sessions\n", len(instances))
+
+	// Show update notice if available
+	printUpdateNotice()
 }
 
 // handleListAllProfiles lists sessions from all profiles
@@ -840,6 +896,11 @@ func handleStatus(profile string, args []string) {
 		// Compact output
 		fmt.Printf("%d waiting • %d running • %d idle\n",
 			counts.waiting, counts.running, counts.idle)
+	}
+
+	// Show update notice if available (skip for JSON/quiet output)
+	if !*jsonOutput && !*quiet && !*quietShort {
+		printUpdateNotice()
 	}
 }
 

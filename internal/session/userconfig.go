@@ -37,6 +37,9 @@ type UserConfig struct {
 
 	// MCPPool defines HTTP MCP pool settings for shared MCP servers
 	MCPPool MCPPoolSettings `toml:"mcp_pool"`
+
+	// Updates defines auto-update settings
+	Updates UpdateSettings `toml:"updates"`
 }
 
 // MCPPoolSettings defines HTTP MCP pool configuration
@@ -90,6 +93,25 @@ type LogSettings struct {
 	// RemoveOrphans removes log files for sessions that no longer exist
 	// Default: true
 	RemoveOrphans bool `toml:"remove_orphans"`
+}
+
+// UpdateSettings defines auto-update configuration
+type UpdateSettings struct {
+	// AutoUpdate automatically installs updates without prompting
+	// Default: false
+	AutoUpdate bool `toml:"auto_update"`
+
+	// CheckEnabled enables automatic update checks on startup
+	// Default: true
+	CheckEnabled bool `toml:"check_enabled"`
+
+	// CheckIntervalHours is how often to check for updates (in hours)
+	// Default: 24
+	CheckIntervalHours int `toml:"check_interval_hours"`
+
+	// NotifyInCLI shows update notification in CLI commands (not just TUI)
+	// Default: true
+	NotifyInCLI bool `toml:"notify_in_cli"`
 }
 
 // ClaudeSettings defines Claude Code configuration
@@ -328,6 +350,34 @@ func GetLogSettings() LogSettings {
 	return settings
 }
 
+// GetUpdateSettings returns update settings with defaults applied
+func GetUpdateSettings() UpdateSettings {
+	config, err := LoadUserConfig()
+	if err != nil || config == nil {
+		return UpdateSettings{
+			AutoUpdate:         false,
+			CheckEnabled:       true,
+			CheckIntervalHours: 24,
+			NotifyInCLI:        true,
+		}
+	}
+
+	settings := config.Updates
+
+	// Apply defaults for unset values
+	// CheckEnabled defaults to true (need to detect if section exists)
+	if config.Updates.CheckIntervalHours == 0 {
+		settings.CheckEnabled = true
+		settings.CheckIntervalHours = 24
+		settings.NotifyInCLI = true
+	}
+	if settings.CheckIntervalHours <= 0 {
+		settings.CheckIntervalHours = 24
+	}
+
+	return settings
+}
+
 // CreateExampleConfig creates an example config file if none exists
 func CreateExampleConfig() error {
 	configPath, err := GetUserConfigPath()
@@ -365,6 +415,18 @@ max_size_mb = 10
 max_lines = 10000
 # Remove log files for sessions that no longer exist (default: true)
 remove_orphans = true
+
+# Update settings
+# Controls automatic update checking and installation
+[updates]
+# Automatically install updates without prompting (default: false)
+# auto_update = true
+# Enable update checks on startup (default: true)
+check_enabled = true
+# How often to check for updates in hours (default: 24)
+check_interval_hours = 24
+# Show update notification in CLI commands, not just TUI (default: true)
+notify_in_cli = true
 
 # ============================================================================
 # MCP Server Definitions

@@ -22,9 +22,20 @@ const (
 	// CacheFileName stores the last update check result
 	CacheFileName = "update-cache.json"
 
-	// CheckInterval is how often to check for updates (24 hours)
-	CheckInterval = 24 * time.Hour
+	// DefaultCheckInterval is the default check interval (24 hours)
+	// Can be overridden via config.toml [updates] check_interval_hours
+	DefaultCheckInterval = 24 * time.Hour
 )
+
+// checkInterval stores the configurable interval (set via SetCheckInterval)
+var checkInterval = DefaultCheckInterval
+
+// SetCheckInterval sets the update check interval from config
+func SetCheckInterval(hours int) {
+	if hours > 0 {
+		checkInterval = time.Duration(hours) * time.Hour
+	}
+}
 
 // Release represents a GitHub release
 type Release struct {
@@ -196,7 +207,7 @@ func CheckForUpdate(currentVersion string, forceCheck bool) (*UpdateInfo, error)
 	// Try to use cache first (unless force check)
 	if !forceCheck {
 		cache, err := loadCache()
-		if err == nil && time.Since(cache.CheckedAt) < CheckInterval {
+		if err == nil && time.Since(cache.CheckedAt) < checkInterval {
 			// Cache is fresh, use it
 			info.LatestVersion = cache.LatestVersion
 			info.DownloadURL = cache.DownloadURL
