@@ -11,6 +11,7 @@ import (
 
 	"github.com/asheshgoplani/agent-deck/internal/profile"
 	"github.com/asheshgoplani/agent-deck/internal/session"
+	"github.com/asheshgoplani/agent-deck/internal/tmux"
 )
 
 // handleSession dispatches session subcommands
@@ -769,7 +770,7 @@ func handleSessionSet(profile string, args []string) {
 		inst.ClaudeDetectedAt = time.Now()
 		// Also update tmux environment if session is running
 		if tmuxSess := inst.GetTmuxSession(); tmuxSess != nil && tmuxSess.Exists() {
-			exec.Command("tmux", "set-environment", "-t", tmuxSess.Name, "CLAUDE_SESSION_ID", value).Run()
+			_ = exec.Command("tmux", "set-environment", "-t", tmuxSess.Name, "CLAUDE_SESSION_ID", value).Run()
 		}
 	case "gemini-session-id":
 		oldValue = inst.GeminiSessionID
@@ -777,7 +778,7 @@ func handleSessionSet(profile string, args []string) {
 		inst.GeminiDetectedAt = time.Now()
 		// Also update tmux environment if session is running
 		if tmuxSess := inst.GetTmuxSession(); tmuxSess != nil && tmuxSess.Exists() {
-			exec.Command("tmux", "set-environment", "-t", tmuxSess.Name, "GEMINI_SESSION_ID", value).Run()
+			_ = exec.Command("tmux", "set-environment", "-t", tmuxSess.Name, "GEMINI_SESSION_ID", value).Run()
 		}
 	}
 
@@ -1136,10 +1137,12 @@ func handleSessionUnsetParent(profile string, args []string) {
 }
 
 // handleSessionSend sends a message to a running session
+// Waits for the agent to be ready before sending (Claude, Gemini, etc.)
 func handleSessionSend(profile string, args []string) {
 	fs := flag.NewFlagSet("session send", flag.ExitOnError)
 	jsonOutput := fs.Bool("json", false, "Output as JSON")
 	quiet := fs.Bool("q", false, "Quiet mode")
+	noWait := fs.Bool("no-wait", false, "Don't wait for agent to be ready (send immediately)")
 	if err := fs.Parse(args); err != nil {
 		os.Exit(1)
 	}
@@ -1178,15 +1181,23 @@ func handleSessionSend(profile string, args []string) {
 		os.Exit(1)
 	}
 
-	// Get tmux session name
+	// Get tmux session
 	tmuxSess := inst.GetTmuxSession()
 	if tmuxSess == nil {
 		out.Error("could not determine tmux session", ErrCodeInvalidOperation)
 		os.Exit(1)
 	}
-	tmuxName := tmuxSess.Name
+
+	// Wait for agent to be ready (unless --no-wait is specified)
+	if !*noWait {
+		if err := waitForAgentReady(tmuxSess, inst.Tool); err != nil {
+			out.Error(fmt.Sprintf("timeout waiting for agent: %v", err), ErrCodeInvalidOperation)
+			os.Exit(1)
+		}
+	}
 
 	// Send message via tmux
+	tmuxName := tmuxSess.Name
 	cmd := exec.Command("tmux", "send-keys", "-l", "-t", tmuxName, message)
 	if err := cmd.Run(); err != nil {
 		out.Error(fmt.Sprintf("failed to send message: %v", err), ErrCodeInvalidOperation)
@@ -1206,6 +1217,47 @@ func handleSessionSend(profile string, args []string) {
 		"session_title": inst.Title,
 		"message":       message,
 	})
+}
+
+// waitForAgentReady waits for Claude/Gemini/other agents to be ready for input
+// Uses status detection: waits for "active" → "waiting" transition
+func waitForAgentReady(tmuxSess *tmux.Session, tool string) error {
+	sawActive := false
+	waitingCount := 0
+	maxAttempts := 300 // 60 seconds max (300 * 200ms)
+
+	for attempt := 0; attempt < maxAttempts; attempt++ {
+		time.Sleep(200 * time.Millisecond)
+
+		status, err := tmuxSess.GetStatus()
+		if err != nil {
+			waitingCount = 0
+			continue
+		}
+
+		if status == "active" {
+			sawActive = true
+			waitingCount = 0
+			continue
+		}
+
+		if status == "waiting" {
+			waitingCount++
+		} else {
+			waitingCount = 0
+		}
+
+		// Agent is ready when:
+		// 1. We've seen "active" (loading) and now see "waiting" (ready)
+		// 2. We've seen "waiting" 10+ times (already ready)
+		alreadyReady := waitingCount >= 10 && attempt >= 15 // At least 3s elapsed
+		if (sawActive && status == "waiting") || alreadyReady {
+			time.Sleep(300 * time.Millisecond) // Small delay for UI to render
+			return nil
+		}
+	}
+
+	return fmt.Errorf("agent not ready after 60 seconds")
 }
 
 // handleSessionOutput gets the last response from a session
@@ -1262,16 +1314,26 @@ func handleSessionOutput(profile string, args []string) {
 		return
 	}
 
-	// Build JSON data
+	// Build JSON data with tool-specific conversation session ID key
 	jsonData := map[string]interface{}{
-		"success":           true,
-		"session_id":        inst.ID,
-		"session_title":     inst.Title,
-		"tool":              response.Tool,
-		"role":              response.Role,
-		"content":           response.Content,
-		"timestamp":         response.Timestamp,
-		"claude_session_id": response.SessionID,
+		"success":       true,
+		"session_id":    inst.ID,
+		"session_title": inst.Title,
+		"tool":          response.Tool,
+		"role":          response.Role,
+		"content":       response.Content,
+		"timestamp":     response.Timestamp,
+	}
+	// Add tool-specific conversation session ID
+	if response.SessionID != "" {
+		switch response.Tool {
+		case "claude":
+			jsonData["claude_session_id"] = response.SessionID
+		case "gemini":
+			jsonData["gemini_session_id"] = response.SessionID
+		default:
+			jsonData["conversation_id"] = response.SessionID
+		}
 	}
 
 	// Build human-readable output

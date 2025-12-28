@@ -30,7 +30,7 @@ func TestParseGeminiSettings(t *testing.T) {
 
 	tmpDir := t.TempDir()
 	settingsFile := filepath.Join(tmpDir, "settings.json")
-	os.WriteFile(settingsFile, []byte(settingsJSON), 0644)
+	_ = os.WriteFile(settingsFile, []byte(settingsJSON), 0644)
 
 	var config GeminiMCPConfig
 	data, _ := os.ReadFile(settingsFile)
@@ -63,7 +63,7 @@ func TestGetGeminiMCPInfo(t *testing.T) {
     "firecrawl": {"command": "npx", "args": ["-y", "@mendable/firecrawl-mcp"]}
   }
 }`
-	os.WriteFile(settingsFile, []byte(settingsJSON), 0644)
+	_ = os.WriteFile(settingsFile, []byte(settingsJSON), 0644)
 
 	info := GetGeminiMCPInfo("/any/path")
 
@@ -113,7 +113,7 @@ func TestGetGeminiMCPInfo_EmptyMCPServers(t *testing.T) {
 
 	// Settings file with no mcpServers
 	settingsJSON := `{"security": {"auth": {"selectedType": "oauth"}}}`
-	os.WriteFile(settingsFile, []byte(settingsJSON), 0644)
+	_ = os.WriteFile(settingsFile, []byte(settingsJSON), 0644)
 
 	info := GetGeminiMCPInfo("/any/path")
 
@@ -136,7 +136,7 @@ func TestWriteGeminiMCPSettings(t *testing.T) {
 
 	// Create initial settings with other config
 	initialSettings := `{"security": {"auth": {"selectedType": "oauth"}}}`
-	os.WriteFile(settingsFile, []byte(initialSettings), 0644)
+	_ = os.WriteFile(settingsFile, []byte(initialSettings), 0644)
 
 	// WriteGeminiMCPSettings requires MCPs in config.toml
 	// For this test, we'll just test with empty MCPs (valid case)
@@ -148,7 +148,7 @@ func TestWriteGeminiMCPSettings(t *testing.T) {
 	// Verify settings file updated
 	data, _ := os.ReadFile(settingsFile)
 	var config map[string]interface{}
-	json.Unmarshal(data, &config)
+	_ = json.Unmarshal(data, &config)
 
 	// Should preserve security section
 	if config["security"] == nil {
@@ -180,7 +180,7 @@ func TestWriteGeminiMCPSettings_PreservesExistingConfig(t *testing.T) {
   "language": "en",
   "mcpServers": {"old-mcp": {"command": "test"}}
 }`
-	os.WriteFile(settingsFile, []byte(initialSettings), 0644)
+	_ = os.WriteFile(settingsFile, []byte(initialSettings), 0644)
 
 	err := WriteGeminiMCPSettings([]string{})
 	if err != nil {
@@ -189,7 +189,7 @@ func TestWriteGeminiMCPSettings_PreservesExistingConfig(t *testing.T) {
 
 	data, _ := os.ReadFile(settingsFile)
 	var config map[string]interface{}
-	json.Unmarshal(data, &config)
+	_ = json.Unmarshal(data, &config)
 
 	// Should preserve all non-mcpServers fields
 	if config["security"] == nil {
@@ -237,7 +237,7 @@ func TestWriteGeminiMCPSettings_CreatesFile(t *testing.T) {
 
 	data, _ := os.ReadFile(settingsFile)
 	var config map[string]interface{}
-	json.Unmarshal(data, &config)
+	_ = json.Unmarshal(data, &config)
 
 	// Should have mcpServers
 	if config["mcpServers"] == nil {
@@ -258,7 +258,7 @@ func TestGetGeminiMCPNames(t *testing.T) {
     "beta": {"command": "npx"}
   }
 }`
-	os.WriteFile(settingsFile, []byte(settingsJSON), 0644)
+	_ = os.WriteFile(settingsFile, []byte(settingsJSON), 0644)
 
 	names := GetGeminiMCPNames()
 
