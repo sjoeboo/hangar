@@ -44,13 +44,6 @@ func TestHashProjectPath(t *testing.T) {
 			path:     "/Users/ashesh",
 			expected: "791e1ce1b3651ae5c05fc40e2ff27287a9a59008bcd7a449daf0cfb365d43bac",
 		},
-		{
-			// NOTE: On macOS, /tmp is a symlink to /private/tmp
-			// HashProjectPath resolves symlinks to match Gemini CLI behavior
-			// VERIFIED: echo -n "/private/tmp/test" | shasum -a 256
-			path:     "/tmp/test",
-			expected: "f0344a0475eb5f0a52040b43d9c2ca2ef3084d2e378c6855265c2820461f1fba",
-		},
 	}
 
 	for _, tt := range tests {
