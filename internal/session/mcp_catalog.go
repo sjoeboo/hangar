@@ -77,7 +77,21 @@ func WriteMCPJsonFromConfig(projectPath string, enabledNames []string) error {
 
 	for _, name := range enabledNames {
 		if def, ok := availableMCPs[name]; ok {
-			// Check if pool exists and should pool this MCP
+			// Check if this is an HTTP/SSE MCP (has URL configured)
+			if def.URL != "" {
+				transport := def.Transport
+				if transport == "" {
+					transport = "http" // default to http if URL is set
+				}
+				mcpConfig.MCPServers[name] = MCPServerConfig{
+					Type: transport,
+					URL:  def.URL,
+				}
+				log.Printf("[MCP] ✓ %s: using %s transport at %s", name, transport, def.URL)
+				continue
+			}
+
+			// Check if pool exists and should pool this MCP (stdio only)
 			if pool != nil && pool.ShouldPool(name) {
 				// Wait for socket to be ready (up to 3 seconds)
 				if !pool.IsRunning(name) {
@@ -192,7 +206,21 @@ func WriteGlobalMCP(enabledNames []string) error {
 
 	for _, name := range enabledNames {
 		if def, ok := availableMCPs[name]; ok {
-			// Check if pool exists and should pool this MCP
+			// Check if this is an HTTP/SSE MCP (has URL configured)
+			if def.URL != "" {
+				transport := def.Transport
+				if transport == "" {
+					transport = "http" // default to http if URL is set
+				}
+				mcpServers[name] = MCPServerConfig{
+					Type: transport,
+					URL:  def.URL,
+				}
+				log.Printf("[MCP] ✓ Global %s: using %s transport at %s", name, transport, def.URL)
+				continue
+			}
+
+			// Check if pool exists and should pool this MCP (stdio only)
 			if pool != nil && pool.ShouldPool(name) {
 				// Wait for socket to be ready (up to 3 seconds)
 				if !pool.IsRunning(name) {

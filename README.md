@@ -138,6 +138,20 @@ description = "Up-to-date code documentation"
 command = "npx"
 args = ["-y", "anthropic-docs-mcp", "--transport", "stdio"]
 description = "Search Claude & Anthropic docs"
+
+# ─────────────── HTTP/SSE MCPs ───────────────
+
+# DeepWiki - GitHub repo docs (HTTP, no auth)
+[mcps.deepwiki]
+url = "https://mcp.deepwiki.com/mcp"
+transport = "http"
+description = "GitHub repo documentation"
+
+# Asana - Project management (SSE, requires OAuth)
+[mcps.asana]
+url = "https://mcp.asana.com/sse"
+transport = "sse"
+description = "Asana project management"
 ```
 
 </details>
@@ -543,12 +557,21 @@ The installer adds optional tmux config (mouse support, clipboard integration) b
 
 Edit `~/.agent-deck/config.toml` and add your servers:
 
+**Stdio MCPs** (local command-line tools):
 ```toml
 [mcps.your-server]
 command = "npx"
 args = ["-y", "your-mcp-package"]
 env = { API_KEY = "your-key" }
 description = "What this server does"
+```
+
+**HTTP/SSE MCPs** (remote servers):
+```toml
+[mcps.remote-api]
+url = "https://mcp.example.com/mcp"
+transport = "http"  # or "sse"
+description = "Remote MCP server"
 ```
 
 Then press `M` in Agent Deck to toggle it on/off for any session. [See MCP examples](#adding-available-mcps).

@@ -41,7 +41,7 @@ func TestWriteMCPJsonFromConfig(t *testing.T) {
 }
 
 func TestMCPServerConfigJSON(t *testing.T) {
-	// Test that MCPServerConfig marshals correctly
+	// Test that MCPServerConfig marshals correctly for stdio
 	config := MCPServerConfig{
 		Type:    "stdio",
 		Command: "npx",
@@ -67,6 +67,60 @@ func TestMCPServerConfigJSON(t *testing.T) {
 	}
 	if parsed.Env["API_KEY"] != config.Env["API_KEY"] {
 		t.Errorf("Env mismatch: got %q, want %q", parsed.Env["API_KEY"], config.Env["API_KEY"])
+	}
+}
+
+func TestMCPServerConfigHTTP(t *testing.T) {
+	// Test that MCPServerConfig marshals correctly for HTTP transport
+	config := MCPServerConfig{
+		Type: "http",
+		URL:  "https://mcp.example.com/mcp",
+	}
+
+	data, err := json.Marshal(config)
+	if err != nil {
+		t.Fatalf("Failed to marshal: %v", err)
+	}
+
+	var parsed MCPServerConfig
+	if err := json.Unmarshal(data, &parsed); err != nil {
+		t.Fatalf("Failed to unmarshal: %v", err)
+	}
+
+	if parsed.Type != "http" {
+		t.Errorf("Type mismatch: got %q, want %q", parsed.Type, "http")
+	}
+	if parsed.URL != config.URL {
+		t.Errorf("URL mismatch: got %q, want %q", parsed.URL, config.URL)
+	}
+	// Command should be empty for HTTP MCPs
+	if parsed.Command != "" {
+		t.Errorf("Command should be empty for HTTP MCP, got %q", parsed.Command)
+	}
+}
+
+func TestMCPServerConfigSSE(t *testing.T) {
+	// Test that MCPServerConfig marshals correctly for SSE transport
+	config := MCPServerConfig{
+		Type: "sse",
+		URL:  "https://mcp.asana.com/sse",
+	}
+
+	data, err := json.Marshal(config)
+	if err != nil {
+		t.Fatalf("Failed to marshal: %v", err)
+	}
+
+	var parsed MCPServerConfig
+	if err := json.Unmarshal(data, &parsed); err != nil {
+		t.Fatalf("Failed to unmarshal: %v", err)
+	}
+
+	if parsed.Type != "sse" {
+		t.Errorf("Type mismatch: got %q, want %q", parsed.Type, "sse")
+	}
+	if parsed.URL != config.URL {
+		t.Errorf("URL mismatch: got %q, want %q", parsed.URL, config.URL)
 	}
 }
 

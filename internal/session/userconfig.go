@@ -165,6 +165,7 @@ type ToolDef struct {
 // MCPDef defines an MCP server configuration for the MCP Manager
 type MCPDef struct {
 	// Command is the executable to run (e.g., "npx", "docker", "node")
+	// Required for stdio MCPs, optional for HTTP/SSE MCPs
 	Command string `toml:"command"`
 
 	// Args are command-line arguments
@@ -175,6 +176,14 @@ type MCPDef struct {
 
 	// Description is optional help text shown in the MCP Manager
 	Description string `toml:"description"`
+
+	// URL is the endpoint for HTTP/SSE MCPs (e.g., "http://localhost:8000/mcp")
+	// If set, this MCP uses HTTP or SSE transport instead of stdio
+	URL string `toml:"url"`
+
+	// Transport specifies the MCP transport type: "stdio" (default), "http", or "sse"
+	// Only needed when URL is set; defaults to "http" if URL is present
+	Transport string `toml:"transport"`
 }
 
 // Default user config (empty maps)
@@ -434,11 +443,20 @@ notify_in_cli = true
 # Define available MCP servers here. These can be attached/detached per-project
 # using the MCP Manager (press 'M' on a Claude session).
 #
-# Each MCP can have:
+# Supports two transport types:
+#
+# STDIO MCPs (local command-line tools):
 #   command     - The executable to run (e.g., "npx", "docker", "node")
 #   args        - Command-line arguments (array)
-#   env         - Environment variables (optional, key-value pairs)
+#   env         - Environment variables (optional)
 #   description - Help text shown in the MCP Manager (optional)
+#
+# HTTP/SSE MCPs (remote servers):
+#   url         - The endpoint URL (http:// or https://)
+#   transport   - "http" or "sse" (defaults to "http" if url is set)
+#   description - Help text shown in the MCP Manager (optional)
+
+# ---------- STDIO Examples ----------
 
 # Example: Exa Search MCP
 # [mcps.exa]
@@ -464,6 +482,20 @@ notify_in_cli = true
 # command = "npx"
 # args = ["-y", "@modelcontextprotocol/server-sequential-thinking"]
 # description = "Step-by-step reasoning for complex problems"
+
+# ---------- HTTP/SSE Examples ----------
+
+# Example: HTTP MCP server (local or remote)
+# [mcps.my-http-server]
+# url = "http://localhost:8000/mcp"
+# transport = "http"
+# description = "My custom HTTP MCP server"
+
+# Example: SSE MCP server
+# [mcps.remote-sse]
+# url = "https://api.example.com/mcp/sse"
+# transport = "sse"
+# description = "Remote SSE-based MCP"
 
 # ============================================================================
 # Custom Tool Definitions
