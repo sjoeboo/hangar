@@ -3528,8 +3528,8 @@ func (h *Home) renderHelpBarFull() string {
 			if item.Session != nil && item.Session.CanFork() {
 				primaryHints = append(primaryHints, h.helpKey("f/F", "Fork"))
 			}
-			// Show MCP Manager hint for Claude sessions
-			if item.Session != nil && item.Session.Tool == "claude" {
+			// Show MCP Manager hint for Claude and Gemini sessions
+			if item.Session != nil && (item.Session.Tool == "claude" || item.Session.Tool == "gemini") {
 				primaryHints = append(primaryHints, h.helpKey("M", "MCP"))
 			}
 			secondaryHints = []string{
