@@ -23,7 +23,7 @@ import (
 	"github.com/muesli/termenv"
 )
 
-const Version = "0.8.3"
+const Version = "0.8.4"
 
 // Table column widths for list command output
 const (
@@ -63,10 +63,10 @@ func printUpdateNotice() {
 		info.CurrentVersion, info.LatestVersion)
 }
 
-// maybeAutoUpdate checks if auto-update is enabled and performs update if available
-func maybeAutoUpdate() bool {
+// promptForUpdate checks for updates and prompts user if auto_update is enabled
+func promptForUpdate() bool {
 	settings := session.GetUpdateSettings()
-	if !settings.AutoUpdate || !settings.CheckEnabled {
+	if !settings.CheckEnabled {
 		return false
 	}
 
@@ -75,9 +75,30 @@ func maybeAutoUpdate() bool {
 		return false
 	}
 
-	fmt.Printf("Auto-updating: v%s → v%s\n", info.CurrentVersion, info.LatestVersion)
+	// If auto_update is disabled, just show notification (don't prompt)
+	if !settings.AutoUpdate {
+		fmt.Fprintf(os.Stderr, "\n💡 Update available: v%s → v%s (run: agent-deck update)\n",
+			info.CurrentVersion, info.LatestVersion)
+		return false
+	}
+
+	// auto_update is enabled - prompt user
+	fmt.Printf("\n⬆ Update available: v%s → v%s\n", info.CurrentVersion, info.LatestVersion)
+	fmt.Print("Update now? [Y/n]: ")
+
+	var response string
+	fmt.Scanln(&response)
+	response = strings.TrimSpace(strings.ToLower(response))
+
+	// Default to yes (empty or "y" or "yes")
+	if response != "" && response != "y" && response != "yes" {
+		fmt.Println("Skipped. Run 'agent-deck update' later.")
+		return false
+	}
+
+	fmt.Println()
 	if err := update.PerformUpdate(info.DownloadURL); err != nil {
-		fmt.Fprintf(os.Stderr, "Auto-update failed: %v\n", err)
+		fmt.Fprintf(os.Stderr, "Update failed: %v\n", err)
 		return false
 	}
 
@@ -199,8 +220,8 @@ func main() {
 	// Set version for UI update checking
 	ui.SetVersion(Version)
 
-	// Check for auto-update before launching TUI
-	if maybeAutoUpdate() {
+	// Check for updates and prompt user before launching TUI
+	if promptForUpdate() {
 		// Update was performed, exit so user can restart with new version
 		return
 	}

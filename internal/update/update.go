@@ -22,9 +22,9 @@ const (
 	// CacheFileName stores the last update check result
 	CacheFileName = "update-cache.json"
 
-	// DefaultCheckInterval is the default check interval (24 hours)
+	// DefaultCheckInterval is the default check interval (1 hour)
 	// Can be overridden via config.toml [updates] check_interval_hours
-	DefaultCheckInterval = 24 * time.Hour
+	DefaultCheckInterval = 1 * time.Hour
 )
 
 // checkInterval stores the configurable interval (set via SetCheckInterval)
