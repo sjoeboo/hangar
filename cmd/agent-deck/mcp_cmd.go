@@ -438,8 +438,8 @@ func handleMCPAttach(profile string, args []string) {
 			time.Sleep(2 * time.Second)
 			if tmuxSess := inst.GetTmuxSession(); tmuxSess != nil {
 				// Send "continue" and Enter to resume the conversation
-				exec.Command("tmux", "send-keys", "-l", "-t", tmuxSess.Name, "continue").Run()
-				exec.Command("tmux", "send-keys", "-t", tmuxSess.Name, "Enter").Run()
+				_ = exec.Command("tmux", "send-keys", "-l", "-t", tmuxSess.Name, "continue").Run()
+				_ = exec.Command("tmux", "send-keys", "-t", tmuxSess.Name, "Enter").Run()
 			}
 		}
 	}
@@ -590,8 +590,8 @@ func handleMCPDetach(profile string, args []string) {
 			time.Sleep(2 * time.Second)
 			if tmuxSess := inst.GetTmuxSession(); tmuxSess != nil {
 				// Send "continue" and Enter to resume the conversation
-				exec.Command("tmux", "send-keys", "-l", "-t", tmuxSess.Name, "continue").Run()
-				exec.Command("tmux", "send-keys", "-t", tmuxSess.Name, "Enter").Run()
+				_ = exec.Command("tmux", "send-keys", "-l", "-t", tmuxSess.Name, "continue").Run()
+				_ = exec.Command("tmux", "send-keys", "-t", tmuxSess.Name, "Enter").Run()
 			}
 		}
 	}
