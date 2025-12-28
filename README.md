@@ -19,7 +19,7 @@
 
 ---
 
-<video src="https://github.com/asheshgoplani/agent-deck/raw/main/demos/agent-deck-overview-web.mp4" width="100%" autoplay loop muted playsinline></video>
+![Agent Deck Overview](demos/agent-deck-overview.gif)
 
 ## The Problem
 
@@ -45,7 +45,7 @@ One terminal. All your agents. Complete visibility.
 
 **Try different approaches without losing context.** Fork any Claude conversation instantly. Each fork inherits the full conversation history - perfect for comparing solutions or experimenting without risk.
 
-<video src="https://github.com/asheshgoplani/agent-deck/raw/main/demos/fork-session.mp4" width="100%" autoplay loop muted playsinline></video>
+![Fork Session Demo](demos/fork-session.gif)
 
 - Press `f` for quick fork, `F` to customize name/group
 - Fork your forks - explore as many branches as you need
@@ -57,7 +57,7 @@ One terminal. All your agents. Complete visibility.
 
 **Attach MCP servers without touching config files.** Need web search? Browser automation? GitHub integration? Toggle them on per project or globally - Agent Deck handles the restart automatically.
 
-<video src="https://github.com/asheshgoplani/agent-deck/raw/main/demos/manual-mcp-change-web.mp4" width="100%" autoplay loop muted playsinline></video>
+![MCP Manager Demo](demos/manual-mcp-change.gif)
 
 - Press `M` to open, `Space` to toggle any MCP server
 - **LOCAL** scope (just this project) or **GLOBAL** (everywhere)
