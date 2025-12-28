@@ -19,7 +19,7 @@
 
 ---
 
-![Agent Deck Overview](demos/agent-deck-overview.gif)
+https://github.com/user-attachments/assets/e4f55917-435c-45ba-92cc-89737d0d1401
 
 ## The Problem
 
