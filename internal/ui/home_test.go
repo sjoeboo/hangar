@@ -3,6 +3,7 @@ package ui
 import (
 	"strings"
 	"testing"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 
@@ -420,5 +421,130 @@ func TestRenderHelpBarTiny(t *testing.T) {
 	}
 	if strings.Contains(result, "Global") {
 		t.Error("Tiny help bar should not contain 'Global'")
+	}
+}
+
+func TestRenderHelpBarMinimal(t *testing.T) {
+	home := NewHome()
+	home.width = 55 // Minimal mode (50-69)
+	home.height = 30
+
+	result := home.renderHelpBar()
+
+	// Should contain key-only hints
+	if !strings.Contains(result, "?") {
+		t.Error("Minimal help bar should contain ?")
+	}
+	if !strings.Contains(result, "q") {
+		t.Error("Minimal help bar should contain q")
+	}
+	// Should NOT contain full descriptions
+	if strings.Contains(result, "Attach") {
+		t.Error("Minimal help bar should not contain full descriptions")
+	}
+}
+
+func TestRenderHelpBarMinimalWithSession(t *testing.T) {
+	home := NewHome()
+	home.width = 55 // Minimal mode (50-69)
+	home.height = 30
+
+	// Add a session to test context-specific keys
+	testSession := &session.Instance{
+		ID:    "test-123",
+		Title: "Test Session",
+		Tool:  "claude",
+	}
+	home.flatItems = []session.Item{
+		{Type: session.ItemTypeSession, Session: testSession},
+	}
+	home.cursor = 0
+
+	result := home.renderHelpBar()
+
+	// Should contain key indicators
+	if !strings.Contains(result, "n") {
+		t.Error("Minimal help bar should contain n key")
+	}
+	if !strings.Contains(result, "R") {
+		t.Error("Minimal help bar should contain R key for restart")
+	}
+	// Should NOT contain full descriptions
+	if strings.Contains(result, "Attach") {
+		t.Error("Minimal help bar should not contain full descriptions")
+	}
+}
+
+func TestRenderHelpBarCompact(t *testing.T) {
+	home := NewHome()
+	home.width = 85 // Compact mode (70-99)
+	home.height = 30
+
+	result := home.renderHelpBar()
+
+	// Should contain abbreviated hints
+	if !strings.Contains(result, "?") {
+		t.Error("Compact help bar should contain ?")
+	}
+	// Should contain some descriptions but abbreviated
+	if strings.Contains(result, "Global") {
+		t.Error("Compact help bar should not contain 'Global'")
+	}
+}
+
+func TestRenderHelpBarCompactWithSession(t *testing.T) {
+	home := NewHome()
+	home.width = 85 // Compact mode (70-99)
+	home.height = 30
+
+	// Add a session with fork capability
+	// ClaudeDetectedAt must be recent for CanFork() to return true
+	testSession := &session.Instance{
+		ID:               "test-123",
+		Title:            "Test Session",
+		Tool:             "claude",
+		ClaudeSessionID:  "session-abc",
+		ClaudeDetectedAt: time.Now(), // Must be recent for CanFork()
+	}
+	home.flatItems = []session.Item{
+		{Type: session.ItemTypeSession, Session: testSession},
+	}
+	home.cursor = 0
+
+	result := home.renderHelpBar()
+
+	// Should have abbreviated descriptions
+	if !strings.Contains(result, "New") {
+		t.Error("Compact help bar should contain 'New'")
+	}
+	if !strings.Contains(result, "Restart") {
+		t.Error("Compact help bar should contain 'Restart'")
+	}
+	// Should have fork since session can fork
+	if !strings.Contains(result, "Fork") {
+		t.Error("Compact help bar should contain 'Fork' for forkable session")
+	}
+	// Should NOT contain full verbose text
+	if strings.Contains(result, "Global") {
+		t.Error("Compact help bar should not contain 'Global'")
+	}
+}
+
+func TestRenderHelpBarCompactWithGroup(t *testing.T) {
+	home := NewHome()
+	home.width = 85 // Compact mode (70-99)
+	home.height = 30
+
+	// Add a group
+	home.flatItems = []session.Item{
+		{Type: session.ItemTypeGroup, Path: "test-group", Level: 0},
+	}
+	home.cursor = 0
+
+	result := home.renderHelpBar()
+
+	// Should have toggle hint for groups
+	if !strings.Contains(result, "Toggle") {
+		t.Error("Compact help bar should contain 'Toggle' for groups")
 	}
 }

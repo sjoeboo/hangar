@@ -3371,15 +3371,118 @@ func (h *Home) renderHelpBarTiny() string {
 }
 
 // renderHelpBarMinimal renders keys-only help for narrow terminals (50-69 cols)
-// TODO: Implement in Task 3
 func (h *Home) renderHelpBarMinimal() string {
-	return h.renderHelpBarFull()
+	borderStyle := lipgloss.NewStyle().Foreground(ColorBorder)
+	border := borderStyle.Render(strings.Repeat("─", h.width))
+
+	keyStyle := lipgloss.NewStyle().
+		Foreground(ColorBg).
+		Background(ColorAccent).
+		Bold(true)
+	sepStyle := lipgloss.NewStyle().Foreground(ColorBorder)
+	sep := sepStyle.Render(" │ ")
+
+	// Context-specific keys (left side)
+	var contextKeys string
+	if len(h.flatItems) == 0 {
+		contextKeys = keyStyle.Render("n") + " " + keyStyle.Render("i") + " " + keyStyle.Render("g")
+	} else if h.cursor < len(h.flatItems) {
+		item := h.flatItems[h.cursor]
+		if item.Type == session.ItemTypeGroup {
+			contextKeys = keyStyle.Render("⏎") + " " + keyStyle.Render("n") + " " + keyStyle.Render("g")
+		} else {
+			contextKeys = keyStyle.Render("⏎") + " " + keyStyle.Render("n") + " " + keyStyle.Render("R")
+			if item.Session != nil && item.Session.CanFork() {
+				contextKeys += " " + keyStyle.Render("f")
+			}
+			if item.Session != nil && (item.Session.Tool == "claude" || item.Session.Tool == "gemini") {
+				contextKeys += " " + keyStyle.Render("M")
+			}
+		}
+	}
+
+	// Global keys (right side)
+	globalStyle := lipgloss.NewStyle().Foreground(ColorComment)
+	globalKeys := globalStyle.Render("↑↓") + " " + globalStyle.Render("/") + " " +
+		globalStyle.Render("?") + " " + globalStyle.Render("q")
+
+	// Calculate padding
+	leftPart := contextKeys
+	rightPart := globalKeys
+	padding := h.width - lipgloss.Width(leftPart) - lipgloss.Width(rightPart) - 4
+	if padding < 2 {
+		padding = 2
+	}
+
+	content := leftPart + sep + strings.Repeat(" ", padding) + rightPart
+
+	return lipgloss.JoinVertical(lipgloss.Left, border, content)
 }
 
 // renderHelpBarCompact renders abbreviated help for medium terminals (70-99 cols)
-// TODO: Implement in Task 3
 func (h *Home) renderHelpBarCompact() string {
-	return h.renderHelpBarFull()
+	borderStyle := lipgloss.NewStyle().Foreground(ColorBorder)
+	border := borderStyle.Render(strings.Repeat("─", h.width))
+
+	sepStyle := lipgloss.NewStyle().Foreground(ColorBorder)
+	sep := sepStyle.Render(" │ ")
+
+	// Abbreviated key+short desc
+	var contextHints []string
+	if len(h.flatItems) == 0 {
+		contextHints = []string{
+			h.helpKeyShort("n", "New"),
+			h.helpKeyShort("i", "Import"),
+		}
+	} else if h.cursor < len(h.flatItems) {
+		item := h.flatItems[h.cursor]
+		if item.Type == session.ItemTypeGroup {
+			contextHints = []string{
+				h.helpKeyShort("⏎", "Toggle"),
+				h.helpKeyShort("n", "New"),
+			}
+		} else {
+			contextHints = []string{
+				h.helpKeyShort("⏎", "Attach"),
+				h.helpKeyShort("n", "New"),
+				h.helpKeyShort("R", "Restart"),
+			}
+			if item.Session != nil && item.Session.CanFork() {
+				contextHints = append(contextHints, h.helpKeyShort("f", "Fork"))
+			}
+			if item.Session != nil && (item.Session.Tool == "claude" || item.Session.Tool == "gemini") {
+				contextHints = append(contextHints, h.helpKeyShort("M", "MCP"))
+			}
+		}
+	}
+
+	// Global hints (abbreviated)
+	globalStyle := lipgloss.NewStyle().Foreground(ColorComment)
+	globalHints := globalStyle.Render("↑↓ Nav") + " " +
+		globalStyle.Render("/") + " " +
+		globalStyle.Render("?") + " " +
+		globalStyle.Render("q")
+
+	leftPart := strings.Join(contextHints, " ")
+	rightPart := globalHints
+	padding := h.width - lipgloss.Width(leftPart) - lipgloss.Width(rightPart) - 4
+	if padding < 2 {
+		padding = 2
+	}
+
+	content := leftPart + sep + strings.Repeat(" ", padding) + rightPart
+
+	return lipgloss.JoinVertical(lipgloss.Left, border, content)
+}
+
+// helpKeyShort formats a compact keyboard shortcut (no padding)
+func (h *Home) helpKeyShort(key, desc string) string {
+	keyStyle := lipgloss.NewStyle().
+		Foreground(ColorBg).
+		Background(ColorAccent).
+		Bold(true)
+	descStyle := lipgloss.NewStyle().Foreground(ColorText)
+	return keyStyle.Render(key) + descStyle.Render(desc)
 }
 
 // renderHelpBarFull renders context-aware keyboard shortcuts with visual grouping (100+ cols)
