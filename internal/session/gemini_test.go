@@ -45,9 +45,11 @@ func TestHashProjectPath(t *testing.T) {
 			expected: "791e1ce1b3651ae5c05fc40e2ff27287a9a59008bcd7a449daf0cfb365d43bac",
 		},
 		{
-			// VERIFIED: echo -n "/tmp/test" | shasum -a 256
+			// NOTE: On macOS, /tmp is a symlink to /private/tmp
+			// HashProjectPath resolves symlinks to match Gemini CLI behavior
+			// VERIFIED: echo -n "/private/tmp/test" | shasum -a 256
 			path:     "/tmp/test",
-			expected: "0872effe487c8eb8681b0a627ce6f04c7a25bcd2a28834db42bdc40a52a85af1",
+			expected: "f0344a0475eb5f0a52040b43d9c2ca2ef3084d2e378c6855265c2820461f1fba",
 		},
 	}
 
@@ -155,7 +157,7 @@ func TestParseGeminiSessionFile_InvalidJSON(t *testing.T) {
 	sessionFile := filepath.Join(tmpDir, "invalid.json")
 
 	// Write malformed JSON
-	os.WriteFile(sessionFile, []byte("not valid json{"), 0644)
+	_ = os.WriteFile(sessionFile, []byte("not valid json{"), 0644)
 
 	_, err := parseGeminiSessionFile(sessionFile)
 	if err == nil {
@@ -187,7 +189,7 @@ func TestListGeminiSessions(t *testing.T) {
   "lastUpdated": "2025-12-23T00:30:00.000Z",
   "messages": [{"id": "1", "type": "user", "content": "old"}]
 }`
-	os.WriteFile(session1, []byte(session1Data), 0644)
+	_ = os.WriteFile(session1, []byte(session1Data), 0644)
 
 	// Create session 2 (newer)
 	session2 := filepath.Join(sessionsDir, "session-2025-12-24T10-00-def67890.json")
@@ -197,7 +199,7 @@ func TestListGeminiSessions(t *testing.T) {
   "lastUpdated": "2025-12-24T10:15:00.000Z",
   "messages": [{"id": "1", "type": "user", "content": "new"}]
 }`
-	os.WriteFile(session2, []byte(session2Data), 0644)
+	_ = os.WriteFile(session2, []byte(session2Data), 0644)
 
 	sessions, err := ListGeminiSessions(projectPath)
 	if err != nil {
