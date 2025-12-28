@@ -439,6 +439,56 @@ PROFILE=$(agent-deck session current --json | jq -r '.profile')
 agent-deck -p "$PROFILE" add -t "Subtask" --parent "$PARENT" -c claude /tmp/subtask
 ```
 
+## Updates
+
+Agent-deck checks for updates automatically and notifies you when a new version is available.
+
+### Update Notification
+
+When you open the TUI, a yellow banner appears if an update is available:
+```
+⬆ Update available: v0.8.1 → v0.8.2 (run: agent-deck update)
+```
+
+CLI commands (`list`, `status`) also show a notification:
+```
+💡 Update available: v0.8.1 → v0.8.2 (run: agent-deck update)
+```
+
+### Update Commands
+
+```bash
+agent-deck update              # Check and install update
+agent-deck update --check      # Just check, don't install
+agent-deck update --force      # Force check (bypass 24h cache)
+```
+
+### Configuration
+
+Add to `~/.agent-deck/config.toml`:
+
+```toml
+[updates]
+# Automatically install updates without prompting (default: false)
+auto_update = true
+
+# Enable update checks on startup (default: true)
+check_enabled = true
+
+# How often to check for updates in hours (default: 24)
+check_interval_hours = 24
+
+# Show update notification in CLI commands (default: true)
+notify_in_cli = true
+```
+
+### Auto-Update
+
+When `auto_update = true`, agent-deck will:
+1. Check for updates on startup
+2. Automatically download and install if available
+3. Exit so you can restart with the new version
+
 ## FAQ
 
 ### How is this different from just using tmux?
