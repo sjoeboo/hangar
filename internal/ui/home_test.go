@@ -633,3 +633,40 @@ func TestHomeViewSingleColumnLayout(t *testing.T) {
 		t.Error("45-col terminal should not show 'too small' error")
 	}
 }
+
+func TestHomeViewAllLayoutModes(t *testing.T) {
+	testCases := []struct {
+		name       string
+		width      int
+		height     int
+		layoutMode string
+	}{
+		{"single column", 45, 30, "single"},
+		{"stacked", 65, 40, "stacked"},
+		{"dual column", 100, 40, "dual"},
+		{"issue #2 exact", 79, 70, "stacked"},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			home := NewHome()
+			home.width = tc.width
+			home.height = tc.height
+			home.initialLoading = false
+
+			// Verify layout mode detection
+			if got := home.getLayoutMode(); got != tc.layoutMode {
+				t.Errorf("getLayoutMode() = %q, want %q", got, tc.layoutMode)
+			}
+
+			// Verify view renders without error
+			view := home.View()
+			if view == "" {
+				t.Error("View should not be empty")
+			}
+			if strings.Contains(view, "Terminal too small") {
+				t.Errorf("Terminal %dx%d should render, got 'too small'", tc.width, tc.height)
+			}
+		})
+	}
+}

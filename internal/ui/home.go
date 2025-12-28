@@ -2959,49 +2959,27 @@ func (h *Home) View() string {
 	}
 
 	// ═══════════════════════════════════════════════════════════════════
-	// MAIN CONTENT AREA
+	// MAIN CONTENT AREA - Responsive layout based on terminal width
 	// ═══════════════════════════════════════════════════════════════════
 	helpBarHeight := 2 // Help bar takes 2 lines (border + content)
 	// Height breakdown: -1 header, -filterBarHeight filter, -updateBannerHeight banner, -helpBarHeight help
 	contentHeight := h.height - 1 - helpBarHeight - updateBannerHeight - filterBarHeight
 
-	// Calculate panel widths (35% left, 65% right for more preview space)
-	leftWidth := int(float64(h.width) * 0.35)
-	rightWidth := h.width - leftWidth - 3 // -3 for separator
+	// Route to appropriate layout based on terminal width
+	layoutMode := h.getLayoutMode()
 
-	// Panel title is exactly 2 lines (title + underline)
-	// Panel content gets the remaining space: contentHeight - 2
-	panelTitleLines := 2
-	panelContentHeight := contentHeight - panelTitleLines
-
-	// Build left panel (session list) with styled title
-	leftTitle := h.renderPanelTitle("SESSIONS", leftWidth)
-	leftContent := h.renderSessionList(leftWidth, panelContentHeight)
-	// CRITICAL: Ensure left content has exactly panelContentHeight lines
-	leftContent = ensureExactHeight(leftContent, panelContentHeight)
-	leftPanel := leftTitle + "\n" + leftContent
-
-	// Build right panel (preview) with styled title
-	rightTitle := h.renderPanelTitle("PREVIEW", rightWidth)
-	rightContent := h.renderPreviewPane(rightWidth, panelContentHeight)
-	// CRITICAL: Ensure right content has exactly panelContentHeight lines
-	rightContent = ensureExactHeight(rightContent, panelContentHeight)
-	rightPanel := rightTitle + "\n" + rightContent
-
-	// Build separator - must be exactly contentHeight lines
-	separatorStyle := lipgloss.NewStyle().Foreground(ColorBorder)
-	separatorLines := make([]string, contentHeight)
-	for i := range separatorLines {
-		separatorLines[i] = separatorStyle.Render(" │ ")
+	var mainContent string
+	switch layoutMode {
+	case LayoutModeSingle:
+		mainContent = h.renderSingleColumnLayout(contentHeight)
+	case LayoutModeStacked:
+		mainContent = h.renderStackedLayout(contentHeight)
+	default: // LayoutModeDual
+		mainContent = h.renderDualColumnLayout(contentHeight)
 	}
-	separator := strings.Join(separatorLines, "\n")
 
-	// CRITICAL: Ensure both panels have exactly contentHeight lines before joining
-	leftPanel = ensureExactHeight(leftPanel, contentHeight)
-	rightPanel = ensureExactHeight(rightPanel, contentHeight)
-
-	// Join panels horizontally - all components have exact heights now
-	mainContent := lipgloss.JoinHorizontal(lipgloss.Top, leftPanel, separator, rightPanel)
+	// Ensure mainContent has exact height
+	mainContent = ensureExactHeight(mainContent, contentHeight)
 	b.WriteString(mainContent)
 	b.WriteString("\n")
 
@@ -3309,6 +3287,52 @@ func ensureExactHeight(content string, n int) string {
 
 	// Join back - this creates n-1 newlines for n lines
 	return strings.Join(lines, "\n")
+}
+
+// renderDualColumnLayout renders side-by-side panels for wide terminals (80+ cols)
+func (h *Home) renderDualColumnLayout(contentHeight int) string {
+	var b strings.Builder
+
+	// Calculate panel widths (35% left, 65% right for more preview space)
+	leftWidth := int(float64(h.width) * 0.35)
+	rightWidth := h.width - leftWidth - 3 // -3 for separator
+
+	// Panel title is exactly 2 lines (title + underline)
+	// Panel content gets the remaining space: contentHeight - 2
+	panelTitleLines := 2
+	panelContentHeight := contentHeight - panelTitleLines
+
+	// Build left panel (session list) with styled title
+	leftTitle := h.renderPanelTitle("SESSIONS", leftWidth)
+	leftContent := h.renderSessionList(leftWidth, panelContentHeight)
+	// CRITICAL: Ensure left content has exactly panelContentHeight lines
+	leftContent = ensureExactHeight(leftContent, panelContentHeight)
+	leftPanel := leftTitle + "\n" + leftContent
+
+	// Build right panel (preview) with styled title
+	rightTitle := h.renderPanelTitle("PREVIEW", rightWidth)
+	rightContent := h.renderPreviewPane(rightWidth, panelContentHeight)
+	// CRITICAL: Ensure right content has exactly panelContentHeight lines
+	rightContent = ensureExactHeight(rightContent, panelContentHeight)
+	rightPanel := rightTitle + "\n" + rightContent
+
+	// Build separator - must be exactly contentHeight lines
+	separatorStyle := lipgloss.NewStyle().Foreground(ColorBorder)
+	separatorLines := make([]string, contentHeight)
+	for i := range separatorLines {
+		separatorLines[i] = separatorStyle.Render(" │ ")
+	}
+	separator := strings.Join(separatorLines, "\n")
+
+	// CRITICAL: Ensure both panels have exactly contentHeight lines before joining
+	leftPanel = ensureExactHeight(leftPanel, contentHeight)
+	rightPanel = ensureExactHeight(rightPanel, contentHeight)
+
+	// Join panels horizontally - all components have exact heights now
+	mainContent := lipgloss.JoinHorizontal(lipgloss.Top, leftPanel, separator, rightPanel)
+	b.WriteString(mainContent)
+
+	return b.String()
 }
 
 // renderStackedLayout renders list above preview for medium terminals (50-79 cols)
