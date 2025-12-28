@@ -61,10 +61,24 @@ const (
 	spacingLarge  = 4 // Between major areas (e.g., info sections in preview)
 )
 
-// Minimum terminal size requirements
+// Minimum terminal size requirements (reduced for mobile support)
 const (
-	minTerminalWidth  = 80
-	minTerminalHeight = 20
+	minTerminalWidth  = 40 // Reduced from 80 - supports mobile terminals
+	minTerminalHeight = 12 // Reduced from 20 - supports smaller screens
+)
+
+// Layout mode breakpoints for responsive design
+const (
+	layoutBreakpointSingle  = 50 // Below: single column, no preview
+	layoutBreakpointStacked = 80 // Below: stacked layout (list above preview)
+	// At or above 80: dual column (current side-by-side layout)
+)
+
+// Layout mode names
+const (
+	LayoutModeSingle  = "single"  // <50 cols: list only
+	LayoutModeStacked = "stacked" // 50-79 cols: vertical stack
+	LayoutModeDual    = "dual"    // 80+ cols: side-by-side
 )
 
 // Responsive breakpoints for empty state content tiers
@@ -179,6 +193,18 @@ type reloadState struct {
 	cursorGroupPath string          // Path of group at cursor (if cursor on group)
 	expandedGroups  map[string]bool // Expanded group paths
 	viewOffset      int             // Scroll position
+}
+
+// getLayoutMode returns the current layout mode based on terminal width
+func (h *Home) getLayoutMode() string {
+	switch {
+	case h.width < layoutBreakpointSingle:
+		return LayoutModeSingle
+	case h.width < layoutBreakpointStacked:
+		return LayoutModeStacked
+	default:
+		return LayoutModeDual
+	}
 }
 
 // Messages

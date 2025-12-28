@@ -375,3 +375,29 @@ func TestHomeGlobalSearchEscape(t *testing.T) {
 		t.Error("Global search should be hidden after pressing Escape")
 	}
 }
+
+func TestGetLayoutMode(t *testing.T) {
+	tests := []struct {
+		name     string
+		width    int
+		expected string
+	}{
+		{"narrow phone", 45, "single"},
+		{"phone landscape", 65, "stacked"},
+		{"tablet", 85, "dual"},
+		{"desktop", 120, "dual"},
+		{"exact boundary 50", 50, "stacked"},
+		{"exact boundary 80", 80, "dual"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			home := NewHome()
+			home.width = tt.width
+			got := home.getLayoutMode()
+			if got != tt.expected {
+				t.Errorf("getLayoutMode() at width %d = %q, want %q", tt.width, got, tt.expected)
+			}
+		})
+	}
+}
