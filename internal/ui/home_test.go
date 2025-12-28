@@ -582,3 +582,54 @@ func TestHomeViewNarrowTerminal(t *testing.T) {
 		})
 	}
 }
+
+func TestHomeViewStackedLayout(t *testing.T) {
+	home := NewHome()
+	home.width = 65 // Stacked mode (50-79)
+	home.height = 40
+	home.initialLoading = false
+
+	// Add a test session so we have content
+	inst := &session.Instance{ID: "test1", Title: "Test Session", Tool: "claude", Status: session.StatusIdle}
+	home.instancesMu.Lock()
+	home.instances = []*session.Instance{inst}
+	home.instancesMu.Unlock()
+	home.groupTree = session.NewGroupTree(home.instances)
+	home.rebuildFlatItems()
+
+	view := home.View()
+
+	// In stacked mode, we should NOT see side-by-side separator
+	// The view should render without panicking
+	if view == "" {
+		t.Error("View should not be empty")
+	}
+	if strings.Contains(view, "Terminal too small") {
+		t.Error("65-col terminal should not show 'too small' error")
+	}
+}
+
+func TestHomeViewSingleColumnLayout(t *testing.T) {
+	home := NewHome()
+	home.width = 45 // Single column mode (<50)
+	home.height = 30
+	home.initialLoading = false
+
+	// Add a test session
+	inst := &session.Instance{ID: "test1", Title: "Test Session", Tool: "claude", Status: session.StatusIdle}
+	home.instancesMu.Lock()
+	home.instances = []*session.Instance{inst}
+	home.instancesMu.Unlock()
+	home.groupTree = session.NewGroupTree(home.instances)
+	home.rebuildFlatItems()
+
+	view := home.View()
+
+	// In single column mode, should show list only (no preview)
+	if view == "" {
+		t.Error("View should not be empty")
+	}
+	if strings.Contains(view, "Terminal too small") {
+		t.Error("45-col terminal should not show 'too small' error")
+	}
+}

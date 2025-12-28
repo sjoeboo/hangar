@@ -3311,6 +3311,64 @@ func ensureExactHeight(content string, n int) string {
 	return strings.Join(lines, "\n")
 }
 
+// renderStackedLayout renders list above preview for medium terminals (50-79 cols)
+func (h *Home) renderStackedLayout(totalHeight int) string {
+	var b strings.Builder
+
+	// Split height: 60% list, 40% preview
+	listHeight := (totalHeight * 60) / 100
+	previewHeight := totalHeight - listHeight - 1 // -1 for separator
+
+	if listHeight < 5 {
+		listHeight = 5
+	}
+	if previewHeight < 3 {
+		previewHeight = 3
+	}
+
+	// Session list (full width)
+	listTitle := h.renderPanelTitle("SESSIONS", h.width)
+	listContent := h.renderSessionList(h.width, listHeight-2) // -2 for title
+	listContent = ensureExactHeight(listContent, listHeight-2)
+	b.WriteString(listTitle)
+	b.WriteString("\n")
+	b.WriteString(listContent)
+	b.WriteString("\n")
+
+	// Separator
+	sepStyle := lipgloss.NewStyle().Foreground(ColorBorder)
+	b.WriteString(sepStyle.Render(strings.Repeat("─", h.width)))
+	b.WriteString("\n")
+
+	// Preview (full width)
+	previewTitle := h.renderPanelTitle("PREVIEW", h.width)
+	previewContent := h.renderPreviewPane(h.width, previewHeight-2) // -2 for title
+	previewContent = ensureExactHeight(previewContent, previewHeight-2)
+	b.WriteString(previewTitle)
+	b.WriteString("\n")
+	b.WriteString(previewContent)
+
+	return b.String()
+}
+
+// renderSingleColumnLayout renders list only for narrow terminals (<50 cols)
+func (h *Home) renderSingleColumnLayout(totalHeight int) string {
+	var b strings.Builder
+
+	// Full height for list
+	listHeight := totalHeight - 2 // -2 for title
+
+	listTitle := h.renderPanelTitle("SESSIONS", h.width)
+	listContent := h.renderSessionList(h.width, listHeight)
+	listContent = ensureExactHeight(listContent, listHeight)
+
+	b.WriteString(listTitle)
+	b.WriteString("\n")
+	b.WriteString(listContent)
+
+	return b.String()
+}
+
 // renderSectionDivider creates a modern section divider with optional centered label
 // Format: ─────────── Label ─────────── (lines extend to fill width)
 func renderSectionDivider(label string, width int) string {
