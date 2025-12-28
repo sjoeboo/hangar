@@ -57,7 +57,7 @@ One terminal. All your agents. Complete visibility.
 
 **Attach MCP servers without touching config files.** Need web search? Browser automation? GitHub integration? Toggle them on per project or globally - Agent Deck handles the restart automatically.
 
-<video src="https://github.com/asheshgoplani/agent-deck/raw/main/demos/mcp-manager.mp4" width="100%" autoplay loop muted playsinline></video>
+<video src="https://github.com/asheshgoplani/agent-deck/raw/main/demos/manual-mcp-change-web.mp4" width="100%" autoplay loop muted playsinline></video>
 
 - Press `M` to open, `Space` to toggle any MCP server
 - **LOCAL** scope (just this project) or **GLOBAL** (everywhere)
