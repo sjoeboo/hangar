@@ -548,3 +548,37 @@ func TestRenderHelpBarCompactWithGroup(t *testing.T) {
 		t.Error("Compact help bar should contain 'Toggle' for groups")
 	}
 }
+
+func TestHomeViewNarrowTerminal(t *testing.T) {
+	tests := []struct {
+		name          string
+		width, height int
+		shouldRender  bool
+	}{
+		{"too narrow", 35, 20, false},
+		{"minimum width", 40, 12, true},
+		{"narrow but ok", 50, 15, true},
+		{"issue #2 case", 79, 70, true},
+		{"normal", 100, 30, true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			home := NewHome()
+			home.width = tt.width
+			home.height = tt.height
+
+			view := home.View()
+
+			if tt.shouldRender {
+				if strings.Contains(view, "Terminal too small") {
+					t.Errorf("width=%d height=%d should render, got 'too small' message", tt.width, tt.height)
+				}
+			} else {
+				if !strings.Contains(view, "Terminal too small") {
+					t.Errorf("width=%d height=%d should show 'too small', got normal render", tt.width, tt.height)
+				}
+			}
+		})
+	}
+}
