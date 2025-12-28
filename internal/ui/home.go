@@ -3337,8 +3337,53 @@ func renderSectionDivider(label string, width int) string {
 		lineStyle.Render(strings.Repeat("─", sideWidth))
 }
 
-// renderHelpBar renders context-aware keyboard shortcuts with visual grouping
+// renderHelpBar renders context-aware keyboard shortcuts, adapting to terminal width
 func (h *Home) renderHelpBar() string {
+	// Route to appropriate tier based on width
+	switch {
+	case h.width < layoutBreakpointSingle:
+		return h.renderHelpBarTiny()
+	case h.width < 70:
+		return h.renderHelpBarMinimal()
+	case h.width < 100:
+		return h.renderHelpBarCompact()
+	default:
+		return h.renderHelpBarFull()
+	}
+}
+
+// renderHelpBarTiny renders minimal help for very narrow terminals (<50 cols)
+func (h *Home) renderHelpBarTiny() string {
+	borderStyle := lipgloss.NewStyle().Foreground(ColorBorder)
+	border := borderStyle.Render(strings.Repeat("─", h.width))
+
+	hintStyle := lipgloss.NewStyle().Foreground(ColorComment)
+	hint := hintStyle.Render("? for help")
+
+	// Center the hint
+	padding := (h.width - lipgloss.Width(hint)) / 2
+	if padding < 0 {
+		padding = 0
+	}
+	content := strings.Repeat(" ", padding) + hint
+
+	return lipgloss.JoinVertical(lipgloss.Left, border, content)
+}
+
+// renderHelpBarMinimal renders keys-only help for narrow terminals (50-69 cols)
+// TODO: Implement in Task 3
+func (h *Home) renderHelpBarMinimal() string {
+	return h.renderHelpBarFull()
+}
+
+// renderHelpBarCompact renders abbreviated help for medium terminals (70-99 cols)
+// TODO: Implement in Task 3
+func (h *Home) renderHelpBarCompact() string {
+	return h.renderHelpBarFull()
+}
+
+// renderHelpBarFull renders context-aware keyboard shortcuts with visual grouping (100+ cols)
+func (h *Home) renderHelpBarFull() string {
 	// Separator style for grouping related actions
 	sepStyle := lipgloss.NewStyle().Foreground(ColorBorder)
 	sep := sepStyle.Render(" │ ")

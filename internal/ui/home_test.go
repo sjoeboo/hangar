@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"strings"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -399,5 +400,25 @@ func TestGetLayoutMode(t *testing.T) {
 				t.Errorf("getLayoutMode() at width %d = %q, want %q", tt.width, got, tt.expected)
 			}
 		})
+	}
+}
+
+func TestRenderHelpBarTiny(t *testing.T) {
+	home := NewHome()
+	home.width = 45 // Tiny mode (<50 cols)
+	home.height = 30
+
+	result := home.renderHelpBar()
+
+	// Should contain minimal hint
+	if !strings.Contains(result, "?") {
+		t.Error("Tiny help bar should contain ? for help")
+	}
+	// Should NOT contain full shortcuts
+	if strings.Contains(result, "Attach") {
+		t.Error("Tiny help bar should not contain 'Attach'")
+	}
+	if strings.Contains(result, "Global") {
+		t.Error("Tiny help bar should not contain 'Global'")
 	}
 }
