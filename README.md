@@ -259,6 +259,12 @@ If you use Claude Code, install the agent-deck skill for AI-assisted session man
 
 This teaches Claude how to create sessions, manage MCPs, fork conversations, and orchestrate sub-agents.
 
+**Spawn sub-agents with individual MCPs:**
+
+https://github.com/user-attachments/assets/d8056955-c147-451a-b2f6-fad34bce8a15
+
+*Two research agents running in parallel - one with Reddit MCP for community insights, another with GitHub MCP for code research. Each agent has its own context and tools.*
+
 ## Usage
 
 ```bash
