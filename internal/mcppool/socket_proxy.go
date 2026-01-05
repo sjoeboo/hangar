@@ -306,7 +306,10 @@ func (p *SocketProxy) broadcastToAll(line []byte) {
 }
 
 func (p *SocketProxy) Stop() error {
-	p.cancel()
+	// cancel may be nil for external socket proxies (discovered from another instance)
+	if p.cancel != nil {
+		p.cancel()
+	}
 
 	// Close all client connections first
 	p.clientsMu.Lock()

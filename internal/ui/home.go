@@ -4451,7 +4451,7 @@ func (h *Home) renderPreviewPane(width, height int) string {
 
 	// Special handling for error state - show guidance instead of output
 	if selected.Status == session.StatusError {
-		errorHeader := renderSectionDivider("Session Disconnected", width-4)
+		errorHeader := renderSectionDivider("Session Inactive", width-4)
 		b.WriteString(errorHeader)
 		b.WriteString("\n\n")
 
@@ -4460,25 +4460,29 @@ func (h *Home) renderPreviewPane(width, height int) string {
 		dimStyle := lipgloss.NewStyle().Foreground(ColorText)
 		keyStyle := lipgloss.NewStyle().Foreground(ColorAccent).Bold(true)
 
-		b.WriteString(warnStyle.Render("⚠ The tmux session no longer exists"))
+		b.WriteString(warnStyle.Render("⚠ No tmux session running"))
 		b.WriteString("\n\n")
 		b.WriteString(dimStyle.Render("This can happen if:"))
 		b.WriteString("\n")
+		b.WriteString(dimStyle.Render("  • Session was added but not yet started"))
+		b.WriteString("\n")
 		b.WriteString(dimStyle.Render("  • tmux server was restarted"))
 		b.WriteString("\n")
-		b.WriteString(dimStyle.Render("  • Terminal app was closed"))
-		b.WriteString("\n")
-		b.WriteString(dimStyle.Render("  • System was rebooted"))
+		b.WriteString(dimStyle.Render("  • Terminal was closed or system rebooted"))
 		b.WriteString("\n\n")
 		b.WriteString(dimStyle.Render("Actions:"))
 		b.WriteString("\n")
 		b.WriteString("  ")
 		b.WriteString(keyStyle.Render("R"))
-		b.WriteString(dimStyle.Render(" Restart - recreate tmux session"))
+		b.WriteString(dimStyle.Render(" Start   - create and start tmux session"))
 		b.WriteString("\n")
 		b.WriteString("  ")
 		b.WriteString(keyStyle.Render("d"))
 		b.WriteString(dimStyle.Render(" Delete  - remove from list"))
+		b.WriteString("\n")
+		b.WriteString("  ")
+		b.WriteString(keyStyle.Render("Enter"))
+		b.WriteString(dimStyle.Render(" - attach (will auto-start)"))
 		b.WriteString("\n")
 
 		// Pad output to exact height to prevent layout shifts

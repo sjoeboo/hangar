@@ -23,7 +23,7 @@ import (
 	"github.com/muesli/termenv"
 )
 
-const Version = "0.8.4"
+const Version = "0.8.5"
 
 // Table column widths for list command output
 const (
@@ -314,6 +314,104 @@ func extractProfileFlag(args []string) (string, []string) {
 	return profile, remaining
 }
 
+// reorderArgsForFlagParsing moves the path argument to the end of args
+// so Go's flag package can parse all flags correctly.
+// Go's flag package stops parsing at the first non-flag argument,
+// so "add . -c claude" would fail to parse -c without this fix.
+// This reorders to "add -c claude ." which parses correctly.
+func reorderArgsForFlagParsing(args []string) []string {
+	if len(args) == 0 {
+		return args
+	}
+
+	// Known flags that take a value (need to skip their values)
+	valueFlags := map[string]bool{
+		"-t": true, "--title": true,
+		"-g": true, "--group": true,
+		"-c": true, "--cmd": true,
+		"-p": true, "--parent": true,
+		"--mcp": true,
+	}
+
+	var flags []string
+	var positional []string
+
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+
+		// Check if it's a flag
+		if strings.HasPrefix(arg, "-") {
+			flags = append(flags, arg)
+
+			// Check if this flag takes a value (and value is separate)
+			// Handle both "-c value" and "-c=value" formats
+			if !strings.Contains(arg, "=") && valueFlags[arg] && i+1 < len(args) {
+				i++
+				flags = append(flags, args[i])
+			}
+		} else {
+			// Non-flag argument (path)
+			positional = append(positional, arg)
+		}
+	}
+
+	// Return flags first, then positional args
+	return append(flags, positional...)
+}
+
+// isDuplicateSession checks if a session with the same title AND path already exists.
+// Returns (isDuplicate, existingInstance)
+// Paths are normalized by removing trailing slashes for comparison.
+func isDuplicateSession(instances []*session.Instance, title, path string) (bool, *session.Instance) {
+	// Normalize path by removing trailing slash (except for root "/")
+	normalizedPath := strings.TrimSuffix(path, "/")
+	if normalizedPath == "" {
+		normalizedPath = "/"
+	}
+
+	for _, inst := range instances {
+		// Normalize existing path for comparison
+		existingPath := strings.TrimSuffix(inst.ProjectPath, "/")
+		if existingPath == "" {
+			existingPath = "/"
+		}
+
+		if existingPath == normalizedPath && inst.Title == title {
+			return true, inst
+		}
+	}
+	return false, nil
+}
+
+// generateUniqueTitle generates a unique title for sessions at the same path.
+// If "project" exists at path, returns "project (2)", then "project (3)", etc.
+func generateUniqueTitle(instances []*session.Instance, baseTitle, path string) string {
+	// Check if base title is available at this path
+	titleExists := func(title string) bool {
+		for _, inst := range instances {
+			if inst.ProjectPath == path && inst.Title == title {
+				return true
+			}
+		}
+		return false
+	}
+
+	if !titleExists(baseTitle) {
+		return baseTitle
+	}
+
+	// Find next available number
+	for i := 2; i <= 100; i++ { // Cap at 100 to prevent infinite loop
+		candidate := fmt.Sprintf("%s (%d)", baseTitle, i)
+		if !titleExists(candidate) {
+			return candidate
+		}
+	}
+
+	// Fallback: use timestamp
+	return fmt.Sprintf("%s (%d)", baseTitle, time.Now().Unix())
+}
+
 // handleAdd adds a new session from CLI
 func handleAdd(profile string, args []string) {
 	fs := flag.NewFlagSet("add", flag.ExitOnError)
@@ -353,6 +451,11 @@ func handleAdd(profile string, args []string) {
 		fmt.Println("  agent-deck add -t \"Sub-task\" --parent \"Main Project\"  # Create sub-session")
 		fmt.Println("  agent-deck add -t \"Research\" -c claude --mcp memory --mcp sequential-thinking /tmp/x")
 	}
+
+	// Reorder args: move path to end so flags are parsed correctly
+	// Go's flag package stops parsing at first non-flag argument
+	// This allows: "add . -c claude" to work same as "add -c claude ."
+	args = reorderArgsForFlagParsing(args)
 
 	if err := fs.Parse(args); err != nil {
 		os.Exit(1)
@@ -429,10 +532,16 @@ func handleAdd(profile string, args []string) {
 		sessionGroup = parentInstance.GroupPath
 	}
 
-	// Check for duplicate (same path)
-	for _, inst := range instances {
-		if inst.ProjectPath == path {
-			fmt.Printf("Session already exists: %s (%s)\n", inst.Title, inst.ID)
+	// Track if user provided explicit title or we auto-generated from folder name
+	userProvidedTitle := (mergeFlags(*title, *titleShort) != "")
+
+	if !userProvidedTitle {
+		// User didn't provide title - auto-generate unique title for this path
+		sessionTitle = generateUniqueTitle(instances, sessionTitle, path)
+	} else {
+		// User provided explicit title - check for exact duplicate (same title AND path)
+		if isDupe, existingInst := isDuplicateSession(instances, sessionTitle, path); isDupe {
+			fmt.Printf("Session already exists with same title and path: %s (%s)\n", existingInst.Title, existingInst.ID)
 			os.Exit(0)
 		}
 	}
@@ -508,6 +617,12 @@ func handleAdd(profile string, args []string) {
 	if parentInstance != nil {
 		fmt.Printf("  Parent:  %s (%s)\n", parentInstance.Title, parentInstance.ID[:8])
 	}
+
+	// Show helpful next steps
+	fmt.Println()
+	fmt.Println("Next steps:")
+	fmt.Printf("  agent-deck session start %s   # Start the session\n", sessionTitle)
+	fmt.Printf("  agent-deck                         # Open TUI and press Enter to attach\n")
 }
 
 // handleList lists all sessions
