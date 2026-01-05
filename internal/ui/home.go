@@ -1441,17 +1441,28 @@ func (h *Home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			h.clearError()
 		}
 
-		// PERFORMANCE: Adaptive status updates - only when user is active
-		// If user hasn't interacted for 2+ seconds, skip status updates.
-		// This prevents background polling during idle periods.
-		const userActivityWindow = 2 * time.Second
-		if !h.lastUserInputTime.IsZero() && time.Since(h.lastUserInputTime) < userActivityWindow {
-			// User is active - trigger status updates
-			tmux.RefreshExistingSessions()
-			h.triggerStatusUpdate()
-		} else {
-			// User idle - only refresh cache lightly (no status updates)
-			tmux.RefreshExistingSessions()
+		// PERFORMANCE: Detect when navigation has settled (300ms since last up/down)
+		// This allows background updates to resume after rapid navigation stops
+		const navigationSettleTime = 300 * time.Millisecond
+		if h.isNavigating && time.Since(h.lastNavigationTime) > navigationSettleTime {
+			h.isNavigating = false
+		}
+
+		// PERFORMANCE: Skip background updates during rapid navigation
+		// This prevents subprocess spawning while user is scrolling through sessions
+		if !h.isNavigating {
+			// PERFORMANCE: Adaptive status updates - only when user is active
+			// If user hasn't interacted for 2+ seconds, skip status updates.
+			// This prevents background polling during idle periods.
+			const userActivityWindow = 2 * time.Second
+			if !h.lastUserInputTime.IsZero() && time.Since(h.lastUserInputTime) < userActivityWindow {
+				// User is active - trigger status updates
+				tmux.RefreshExistingSessions()
+				h.triggerStatusUpdate()
+			} else {
+				// User idle - only refresh cache lightly (no status updates)
+				tmux.RefreshExistingSessions()
+			}
 		}
 
 		// Update animation frame for launching spinner (8 frames, cycles every tick)
@@ -1781,17 +1792,13 @@ func (h *Home) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if h.cursor > 0 {
 			h.cursor--
 			h.syncViewport()
-			// Trigger immediate preview fetch for new selection (mutex-protected)
+			// Track navigation for adaptive background updates
+			h.lastNavigationTime = time.Now()
+			h.isNavigating = true
+			// PERFORMANCE: Debounced preview fetch - waits 150ms for navigation to settle
+			// This prevents spawning tmux subprocess on every keystroke
 			if selected := h.getSelectedSession(); selected != nil {
-				h.previewCacheMu.Lock()
-				needsFetch := h.previewFetchingID != selected.ID
-				if needsFetch {
-					h.previewFetchingID = selected.ID
-				}
-				h.previewCacheMu.Unlock()
-				if needsFetch {
-					return h, h.fetchPreview(selected)
-				}
+				return h, h.fetchPreviewDebounced(selected.ID)
 			}
 		}
 		return h, nil
@@ -1800,17 +1807,13 @@ func (h *Home) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if h.cursor < len(h.flatItems)-1 {
 			h.cursor++
 			h.syncViewport()
-			// Trigger immediate preview fetch for new selection (mutex-protected)
+			// Track navigation for adaptive background updates
+			h.lastNavigationTime = time.Now()
+			h.isNavigating = true
+			// PERFORMANCE: Debounced preview fetch - waits 150ms for navigation to settle
+			// This prevents spawning tmux subprocess on every keystroke
 			if selected := h.getSelectedSession(); selected != nil {
-				h.previewCacheMu.Lock()
-				needsFetch := h.previewFetchingID != selected.ID
-				if needsFetch {
-					h.previewFetchingID = selected.ID
-				}
-				h.previewCacheMu.Unlock()
-				if needsFetch {
-					return h, h.fetchPreview(selected)
-				}
+				return h, h.fetchPreviewDebounced(selected.ID)
 			}
 		}
 		return h, nil
