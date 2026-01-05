@@ -198,8 +198,8 @@ type Home struct {
 	// Cached status counts (invalidated on instance changes)
 	cachedStatusCounts struct {
 		running, waiting, idle, errored int
-		valid                           bool
-		timestamp                       time.Time // For time-based expiration
+		valid                           atomic.Bool // THREAD-SAFE: accessed from main and worker goroutines
+		timestamp                       time.Time   // For time-based expiration
 	}
 
 	// Reusable string builder for View() to reduce allocations
@@ -1063,7 +1063,7 @@ func (h *Home) processStatusUpdate(req statusUpdateRequest) {
 	// Only invalidate status counts cache if status actually changed
 	// This reduces View() overhead by keeping cache valid when no changes occurred
 	if statusChanged {
-		h.cachedStatusCounts.valid = false
+		h.cachedStatusCounts.valid.Store(false)
 	}
 }
 
@@ -1104,7 +1104,7 @@ func (h *Home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			session.UpdateClaudeSessionsWithDedup(h.instances)
 			h.instancesMu.Unlock()
 			// Invalidate status counts cache
-			h.cachedStatusCounts.valid = false
+			h.cachedStatusCounts.valid.Store(false)
 			// Sync group tree with loaded data
 			if h.groupTree.GroupCount() == 0 {
 				// Initial load - use stored groups if available
@@ -1173,7 +1173,7 @@ func (h *Home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			session.UpdateClaudeSessionsWithDedup(h.instances)
 			h.instancesMu.Unlock()
 			// Invalidate status counts cache
-			h.cachedStatusCounts.valid = false
+			h.cachedStatusCounts.valid.Store(false)
 
 			// Track as launching for animation
 			h.launchingSessions[msg.instance.ID] = time.Now()
@@ -1228,7 +1228,7 @@ func (h *Home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			session.UpdateClaudeSessionsWithDedup(h.instances)
 			h.instancesMu.Unlock()
 			// Invalidate status counts cache
-			h.cachedStatusCounts.valid = false
+			h.cachedStatusCounts.valid.Store(false)
 
 			// Track as launching for animation
 			h.launchingSessions[msg.instance.ID] = time.Now()
@@ -1285,7 +1285,7 @@ func (h *Home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		delete(h.instanceByID, msg.deletedID)
 		h.instancesMu.Unlock()
 		// Invalidate status counts cache
-		h.cachedStatusCounts.valid = false
+		h.cachedStatusCounts.valid.Store(false)
 		// Invalidate preview cache for deleted session
 		h.invalidatePreviewCache(msg.deletedID)
 		// Remove from group tree (preserves empty groups)
@@ -2608,7 +2608,11 @@ func (h *Home) attachSession(inst *session.Instance) tea.Cmd {
 	inst.MarkAccessed()
 
 	// Skip saving during reload to avoid overwriting external changes
-	if !h.isReloading && h.storage != nil {
+	// THREAD-SAFE: Read isReloading under mutex
+	h.reloadMu.Lock()
+	reloading := h.isReloading
+	h.reloadMu.Unlock()
+	if !reloading && h.storage != nil {
 		// Take snapshot under lock for defensive programming
 		h.instancesMu.RLock()
 		instancesCopy := make([]*session.Instance, len(h.instances))
@@ -2715,7 +2719,7 @@ func (h *Home) importSessions() tea.Msg {
 func (h *Home) countSessionStatuses() (running, waiting, idle, errored int) {
 	// Return cached values if valid and not expired
 	const cacheDuration = 500 * time.Millisecond
-	if h.cachedStatusCounts.valid &&
+	if h.cachedStatusCounts.valid.Load() &&
 		time.Since(h.cachedStatusCounts.timestamp) < cacheDuration {
 		return h.cachedStatusCounts.running, h.cachedStatusCounts.waiting,
 			h.cachedStatusCounts.idle, h.cachedStatusCounts.errored
@@ -2742,7 +2746,7 @@ func (h *Home) countSessionStatuses() (running, waiting, idle, errored int) {
 	h.cachedStatusCounts.waiting = waiting
 	h.cachedStatusCounts.idle = idle
 	h.cachedStatusCounts.errored = errored
-	h.cachedStatusCounts.valid = true
+	h.cachedStatusCounts.valid.Store(true)
 	h.cachedStatusCounts.timestamp = time.Now()
 	return running, waiting, idle, errored
 }
