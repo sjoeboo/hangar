@@ -42,8 +42,10 @@ type SocketProxy struct {
 	logFile   string
 	logWriter io.WriteCloser
 
-	Status   ServerStatus
-	statusMu sync.RWMutex // Protects Status field
+	Status       ServerStatus
+	statusMu     sync.RWMutex // Protects Status field
+	lastRestart  time.Time    // For rate limiting restarts
+	restartCount int          // Track restart attempts
 }
 
 // SetStatus safely updates the proxy status
