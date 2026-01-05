@@ -23,7 +23,7 @@ import (
 	"github.com/muesli/termenv"
 )
 
-const Version = "0.8.5"
+const Version = "0.8.6"
 
 // Table column widths for list command output
 const (
@@ -1159,12 +1159,11 @@ func handleProfileSetDefault(name string) {
 func handleUpdate(args []string) {
 	fs := flag.NewFlagSet("update", flag.ExitOnError)
 	checkOnly := fs.Bool("check", false, "Only check for updates, don't install")
-	forceCheck := fs.Bool("force", false, "Force check (ignore cache)")
 
 	fs.Usage = func() {
 		fmt.Println("Usage: agent-deck update [options]")
 		fmt.Println()
-		fmt.Println("Check for and install updates.")
+		fmt.Println("Check for and install updates (always checks GitHub for latest).")
 		fmt.Println()
 		fmt.Println("Options:")
 		fs.PrintDefaults()
@@ -1181,7 +1180,9 @@ func handleUpdate(args []string) {
 	fmt.Printf("Agent Deck v%s\n", Version)
 	fmt.Println("Checking for updates...")
 
-	info, err := update.CheckForUpdate(Version, *forceCheck)
+	// Always force check when user explicitly runs 'update' command
+	// Cache is only useful for background checks (TUI startup), not explicit requests
+	info, err := update.CheckForUpdate(Version, true)
 	if err != nil {
 		fmt.Printf("Error checking for updates: %v\n", err)
 		os.Exit(1)
