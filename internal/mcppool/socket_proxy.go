@@ -42,7 +42,22 @@ type SocketProxy struct {
 	logFile   string
 	logWriter io.WriteCloser
 
-	Status ServerStatus
+	Status   ServerStatus
+	statusMu sync.RWMutex // Protects Status field
+}
+
+// SetStatus safely updates the proxy status
+func (p *SocketProxy) SetStatus(s ServerStatus) {
+	p.statusMu.Lock()
+	p.Status = s
+	p.statusMu.Unlock()
+}
+
+// GetStatus safely reads the proxy status
+func (p *SocketProxy) GetStatus() ServerStatus {
+	p.statusMu.RLock()
+	defer p.statusMu.RUnlock()
+	return p.Status
 }
 
 type JSONRPCRequest struct {
@@ -117,7 +132,7 @@ func NewSocketProxy(ctx context.Context, name, command string, args []string, en
 
 func (p *SocketProxy) Start() error {
 	// If already running (reusing external socket), skip process creation
-	if p.Status == StatusRunning {
+	if p.GetStatus() == StatusRunning {
 		log.Printf("[Pool] %s: Reusing existing socket, no process to start", p.name)
 		return nil
 	}
@@ -168,7 +183,7 @@ func (p *SocketProxy) Start() error {
 	go p.acceptConnections()
 	go p.broadcastResponses()
 
-	p.Status = StatusRunning
+	p.SetStatus(StatusRunning)
 	return nil
 }
 
@@ -279,7 +294,9 @@ func (p *SocketProxy) broadcastToAll(line []byte) {
 }
 
 func (p *SocketProxy) Stop() error {
-	p.cancel()
+	if p.cancel != nil {
+		p.cancel()
+	}
 	if p.listener != nil {
 		p.listener.Close()
 	}
@@ -297,7 +314,7 @@ func (p *SocketProxy) Stop() error {
 	if p.logWriter != nil {
 		p.logWriter.Close()
 	}
-	p.Status = StatusStopped
+	p.SetStatus(StatusStopped)
 	return nil
 }
 
