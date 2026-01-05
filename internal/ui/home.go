@@ -3824,6 +3824,7 @@ func (h *Home) renderItem(b *strings.Builder, item session.Item, selected bool, 
 }
 
 // renderGroupItem renders a group header
+// PERFORMANCE: Uses cached styles from styles.go to avoid allocations
 func (h *Home) renderGroupItem(b *strings.Builder, item session.Item, selected bool, itemIndex int) {
 	group := item.Group
 
@@ -3831,51 +3832,43 @@ func (h *Home) renderGroupItem(b *strings.Builder, item session.Item, selected b
 	// Uses spacingNormal (2 chars) per level for consistent hierarchy visualization
 	indent := strings.Repeat(strings.Repeat(" ", spacingNormal), item.Level)
 
-	// Expand/collapse indicator with filled triangles
-	expandStyle := lipgloss.NewStyle().Foreground(ColorText)
-	expandIcon := expandStyle.Render("▾") // Filled triangle for expanded
-	if !group.Expanded {
-		expandIcon = expandStyle.Render("▸") // Filled triangle for collapsed
+	// Expand/collapse indicator with filled triangles (using cached styles)
+	var expandIcon string
+	if selected {
+		if group.Expanded {
+			expandIcon = GroupExpandSelStyle.Render("▾")
+		} else {
+			expandIcon = GroupExpandSelStyle.Render("▸")
+		}
+	} else {
+		if group.Expanded {
+			expandIcon = GroupExpandStyle.Render("▾") // Filled triangle for expanded
+		} else {
+			expandIcon = GroupExpandStyle.Render("▸") // Filled triangle for collapsed
+		}
 	}
-
-	// Group name styling
-	nameStyle := lipgloss.NewStyle().Bold(true).Foreground(ColorCyan)
-	countStyle := lipgloss.NewStyle().Foreground(ColorText)
 
 	// Hotkey indicator (subtle, only for root groups, hidden when selected)
 	// Uses pre-computed RootGroupNum from rebuildFlatItems() - O(1) lookup instead of O(n) loop
 	hotkeyStr := ""
 	if item.Level == 0 && !selected {
 		if item.RootGroupNum >= 1 && item.RootGroupNum <= 9 {
-			hotkeyStyle := lipgloss.NewStyle().Foreground(ColorComment)
-			hotkeyStr = hotkeyStyle.Render(fmt.Sprintf("%d·", item.RootGroupNum))
+			hotkeyStr = GroupHotkeyStyle.Render(fmt.Sprintf("%d·", item.RootGroupNum))
 		}
 	}
 
+	// Select appropriate cached styles based on selection state
+	nameStyle := GroupNameStyle
+	countStyle := GroupCountStyle
 	if selected {
-		nameStyle = lipgloss.NewStyle().
-			Bold(true).
-			Foreground(ColorBg).
-			Background(ColorAccent)
-		countStyle = lipgloss.NewStyle().
-			Foreground(ColorBg).
-			Background(ColorAccent)
-		expandIcon = lipgloss.NewStyle().
-			Foreground(ColorBg).
-			Background(ColorAccent).
-			Render("▾")
-		if !group.Expanded {
-			expandIcon = lipgloss.NewStyle().
-				Foreground(ColorBg).
-				Background(ColorAccent).
-				Render("▸")
-		}
+		nameStyle = GroupNameSelStyle
+		countStyle = GroupCountSelStyle
 	}
 
 	sessionCount := len(group.Sessions)
 	countStr := countStyle.Render(fmt.Sprintf(" (%d)", sessionCount))
 
-	// Status indicators (compact, on same line)
+	// Status indicators (compact, on same line) using cached styles
 	running := 0
 	waiting := 0
 	for _, sess := range group.Sessions {
@@ -3889,10 +3882,10 @@ func (h *Home) renderGroupItem(b *strings.Builder, item session.Item, selected b
 
 	statusStr := ""
 	if running > 0 {
-		statusStr += " " + lipgloss.NewStyle().Foreground(ColorGreen).Render(fmt.Sprintf("● %d", running))
+		statusStr += " " + GroupStatusRunning.Render(fmt.Sprintf("● %d", running))
 	}
 	if waiting > 0 {
-		statusStr += " " + lipgloss.NewStyle().Foreground(ColorYellow).Render(fmt.Sprintf("◐ %d", waiting))
+		statusStr += " " + GroupStatusWaiting.Render(fmt.Sprintf("◐ %d", waiting))
 	}
 
 	// Build the row: [indent][hotkey][expand] [name](count) [status]
