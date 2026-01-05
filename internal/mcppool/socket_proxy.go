@@ -258,6 +258,16 @@ func (p *SocketProxy) broadcastResponses() {
 			p.broadcastToAll(line)
 		}
 	}
+
+	// Log error when scanner exits
+	if err := scanner.Err(); err != nil {
+		log.Printf("[Pool] %s: broadcastResponses scanner error: %v", p.name, err)
+	} else {
+		log.Printf("[Pool] %s: broadcastResponses exited (MCP stdout closed)", p.name)
+	}
+
+	// Mark proxy as failed so health monitor can restart it
+	p.SetStatus(StatusFailed)
 }
 
 func (p *SocketProxy) routeToClient(responseID interface{}, line []byte) {
