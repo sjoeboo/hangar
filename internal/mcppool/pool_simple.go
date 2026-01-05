@@ -90,7 +90,7 @@ func (p *Pool) IsRunning(name string) bool {
 	}
 
 	// Double-check: verify the socket is actually alive (not just marked as running)
-	if proxy.Status == StatusRunning {
+	if proxy.GetStatus() == StatusRunning {
 		if !isSocketAliveCheck(proxy.socketPath) {
 			p.mu.RUnlock()
 			log.Printf("[Pool] ⚠️ %s: marked running but socket is DEAD - attempting restart", name)
@@ -182,7 +182,7 @@ func (p *Pool) ListServers() []ProxyInfo {
 		list = append(list, ProxyInfo{
 			Name:        proxy.name,
 			SocketPath:  proxy.socketPath,
-			Status:      proxy.Status.String(),
+			Status:      proxy.GetStatus().String(),
 			Clients:     proxy.GetClientCount(),
 		})
 	}
