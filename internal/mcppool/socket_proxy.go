@@ -294,26 +294,41 @@ func (p *SocketProxy) broadcastToAll(line []byte) {
 }
 
 func (p *SocketProxy) Stop() error {
-	if p.cancel != nil {
-		p.cancel()
+	p.cancel()
+
+	// Close all client connections first
+	p.clientsMu.Lock()
+	for sessionID, conn := range p.clients {
+		conn.Close()
+		log.Printf("[Pool] %s: Closed client connection: %s", p.name, sessionID)
 	}
+	p.clients = make(map[string]net.Conn)
+	p.clientsMu.Unlock()
+
+	// Clear request map to prevent memory leak
+	p.requestMu.Lock()
+	p.requestMap = make(map[interface{}]string)
+	p.requestMu.Unlock()
+
 	if p.listener != nil {
 		p.listener.Close()
 	}
+
 	// Only kill process and remove socket if we OWN it (mcpProcess != nil)
-	// If mcpProcess is nil, we're just reusing an external socket
 	if p.mcpProcess != nil {
 		p.mcpStdin.Close()
 		_ = p.mcpProcess.Process.Signal(syscall.SIGTERM)
 		_ = p.mcpProcess.Wait()
-		os.Remove(p.socketPath) // Only remove socket if we created it
+		os.Remove(p.socketPath)
 		log.Printf("[Pool] %s: Stopped owned process and removed socket", p.name)
 	} else {
 		log.Printf("[Pool] %s: Disconnected from external socket (not removing)", p.name)
 	}
+
 	if p.logWriter != nil {
 		p.logWriter.Close()
 	}
+
 	p.SetStatus(StatusStopped)
 	return nil
 }
