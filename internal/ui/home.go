@@ -3906,11 +3906,12 @@ const (
 )
 
 // renderSessionItem renders a single session item for the left panel
+// PERFORMANCE: Uses cached styles from styles.go to avoid allocations
 func (h *Home) renderSessionItem(b *strings.Builder, item session.Item, selected bool) {
 	inst := item.Session
 
 	// Tree style for connectors - Use ColorText for clear visibility of box-drawing characters
-	treeStyle := lipgloss.NewStyle().Foreground(ColorText)
+	treeStyle := TreeConnectorStyle
 
 	// Calculate base indentation for parent levels
 	// Level 1 means direct child of root group, Level 2 means child of nested group, etc.
@@ -3948,67 +3949,54 @@ func (h *Home) renderSessionItem(b *strings.Builder, item session.Item, selected
 
 	// Status indicator with consistent sizing
 	var statusIcon string
-	var statusColor lipgloss.Color
+	var statusStyle lipgloss.Style
 	switch inst.Status {
 	case session.StatusRunning:
 		statusIcon = "●"
-		statusColor = ColorGreen
+		statusStyle = SessionStatusRunning
 	case session.StatusWaiting:
 		statusIcon = "◐"
-		statusColor = ColorYellow
+		statusStyle = SessionStatusWaiting
 	case session.StatusIdle:
 		statusIcon = "○"
-		statusColor = ColorTextDim
+		statusStyle = SessionStatusIdle
 	case session.StatusError:
 		statusIcon = "✕"
-		statusColor = ColorRed
+		statusStyle = SessionStatusError
 	default:
 		statusIcon = "○"
-		statusColor = ColorTextDim
+		statusStyle = SessionStatusIdle
 	}
 
-	statusStyle := lipgloss.NewStyle().Foreground(statusColor)
 	status := statusStyle.Render(statusIcon)
 
 	// Title styling - add bold/underline for accessibility (colorblind users)
-	titleStyle := lipgloss.NewStyle().Foreground(ColorText)
+	var titleStyle lipgloss.Style
 	switch inst.Status {
 	case session.StatusRunning, session.StatusWaiting:
 		// Bold for active states (distinguishable without color)
-		titleStyle = titleStyle.Bold(true)
+		titleStyle = SessionTitleActive
 	case session.StatusError:
 		// Underline for error (distinguishable without color)
-		titleStyle = titleStyle.Underline(true)
+		titleStyle = SessionTitleError
+	default:
+		titleStyle = SessionTitleDefault
 	}
 
 	// Tool badge with brand-specific color
 	// Claude=orange, Gemini=purple, Codex=cyan, Aider=red
-	toolColor := ToolColor(inst.Tool)
-	toolStyle := lipgloss.NewStyle().
-		Foreground(toolColor)
+	toolStyle := GetToolStyle(inst.Tool)
 
 	// Selection indicator
 	selectionPrefix := " "
 	if selected {
-		selectionPrefix = lipgloss.NewStyle().
-			Foreground(ColorAccent).
-			Bold(true).
-			Render("▶")
-		titleStyle = lipgloss.NewStyle().
-			Bold(true).
-			Foreground(ColorBg).
-			Background(ColorAccent)
-		toolStyle = lipgloss.NewStyle().
-			Foreground(ColorBg).
-			Background(ColorAccent)
-		statusStyle = lipgloss.NewStyle().
-			Foreground(ColorBg).
-			Background(ColorAccent)
+		selectionPrefix = SessionSelectionPrefix.Render("▶")
+		titleStyle = SessionTitleSelStyle
+		toolStyle = SessionStatusSelStyle
+		statusStyle = SessionStatusSelStyle
 		status = statusStyle.Render(statusIcon)
 		// Tree connector also gets selection styling
-		treeStyle = lipgloss.NewStyle().
-			Foreground(ColorBg).
-			Background(ColorAccent)
+		treeStyle = TreeConnectorSelStyle
 		// Rebuild baseIndent with selection styling for sub-sessions
 		if item.IsSubSession && !item.ParentIsLastInGroup {
 			groupIndent := strings.Repeat(treeEmpty, item.Level-2)
