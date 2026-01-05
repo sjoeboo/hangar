@@ -23,7 +23,7 @@ import (
 	"github.com/muesli/termenv"
 )
 
-const Version = "0.8.6"
+const Version = "0.8.7"
 
 // Table column widths for list command output
 const (
@@ -87,7 +87,7 @@ func promptForUpdate() bool {
 	fmt.Print("Update now? [Y/n]: ")
 
 	var response string
-	fmt.Scanln(&response)
+	_, _ = fmt.Scanln(&response)
 	response = strings.TrimSpace(strings.ToLower(response))
 
 	// Default to yes (empty or "y" or "yes")
