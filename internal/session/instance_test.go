@@ -233,6 +233,19 @@ func TestBuildClaudeCommand(t *testing.T) {
 		t.Errorf("Should resume the captured session ID, got: %s", cmd)
 	}
 
+	// Should have fallback when capture fails (Issue #19: WSL jq parse error)
+	if !strings.Contains(cmd, `|| session_id=""`) {
+		t.Errorf("Should have fallback when capture fails, got: %s", cmd)
+	}
+	// Should check for null jq output
+	if !strings.Contains(cmd, `!= "null"`) {
+		t.Errorf("Should check for null session_id from jq, got: %s", cmd)
+	}
+	// Should start Claude even without session ID (fallback path)
+	if !strings.Contains(cmd, "else CLAUDE_CONFIG_DIR=") {
+		t.Errorf("Should have else branch to start Claude without session, got: %s", cmd)
+	}
+
 	// Note: --dangerously-skip-permissions is conditional on user config (dangerous_mode)
 	// The command should work with or without it depending on config
 
@@ -584,6 +597,19 @@ func TestBuildGeminiCommand(t *testing.T) {
 	}
 	if !strings.Contains(cmd, "--resume") {
 		t.Error("Should resume captured session")
+	}
+
+	// Should have fallback when capture fails (Issue #19: WSL jq parse error)
+	if !strings.Contains(cmd, `|| session_id=""`) {
+		t.Error("Should have fallback when capture fails")
+	}
+	// Should check for null jq output
+	if !strings.Contains(cmd, `!= "null"`) {
+		t.Error("Should check for null session_id from jq")
+	}
+	// Should start Gemini even without session ID (fallback path)
+	if !strings.Contains(cmd, "else gemini; fi") {
+		t.Error("Should have else branch to start Gemini fresh")
 	}
 
 	// With session ID, should use simple resume
