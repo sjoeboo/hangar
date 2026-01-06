@@ -1,6 +1,7 @@
 package session
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
@@ -241,9 +242,10 @@ func LoadUserConfig() (*UserConfig, error) {
 
 	var config UserConfig
 	if _, err := toml.DecodeFile(configPath, &config); err != nil {
-		// Return default on parse error (don't crash)
+		// Return error so caller can display it to user
+		// Still cache default to prevent repeated parse attempts
 		userConfigCache = &defaultUserConfig
-		return userConfigCache, nil
+		return userConfigCache, fmt.Errorf("config.toml parse error: %w", err)
 	}
 
 	// Initialize maps if nil
