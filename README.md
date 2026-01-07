@@ -265,6 +265,31 @@ https://github.com/user-attachments/assets/d8056955-c147-451a-b2f6-fad34bce8a15
 
 *Two research agents running in parallel - one with Reddit MCP for community insights, another with GitHub MCP for code research. Each agent has its own context and tools.*
 
+### Uninstalling
+
+```bash
+agent-deck uninstall              # Interactive uninstall
+agent-deck uninstall --dry-run    # Preview what would be removed
+agent-deck uninstall --keep-data  # Remove binary only, keep sessions
+```
+
+Or use the standalone script:
+```bash
+curl -fsSL https://raw.githubusercontent.com/asheshgoplani/agent-deck/main/uninstall.sh | bash
+```
+
+<details>
+<summary>What gets removed</summary>
+
+- **Binary:** `~/.local/bin/agent-deck` or `/usr/local/bin/agent-deck`
+- **Homebrew:** `agent-deck` package (if installed via brew)
+- **tmux config:** The `# agent-deck configuration` block in `~/.tmux.conf`
+- **Data directory:** `~/.agent-deck/` (sessions, logs, config)
+
+Use `--keep-data` to preserve your sessions and configuration.
+
+</details>
+
 ## Usage
 
 ```bash
