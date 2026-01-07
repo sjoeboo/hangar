@@ -801,3 +801,88 @@ func TestSyncWithInstancesHierarchicalPath(t *testing.T) {
 		t.Errorf("Expected name 'backend', got '%s'", group.Name)
 	}
 }
+
+func TestEnsureParentGroupsExist(t *testing.T) {
+	tree := NewGroupTree([]*Instance{})
+
+	// Call internal function to ensure parents exist
+	tree.ensureParentGroupsExist("a/b/c")
+
+	// All parent groups should exist
+	if tree.Groups["a"] == nil {
+		t.Error("Parent group 'a' should exist")
+	}
+	if tree.Groups["a/b"] == nil {
+		t.Error("Parent group 'a/b' should exist")
+	}
+	// Note: "a/b/c" itself is NOT created by this function
+
+	// Names should be correct
+	if tree.Groups["a"].Name != "a" {
+		t.Errorf("Expected name 'a', got '%s'", tree.Groups["a"].Name)
+	}
+	if tree.Groups["a/b"].Name != "b" {
+		t.Errorf("Expected name 'b', got '%s'", tree.Groups["a/b"].Name)
+	}
+}
+
+func TestEnsureParentGroupsExistRootLevel(t *testing.T) {
+	tree := NewGroupTree([]*Instance{})
+
+	// For root-level paths, no parents needed
+	tree.ensureParentGroupsExist("root")
+
+	// No groups should be created
+	if len(tree.Groups) != 0 {
+		t.Errorf("Expected 0 groups for root-level path, got %d", len(tree.Groups))
+	}
+}
+
+func TestEnsureParentGroupsExistIdempotent(t *testing.T) {
+	tree := NewGroupTree([]*Instance{})
+
+	// Create parent group first
+	tree.CreateGroup("existing")
+
+	// Call ensureParentGroupsExist with a child path
+	tree.ensureParentGroupsExist("existing/child")
+
+	// Parent should still exist with original name (not overwritten)
+	if tree.Groups["existing"] == nil {
+		t.Error("Parent group 'existing' should still exist")
+	}
+	if tree.Groups["existing"].Name != "existing" {
+		t.Errorf("Expected name 'existing', got '%s'", tree.Groups["existing"].Name)
+	}
+}
+
+func TestNewGroupTreeAutoCreatesParents(t *testing.T) {
+	// Session with deep hierarchical path - parents don't exist
+	instances := []*Instance{
+		{ID: "1", Title: "session-1", GroupPath: "projects/backend/api"},
+	}
+
+	tree := NewGroupTree(instances)
+
+	// All groups should exist
+	if tree.Groups["projects"] == nil {
+		t.Error("Parent group 'projects' should be auto-created")
+	}
+	if tree.Groups["projects/backend"] == nil {
+		t.Error("Parent group 'projects/backend' should be auto-created")
+	}
+	if tree.Groups["projects/backend/api"] == nil {
+		t.Error("Group 'projects/backend/api' should exist")
+	}
+
+	// Names should be correct
+	if tree.Groups["projects"].Name != "projects" {
+		t.Errorf("Expected name 'projects', got '%s'", tree.Groups["projects"].Name)
+	}
+	if tree.Groups["projects/backend"].Name != "backend" {
+		t.Errorf("Expected name 'backend', got '%s'", tree.Groups["projects/backend"].Name)
+	}
+	if tree.Groups["projects/backend/api"].Name != "api" {
+		t.Errorf("Expected name 'api', got '%s'", tree.Groups["projects/backend/api"].Name)
+	}
+}
