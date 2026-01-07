@@ -119,8 +119,8 @@ func NewGroupTreeWithGroups(instances []*Instance, storedGroups []*GroupData) *G
 		group, exists := tree.Groups[groupPath]
 		if !exists {
 			// Group doesn't exist in stored data, create it
-			// Use proper name for default group, otherwise use path as name
-			name := groupPath
+			// Use proper name for default group, otherwise extract name from path
+			name := extractGroupName(groupPath)
 			if groupPath == DefaultGroupPath {
 				name = DefaultGroupName
 			}

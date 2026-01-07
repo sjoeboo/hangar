@@ -727,3 +727,28 @@ func TestNewGroupTreeWithHierarchicalPath(t *testing.T) {
 		t.Errorf("Expected path 'parent/child', got '%s'", group.Path)
 	}
 }
+
+func TestNewGroupTreeWithGroupsHierarchicalPath(t *testing.T) {
+	// Session has hierarchical group path not in stored groups
+	instances := []*Instance{
+		{ID: "1", Title: "session-1", GroupPath: "ard/innotrade"},
+	}
+
+	// Stored groups don't include the new hierarchical group
+	storedGroups := []*GroupData{
+		{Name: "ard", Path: "ard", Expanded: true, Order: 0},
+	}
+
+	tree := NewGroupTreeWithGroups(instances, storedGroups)
+
+	// New group should be auto-created with correct name
+	group := tree.Groups["ard/innotrade"]
+	if group == nil {
+		t.Fatal("ard/innotrade group not found")
+	}
+
+	// Name should be just "innotrade", not "ard/innotrade"
+	if group.Name != "innotrade" {
+		t.Errorf("Expected name 'innotrade', got '%s'", group.Name)
+	}
+}
