@@ -752,3 +752,30 @@ func TestNewGroupTreeWithGroupsHierarchicalPath(t *testing.T) {
 		t.Errorf("Expected name 'innotrade', got '%s'", group.Name)
 	}
 }
+
+func TestAddSessionWithHierarchicalPath(t *testing.T) {
+	tree := NewGroupTree([]*Instance{})
+
+	// Create parent group first
+	tree.CreateGroup("parent")
+
+	// Add session with hierarchical path
+	inst := &Instance{ID: "1", Title: "session-1", GroupPath: "parent/child"}
+	tree.AddSession(inst)
+
+	// New group should be auto-created with correct name
+	group := tree.Groups["parent/child"]
+	if group == nil {
+		t.Fatal("parent/child group not found")
+	}
+
+	// Name should be just "child", not "parent/child"
+	if group.Name != "child" {
+		t.Errorf("Expected name 'child', got '%s'", group.Name)
+	}
+
+	// Session should be in the group
+	if len(group.Sessions) != 1 {
+		t.Errorf("Expected 1 session, got %d", len(group.Sessions))
+	}
+}
