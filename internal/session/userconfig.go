@@ -268,6 +268,43 @@ func ReloadUserConfig() (*UserConfig, error) {
 	return LoadUserConfig()
 }
 
+// SaveUserConfig writes the config to config.toml
+// This clears the cache so next LoadUserConfig() reads fresh values
+func SaveUserConfig(config *UserConfig) error {
+	configPath, err := GetUserConfigPath()
+	if err != nil {
+		return fmt.Errorf("failed to get config path: %w", err)
+	}
+
+	// Ensure directory exists
+	dir := filepath.Dir(configPath)
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		return fmt.Errorf("failed to create config directory: %w", err)
+	}
+
+	// Create file
+	f, err := os.Create(configPath)
+	if err != nil {
+		return fmt.Errorf("failed to create config file: %w", err)
+	}
+	defer f.Close()
+
+	// Write header comment
+	f.WriteString("# Agent Deck Configuration\n")
+	f.WriteString("# Edit this file or use Settings (press S) in the TUI\n\n")
+
+	// Encode to TOML
+	encoder := toml.NewEncoder(f)
+	if err := encoder.Encode(config); err != nil {
+		return fmt.Errorf("failed to encode config: %w", err)
+	}
+
+	// Clear cache so next load picks up changes
+	ClearUserConfigCache()
+
+	return nil
+}
+
 // ClearUserConfigCache clears the cached user config, allowing tests to reset state
 // This does NOT reload - the next LoadUserConfig() call will read fresh from disk
 func ClearUserConfigCache() {

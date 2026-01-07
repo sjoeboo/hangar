@@ -149,3 +149,59 @@ tier = "disabled"
 		t.Errorf("Expected tier 'disabled', got %q", config.GlobalSearch.Tier)
 	}
 }
+
+func TestSaveUserConfig(t *testing.T) {
+	// Setup: use temp directory
+	tempDir := t.TempDir()
+	originalHome := os.Getenv("HOME")
+	os.Setenv("HOME", tempDir)
+	defer os.Setenv("HOME", originalHome)
+
+	// Clear cache
+	ClearUserConfigCache()
+
+	// Create agent-deck directory
+	agentDeckDir := filepath.Join(tempDir, ".agent-deck")
+	os.MkdirAll(agentDeckDir, 0700)
+
+	// Create config to save
+	config := &UserConfig{
+		DefaultTool: "claude",
+		Claude: ClaudeSettings{
+			DangerousMode: true,
+			ConfigDir:     "~/.claude-work",
+		},
+		Logs: LogSettings{
+			MaxSizeMB:     20,
+			MaxLines:      5000,
+			RemoveOrphans: true,
+		},
+	}
+
+	// Save it
+	err := SaveUserConfig(config)
+	if err != nil {
+		t.Fatalf("SaveUserConfig failed: %v", err)
+	}
+
+	// Clear cache and reload
+	ClearUserConfigCache()
+	loaded, err := LoadUserConfig()
+	if err != nil {
+		t.Fatalf("LoadUserConfig failed: %v", err)
+	}
+
+	// Verify values
+	if loaded.DefaultTool != "claude" {
+		t.Errorf("DefaultTool: got %q, want %q", loaded.DefaultTool, "claude")
+	}
+	if !loaded.Claude.DangerousMode {
+		t.Error("DangerousMode should be true")
+	}
+	if loaded.Claude.ConfigDir != "~/.claude-work" {
+		t.Errorf("ConfigDir: got %q, want %q", loaded.Claude.ConfigDir, "~/.claude-work")
+	}
+	if loaded.Logs.MaxSizeMB != 20 {
+		t.Errorf("MaxSizeMB: got %d, want %d", loaded.Logs.MaxSizeMB, 20)
+	}
+}
