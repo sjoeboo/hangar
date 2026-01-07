@@ -1,6 +1,7 @@
 package session
 
 import (
+	"os"
 	"os/exec"
 	"strings"
 	"testing"
@@ -93,6 +94,20 @@ func TestInstance_UpdateClaudeSession(t *testing.T) {
 
 // TestInstance_Fork tests the Fork method
 func TestInstance_Fork(t *testing.T) {
+	// Isolate from user's environment to ensure CLAUDE_CONFIG_DIR is NOT explicit
+	origConfigDir := os.Getenv("CLAUDE_CONFIG_DIR")
+	origHome := os.Getenv("HOME")
+	os.Unsetenv("CLAUDE_CONFIG_DIR")
+	os.Setenv("HOME", t.TempDir())
+	ClearUserConfigCache()
+	defer func() {
+		if origConfigDir != "" {
+			os.Setenv("CLAUDE_CONFIG_DIR", origConfigDir)
+		}
+		os.Setenv("HOME", origHome)
+		ClearUserConfigCache()
+	}()
+
 	inst := NewInstance("test", "/tmp/test")
 
 	// Cannot fork without session ID
@@ -110,8 +125,10 @@ func TestInstance_Fork(t *testing.T) {
 	}
 
 	// Command should use capture-resume pattern with fork
-	if !strings.Contains(cmd, "CLAUDE_CONFIG_DIR=") {
-		t.Errorf("Fork() should set CLAUDE_CONFIG_DIR, got: %s", cmd)
+	// When not explicitly configured, CLAUDE_CONFIG_DIR should NOT be set
+	// (allows shell environment to take precedence)
+	if strings.Contains(cmd, "CLAUDE_CONFIG_DIR=") {
+		t.Errorf("Fork() should NOT set CLAUDE_CONFIG_DIR when not explicitly configured, got: %s", cmd)
 	}
 	if !strings.Contains(cmd, "--resume abc-123 --fork-session") {
 		t.Errorf("Fork() should include resume and fork-session flags for capture, got: %s", cmd)
@@ -127,8 +144,42 @@ func TestInstance_Fork(t *testing.T) {
 	}
 }
 
+// TestInstance_Fork_ExplicitConfig tests Fork with explicit CLAUDE_CONFIG_DIR
+func TestInstance_Fork_ExplicitConfig(t *testing.T) {
+	os.Setenv("CLAUDE_CONFIG_DIR", "/tmp/test-claude-config")
+	defer os.Unsetenv("CLAUDE_CONFIG_DIR")
+
+	inst := NewInstance("test", "/tmp/test")
+	inst.ClaudeSessionID = "abc-123"
+	inst.ClaudeDetectedAt = time.Now()
+
+	cmd, err := inst.Fork("forked-test", "")
+	if err != nil {
+		t.Errorf("Fork() failed: %v", err)
+	}
+
+	// When explicitly configured, CLAUDE_CONFIG_DIR SHOULD be set
+	if !strings.Contains(cmd, "CLAUDE_CONFIG_DIR=/tmp/test-claude-config") {
+		t.Errorf("Fork() should set CLAUDE_CONFIG_DIR when explicitly configured, got: %s", cmd)
+	}
+}
+
 // TestInstance_CreateForkedInstance tests the CreateForkedInstance method
 func TestInstance_CreateForkedInstance(t *testing.T) {
+	// Isolate from user's environment to ensure CLAUDE_CONFIG_DIR is NOT explicit
+	origConfigDir := os.Getenv("CLAUDE_CONFIG_DIR")
+	origHome := os.Getenv("HOME")
+	os.Unsetenv("CLAUDE_CONFIG_DIR")
+	os.Setenv("HOME", t.TempDir())
+	ClearUserConfigCache()
+	defer func() {
+		if origConfigDir != "" {
+			os.Setenv("CLAUDE_CONFIG_DIR", origConfigDir)
+		}
+		os.Setenv("HOME", origHome)
+		ClearUserConfigCache()
+	}()
+
 	inst := NewInstance("original", "/tmp/test")
 	inst.GroupPath = "projects"
 
@@ -146,9 +197,10 @@ func TestInstance_CreateForkedInstance(t *testing.T) {
 		t.Errorf("CreateForkedInstance() failed: %v", err)
 	}
 
-	// Verify command includes config dir and fork flags
-	if !strings.Contains(cmd, "CLAUDE_CONFIG_DIR=") {
-		t.Errorf("Command should set CLAUDE_CONFIG_DIR, got: %s", cmd)
+	// Verify command includes fork flags
+	// When not explicitly configured, CLAUDE_CONFIG_DIR should NOT be set
+	if strings.Contains(cmd, "CLAUDE_CONFIG_DIR=") {
+		t.Errorf("Command should NOT set CLAUDE_CONFIG_DIR when not explicitly configured, got: %s", cmd)
 	}
 	if !strings.Contains(cmd, "--resume abc-123 --fork-session") {
 		t.Errorf("Command should include resume and fork flags, got: %s", cmd)
@@ -181,6 +233,26 @@ func TestInstance_CreateForkedInstance(t *testing.T) {
 	}
 }
 
+// TestInstance_CreateForkedInstance_ExplicitConfig tests CreateForkedInstance with explicit config
+func TestInstance_CreateForkedInstance_ExplicitConfig(t *testing.T) {
+	os.Setenv("CLAUDE_CONFIG_DIR", "/tmp/test-claude-config")
+	defer os.Unsetenv("CLAUDE_CONFIG_DIR")
+
+	inst := NewInstance("original", "/tmp/test")
+	inst.ClaudeSessionID = "abc-123"
+	inst.ClaudeDetectedAt = time.Now()
+
+	_, cmd, err := inst.CreateForkedInstance("forked", "")
+	if err != nil {
+		t.Errorf("CreateForkedInstance() failed: %v", err)
+	}
+
+	// When explicitly configured, CLAUDE_CONFIG_DIR SHOULD be set
+	if !strings.Contains(cmd, "CLAUDE_CONFIG_DIR=/tmp/test-claude-config") {
+		t.Errorf("Command should set CLAUDE_CONFIG_DIR when explicitly configured, got: %s", cmd)
+	}
+}
+
 // TestNewInstanceWithTool tests that tools are set correctly without pre-assigned session IDs
 func TestNewInstanceWithTool(t *testing.T) {
 	// Shell tool should not have session ID (never will)
@@ -205,14 +277,31 @@ func TestNewInstanceWithTool(t *testing.T) {
 
 // TestBuildClaudeCommand tests that claude command is built with capture-resume pattern
 func TestBuildClaudeCommand(t *testing.T) {
+	// Isolate from user's environment to ensure CLAUDE_CONFIG_DIR is NOT explicit
+	origConfigDir := os.Getenv("CLAUDE_CONFIG_DIR")
+	origHome := os.Getenv("HOME")
+	os.Unsetenv("CLAUDE_CONFIG_DIR")
+	os.Setenv("HOME", t.TempDir()) // Use temp dir so config.toml isn't found
+	ClearUserConfigCache()
+	defer func() {
+		if origConfigDir != "" {
+			os.Setenv("CLAUDE_CONFIG_DIR", origConfigDir)
+		}
+		os.Setenv("HOME", origHome)
+		ClearUserConfigCache()
+	}()
+
 	inst := NewInstanceWithTool("test", "/tmp/test", "claude")
 
 	// Test with simple "claude" command
 	cmd := inst.buildClaudeCommand("claude")
 
-	// Should contain CLAUDE_CONFIG_DIR (appears twice: once for capture, once for resume)
-	if !strings.Contains(cmd, "CLAUDE_CONFIG_DIR=") {
-		t.Errorf("Should contain CLAUDE_CONFIG_DIR, got: %s", cmd)
+	// When CLAUDE_CONFIG_DIR is NOT explicitly configured (no env var, no config),
+	// the command should NOT include CLAUDE_CONFIG_DIR - let the shell handle it
+	// This is critical for WSL and other environments where users have
+	// CLAUDE_CONFIG_DIR set in their .bashrc/.zshrc
+	if strings.Contains(cmd, "CLAUDE_CONFIG_DIR=") {
+		t.Errorf("Should NOT contain CLAUDE_CONFIG_DIR when not explicitly configured, got: %s", cmd)
 	}
 
 	// Should use capture-resume pattern: -p "." --output-format json
@@ -241,8 +330,8 @@ func TestBuildClaudeCommand(t *testing.T) {
 	if !strings.Contains(cmd, `!= "null"`) {
 		t.Errorf("Should check for null session_id from jq, got: %s", cmd)
 	}
-	// Should start Claude even without session ID (fallback path)
-	if !strings.Contains(cmd, "else CLAUDE_CONFIG_DIR=") {
+	// Should have else branch to start Claude without session
+	if !strings.Contains(cmd, "else claude") {
 		t.Errorf("Should have else branch to start Claude without session, got: %s", cmd)
 	}
 
@@ -254,6 +343,22 @@ func TestBuildClaudeCommand(t *testing.T) {
 	shellCmd := shellInst.buildClaudeCommand("bash")
 	if shellCmd != "bash" {
 		t.Errorf("Non-claude command should not be modified, got: %s", shellCmd)
+	}
+}
+
+// TestBuildClaudeCommand_ExplicitConfig tests that CLAUDE_CONFIG_DIR is set when explicitly configured
+func TestBuildClaudeCommand_ExplicitConfig(t *testing.T) {
+	// Set environment variable to explicitly configure
+	os.Setenv("CLAUDE_CONFIG_DIR", "/tmp/test-claude-config")
+	defer os.Unsetenv("CLAUDE_CONFIG_DIR")
+
+	inst := NewInstanceWithTool("test", "/tmp/test", "claude")
+	cmd := inst.buildClaudeCommand("claude")
+
+	// When CLAUDE_CONFIG_DIR IS explicitly configured via env var,
+	// the command SHOULD include it
+	if !strings.Contains(cmd, "CLAUDE_CONFIG_DIR=/tmp/test-claude-config") {
+		t.Errorf("Should contain CLAUDE_CONFIG_DIR when explicitly configured, got: %s", cmd)
 	}
 }
 

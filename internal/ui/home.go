@@ -1687,21 +1687,17 @@ func (h *Home) createSessionFromGlobalSearch(result *GlobalSearchResult) tea.Cmd
 		// Build resume command with config dir and dangerous mode
 		userConfig, _ := session.LoadUserConfig()
 		dangerousMode := false
-		configDir := ""
 		if userConfig != nil {
 			dangerousMode = userConfig.Claude.DangerousMode
-			configDir = userConfig.Claude.ConfigDir
 		}
 
-		// Build command - use CLAUDE_CONFIG_DIR env var (not CLI flag)
+		// Build command - only set CLAUDE_CONFIG_DIR if explicitly configured
+		// If not explicit, let the tmux shell's environment handle it
+		// This is critical for WSL and other environments where users have
+		// CLAUDE_CONFIG_DIR set in their .bashrc/.zshrc
 		var cmdBuilder strings.Builder
-		if configDir != "" {
-			// Expand ~ to home directory
-			if strings.HasPrefix(configDir, "~") {
-				home, _ := os.UserHomeDir()
-				configDir = strings.Replace(configDir, "~", home, 1)
-			}
-			// Set env var before running claude
+		if session.IsClaudeConfigDirExplicit() {
+			configDir := session.GetClaudeConfigDir()
 			cmdBuilder.WriteString(fmt.Sprintf("CLAUDE_CONFIG_DIR=%s ", configDir))
 		}
 		cmdBuilder.WriteString("claude --resume ")

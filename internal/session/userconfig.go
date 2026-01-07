@@ -268,6 +268,14 @@ func ReloadUserConfig() (*UserConfig, error) {
 	return LoadUserConfig()
 }
 
+// ClearUserConfigCache clears the cached user config, allowing tests to reset state
+// This does NOT reload - the next LoadUserConfig() call will read fresh from disk
+func ClearUserConfigCache() {
+	userConfigCacheMu.Lock()
+	userConfigCache = nil
+	userConfigCacheMu.Unlock()
+}
+
 // GetToolDef returns a tool definition from user config
 // Returns nil if tool is not defined
 func GetToolDef(toolName string) *ToolDef {
