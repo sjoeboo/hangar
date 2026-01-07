@@ -779,3 +779,25 @@ func TestAddSessionWithHierarchicalPath(t *testing.T) {
 		t.Errorf("Expected 1 session, got %d", len(group.Sessions))
 	}
 }
+
+func TestSyncWithInstancesHierarchicalPath(t *testing.T) {
+	// Start with empty tree
+	tree := NewGroupTree([]*Instance{})
+
+	// Sync with instances that have hierarchical paths
+	instances := []*Instance{
+		{ID: "1", Title: "session-1", GroupPath: "projects/backend"},
+	}
+	tree.SyncWithInstances(instances)
+
+	// Group should be created with correct name
+	group := tree.Groups["projects/backend"]
+	if group == nil {
+		t.Fatal("projects/backend group not found")
+	}
+
+	// Name should be just "backend", not "projects/backend"
+	if group.Name != "backend" {
+		t.Errorf("Expected name 'backend', got '%s'", group.Name)
+	}
+}
