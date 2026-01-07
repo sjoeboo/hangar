@@ -192,6 +192,18 @@ func getParentPath(path string) string {
 	return "" // root level
 }
 
+// extractGroupName extracts the display name from a group path
+// e.g., "parent/child" -> "child", "root" -> "root"
+func extractGroupName(path string) string {
+	if path == "" {
+		return ""
+	}
+	if idx := strings.LastIndex(path, "/"); idx != -1 {
+		return path[idx+1:]
+	}
+	return path // root level - path is the name
+}
+
 // GetGroupLevel returns the nesting level of a group (0 for root, 1 for child, etc.)
 func GetGroupLevel(path string) int {
 	if path == "" {

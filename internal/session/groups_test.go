@@ -681,3 +681,24 @@ func TestGetParentPath(t *testing.T) {
 		}
 	}
 }
+
+func TestExtractGroupName(t *testing.T) {
+	tests := []struct {
+		path     string
+		expected string
+	}{
+		{"root", "root"},
+		{"parent/child", "child"},
+		{"a/b/c", "c"},
+		{"", ""},
+		{"my-sessions", "my-sessions"},
+		{"ard/innotrade", "innotrade"},
+	}
+
+	for _, tt := range tests {
+		result := extractGroupName(tt.path)
+		if result != tt.expected {
+			t.Errorf("extractGroupName(%s) = %s, want %s", tt.path, result, tt.expected)
+		}
+	}
+}
