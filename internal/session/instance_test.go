@@ -3,6 +3,7 @@ package session
 import (
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -772,6 +773,127 @@ func TestInstance_GetMCPInfo_Unknown(t *testing.T) {
 	info := inst.GetMCPInfo()
 	if info != nil {
 		t.Error("GetMCPInfo() should return nil for unknown tools")
+	}
+}
+
+func TestInstance_RegenerateMCPConfig_ReturnsError(t *testing.T) {
+	// This test verifies that regenerateMCPConfig() returns an error type
+	// The actual error propagation from WriteMCPJsonFromConfig is tested
+	// by verifying the function compiles with error return type and handles
+	// the various early-return cases correctly.
+
+	// Test case 1: No .mcp.json exists - returns nil (nothing to regenerate)
+	inst := &Instance{
+		ID:          "test-123",
+		Title:       "Test Session",
+		ProjectPath: "/nonexistent/path",
+		Tool:        "claude",
+	}
+	err := inst.regenerateMCPConfig()
+	if err != nil {
+		t.Errorf("expected nil error for nonexistent path (no MCPs to regenerate), got: %v", err)
+	}
+
+	// Test case 2: Valid path with empty .mcp.json - returns nil
+	tmpDir, err := os.MkdirTemp("", "agentdeck-test-*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	// Create an empty .mcp.json
+	mcpPath := filepath.Join(tmpDir, ".mcp.json")
+	if err := os.WriteFile(mcpPath, []byte(`{"mcpServers":{}}`), 0644); err != nil {
+		t.Fatalf("failed to write .mcp.json: %v", err)
+	}
+
+	inst.ProjectPath = tmpDir
+	err = inst.regenerateMCPConfig()
+	if err != nil {
+		t.Errorf("expected nil error for empty .mcp.json, got: %v", err)
+	}
+
+	// Test case 3: .mcp.json with MCPs but not in config.toml - returns nil
+	// (Local() returns MCP names, but WriteMCPJsonFromConfig skips unknown MCPs)
+	mcpJSON := `{"mcpServers":{"unknown-mcp":{"command":"echo","args":["hello"]}}}`
+	if err := os.WriteFile(mcpPath, []byte(mcpJSON), 0644); err != nil {
+		t.Fatalf("failed to write .mcp.json: %v", err)
+	}
+
+	err = inst.regenerateMCPConfig()
+	// This returns nil because "unknown-mcp" is not in GetAvailableMCPs()
+	// so WriteMCPJsonFromConfig writes an empty mcpServers, which succeeds
+	if err != nil {
+		t.Errorf("expected nil error for unknown MCP (not in config.toml), got: %v", err)
+	}
+
+	// Note: To test actual write failure would require:
+	// 1. An MCP defined in config.toml
+	// 2. That MCP also in .mcp.json
+	// 3. Directory made read-only after .mcp.json creation
+	// This is an integration test scenario rather than unit test
+}
+
+func TestInstance_RegenerateMCPConfig_WriteFailure(t *testing.T) {
+	// Skip on non-Unix systems where permission changes might not work
+	if os.Getenv("CI") != "" {
+		t.Skip("Skipping permission-based test in CI")
+	}
+
+	// Create a temp directory
+	tmpDir, err := os.MkdirTemp("", "agentdeck-test-*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer func() {
+		// Restore permissions before cleanup
+		os.Chmod(tmpDir, 0755)
+		os.RemoveAll(tmpDir)
+	}()
+
+	// Create .mcp.json with an MCP that exists in GetAvailableMCPs()
+	// We'll use a real MCP name that might exist, or the test gracefully handles it
+	mcpPath := filepath.Join(tmpDir, ".mcp.json")
+
+	// First, check what MCPs are available
+	availableMCPs := GetAvailableMCPs()
+	if len(availableMCPs) == 0 {
+		t.Skip("No MCPs configured in config.toml, skipping write failure test")
+	}
+
+	// Use the first available MCP
+	var mcpName string
+	for name := range availableMCPs {
+		mcpName = name
+		break
+	}
+
+	mcpJSON := `{"mcpServers":{"` + mcpName + `":{"command":"echo","args":["hello"]}}}`
+	if err := os.WriteFile(mcpPath, []byte(mcpJSON), 0644); err != nil {
+		t.Fatalf("failed to write .mcp.json: %v", err)
+	}
+
+	// Make directory read-only AFTER writing .mcp.json
+	if err := os.Chmod(tmpDir, 0555); err != nil {
+		t.Fatalf("failed to make directory read-only: %v", err)
+	}
+
+	inst := &Instance{
+		ID:          "test-write-failure",
+		Title:       "Test Write Failure",
+		ProjectPath: tmpDir,
+		Tool:        "claude",
+	}
+
+	// Clear MCP info cache to ensure fresh read
+	ClearMCPCache(tmpDir)
+
+	err = inst.regenerateMCPConfig()
+	// We expect an error because the directory is read-only
+	if err == nil {
+		t.Error("expected error for read-only directory, got nil")
+	} else {
+		t.Logf("Got expected error: %v", err)
 	}
 }
 
