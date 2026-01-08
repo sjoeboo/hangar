@@ -26,6 +26,7 @@ type NewDialog struct {
 	parentGroupName      string
 	pathSuggestions      []string // stores all available path suggestions
 	pathSuggestionCursor int      // tracks selected suggestion in dropdown
+	suggestionNavigated  bool     // tracks if user explicitly navigated suggestions
 }
 
 // NewNewDialog creates a new NewDialog instance
@@ -81,6 +82,8 @@ func (d *NewDialog) ShowInGroup(groupPath, groupName string) {
 	d.focusIndex = 0
 	d.nameInput.SetValue("")
 	d.nameInput.Focus()
+	d.suggestionNavigated = false  // reset on show
+	d.pathSuggestionCursor = 0     // reset cursor too
 	// Keep commandCursor at previously set default (don't reset to 0)
 }
 
@@ -226,8 +229,8 @@ func (d *NewDialog) Update(msg tea.Msg) (*NewDialog, tea.Cmd) {
 	case tea.KeyMsg:
 		switch msg.String() {
 		case "tab":
-			// On path field: apply selected suggestion, then move to next field
-			if d.focusIndex == 1 && len(d.pathSuggestions) > 0 {
+			// On path field: apply selected suggestion ONLY if user explicitly navigated to one
+			if d.focusIndex == 1 && d.suggestionNavigated && len(d.pathSuggestions) > 0 {
 				if d.pathSuggestionCursor < len(d.pathSuggestions) {
 					d.pathInput.SetValue(d.pathSuggestions[d.pathSuggestionCursor])
 				}
@@ -235,12 +238,17 @@ func (d *NewDialog) Update(msg tea.Msg) (*NewDialog, tea.Cmd) {
 			// Move to next field
 			d.focusIndex = (d.focusIndex + 1) % 3
 			d.updateFocus()
+			// Reset navigation flag when leaving path field
+			if d.focusIndex != 1 {
+				d.suggestionNavigated = false
+			}
 			return d, cmd
 
 		case "ctrl+n":
 			// Next suggestion (when on path field)
 			if d.focusIndex == 1 && len(d.pathSuggestions) > 0 {
 				d.pathSuggestionCursor = (d.pathSuggestionCursor + 1) % len(d.pathSuggestions)
+				d.suggestionNavigated = true // user explicitly navigated
 				return d, nil
 			}
 
@@ -251,6 +259,7 @@ func (d *NewDialog) Update(msg tea.Msg) (*NewDialog, tea.Cmd) {
 				if d.pathSuggestionCursor < 0 {
 					d.pathSuggestionCursor = len(d.pathSuggestions) - 1
 				}
+				d.suggestionNavigated = true // user explicitly navigated
 				return d, nil
 			}
 
@@ -300,7 +309,13 @@ func (d *NewDialog) Update(msg tea.Msg) (*NewDialog, tea.Cmd) {
 	case 0:
 		d.nameInput, cmd = d.nameInput.Update(msg)
 	case 1:
+		oldValue := d.pathInput.Value()
 		d.pathInput, cmd = d.pathInput.Update(msg)
+		// Reset navigation if user typed something new
+		if d.pathInput.Value() != oldValue {
+			d.suggestionNavigated = false
+			d.pathSuggestionCursor = 0
+		}
 	}
 
 	return d, cmd

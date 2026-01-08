@@ -4,6 +4,8 @@ import (
 	"os"
 	"strings"
 	"testing"
+
+	tea "github.com/charmbracelet/bubbletea"
 )
 
 func TestNewNewDialog(t *testing.T) {
@@ -231,5 +233,116 @@ func TestNewDialog_MalformedPathFix(t *testing.T) {
 				t.Errorf("GetValues() path = %q, want %q", path, tt.expected)
 			}
 		})
+	}
+}
+
+// TestNewDialog_TabDoesNotOverwriteCustomPath tests Issue #22:
+// When user enters a new folder path and presses Tab to move to agent selection,
+// the custom path should NOT be overwritten by a suggestion.
+func TestNewDialog_TabDoesNotOverwriteCustomPath(t *testing.T) {
+	d := NewNewDialog()
+	d.Show() // Dialog must be visible for Update to process keys
+
+	// Set up suggestions (simulating previously used paths)
+	suggestions := []string{
+		"/Users/test/old-project-1",
+		"/Users/test/old-project-2",
+	}
+	d.SetPathSuggestions(suggestions)
+
+	// User is on path field (focusIndex 1)
+	d.focusIndex = 1
+	d.updateFocus()
+
+	// User types a completely NEW path that doesn't match any suggestion
+	customPath := "/Users/test/brand-new-project"
+	d.pathInput.SetValue(customPath)
+
+	// User presses Tab to move to command selection
+	d, _ = d.Update(tea.KeyMsg{Type: tea.KeyTab})
+
+	// The custom path should be PRESERVED, not overwritten
+	_, path, _ := d.GetValues()
+
+	if path != customPath {
+		t.Errorf("Tab overwrote custom path!\nGot: %q\nWant: %q\nThis is the bug from Issue #22", path, customPath)
+	}
+
+	// Focus should have moved to command field
+	if d.focusIndex != 2 {
+		t.Errorf("focusIndex = %d, want 2 (command field)", d.focusIndex)
+	}
+}
+
+// TestNewDialog_TabAppliesSuggestionWhenNavigated tests that Tab DOES apply
+// the suggestion when the user explicitly navigated to one using Ctrl+N/P.
+func TestNewDialog_TabAppliesSuggestionWhenNavigated(t *testing.T) {
+	d := NewNewDialog()
+	d.Show()
+
+	suggestions := []string{
+		"/Users/test/project-1",
+		"/Users/test/project-2",
+	}
+	d.SetPathSuggestions(suggestions)
+
+	// User is on path field
+	d.focusIndex = 1
+	d.updateFocus()
+
+	// User types something, then navigates to suggestion with Ctrl+N
+	d.pathInput.SetValue("/some/partial")
+	d, _ = d.Update(tea.KeyMsg{Type: tea.KeyCtrlN})
+
+	// Now Tab should apply the suggestion
+	d, _ = d.Update(tea.KeyMsg{Type: tea.KeyTab})
+
+	_, path, _ := d.GetValues()
+
+	// Should be the second suggestion (Ctrl+N moved from 0 to 1)
+	if path != "/Users/test/project-2" {
+		t.Errorf("Tab should apply suggestion after Ctrl+N navigation\nGot: %q\nWant: %q", path, "/Users/test/project-2")
+	}
+}
+
+// TestNewDialog_TypingResetsSuggestionNavigation tests that typing after
+// navigating suggestions resets the navigation state.
+func TestNewDialog_TypingResetsSuggestionNavigation(t *testing.T) {
+	d := NewNewDialog()
+	d.Show()
+
+	suggestions := []string{
+		"/Users/test/project-1",
+		"/Users/test/project-2",
+	}
+	d.SetPathSuggestions(suggestions)
+
+	d.focusIndex = 1
+	d.updateFocus()
+
+	// User navigates to a suggestion
+	d, _ = d.Update(tea.KeyMsg{Type: tea.KeyCtrlN})
+
+	// Verify navigation flag is set
+	if !d.suggestionNavigated {
+		t.Error("suggestionNavigated should be true after Ctrl+N")
+	}
+
+	// User then types something new - simulate by sending a key
+	d, _ = d.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'a'}})
+
+	// Flag should be reset
+	if d.suggestionNavigated {
+		t.Error("suggestionNavigated should be false after typing")
+	}
+
+	// Set a custom path and press Tab
+	d.pathInput.SetValue("/my/new/path")
+	d, _ = d.Update(tea.KeyMsg{Type: tea.KeyTab})
+
+	_, path, _ := d.GetValues()
+
+	if path != "/my/new/path" {
+		t.Errorf("Typing should reset suggestion navigation\nGot: %q\nWant: %q", path, "/my/new/path")
 	}
 }
