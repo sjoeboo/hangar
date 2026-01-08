@@ -116,7 +116,10 @@ func WriteMCPJsonFromConfig(projectPath string, enabledNames []string) error {
 				// Socket still not ready after waiting - check fallback policy
 				if !pool.FallbackEnabled() {
 					log.Printf("[MCP-POOL] ✗ %s: SOCKET NOT READY - fallback disabled, skipping MCP", name)
-					return fmt.Errorf("MCP '%s' socket not ready after %v (fallback_to_stdio=false in config)", name, timeout)
+					return fmt.Errorf("MCP '%s' socket not ready after %v. Options:\n"+
+						"  1. Enable fallback: set fallback_to_stdio = true in config.toml\n"+
+						"  2. Increase timeout: set socket_wait_timeout = 10 in [mcp_pool]\n"+
+						"  3. Check MCP is running: ls /tmp/agentdeck-mcp-%s.sock", name, timeout, name)
 				}
 				log.Printf("[MCP-POOL] ⚠️ %s: socket not ready after %v - falling back to stdio", name, timeout)
 			} else if pool != nil && !pool.ShouldPool(name) {
@@ -138,7 +141,10 @@ func WriteMCPJsonFromConfig(projectPath string, enabledNames []string) error {
 					// Socket not found - check fallback policy
 					if !config.MCPPool.FallbackStdio {
 						log.Printf("[MCP-POOL] ✗ %s: pool enabled but socket not found - fallback disabled", name)
-						return fmt.Errorf("MCP '%s' cannot start: pool enabled but socket not found (fallback_to_stdio=false)", name)
+						return fmt.Errorf("MCP '%s' socket not found. Options:\n"+
+							"  1. Enable fallback: set fallback_to_stdio = true in config.toml\n"+
+							"  2. Start TUI to initialize pool: agent-deck\n"+
+							"  3. Check socket exists: ls /tmp/agentdeck-mcp-%s.sock", name, name)
 					}
 					log.Printf("[MCP-POOL] ⚠️ %s: socket not found, falling back to stdio", name)
 				} else {
@@ -246,7 +252,10 @@ func WriteGlobalMCP(enabledNames []string) error {
 				// Socket still not ready after waiting - check fallback policy
 				if !pool.FallbackEnabled() {
 					log.Printf("[MCP-POOL] ✗ Global %s: SOCKET NOT READY - fallback disabled, skipping MCP", name)
-					return fmt.Errorf("MCP '%s' socket not ready after %v (fallback_to_stdio=false in config)", name, timeout)
+					return fmt.Errorf("MCP '%s' socket not ready after %v. Options:\n"+
+						"  1. Enable fallback: set fallback_to_stdio = true in config.toml\n"+
+						"  2. Increase timeout: set socket_wait_timeout = 10 in [mcp_pool]\n"+
+						"  3. Check MCP is running: ls /tmp/agentdeck-mcp-%s.sock", name, timeout, name)
 				}
 				log.Printf("[MCP-POOL] ⚠️ Global %s: socket not ready after %v - falling back to stdio", name, timeout)
 			} else if pool != nil && !pool.ShouldPool(name) {
@@ -268,7 +277,10 @@ func WriteGlobalMCP(enabledNames []string) error {
 					// Socket not found - check fallback policy
 					if !config.MCPPool.FallbackStdio {
 						log.Printf("[MCP-POOL] ✗ Global %s: pool enabled but socket not found - fallback disabled", name)
-						return fmt.Errorf("MCP '%s' cannot start: pool enabled but socket not found (fallback_to_stdio=false)", name)
+						return fmt.Errorf("MCP '%s' socket not found. Options:\n"+
+							"  1. Enable fallback: set fallback_to_stdio = true in config.toml\n"+
+							"  2. Start TUI to initialize pool: agent-deck\n"+
+							"  3. Check socket exists: ls /tmp/agentdeck-mcp-%s.sock", name, name)
 					}
 					log.Printf("[MCP-POOL] ⚠️ Global %s: socket not found, falling back to stdio", name)
 				} else {
