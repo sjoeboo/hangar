@@ -22,6 +22,9 @@ type UserConfig struct {
 	// If empty or invalid, defaults to "shell" (no pre-selection)
 	DefaultTool string `toml:"default_tool"`
 
+	// Theme sets the color scheme: "dark" (default) or "light"
+	Theme string `toml:"theme"`
+
 	// Tools defines custom AI tool configurations
 	Tools map[string]ToolDef `toml:"tools"`
 
@@ -414,6 +417,18 @@ func GetDefaultTool() string {
 		return ""
 	}
 	return config.DefaultTool
+}
+
+// GetTheme returns the current theme, defaulting to "dark"
+func GetTheme() string {
+	config, err := LoadUserConfig()
+	if err != nil || config == nil {
+		return "dark"
+	}
+	if config.Theme == "" || (config.Theme != "dark" && config.Theme != "light") {
+		return "dark"
+	}
+	return config.Theme
 }
 
 // GetLogSettings returns log management settings with defaults applied

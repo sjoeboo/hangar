@@ -205,3 +205,37 @@ func TestSaveUserConfig(t *testing.T) {
 		t.Errorf("MaxSizeMB: got %d, want %d", loaded.Logs.MaxSizeMB, 20)
 	}
 }
+
+func TestGetTheme_Default(t *testing.T) {
+	// Setup: use temp directory with no config
+	tempDir := t.TempDir()
+	originalHome := os.Getenv("HOME")
+	os.Setenv("HOME", tempDir)
+	defer os.Setenv("HOME", originalHome)
+	ClearUserConfigCache()
+
+	theme := GetTheme()
+	if theme != "dark" {
+		t.Errorf("GetTheme: got %q, want %q", theme, "dark")
+	}
+}
+
+func TestGetTheme_Light(t *testing.T) {
+	tempDir := t.TempDir()
+	originalHome := os.Getenv("HOME")
+	os.Setenv("HOME", tempDir)
+	defer os.Setenv("HOME", originalHome)
+	ClearUserConfigCache()
+
+	// Create config with light theme
+	agentDeckDir := filepath.Join(tempDir, ".agent-deck")
+	os.MkdirAll(agentDeckDir, 0700)
+	config := &UserConfig{Theme: "light"}
+	SaveUserConfig(config)
+	ClearUserConfigCache()
+
+	theme := GetTheme()
+	if theme != "light" {
+		t.Errorf("GetTheme: got %q, want %q", theme, "light")
+	}
+}
