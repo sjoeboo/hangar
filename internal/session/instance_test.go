@@ -1105,6 +1105,43 @@ func TestInstance_Restart_SkipMCPRegenerate(t *testing.T) {
 	}
 }
 
+// TestInstance_WorktreeFields tests the worktree-related fields and IsWorktree method
+func TestInstance_WorktreeFields(t *testing.T) {
+	// Test 1: Instance with worktree fields set should report IsWorktree() = true
+	inst := NewInstance("test", "/tmp/worktree-path")
+	inst.WorktreePath = "/tmp/worktree-path"
+	inst.WorktreeRepoRoot = "/tmp/original-repo"
+	inst.WorktreeBranch = "feature-x"
+
+	if !inst.IsWorktree() {
+		t.Error("IsWorktree should return true when WorktreePath is set")
+	}
+
+	// Verify all fields are set correctly
+	if inst.WorktreePath != "/tmp/worktree-path" {
+		t.Errorf("WorktreePath = %q, want %q", inst.WorktreePath, "/tmp/worktree-path")
+	}
+	if inst.WorktreeRepoRoot != "/tmp/original-repo" {
+		t.Errorf("WorktreeRepoRoot = %q, want %q", inst.WorktreeRepoRoot, "/tmp/original-repo")
+	}
+	if inst.WorktreeBranch != "feature-x" {
+		t.Errorf("WorktreeBranch = %q, want %q", inst.WorktreeBranch, "feature-x")
+	}
+
+	// Test 2: Instance without worktree fields should report IsWorktree() = false
+	inst2 := NewInstance("test2", "/tmp/regular-path")
+	if inst2.IsWorktree() {
+		t.Error("IsWorktree should return false when WorktreePath is empty")
+	}
+
+	// Test 3: Instance with only WorktreePath set (edge case)
+	inst3 := NewInstance("test3", "/tmp/edge-case")
+	inst3.WorktreePath = "/tmp/some-worktree"
+	if !inst3.IsWorktree() {
+		t.Error("IsWorktree should return true even when only WorktreePath is set")
+	}
+}
+
 // TestInstance_Fork_RespectsDangerousMode tests that Fork() respects dangerous_mode config
 // Issue #8: Fork command ignores dangerous_mode configuration
 func TestInstance_Fork_RespectsDangerousMode(t *testing.T) {

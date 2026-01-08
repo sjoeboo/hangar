@@ -37,6 +37,12 @@ type Instance struct {
 	ProjectPath    string    `json:"project_path"`
 	GroupPath      string    `json:"group_path"` // e.g., "projects/devops"
 	ParentSessionID string   `json:"parent_session_id,omitempty"` // Links to parent session (makes this a sub-session)
+
+	// Git worktree support
+	WorktreePath     string `json:"worktree_path,omitempty"`      // Path to worktree (if session is in worktree)
+	WorktreeRepoRoot string `json:"worktree_repo_root,omitempty"` // Original repo root
+	WorktreeBranch   string `json:"worktree_branch,omitempty"`    // Branch name in worktree
+
 	Command        string    `json:"command"`
 	Tool           string    `json:"tool"`
 	Status         Status    `json:"status"`
@@ -94,6 +100,11 @@ func (inst *Instance) GetLastActivityTime() time.Time {
 // IsSubSession returns true if this session has a parent
 func (inst *Instance) IsSubSession() bool {
 	return inst.ParentSessionID != ""
+}
+
+// IsWorktree returns true if this session is running in a git worktree
+func (inst *Instance) IsWorktree() bool {
+	return inst.WorktreePath != ""
 }
 
 // SetParent sets the parent session ID
