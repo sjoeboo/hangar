@@ -2027,16 +2027,43 @@ func (h *Home) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return h, nil
 
 	case "g":
-		// Create new group (or subgroup if a group is selected)
+		// Create new group based on context:
+		// - Session in a group → create subgroup in session's group
+		// - Group selected → create peer group (sibling at same level)
+		// - Root level → create root-level group
 		if h.cursor < len(h.flatItems) {
 			item := h.flatItems[h.cursor]
 			if item.Type == session.ItemTypeGroup {
-				// Create subgroup under selected group
-				h.groupDialog.ShowCreateSubgroup(item.Group.Path, item.Group.Name)
+				// Group selected: create peer group (sibling)
+				// Get parent path by removing last segment
+				parentPath := ""
+				parentName := ""
+				if idx := strings.LastIndex(item.Group.Path, "/"); idx > 0 {
+					parentPath = item.Group.Path[:idx]
+					// Get parent name from parent path
+					if lastIdx := strings.LastIndex(parentPath, "/"); lastIdx >= 0 {
+						parentName = parentPath[lastIdx+1:]
+					} else {
+						parentName = parentPath
+					}
+					h.groupDialog.ShowCreateSubgroup(parentPath, parentName)
+				} else {
+					// Top-level group: create another root-level group
+					h.groupDialog.Show()
+				}
+				return h, nil
+			} else if item.Type == session.ItemTypeSession && item.Session != nil && item.Session.GroupPath != "" {
+				// Session in a group: create subgroup in session's group
+				groupPath := item.Session.GroupPath
+				groupName := groupPath
+				if idx := strings.LastIndex(groupPath, "/"); idx >= 0 {
+					groupName = groupPath[idx+1:]
+				}
+				h.groupDialog.ShowCreateSubgroup(groupPath, groupName)
 				return h, nil
 			}
 		}
-		// Create root-level group
+		// Create root-level group (no selection or session at root)
 		h.groupDialog.Show()
 		return h, nil
 
