@@ -1058,6 +1058,53 @@ func TestInstance_Fork_PathWithSpaces(t *testing.T) {
 	}
 }
 
+// TestInstance_Restart_SkipMCPRegenerate tests that SkipMCPRegenerate prevents double-write
+// race condition when MCP dialog Apply() is followed immediately by Restart()
+func TestInstance_Restart_SkipMCPRegenerate(t *testing.T) {
+	// This test verifies that SkipMCPRegenerate prevents double-write
+	inst := &Instance{
+		ID:                "test-skip-123",
+		Title:             "Test Skip Regen",
+		ProjectPath:       t.TempDir(),
+		Tool:              "claude",
+		SkipMCPRegenerate: true,
+	}
+
+	// Write a marker file to detect if regenerateMCPConfig was called
+	mcpFile := filepath.Join(inst.ProjectPath, ".mcp.json")
+	originalContent := `{"mcpServers":{"marker":{"command":"test"}}}`
+	if err := os.WriteFile(mcpFile, []byte(originalContent), 0644); err != nil {
+		t.Fatalf("failed to write marker file: %v", err)
+	}
+
+	// After Restart with SkipMCPRegenerate=true, original content should be preserved
+	// (In real scenario, Restart would fail because no tmux, but the flag check happens first)
+
+	// Verify the flag is set
+	if !inst.SkipMCPRegenerate {
+		t.Error("SkipMCPRegenerate should be true")
+	}
+
+	// Call Restart - it will fail due to no tmux session, but we can verify
+	// the flag was consumed by checking if it's now false
+	_ = inst.Restart() // Will fail, but that's expected
+
+	// Verify the flag was cleared after use
+	if inst.SkipMCPRegenerate {
+		t.Error("SkipMCPRegenerate should be false after Restart() consumes it")
+	}
+
+	// Verify the original content was preserved (regenerateMCPConfig was skipped)
+	content, err := os.ReadFile(mcpFile)
+	if err != nil {
+		t.Fatalf("failed to read marker file: %v", err)
+	}
+
+	if string(content) != originalContent {
+		t.Errorf("MCP config was modified when it should have been skipped.\nOriginal: %s\nActual: %s", originalContent, string(content))
+	}
+}
+
 // TestInstance_Fork_RespectsDangerousMode tests that Fork() respects dangerous_mode config
 // Issue #8: Fork command ignores dangerous_mode configuration
 func TestInstance_Fork_RespectsDangerousMode(t *testing.T) {

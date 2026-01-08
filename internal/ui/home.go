@@ -2329,6 +2329,8 @@ func (h *Home) handleMCPDialogKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				log.Printf("[MCP-DEBUG] Calling restartSession for: %s (with MCP loading animation)", targetInst.ID)
 				// Track as MCP loading for animation in preview pane
 				h.mcpLoadingSessions[targetInst.ID] = time.Now()
+				// Set flag to skip MCP regeneration (Apply just wrote the config)
+				targetInst.SkipMCPRegenerate = true
 				// Restart the session to apply MCP changes
 				h.mcpDialog.Hide()
 				return h, h.restartSession(targetInst)

@@ -66,6 +66,11 @@ type Instance struct {
 	// Used to provide grace period for tmux session creation (prevents error flash)
 	// Not serialized - only relevant for current TUI session
 	lastStartTime time.Time
+
+	// SkipMCPRegenerate skips .mcp.json regeneration on next Restart()
+	// Set by MCP dialog Apply() to avoid race condition where Apply writes
+	// config then Restart immediately overwrites it with different pool state
+	SkipMCPRegenerate bool `json:"-"` // Don't persist, transient flag
 }
 
 // MarkAccessed updates the LastAccessedAt timestamp to now
@@ -1009,13 +1014,19 @@ func (i *Instance) Restart() error {
 	log.Printf("[MCP-DEBUG] Instance.Restart() called - Tool=%s, ClaudeSessionID=%q, tmuxSession=%v, tmuxExists=%v",
 		i.Tool, i.ClaudeSessionID, i.tmuxSession != nil, i.tmuxSession != nil && i.tmuxSession.Exists())
 
+	// Clear flag immediately to prevent it staying set if restart fails
+	skipRegen := i.SkipMCPRegenerate
+	i.SkipMCPRegenerate = false
+
 	// Regenerate .mcp.json before restart to use socket pool if available
-	// This ensures Claude picks up socket configs instead of stdio
-	if i.Tool == "claude" {
+	// Skip if MCP dialog just wrote the config (avoids race condition)
+	if i.Tool == "claude" && !skipRegen {
 		if err := i.regenerateMCPConfig(); err != nil {
 			log.Printf("[MCP-DEBUG] Warning: MCP config regeneration failed: %v", err)
 			// Continue with restart - Claude will use existing .mcp.json or defaults
 		}
+	} else if skipRegen {
+		log.Printf("[MCP-DEBUG] Skipping MCP regeneration (flag set by Apply)")
 	}
 
 	// If Claude session with known ID AND tmux session exists, use respawn-pane
