@@ -23,7 +23,7 @@ import (
 	"github.com/muesli/termenv"
 )
 
-const Version = "0.8.15"
+const Version = "0.8.16"
 
 // Table column widths for list command output
 const (
@@ -222,6 +222,10 @@ func main() {
 
 	// Set version for UI update checking
 	ui.SetVersion(Version)
+
+	// Initialize theme from config
+	theme := session.GetTheme()
+	ui.InitTheme(theme)
 
 	// Check for updates and prompt user before launching TUI
 	if promptForUpdate() {
