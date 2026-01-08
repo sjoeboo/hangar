@@ -397,17 +397,40 @@ func (d *NewDialog) View() string {
 			Foreground(ColorCyan).
 			Bold(true)
 
-		// Show up to 5 suggestions
+		// Show up to 5 suggestions in a scrolling window around the cursor
 		maxShow := 5
-		if len(d.pathSuggestions) < maxShow {
-			maxShow = len(d.pathSuggestions)
+		total := len(d.pathSuggestions)
+
+		// Calculate visible window that follows the cursor
+		startIdx := 0
+		endIdx := maxShow
+		if total <= maxShow {
+			// All suggestions fit, show all
+			endIdx = total
+		} else {
+			// Need scrolling - center the cursor in the window
+			startIdx = d.pathSuggestionCursor - maxShow/2
+			if startIdx < 0 {
+				startIdx = 0
+			}
+			endIdx = startIdx + maxShow
+			if endIdx > total {
+				endIdx = total
+				startIdx = endIdx - maxShow
+			}
 		}
 
 		content.WriteString("  ")
 		content.WriteString(lipgloss.NewStyle().Foreground(ColorComment).Render("─ recent paths (Tab: accept, Ctrl+N/P: cycle) ─"))
 		content.WriteString("\n")
 
-		for i := 0; i < maxShow; i++ {
+		// Show "more above" indicator
+		if startIdx > 0 {
+			content.WriteString(suggestionStyle.Render(fmt.Sprintf("    ↑ %d more above", startIdx)))
+			content.WriteString("\n")
+		}
+
+		for i := startIdx; i < endIdx; i++ {
 			style := suggestionStyle
 			prefix := "    "
 			if i == d.pathSuggestionCursor {
@@ -418,8 +441,9 @@ func (d *NewDialog) View() string {
 			content.WriteString("\n")
 		}
 
-		if len(d.pathSuggestions) > maxShow {
-			content.WriteString(suggestionStyle.Render(fmt.Sprintf("    ... and %d more", len(d.pathSuggestions)-maxShow)))
+		// Show "more below" indicator
+		if endIdx < total {
+			content.WriteString(suggestionStyle.Render(fmt.Sprintf("    ↓ %d more below", total-endIdx)))
 			content.WriteString("\n")
 		}
 	}
