@@ -17,6 +17,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/mattn/go-runewidth"
 
+	"github.com/asheshgoplani/agent-deck/internal/git"
 	"github.com/asheshgoplani/agent-deck/internal/session"
 	"github.com/asheshgoplani/agent-deck/internal/tmux"
 	"github.com/asheshgoplani/agent-deck/internal/update"
@@ -1818,12 +1819,45 @@ func (h *Home) handleNewDialogKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return h, nil
 		}
 
-		// Create session (enter works from any field)
-		name, path, command := h.newDialog.GetValues()
+		// Get values including worktree settings
+		name, path, command, branchName, worktreeEnabled := h.newDialog.GetValuesWithWorktree()
 		groupPath := h.newDialog.GetSelectedGroup()
+
+		// Handle worktree creation if enabled
+		var worktreePath, worktreeRepoRoot string
+		if worktreeEnabled && branchName != "" {
+			// Validate path is a git repo
+			if !git.IsGitRepo(path) {
+				h.setError(fmt.Errorf("path is not a git repository"))
+				return h, nil
+			}
+
+			repoRoot, err := git.GetRepoRoot(path)
+			if err != nil {
+				h.setError(fmt.Errorf("failed to get repo root: %w", err))
+				return h, nil
+			}
+
+			// Generate worktree path
+			worktreePath = git.GenerateWorktreePath(repoRoot, branchName)
+
+			// Create worktree
+			if err := git.CreateWorktree(repoRoot, worktreePath, branchName); err != nil {
+				h.setError(fmt.Errorf("failed to create worktree: %w", err))
+				return h, nil
+			}
+
+			// Store repo root for later use
+			worktreeRepoRoot = repoRoot
+			// Update path to worktree for session creation
+			path = worktreePath
+		}
+
 		h.newDialog.Hide()
 		h.clearError() // Clear any previous validation error
-		return h, h.createSessionInGroup(name, path, command, groupPath)
+
+		// Create session with worktree info
+		return h, h.createSessionInGroupWithWorktree(name, path, command, groupPath, worktreePath, worktreeRepoRoot, branchName)
 
 	case "esc":
 		h.newDialog.Hide()
@@ -2569,6 +2603,11 @@ func (h *Home) getUsedClaudeSessionIDs() map[string]bool {
 
 // createSessionInGroup creates a new session in a specific group
 func (h *Home) createSessionInGroup(name, path, command, groupPath string) tea.Cmd {
+	return h.createSessionInGroupWithWorktree(name, path, command, groupPath, "", "", "")
+}
+
+// createSessionInGroupWithWorktree creates a new session in a specific group with optional worktree settings
+func (h *Home) createSessionInGroupWithWorktree(name, path, command, groupPath, worktreePath, worktreeRepoRoot, worktreeBranch string) tea.Cmd {
 	return func() tea.Msg {
 		// Check tmux availability before creating session
 		if err := tmux.IsTmuxAvailable(); err != nil {
@@ -2596,6 +2635,14 @@ func (h *Home) createSessionInGroup(name, path, command, groupPath string) tea.C
 			inst = session.NewInstanceWithTool(name, path, tool)
 		}
 		inst.Command = command
+
+		// Set worktree fields if provided
+		if worktreePath != "" {
+			inst.WorktreePath = worktreePath
+			inst.WorktreeRepoRoot = worktreeRepoRoot
+			inst.WorktreeBranch = worktreeBranch
+		}
+
 		if err := inst.Start(); err != nil {
 			return sessionCreatedMsg{err: err}
 		}
