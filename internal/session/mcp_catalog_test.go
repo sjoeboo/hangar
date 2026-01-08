@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 func TestWriteMCPJsonFromConfig(t *testing.T) {
@@ -226,5 +227,15 @@ func TestGetProjectMCPNames(t *testing.T) {
 	names2 := GetProjectMCPNames("/other/path")
 	if names2 != nil {
 		t.Errorf("Expected nil for non-existent project, got %v", names2)
+	}
+}
+
+func TestGetSocketWaitTimeout_Default(t *testing.T) {
+	// Clear cache to ensure fresh load
+	ClearUserConfigCache()
+
+	timeout := GetSocketWaitTimeout()
+	if timeout != 5*time.Second {
+		t.Errorf("expected default 5s timeout, got %v", timeout)
 	}
 }

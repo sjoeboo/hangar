@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"sort"
 	"sync"
+	"time"
 
 	"github.com/BurntSushi/toml"
 	"github.com/asheshgoplani/agent-deck/internal/platform"
@@ -83,6 +84,9 @@ type MCPPoolSettings struct {
 
 	// ExcludeMCPs excludes specific MCPs from pool when pool_all = true
 	ExcludeMCPs []string `toml:"exclude_mcps"`
+
+	// SocketWaitTimeout is seconds to wait for socket to become ready (default: 5)
+	SocketWaitTimeout int `toml:"socket_wait_timeout"`
 }
 
 // LogSettings defines log file management configuration
@@ -487,6 +491,18 @@ func GetUpdateSettings() UpdateSettings {
 	}
 
 	return settings
+}
+
+// GetSocketWaitTimeout returns the configured socket wait timeout (default 5 seconds)
+func GetSocketWaitTimeout() time.Duration {
+	config, err := LoadUserConfig()
+	if err != nil || config == nil {
+		return 5 * time.Second // Default
+	}
+	if config.MCPPool.SocketWaitTimeout <= 0 {
+		return 5 * time.Second // Default
+	}
+	return time.Duration(config.MCPPool.SocketWaitTimeout) * time.Second
 }
 
 // getMCPPoolConfigSection returns the MCP pool config section based on platform
