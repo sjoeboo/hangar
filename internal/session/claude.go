@@ -463,12 +463,27 @@ func isMCPEnabled(name string, settings *ProjectMCPSettings, mode MCPMode) bool 
 	}
 }
 
-// ClearMCPCache invalidates the MCP cache for a project path
+// ClearMCPCache invalidates the MCP cache for a project path and all parent directories
+// This is important because getMCPInfoUncached walks up parent directories to find .mcp.json
 func ClearMCPCache(projectPath string) {
 	mcpInfoCacheMu.Lock()
+	defer mcpInfoCacheMu.Unlock()
+
+	// Clear the exact path
 	delete(mcpInfoCache, projectPath)
 	delete(mcpCacheTimes, projectPath)
-	mcpInfoCacheMu.Unlock()
+
+	// Also clear all parent directories (MCP lookup walks up the tree)
+	currentPath := projectPath
+	for {
+		parent := filepath.Dir(currentPath)
+		if parent == currentPath || parent == "/" || parent == "." {
+			break
+		}
+		delete(mcpInfoCache, parent)
+		delete(mcpCacheTimes, parent)
+		currentPath = parent
+	}
 }
 
 // ToggleLocalMCP toggles a Local MCP on/off
