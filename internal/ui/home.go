@@ -1573,7 +1573,7 @@ func (h *Home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				h.setupWizard.Hide()
 				// Reload config cache
-				session.ReloadUserConfig()
+				_, _ = session.ReloadUserConfig()
 				// Apply default tool to new dialog
 				if defaultTool := session.GetDefaultTool(); defaultTool != "" {
 					h.newDialog.SetDefaultTool(defaultTool)
@@ -1594,7 +1594,7 @@ func (h *Home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					h.err = err
 					h.errTime = time.Now()
 				}
-				session.ReloadUserConfig()
+				_, _ = session.ReloadUserConfig()
 				// Apply default tool to new dialog
 				if defaultTool := session.GetDefaultTool(); defaultTool != "" {
 					h.newDialog.SetDefaultTool(defaultTool)

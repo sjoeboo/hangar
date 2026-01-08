@@ -162,7 +162,7 @@ func TestSaveUserConfig(t *testing.T) {
 
 	// Create agent-deck directory
 	agentDeckDir := filepath.Join(tempDir, ".agent-deck")
-	os.MkdirAll(agentDeckDir, 0700)
+	_ = os.MkdirAll(agentDeckDir, 0700)
 
 	// Create config to save
 	config := &UserConfig{
@@ -229,9 +229,9 @@ func TestGetTheme_Light(t *testing.T) {
 
 	// Create config with light theme
 	agentDeckDir := filepath.Join(tempDir, ".agent-deck")
-	os.MkdirAll(agentDeckDir, 0700)
+	_ = os.MkdirAll(agentDeckDir, 0700)
 	config := &UserConfig{Theme: "light"}
-	SaveUserConfig(config)
+	_ = SaveUserConfig(config)
 	ClearUserConfigCache()
 
 	theme := GetTheme()

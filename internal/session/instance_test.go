@@ -847,8 +847,8 @@ func TestInstance_RegenerateMCPConfig_WriteFailure(t *testing.T) {
 	}
 	defer func() {
 		// Restore permissions before cleanup
-		os.Chmod(tmpDir, 0755)
-		os.RemoveAll(tmpDir)
+		_ = os.Chmod(tmpDir, 0755)
+		_ = os.RemoveAll(tmpDir)
 	}()
 
 	// Create .mcp.json with an MCP that exists in GetAvailableMCPs()

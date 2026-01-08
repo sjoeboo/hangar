@@ -403,11 +403,8 @@ func (d *NewDialog) View() string {
 
 		// Calculate visible window that follows the cursor
 		startIdx := 0
-		endIdx := maxShow
-		if total <= maxShow {
-			// All suggestions fit, show all
-			endIdx = total
-		} else {
+		endIdx := total // Start with all suggestions
+		if total > maxShow {
 			// Need scrolling - center the cursor in the window
 			startIdx = d.pathSuggestionCursor - maxShow/2
 			if startIdx < 0 {
