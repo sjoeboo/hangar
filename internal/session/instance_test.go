@@ -305,35 +305,18 @@ func TestBuildClaudeCommand(t *testing.T) {
 		t.Errorf("Should NOT contain CLAUDE_CONFIG_DIR when not explicitly configured, got: %s", cmd)
 	}
 
-	// Should use capture-resume pattern: -p "." --output-format json
-	if !strings.Contains(cmd, `-p "."`) {
-		t.Errorf("Should contain -p \".\" for print mode, got: %s", cmd)
+	// Should use pre-generated UUID pattern with --session-id flag (Issue #19 fix: instant session ID)
+	// The new approach: uuidgen | tr -> tmux set-environment -> claude --session-id
+	if !strings.Contains(cmd, "uuidgen") {
+		t.Errorf("Should use uuidgen for pre-generated session ID, got: %s", cmd)
 	}
-	if !strings.Contains(cmd, "--output-format json") {
-		t.Errorf("Should contain --output-format json, got: %s", cmd)
+	if !strings.Contains(cmd, "--session-id") {
+		t.Errorf("Should contain --session-id flag, got: %s", cmd)
 	}
 
 	// Should store session ID in tmux environment
 	if !strings.Contains(cmd, "tmux set-environment CLAUDE_SESSION_ID") {
 		t.Errorf("Should store session ID in tmux env, got: %s", cmd)
-	}
-
-	// Should resume the captured session
-	if !strings.Contains(cmd, `--resume "$session_id"`) {
-		t.Errorf("Should resume the captured session ID, got: %s", cmd)
-	}
-
-	// Should have fallback when capture fails (Issue #19: WSL jq parse error)
-	if !strings.Contains(cmd, `|| session_id=""`) {
-		t.Errorf("Should have fallback when capture fails, got: %s", cmd)
-	}
-	// Should check for null jq output
-	if !strings.Contains(cmd, `!= "null"`) {
-		t.Errorf("Should check for null session_id from jq, got: %s", cmd)
-	}
-	// Should have else branch to start Claude without session
-	if !strings.Contains(cmd, "else claude") {
-		t.Errorf("Should have else branch to start Claude without session, got: %s", cmd)
 	}
 
 	// Note: --dangerously-skip-permissions is conditional on user config (dangerous_mode)

@@ -212,6 +212,30 @@ type ToolDef struct {
 
 	// BusyPatterns are strings that indicate the tool is busy
 	BusyPatterns []string `toml:"busy_patterns"`
+
+	// PromptPatterns are strings that indicate the tool is waiting for input
+	PromptPatterns []string `toml:"prompt_patterns"`
+
+	// DetectPatterns are regex patterns to auto-detect this tool from terminal content
+	DetectPatterns []string `toml:"detect_patterns"`
+
+	// ResumeFlag is the CLI flag to resume a session (e.g., "--resume")
+	ResumeFlag string `toml:"resume_flag"`
+
+	// SessionIDEnv is the tmux environment variable name storing the session ID
+	SessionIDEnv string `toml:"session_id_env"`
+
+	// DangerousMode enables dangerous mode flag for this tool
+	DangerousMode bool `toml:"dangerous_mode"`
+
+	// DangerousFlag is the CLI flag for dangerous mode (e.g., "--dangerously-skip-permissions")
+	DangerousFlag string `toml:"dangerous_flag"`
+
+	// OutputFormatFlag is the CLI flag for JSON output format (e.g., "--output-format json")
+	OutputFormatFlag string `toml:"output_format_flag"`
+
+	// SessionIDJsonPath is the jq path to extract session ID from JSON output
+	SessionIDJsonPath string `toml:"session_id_json_path"`
 }
 
 // MCPDef defines an MCP server configuration for the MCP Manager
