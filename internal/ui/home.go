@@ -4971,8 +4971,15 @@ func (h *Home) renderPreviewPane(width, height int) string {
 	showAnalytics := config != nil && config.GetShowAnalytics() && selected.Tool == "claude"
 	showOutput := config == nil || config.GetShowOutput() // Default to true if config fails
 
+	// Check if session is launching/resuming (for animation priority)
+	_, isSessionLaunching := h.launchingSessions[selected.ID]
+	_, isSessionResuming := h.resumingSessions[selected.ID]
+	_, isSessionForking := h.forkingSessions[selected.ID]
+	isStartingUp := isSessionLaunching || isSessionResuming || isSessionForking
+
 	// Analytics panel (for Claude sessions with analytics enabled)
-	if showAnalytics {
+	// Skip showing "Loading analytics..." during startup - let the launch animation take focus
+	if showAnalytics && !isStartingUp {
 		analyticsHeader := renderSectionDivider("Analytics", width-4)
 		b.WriteString(analyticsHeader)
 		b.WriteString("\n")
