@@ -4536,6 +4536,70 @@ func (h *Home) renderForkingState(inst *session.Instance, width int, startTime t
 	return b.String()
 }
 
+// renderSessionInfoCard renders a simple session info card as fallback view
+// Used when both show_output and show_analytics are disabled
+func (h *Home) renderSessionInfoCard(inst *session.Instance, width, height int) string {
+	if inst == nil {
+		dimStyle := lipgloss.NewStyle().Foreground(ColorTextDim).Italic(true)
+		return dimStyle.Render("No session selected")
+	}
+
+	var b strings.Builder
+
+	// Header with tool icon
+	icon := ToolIcon(inst.Tool)
+	header := lipgloss.NewStyle().
+		Bold(true).
+		Foreground(ColorAccent).
+		Render(fmt.Sprintf("%s %s", icon, inst.Title))
+	b.WriteString(header)
+	b.WriteString("\n")
+	b.WriteString(strings.Repeat("─", min(width-4, 40)))
+	b.WriteString("\n\n")
+
+	labelStyle := lipgloss.NewStyle().Foreground(ColorTextDim)
+	valueStyle := lipgloss.NewStyle().Foreground(ColorText)
+
+	// Path
+	b.WriteString(fmt.Sprintf("%s %s\n", labelStyle.Render("Path:"), valueStyle.Render(inst.ProjectPath)))
+
+	// Status with color
+	var statusColor lipgloss.Color
+	switch inst.Status {
+	case session.StatusRunning:
+		statusColor = ColorGreen
+	case session.StatusWaiting:
+		statusColor = ColorYellow
+	case session.StatusError:
+		statusColor = ColorRed
+	default:
+		statusColor = ColorTextDim
+	}
+	statusStyle := lipgloss.NewStyle().Foreground(statusColor)
+	b.WriteString(fmt.Sprintf("%s %s\n", labelStyle.Render("Status:"), statusStyle.Render(string(inst.Status))))
+
+	// Tool
+	b.WriteString(fmt.Sprintf("%s %s\n", labelStyle.Render("Tool:"), valueStyle.Render(inst.Tool)))
+
+	// Session ID (if available) - Claude or Gemini
+	sessionID := inst.ClaudeSessionID
+	if sessionID == "" {
+		sessionID = inst.GeminiSessionID
+	}
+	if sessionID != "" {
+		shortID := sessionID
+		if len(shortID) > 12 {
+			shortID = shortID[:12] + "..."
+		}
+		b.WriteString(fmt.Sprintf("%s %s\n", labelStyle.Render("Session:"), valueStyle.Render(shortID)))
+	}
+
+	// Created date
+	b.WriteString(fmt.Sprintf("%s %s\n", labelStyle.Render("Created:"), valueStyle.Render(inst.CreatedAt.Format("Jan 2 15:04"))))
+
+	return b.String()
+}
+
 // renderPreviewPane renders the right panel with live preview
 func (h *Home) renderPreviewPane(width, height int) string {
 	var b strings.Builder
@@ -4887,8 +4951,15 @@ func (h *Home) renderPreviewPane(width, height int) string {
 		}
 	}
 
-	// If output is disabled and we already showed analytics, return early
+	// If output is disabled, return early
 	if !showOutput {
+		// If analytics was also not shown, display session info card as fallback
+		if !showAnalytics {
+			infoCard := h.renderSessionInfoCard(selected, width, height)
+			b.WriteString("\n")
+			b.WriteString(infoCard)
+		}
+
 		// Pad output to exact height to prevent layout shifts
 		content := b.String()
 		lines := strings.Split(content, "\n")
