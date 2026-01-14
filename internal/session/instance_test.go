@@ -147,8 +147,18 @@ func TestInstance_Fork(t *testing.T) {
 
 // TestInstance_Fork_ExplicitConfig tests Fork with explicit CLAUDE_CONFIG_DIR
 func TestInstance_Fork_ExplicitConfig(t *testing.T) {
+	// Isolate from user's environment (don't pick up their config.toml)
+	origHome := os.Getenv("HOME")
+	tmpDir := t.TempDir()
+	os.Setenv("HOME", tmpDir)
+	ClearUserConfigCache()
+
 	os.Setenv("CLAUDE_CONFIG_DIR", "/tmp/test-claude-config")
-	defer os.Unsetenv("CLAUDE_CONFIG_DIR")
+	defer func() {
+		os.Unsetenv("CLAUDE_CONFIG_DIR")
+		os.Setenv("HOME", origHome)
+		ClearUserConfigCache()
+	}()
 
 	inst := NewInstance("test", "/tmp/test")
 	inst.ClaudeSessionID = "abc-123"
@@ -236,8 +246,18 @@ func TestInstance_CreateForkedInstance(t *testing.T) {
 
 // TestInstance_CreateForkedInstance_ExplicitConfig tests CreateForkedInstance with explicit config
 func TestInstance_CreateForkedInstance_ExplicitConfig(t *testing.T) {
+	// Isolate from user's environment (don't pick up their config.toml)
+	origHome := os.Getenv("HOME")
+	tmpDir := t.TempDir()
+	os.Setenv("HOME", tmpDir)
+	ClearUserConfigCache()
+
 	os.Setenv("CLAUDE_CONFIG_DIR", "/tmp/test-claude-config")
-	defer os.Unsetenv("CLAUDE_CONFIG_DIR")
+	defer func() {
+		os.Unsetenv("CLAUDE_CONFIG_DIR")
+		os.Setenv("HOME", origHome)
+		ClearUserConfigCache()
+	}()
 
 	inst := NewInstance("original", "/tmp/test")
 	inst.ClaudeSessionID = "abc-123"
@@ -276,7 +296,7 @@ func TestNewInstanceWithTool(t *testing.T) {
 	}
 }
 
-// TestBuildClaudeCommand tests that claude command is built with pre-generated session ID pattern
+// TestBuildClaudeCommand tests that claude command is built with capture-resume pattern
 func TestBuildClaudeCommand(t *testing.T) {
 	// Isolate from user's environment to ensure CLAUDE_CONFIG_DIR is NOT explicit
 	origConfigDir := os.Getenv("CLAUDE_CONFIG_DIR")
@@ -303,9 +323,14 @@ func TestBuildClaudeCommand(t *testing.T) {
 		t.Errorf("Should NOT contain CLAUDE_CONFIG_DIR when not explicitly configured, got: %s", cmd)
 	}
 
-	// NEW: Should use pre-generated UUID pattern (not capture-resume)
-	if !strings.Contains(cmd, "uuidgen") {
-		t.Errorf("Should use uuidgen for pre-generated session ID, got: %s", cmd)
+	// Should use capture-resume pattern: -p "." to get session ID
+	if !strings.Contains(cmd, `-p "."`) {
+		t.Errorf("Should use -p \".\" for session ID capture, got: %s", cmd)
+	}
+
+	// Should use --output-format json to extract session ID
+	if !strings.Contains(cmd, "--output-format json") {
+		t.Errorf("Should use --output-format json for capture, got: %s", cmd)
 	}
 
 	// Should store session ID in tmux environment
@@ -313,20 +338,14 @@ func TestBuildClaudeCommand(t *testing.T) {
 		t.Errorf("Should store session ID in tmux env, got: %s", cmd)
 	}
 
-	// NEW: Should use --session-id flag (not --resume)
-	if !strings.Contains(cmd, `--session-id "$session_id"`) {
-		t.Errorf("Should use --session-id flag, got: %s", cmd)
+	// Should use --resume to continue with captured session
+	if !strings.Contains(cmd, `--resume "$session_id"`) {
+		t.Errorf("Should use --resume flag for captured session, got: %s", cmd)
 	}
 
-	// OLD patterns should NOT be present
-	if strings.Contains(cmd, `-p "."`) {
-		t.Errorf("Should NOT use -p \".\" pattern anymore, got: %s", cmd)
-	}
-	if strings.Contains(cmd, "--output-format json") {
-		t.Errorf("Should NOT use --output-format json anymore, got: %s", cmd)
-	}
-	if strings.Contains(cmd, "--resume") {
-		t.Errorf("Should NOT use --resume for new sessions anymore, got: %s", cmd)
+	// Should NOT use --session-id flag (it doesn't work for NEW sessions)
+	if strings.Contains(cmd, "--session-id") {
+		t.Errorf("Should NOT use --session-id (only works for resume), got: %s", cmd)
 	}
 
 	// Note: --dangerously-skip-permissions is conditional on user config (dangerous_mode)
@@ -342,25 +361,77 @@ func TestBuildClaudeCommand(t *testing.T) {
 
 // TestBuildClaudeCommand_ExplicitConfig tests that CLAUDE_CONFIG_DIR is set when explicitly configured
 func TestBuildClaudeCommand_ExplicitConfig(t *testing.T) {
-	// Set environment variable to explicitly configure
+	// Isolate from user's environment
+	origHome := os.Getenv("HOME")
+	tmpDir := t.TempDir()
+	os.Setenv("HOME", tmpDir) // Use temp dir so config.toml isn't found
+	ClearUserConfigCache()
+
+	// Set environment variable to explicitly configure CLAUDE_CONFIG_DIR
 	os.Setenv("CLAUDE_CONFIG_DIR", "/tmp/test-claude-config")
-	defer os.Unsetenv("CLAUDE_CONFIG_DIR")
+	defer func() {
+		os.Unsetenv("CLAUDE_CONFIG_DIR")
+		os.Setenv("HOME", origHome)
+		ClearUserConfigCache()
+	}()
 
 	inst := NewInstanceWithTool("test", "/tmp/test", "claude")
 	cmd := inst.buildClaudeCommand("claude")
 
 	// When CLAUDE_CONFIG_DIR IS explicitly configured via env var,
-	// the command SHOULD include it
+	// the command SHOULD include it (and use default "claude" command)
 	if !strings.Contains(cmd, "CLAUDE_CONFIG_DIR=/tmp/test-claude-config") {
 		t.Errorf("Should contain CLAUDE_CONFIG_DIR when explicitly configured, got: %s", cmd)
 	}
 
-	// Should still use the new --session-id pattern even with explicit config
-	if !strings.Contains(cmd, `--session-id "$session_id"`) {
-		t.Errorf("Should use --session-id flag with explicit config, got: %s", cmd)
+	// Should use capture-resume pattern with explicit config
+	if !strings.Contains(cmd, `-p "."`) {
+		t.Errorf("Should use -p \".\" for session ID capture with explicit config, got: %s", cmd)
 	}
-	if !strings.Contains(cmd, "uuidgen") {
-		t.Errorf("Should use uuidgen with explicit config, got: %s", cmd)
+	if !strings.Contains(cmd, `--resume "$session_id"`) {
+		t.Errorf("Should use --resume flag with explicit config, got: %s", cmd)
+	}
+}
+
+// TestBuildClaudeCommand_CustomAlias tests that custom command aliases (e.g., cdw, cdp)
+// skip the CLAUDE_CONFIG_DIR prefix since the alias handles it
+func TestBuildClaudeCommand_CustomAlias(t *testing.T) {
+	// Create temp config with custom command
+	origHome := os.Getenv("HOME")
+	tmpDir := t.TempDir()
+	os.Setenv("HOME", tmpDir)
+
+	// Create ~/.agent-deck/config.toml with custom command
+	configDir := filepath.Join(tmpDir, ".agent-deck")
+	os.MkdirAll(configDir, 0755)
+	configContent := `[claude]
+command = "cdw"
+config_dir = "~/.claude-work"
+`
+	os.WriteFile(filepath.Join(configDir, "config.toml"), []byte(configContent), 0644)
+
+	ClearUserConfigCache()
+	defer func() {
+		os.Setenv("HOME", origHome)
+		ClearUserConfigCache()
+	}()
+
+	inst := NewInstanceWithTool("test", "/tmp/test", "claude")
+	cmd := inst.buildClaudeCommand("claude")
+
+	// Should use "cdw" instead of "claude"
+	if !strings.Contains(cmd, "cdw -p") {
+		t.Errorf("Should use custom command 'cdw', got: %s", cmd)
+	}
+
+	// Should NOT include CLAUDE_CONFIG_DIR prefix (alias handles it)
+	if strings.Contains(cmd, "CLAUDE_CONFIG_DIR=") {
+		t.Errorf("Should NOT include CLAUDE_CONFIG_DIR when using custom command alias, got: %s", cmd)
+	}
+
+	// Should still use capture-resume pattern
+	if !strings.Contains(cmd, `--resume "$session_id"`) {
+		t.Errorf("Should use --resume flag with custom alias, got: %s", cmd)
 	}
 }
 
@@ -600,6 +671,16 @@ func TestInstance_Restart_InterruptsAndResumes(t *testing.T) {
 	if _, err := exec.LookPath("claude"); err != nil {
 		t.Skip("claude not available - test requires claude CLI for restart functionality")
 	}
+
+	// Isolate from user's environment (don't pick up their config.toml)
+	origHome := os.Getenv("HOME")
+	tmpDir := t.TempDir()
+	os.Setenv("HOME", tmpDir)
+	ClearUserConfigCache()
+	defer func() {
+		os.Setenv("HOME", origHome)
+		ClearUserConfigCache()
+	}()
 
 	// Create instance with known session ID
 	inst := NewInstanceWithTool("restart-interrupt-test", "/tmp", "claude")

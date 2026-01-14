@@ -575,24 +575,29 @@ config_dir = "~/.claude-work"  # Custom profile
 dangerous_mode = true          # --dangerously-skip-permissions
 ```
 
-### Session ID Capture (Instant)
+### Session ID Capture (Capture-Resume Pattern)
 
-Agent-deck uses pre-generated UUIDs with Claude's `--session-id` flag for instant session ID availability:
+Agent-deck uses the capture-resume pattern to reliably get session IDs:
 
 ```bash
-session_id=$(uuidgen | tr '[:upper:]' '[:lower:]')
-tmux set-environment CLAUDE_SESSION_ID "$session_id"
-claude --session-id "$session_id" --dangerously-skip-permissions
+# Capture session ID by running Claude with minimal prompt
+session_id=$(claude -p "." --output-format json 2>/dev/null | jq -r '.session_id')
+if [ -n "$session_id" ] && [ "$session_id" != "null" ]; then
+  tmux set-environment CLAUDE_SESSION_ID "$session_id"
+  claude --resume "$session_id" --dangerously-skip-permissions
+else
+  claude --dangerously-skip-permissions  # Fallback: start fresh
+fi
 ```
 
-**Benefits:**
-- Session ID known BEFORE Claude starts (0ms vs 9 seconds)
-- No jq dependency for session creation
-- Simpler, more reliable
+**Why capture-resume (not `--session-id`):**
+- Claude's `--session-id` flag only works for RESUMING existing sessions
+- It does NOT work for creating NEW sessions (Claude ignores the passed ID)
+- Capture-resume ensures we get the actual session ID Claude creates
 
 **Key functions:** `buildClaudeCommand()` in `internal/session/instance.go`
 
-**Note:** Fork still uses the capture-resume pattern since it must capture the new forked session ID from Claude.
+**Note:** Requires `jq` for JSON parsing. Falls back to starting Claude fresh if capture fails.
 
 ---
 

@@ -221,23 +221,31 @@ func (i *Instance) buildClaudeCommandWithMessage(baseCommand, message string) st
 		dangerousMode = userConfig.Claude.DangerousMode
 	}
 
-	// If baseCommand is just "claude", build the pre-generated session ID command
+	// If baseCommand is just "claude", build the capture-resume command
 	// This command:
-	// 1. Pre-generates a UUID before Claude starts (instant - no waiting!)
-	// 2. Stores it in tmux environment immediately (session ID known instantly!)
-	// 3. Starts Claude with --session-id flag to use that UUID
-	// 4. Optionally waits for prompt and sends initial message
-	// Benefits: No 9-second delay waiting for claude -p "." to complete
+	// 1. Runs Claude with a minimal prompt "." to completion (creates session)
+	// 2. Extracts session_id from the JSON output
+	// 3. Stores session ID in tmux environment (for retrieval by agent-deck)
+	// 4. Resumes that session interactively
+	// NOTE: We cannot use --session-id for NEW sessions - Claude ignores it and creates its own ID.
+	// The --session-id flag only works for RESUMING existing sessions.
+	// Fallback: If capture fails (jq not installed, etc.), start Claude fresh
 	if baseCommand == "claude" {
-		var baseCmd string
 		dangerousFlag := ""
 		if dangerousMode {
 			dangerousFlag = " --dangerously-skip-permissions"
 		}
-		baseCmd = fmt.Sprintf(
-			`session_id=$(uuidgen | tr '[:upper:]' '[:lower:]'); `+
+
+		// Build the capture-resume command
+		// Uses --output-format json to get session ID, then resumes
+		baseCmd := fmt.Sprintf(
+			`session_id=$(%s%s -p "." --output-format json 2>/dev/null | jq -r '.session_id' 2>/dev/null) || session_id=""; `+
+				`if [ -n "$session_id" ] && [ "$session_id" != "null" ]; then `+
 				`tmux set-environment CLAUDE_SESSION_ID "$session_id"; `+
-				`%s%s --session-id "$session_id"%s`,
+				`%s%s --resume "$session_id"%s; `+
+				`else %s%s%s; fi`,
+			configDirPrefix, claudeCmd,
+			configDirPrefix, claudeCmd, dangerousFlag,
 			configDirPrefix, claudeCmd, dangerousFlag)
 
 		// If message provided, append wait-and-send logic
@@ -245,17 +253,22 @@ func (i *Instance) buildClaudeCommandWithMessage(baseCommand, message string) st
 			// Escape single quotes in message for bash
 			escapedMsg := strings.ReplaceAll(message, "'", "'\"'\"'")
 
-			// Pre-generate session ID, then wait-and-send in background
+			// Capture-resume with wait-and-send in background
 			// The wait loop runs in a subshell that polls for ">" prompt (Claude's input prompt)
 			// Once detected, sends the message via tmux send-keys (text + Enter separately)
 			baseCmd = fmt.Sprintf(
-				`session_id=$(uuidgen | tr '[:upper:]' '[:lower:]'); `+
+				`session_id=$(%s%s -p "." --output-format json 2>/dev/null | jq -r '.session_id' 2>/dev/null) || session_id=""; `+
+					`if [ -n "$session_id" ] && [ "$session_id" != "null" ]; then `+
 					`tmux set-environment CLAUDE_SESSION_ID "$session_id"; `+
 					`(sleep 2; SESSION_NAME=$(tmux display-message -p '#S'); `+
 					`while ! tmux capture-pane -p -t "$SESSION_NAME" | tail -5 | grep -qE "^>"; do sleep 0.2; done; `+
 					`tmux send-keys -l -t "$SESSION_NAME" '%s'; tmux send-keys -t "$SESSION_NAME" Enter) & `+
-					`%s%s --session-id "$session_id"%s`,
-				escapedMsg, configDirPrefix, claudeCmd, dangerousFlag)
+					`%s%s --resume "$session_id"%s; `+
+					`else %s%s%s; fi`,
+				configDirPrefix, claudeCmd,
+				escapedMsg,
+				configDirPrefix, claudeCmd, dangerousFlag,
+				configDirPrefix, claudeCmd, dangerousFlag)
 		}
 
 		return baseCmd
