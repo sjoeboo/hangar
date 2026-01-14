@@ -345,3 +345,158 @@ func TestCostCalculation_Sonnet35(t *testing.T) {
 	// Same pricing as Sonnet 4: $5.40
 	assert.InDelta(t, 5.40, cost, 0.01)
 }
+
+// ============================================================================
+// Billing Block Tests
+// ============================================================================
+
+func TestCalculateBillingBlocks_Basic(t *testing.T) {
+	// Create entries spanning 7 hours (should be 2 blocks with 5-hour windows)
+	now := time.Now()
+	entries := []time.Time{
+		now.Add(-6 * time.Hour), // Block 1 start
+		now.Add(-4 * time.Hour), // Block 1 (within 5h of first)
+		now.Add(-2 * time.Hour), // Block 2 start (6h - 2h = 4h gap, but -2h is >5h from -6h)
+		now,                     // Block 2 (current)
+	}
+
+	blocks := CalculateBillingBlocks(entries, 5*time.Hour)
+
+	assert.Equal(t, 2, len(blocks))
+	assert.True(t, blocks[1].IsActive) // Current block is active
+}
+
+func TestCalculateBillingBlocks_EmptyInput(t *testing.T) {
+	blocks := CalculateBillingBlocks([]time.Time{}, 5*time.Hour)
+
+	assert.Nil(t, blocks)
+	assert.Equal(t, 0, len(blocks))
+}
+
+func TestCalculateBillingBlocks_SingleEntry(t *testing.T) {
+	now := time.Now()
+	entries := []time.Time{now}
+
+	blocks := CalculateBillingBlocks(entries, 5*time.Hour)
+
+	assert.Equal(t, 1, len(blocks))
+	assert.Equal(t, now, blocks[0].StartTime)
+	assert.Equal(t, now, blocks[0].EndTime)
+	assert.True(t, blocks[0].IsActive)
+}
+
+func TestCalculateBillingBlocks_AllInOneBlock(t *testing.T) {
+	now := time.Now()
+	entries := []time.Time{
+		now.Add(-4 * time.Hour),
+		now.Add(-3 * time.Hour),
+		now.Add(-2 * time.Hour),
+		now.Add(-1 * time.Hour),
+		now,
+	}
+
+	blocks := CalculateBillingBlocks(entries, 5*time.Hour)
+
+	assert.Equal(t, 1, len(blocks))
+	assert.True(t, blocks[0].IsActive)
+}
+
+func TestCalculateBillingBlocks_UnsortedInput(t *testing.T) {
+	now := time.Now()
+	// Input is NOT sorted - function should handle this
+	entries := []time.Time{
+		now.Add(-2 * time.Hour),
+		now.Add(-6 * time.Hour),
+		now,
+		now.Add(-4 * time.Hour),
+	}
+
+	blocks := CalculateBillingBlocks(entries, 5*time.Hour)
+
+	// After sorting: -6h, -4h, -2h, now
+	// Block 1: -6h to -4h (within 5h window)
+	// Block 2: -2h to now (gap from -4h to -2h is 2h, but -2h is 4h from -6h, still within 5h)
+	// Actually: -6h, -4h are within 5h of -6h
+	//           -2h is 4h from -6h, still within 5h
+	//           now is 6h from -6h, so new block
+	// So should be 2 blocks
+	assert.Equal(t, 2, len(blocks))
+}
+
+func TestCalculateBillingBlocks_OldSession(t *testing.T) {
+	// Session from yesterday - no active block
+	yesterday := time.Now().Add(-24 * time.Hour)
+	entries := []time.Time{
+		yesterday.Add(-2 * time.Hour),
+		yesterday.Add(-1 * time.Hour),
+		yesterday,
+	}
+
+	blocks := CalculateBillingBlocks(entries, 5*time.Hour)
+
+	assert.Equal(t, 1, len(blocks))
+	assert.False(t, blocks[0].IsActive) // Old session, not active
+}
+
+func TestCalculateBillingBlocks_MultipleBlocks(t *testing.T) {
+	now := time.Now()
+	entries := []time.Time{
+		now.Add(-15 * time.Hour), // Block 1
+		now.Add(-14 * time.Hour), // Block 1
+		now.Add(-8 * time.Hour),  // Block 2 (gap > 5h from block 1)
+		now.Add(-7 * time.Hour),  // Block 2
+		now.Add(-1 * time.Hour),  // Block 3 (gap > 5h from block 2)
+		now,                      // Block 3
+	}
+
+	blocks := CalculateBillingBlocks(entries, 5*time.Hour)
+
+	assert.Equal(t, 3, len(blocks))
+	assert.False(t, blocks[0].IsActive)
+	assert.False(t, blocks[1].IsActive)
+	assert.True(t, blocks[2].IsActive)
+}
+
+func TestCalculateBillingBlocks_ExactlyAtWindowBoundary(t *testing.T) {
+	now := time.Now()
+	entries := []time.Time{
+		now.Add(-5 * time.Hour), // Exactly 5h from start
+		now,                     // Should start new block
+	}
+
+	blocks := CalculateBillingBlocks(entries, 5*time.Hour)
+
+	// Entry at exactly 5h should start a new block (>= windowSize)
+	assert.Equal(t, 2, len(blocks))
+}
+
+func TestCalculateBillingBlocks_JustUnderWindowBoundary(t *testing.T) {
+	now := time.Now()
+	entries := []time.Time{
+		now.Add(-4*time.Hour - 59*time.Minute), // Just under 5h
+		now,                                     // Should be in same block
+	}
+
+	blocks := CalculateBillingBlocks(entries, 5*time.Hour)
+
+	// Entry just under 5h should be in same block
+	assert.Equal(t, 1, len(blocks))
+	assert.True(t, blocks[0].IsActive)
+}
+
+func TestCalculateBillingBlocks_CustomWindowSize(t *testing.T) {
+	now := time.Now()
+	entries := []time.Time{
+		now.Add(-3 * time.Hour),
+		now.Add(-1 * time.Hour),
+		now,
+	}
+
+	// Use 2-hour window instead of 5-hour
+	blocks := CalculateBillingBlocks(entries, 2*time.Hour)
+
+	// -3h starts block 1
+	// -1h is 2h from -3h, so starts block 2
+	// now is 1h from -1h, so same block 2
+	assert.Equal(t, 2, len(blocks))
+}

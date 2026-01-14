@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"encoding/json"
 	"os"
+	"sort"
 	"time"
 )
 
@@ -198,4 +199,57 @@ func ParseSessionJSONL(path string) (*SessionAnalytics, error) {
 	}
 
 	return analytics, scanner.Err()
+}
+
+// CalculateBillingBlocks groups timestamps into billing windows.
+// Claude Code API bills in 5-hour windows. Each block represents a billing period.
+// Timestamps are sorted chronologically and grouped - a new block starts when
+// a timestamp exceeds the windowSize from the current block's start time.
+// The last block is marked as "active" if it's still within the window from now.
+func CalculateBillingBlocks(timestamps []time.Time, windowSize time.Duration) []BillingBlock {
+	if len(timestamps) == 0 {
+		return nil
+	}
+
+	// Sort timestamps chronologically
+	sorted := make([]time.Time, len(timestamps))
+	copy(sorted, timestamps)
+	sort.Slice(sorted, func(i, j int) bool {
+		return sorted[i].Before(sorted[j])
+	})
+
+	var blocks []BillingBlock
+	var currentBlock *BillingBlock
+
+	for _, ts := range sorted {
+		if currentBlock == nil || ts.Sub(currentBlock.StartTime) >= windowSize {
+			// Start new block
+			if currentBlock != nil {
+				blocks = append(blocks, *currentBlock)
+			}
+			currentBlock = &BillingBlock{
+				StartTime: ts,
+				EndTime:   ts,
+			}
+		} else {
+			// Extend current block
+			currentBlock.EndTime = ts
+		}
+	}
+
+	// Append the final block
+	if currentBlock != nil {
+		blocks = append(blocks, *currentBlock)
+	}
+
+	// Mark current block as active if within window from now
+	now := time.Now()
+	if len(blocks) > 0 {
+		lastBlock := &blocks[len(blocks)-1]
+		if now.Sub(lastBlock.StartTime) < windowSize {
+			lastBlock.IsActive = true
+		}
+	}
+
+	return blocks
 }
