@@ -69,6 +69,43 @@ func (a *SessionAnalytics) ContextPercent(modelLimit int) float64 {
 	return float64(a.TotalTokens()) / float64(modelLimit) * 100
 }
 
+// ModelPricing holds pricing per million tokens for a model
+type ModelPricing struct {
+	Input      float64
+	Output     float64
+	CacheRead  float64
+	CacheWrite float64
+}
+
+// modelPricing contains pricing per million tokens for each model (as of Jan 2025)
+var modelPricing = map[string]ModelPricing{
+	"claude-sonnet-4-20250514": {Input: 3.0, Output: 15.0, CacheRead: 0.30, CacheWrite: 3.75},
+	"claude-opus-4-20250514":   {Input: 15.0, Output: 75.0, CacheRead: 1.50, CacheWrite: 18.75},
+	"claude-3-5-sonnet":        {Input: 3.0, Output: 15.0, CacheRead: 0.30, CacheWrite: 3.75},
+	"claude-3-5-haiku":         {Input: 0.80, Output: 4.0, CacheRead: 0.08, CacheWrite: 1.0},
+	// Default fallback uses Sonnet pricing
+	"default": {Input: 3.0, Output: 15.0, CacheRead: 0.30, CacheWrite: 3.75},
+}
+
+// CalculateCost estimates session cost based on token usage and model pricing
+func (a *SessionAnalytics) CalculateCost(model string) float64 {
+	pricing, ok := modelPricing[model]
+	if !ok {
+		pricing = modelPricing["default"]
+	}
+
+	// Convert to millions
+	inputM := float64(a.InputTokens) / 1_000_000
+	outputM := float64(a.OutputTokens) / 1_000_000
+	cacheReadM := float64(a.CacheReadTokens) / 1_000_000
+	cacheWriteM := float64(a.CacheWriteTokens) / 1_000_000
+
+	return inputM*pricing.Input +
+		outputM*pricing.Output +
+		cacheReadM*pricing.CacheRead +
+		cacheWriteM*pricing.CacheWrite
+}
+
 // jsonlEntry represents a single line in a Claude session JSONL file
 type jsonlEntry struct {
 	Type      string    `json:"type"`

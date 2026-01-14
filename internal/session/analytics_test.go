@@ -260,3 +260,88 @@ func TestParseJSONL_MultipleToolCalls(t *testing.T) {
 	assert.Equal(t, 1, toolMap["Bash"])
 	assert.Equal(t, 1, toolMap["Write"])
 }
+
+func TestCostCalculation(t *testing.T) {
+	analytics := &SessionAnalytics{
+		InputTokens:      1000000, // 1M input tokens
+		OutputTokens:     100000,  // 100K output tokens
+		CacheReadTokens:  500000,  // 500K cache read
+		CacheWriteTokens: 200000,  // 200K cache write
+	}
+
+	cost := analytics.CalculateCost("claude-sonnet-4-20250514")
+
+	// Sonnet pricing: $3/MTok input, $15/MTok output, $0.30/MTok cache read, $3.75/MTok cache write
+	// Expected: (1M * 3 + 100K * 15 + 500K * 0.30 + 200K * 3.75) / 1M
+	// = (3 + 1.5 + 0.15 + 0.75) = $5.40
+	assert.InDelta(t, 5.40, cost, 0.01)
+}
+
+func TestCostCalculation_OpusModel(t *testing.T) {
+	analytics := &SessionAnalytics{
+		InputTokens:      1000000, // 1M input tokens
+		OutputTokens:     100000,  // 100K output tokens
+		CacheReadTokens:  500000,  // 500K cache read
+		CacheWriteTokens: 200000,  // 200K cache write
+	}
+
+	cost := analytics.CalculateCost("claude-opus-4-20250514")
+
+	// Opus pricing: $15/MTok input, $75/MTok output, $1.50/MTok cache read, $18.75/MTok cache write
+	// Expected: (1M * 15 + 100K * 75 + 500K * 1.50 + 200K * 18.75) / 1M
+	// = (15 + 7.5 + 0.75 + 3.75) = $27.00
+	assert.InDelta(t, 27.00, cost, 0.01)
+}
+
+func TestCostCalculation_HaikuModel(t *testing.T) {
+	analytics := &SessionAnalytics{
+		InputTokens:      1000000, // 1M input tokens
+		OutputTokens:     100000,  // 100K output tokens
+		CacheReadTokens:  500000,  // 500K cache read
+		CacheWriteTokens: 200000,  // 200K cache write
+	}
+
+	cost := analytics.CalculateCost("claude-3-5-haiku")
+
+	// Haiku pricing: $0.80/MTok input, $4/MTok output, $0.08/MTok cache read, $1.0/MTok cache write
+	// Expected: (1M * 0.80 + 100K * 4 + 500K * 0.08 + 200K * 1.0) / 1M
+	// = (0.80 + 0.4 + 0.04 + 0.2) = $1.44
+	assert.InDelta(t, 1.44, cost, 0.01)
+}
+
+func TestCostCalculation_DefaultFallback(t *testing.T) {
+	analytics := &SessionAnalytics{
+		InputTokens:      1000000, // 1M input tokens
+		OutputTokens:     100000,  // 100K output tokens
+		CacheReadTokens:  500000,  // 500K cache read
+		CacheWriteTokens: 200000,  // 200K cache write
+	}
+
+	// Unknown model should use default (Sonnet) pricing
+	cost := analytics.CalculateCost("unknown-model-xyz")
+
+	// Same as Sonnet: $5.40
+	assert.InDelta(t, 5.40, cost, 0.01)
+}
+
+func TestCostCalculation_ZeroTokens(t *testing.T) {
+	analytics := &SessionAnalytics{}
+
+	cost := analytics.CalculateCost("claude-sonnet-4-20250514")
+
+	assert.Equal(t, 0.0, cost)
+}
+
+func TestCostCalculation_Sonnet35(t *testing.T) {
+	analytics := &SessionAnalytics{
+		InputTokens:      1000000, // 1M input tokens
+		OutputTokens:     100000,  // 100K output tokens
+		CacheReadTokens:  500000,  // 500K cache read
+		CacheWriteTokens: 200000,  // 200K cache write
+	}
+
+	cost := analytics.CalculateCost("claude-3-5-sonnet")
+
+	// Same pricing as Sonnet 4: $5.40
+	assert.InDelta(t, 5.40, cost, 0.01)
+}
