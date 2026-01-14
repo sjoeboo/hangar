@@ -56,6 +56,10 @@ const (
 	// logMaintenanceInterval - how often to do full log maintenance (orphan cleanup, etc)
 	// Prevents runaway log growth that can crash the system
 	logMaintenanceInterval = 5 * time.Minute
+
+	// analyticsCacheTTL - how long analytics data remains valid before refresh
+	// Analytics don't change frequently, so 5s is a good balance between freshness and performance
+	analyticsCacheTTL = 5 * time.Second
 )
 
 // UI spacing constants (2-char grid system)
@@ -131,10 +135,12 @@ type Home struct {
 	settingsPanel  *SettingsPanel  // For editing settings
 	analyticsPanel *AnalyticsPanel // For displaying session analytics
 
-	// Analytics cache (async fetching)
-	currentAnalytics    *session.SessionAnalytics // Cached analytics for selected session
-	analyticsSessionID  string                    // Session ID for cached analytics
-	analyticsFetchingID string                    // ID currently being fetched (prevents duplicates)
+	// Analytics cache (async fetching with TTL)
+	currentAnalytics     *session.SessionAnalytics    // Current analytics for selected session
+	analyticsSessionID   string                       // Session ID for current analytics
+	analyticsFetchingID  string                       // ID currently being fetched (prevents duplicates)
+	analyticsCache       map[string]*session.SessionAnalytics // TTL cache: sessionID -> analytics
+	analyticsCacheTime   map[string]time.Time                 // TTL cache: sessionID -> cache timestamp
 
 	// State
 	cursor        int            // Selected item index in flatItems
@@ -344,6 +350,8 @@ func NewHomeWithProfile(profile string) *Home {
 		flatItems:         []session.Item{},
 		previewCache:       make(map[string]string),
 		previewCacheTime:   make(map[string]time.Time),
+		analyticsCache:     make(map[string]*session.SessionAnalytics),
+		analyticsCacheTime: make(map[string]time.Time),
 		launchingSessions:  make(map[string]time.Time),
 		resumingSessions:   make(map[string]time.Time),
 		mcpLoadingSessions: make(map[string]time.Time),
@@ -965,6 +973,23 @@ func (h *Home) fetchPreviewDebounced(sessionID string) tea.Cmd {
 	}
 }
 
+// getAnalyticsForSession returns cached analytics if still valid (within TTL)
+// Returns nil if cache miss or expired, triggering async fetch
+func (h *Home) getAnalyticsForSession(inst *session.Instance) *session.SessionAnalytics {
+	if inst == nil {
+		return nil
+	}
+
+	// Check cache
+	if cached, ok := h.analyticsCache[inst.ID]; ok {
+		if time.Since(h.analyticsCacheTime[inst.ID]) < analyticsCacheTTL {
+			return cached
+		}
+	}
+
+	return nil // Will trigger async fetch
+}
+
 // fetchAnalytics returns a command that asynchronously parses session analytics
 // This keeps View() pure (no blocking I/O) as per Bubble Tea best practices
 func (h *Home) fetchAnalytics(inst *session.Instance) tea.Cmd {
@@ -1519,11 +1544,23 @@ func (h *Home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 			// Analytics fetch (for Claude sessions with analytics enabled)
-			if inst.Tool == "claude" && h.analyticsSessionID != inst.ID && h.analyticsFetchingID != inst.ID {
-				config, _ := session.LoadUserConfig()
-				if config != nil && config.GetShowAnalytics() {
-					h.analyticsFetchingID = inst.ID
-					cmds = append(cmds, h.fetchAnalytics(inst))
+			// Use TTL cache - only fetch if cache miss/expired and not already fetching
+			if inst.Tool == "claude" && h.analyticsFetchingID != inst.ID {
+				cached := h.getAnalyticsForSession(inst)
+				if cached != nil {
+					// Use cached analytics
+					if h.analyticsSessionID != inst.ID {
+						h.currentAnalytics = cached
+						h.analyticsSessionID = inst.ID
+						h.analyticsPanel.SetAnalytics(cached)
+					}
+				} else {
+					// Cache miss or expired - fetch new analytics
+					config, _ := session.LoadUserConfig()
+					if config != nil && config.GetShowAnalytics() {
+						h.analyticsFetchingID = inst.ID
+						cmds = append(cmds, h.fetchAnalytics(inst))
+					}
 				}
 			}
 
@@ -1546,9 +1583,13 @@ func (h *Home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return h, nil
 
 	case analyticsFetchedMsg:
-		// Async analytics parsing complete - update cache
+		// Async analytics parsing complete - update TTL cache
 		h.analyticsFetchingID = ""
-		if msg.err == nil && msg.analytics != nil {
+		if msg.err == nil && msg.analytics != nil && msg.sessionID != "" {
+			// Store in TTL cache
+			h.analyticsCache[msg.sessionID] = msg.analytics
+			h.analyticsCacheTime[msg.sessionID] = time.Now()
+			// Update current analytics for display
 			h.currentAnalytics = msg.analytics
 			h.analyticsSessionID = msg.sessionID
 			// Update analytics panel with new data
