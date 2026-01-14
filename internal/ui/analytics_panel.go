@@ -74,16 +74,9 @@ func (p *AnalyticsPanel) View() string {
 // renderEmpty renders the panel when no analytics are available
 func (p *AnalyticsPanel) renderEmpty() string {
 	dimStyle := lipgloss.NewStyle().Foreground(ColorTextDim).Italic(true)
-	headerStyle := lipgloss.NewStyle().Foreground(ColorCyan).Bold(true)
 
 	var b strings.Builder
-	b.WriteString(headerStyle.Render("📊 Session Analytics"))
-	b.WriteString("\n")
-	lineLen := min(p.width-4, 40)
-	if lineLen < 10 {
-		lineLen = 40
-	}
-	b.WriteString(strings.Repeat("─", lineLen))
+	b.WriteString(p.renderHeader())
 	b.WriteString("\n\n")
 	b.WriteString(dimStyle.Render("No analytics available"))
 	b.WriteString("\n")
