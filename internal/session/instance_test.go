@@ -276,7 +276,7 @@ func TestNewInstanceWithTool(t *testing.T) {
 	}
 }
 
-// TestBuildClaudeCommand tests that claude command is built with capture-resume pattern
+// TestBuildClaudeCommand tests that claude command is built with pre-generated session ID pattern
 func TestBuildClaudeCommand(t *testing.T) {
 	// Isolate from user's environment to ensure CLAUDE_CONFIG_DIR is NOT explicit
 	origConfigDir := os.Getenv("CLAUDE_CONFIG_DIR")
@@ -297,26 +297,36 @@ func TestBuildClaudeCommand(t *testing.T) {
 	// Test with simple "claude" command
 	cmd := inst.buildClaudeCommand("claude")
 
-	// When CLAUDE_CONFIG_DIR is NOT explicitly configured (no env var, no config),
-	// the command should NOT include CLAUDE_CONFIG_DIR - let the shell handle it
-	// This is critical for WSL and other environments where users have
-	// CLAUDE_CONFIG_DIR set in their .bashrc/.zshrc
+	// When CLAUDE_CONFIG_DIR is NOT explicitly configured,
+	// the command should NOT include CLAUDE_CONFIG_DIR
 	if strings.Contains(cmd, "CLAUDE_CONFIG_DIR=") {
 		t.Errorf("Should NOT contain CLAUDE_CONFIG_DIR when not explicitly configured, got: %s", cmd)
 	}
 
-	// Should use pre-generated UUID pattern with --session-id flag (Issue #19 fix: instant session ID)
-	// The new approach: uuidgen | tr -> tmux set-environment -> claude --session-id
+	// NEW: Should use pre-generated UUID pattern (not capture-resume)
 	if !strings.Contains(cmd, "uuidgen") {
 		t.Errorf("Should use uuidgen for pre-generated session ID, got: %s", cmd)
-	}
-	if !strings.Contains(cmd, "--session-id") {
-		t.Errorf("Should contain --session-id flag, got: %s", cmd)
 	}
 
 	// Should store session ID in tmux environment
 	if !strings.Contains(cmd, "tmux set-environment CLAUDE_SESSION_ID") {
 		t.Errorf("Should store session ID in tmux env, got: %s", cmd)
+	}
+
+	// NEW: Should use --session-id flag (not --resume)
+	if !strings.Contains(cmd, `--session-id "$session_id"`) {
+		t.Errorf("Should use --session-id flag, got: %s", cmd)
+	}
+
+	// OLD patterns should NOT be present
+	if strings.Contains(cmd, `-p "."`) {
+		t.Errorf("Should NOT use -p \".\" pattern anymore, got: %s", cmd)
+	}
+	if strings.Contains(cmd, "--output-format json") {
+		t.Errorf("Should NOT use --output-format json anymore, got: %s", cmd)
+	}
+	if strings.Contains(cmd, "--resume") {
+		t.Errorf("Should NOT use --resume for new sessions anymore, got: %s", cmd)
 	}
 
 	// Note: --dangerously-skip-permissions is conditional on user config (dangerous_mode)
@@ -343,6 +353,14 @@ func TestBuildClaudeCommand_ExplicitConfig(t *testing.T) {
 	// the command SHOULD include it
 	if !strings.Contains(cmd, "CLAUDE_CONFIG_DIR=/tmp/test-claude-config") {
 		t.Errorf("Should contain CLAUDE_CONFIG_DIR when explicitly configured, got: %s", cmd)
+	}
+
+	// Should still use the new --session-id pattern even with explicit config
+	if !strings.Contains(cmd, `--session-id "$session_id"`) {
+		t.Errorf("Should use --session-id flag with explicit config, got: %s", cmd)
+	}
+	if !strings.Contains(cmd, "uuidgen") {
+		t.Errorf("Should use uuidgen with explicit config, got: %s", cmd)
 	}
 }
 
