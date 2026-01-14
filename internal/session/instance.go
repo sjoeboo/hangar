@@ -199,12 +199,18 @@ func (i *Instance) buildClaudeCommandWithMessage(baseCommand, message string) st
 		return baseCommand
 	}
 
+	// Get the configured Claude command (e.g., "claude", "cdw", "cdp")
+	// If a custom command is set, we skip CLAUDE_CONFIG_DIR prefix since the alias handles it
+	claudeCmd := GetClaudeCommand()
+	hasCustomCommand := claudeCmd != "claude"
+
 	// Check if CLAUDE_CONFIG_DIR is explicitly configured (env var or config.toml)
 	// If NOT explicit, we don't set it in the command - let the shell's environment handle it.
 	// This is critical for WSL and other environments where users have CLAUDE_CONFIG_DIR
 	// set in their .bashrc/.zshrc - we should NOT override that with a default path.
+	// Also skip if using a custom command (alias handles config dir)
 	configDirPrefix := ""
-	if IsClaudeConfigDirExplicit() {
+	if !hasCustomCommand && IsClaudeConfigDirExplicit() {
 		configDir := GetClaudeConfigDir()
 		configDirPrefix = fmt.Sprintf("CLAUDE_CONFIG_DIR=%s ", configDir)
 	}
@@ -231,8 +237,8 @@ func (i *Instance) buildClaudeCommandWithMessage(baseCommand, message string) st
 		baseCmd = fmt.Sprintf(
 			`session_id=$(uuidgen | tr '[:upper:]' '[:lower:]'); `+
 				`tmux set-environment CLAUDE_SESSION_ID "$session_id"; `+
-				`%sclaude --session-id "$session_id"%s`,
-			configDirPrefix, dangerousFlag)
+				`%s%s --session-id "$session_id"%s`,
+			configDirPrefix, claudeCmd, dangerousFlag)
 
 		// If message provided, append wait-and-send logic
 		if message != "" {
@@ -248,8 +254,8 @@ func (i *Instance) buildClaudeCommandWithMessage(baseCommand, message string) st
 					`(sleep 2; SESSION_NAME=$(tmux display-message -p '#S'); `+
 					`while ! tmux capture-pane -p -t "$SESSION_NAME" | tail -5 | grep -qE "^>"; do sleep 0.2; done; `+
 					`tmux send-keys -l -t "$SESSION_NAME" '%s'; tmux send-keys -t "$SESSION_NAME" Enter) & `+
-					`%sclaude --session-id "$session_id"%s`,
-				escapedMsg, configDirPrefix, dangerousFlag)
+					`%s%s --session-id "$session_id"%s`,
+				escapedMsg, configDirPrefix, claudeCmd, dangerousFlag)
 		}
 
 		return baseCmd
@@ -1342,10 +1348,16 @@ func (i *Instance) Restart() error {
 // Respects: CLAUDE_CONFIG_DIR, dangerous_mode from user config
 // IMPORTANT: Also sets CLAUDE_SESSION_ID in tmux environment so detection works after restart
 func (i *Instance) buildClaudeResumeCommand() string {
+	// Get the configured Claude command (e.g., "claude", "cdw", "cdp")
+	// If a custom command is set, we skip CLAUDE_CONFIG_DIR prefix since the alias handles it
+	claudeCmd := GetClaudeCommand()
+	hasCustomCommand := claudeCmd != "claude"
+
 	// Check if CLAUDE_CONFIG_DIR is explicitly configured
 	// If NOT explicit, don't set it - let the shell's environment handle it
+	// Also skip if using a custom command (alias handles config dir)
 	configDirPrefix := ""
-	if IsClaudeConfigDirExplicit() {
+	if !hasCustomCommand && IsClaudeConfigDirExplicit() {
 		configDir := GetClaudeConfigDir()
 		configDirPrefix = fmt.Sprintf("CLAUDE_CONFIG_DIR=%s ", configDir)
 	}
@@ -1360,11 +1372,11 @@ func (i *Instance) buildClaudeResumeCommand() string {
 	// This ensures CLAUDE_SESSION_ID is set in tmux env after restart,
 	// so GetSessionIDFromTmux() works correctly and detects the session
 	if dangerousMode {
-		return fmt.Sprintf("tmux set-environment CLAUDE_SESSION_ID %s && %sclaude --resume %s --dangerously-skip-permissions",
-			i.ClaudeSessionID, configDirPrefix, i.ClaudeSessionID)
+		return fmt.Sprintf("tmux set-environment CLAUDE_SESSION_ID %s && %s%s --resume %s --dangerously-skip-permissions",
+			i.ClaudeSessionID, configDirPrefix, claudeCmd, i.ClaudeSessionID)
 	}
-	return fmt.Sprintf("tmux set-environment CLAUDE_SESSION_ID %s && %sclaude --resume %s",
-		i.ClaudeSessionID, configDirPrefix, i.ClaudeSessionID)
+	return fmt.Sprintf("tmux set-environment CLAUDE_SESSION_ID %s && %s%s --resume %s",
+		i.ClaudeSessionID, configDirPrefix, claudeCmd, i.ClaudeSessionID)
 }
 
 // CanRestart returns true if the session can be restarted
@@ -1416,10 +1428,16 @@ func (i *Instance) Fork(newTitle, newGroupPath string) (string, error) {
 
 	workDir := i.ProjectPath
 
+	// Get the configured Claude command (e.g., "claude", "cdw", "cdp")
+	// If a custom command is set, we skip CLAUDE_CONFIG_DIR prefix since the alias handles it
+	claudeCmd := GetClaudeCommand()
+	hasCustomCommand := claudeCmd != "claude"
+
 	// Check if CLAUDE_CONFIG_DIR is explicitly configured
 	// If NOT explicit, don't set it - let the shell's environment handle it
+	// Also skip if using a custom command (alias handles config dir)
 	configDirPrefix := ""
-	if IsClaudeConfigDirExplicit() {
+	if !hasCustomCommand && IsClaudeConfigDirExplicit() {
 		configDir := GetClaudeConfigDir()
 		configDirPrefix = fmt.Sprintf("CLAUDE_CONFIG_DIR=%s ", configDir)
 	}
@@ -1443,11 +1461,11 @@ func (i *Instance) Fork(newTitle, newGroupPath string) (string, error) {
 	// Note: Path is single-quoted to handle spaces and special characters
 	// Note: We add jq stderr suppression and validation, but fail if capture fails entirely
 	cmd := fmt.Sprintf(
-		`cd '%s' && session_id=$(%sclaude -p "." --output-format json --resume %s --fork-session 2>/dev/null | jq -r '.session_id' 2>/dev/null); `+
+		`cd '%s' && session_id=$(%s%s -p "." --output-format json --resume %s --fork-session 2>/dev/null | jq -r '.session_id' 2>/dev/null); `+
 			`if [ -z "$session_id" ] || [ "$session_id" = "null" ]; then echo "Fork failed: could not capture session ID. Check if Claude CLI is authenticated and jq is installed."; exit 1; fi; `+
 			`tmux set-environment CLAUDE_SESSION_ID "$session_id" && `+
-			`%sclaude --resume "$session_id"%s`,
-		workDir, configDirPrefix, i.ClaudeSessionID, configDirPrefix, dangerousFlag)
+			`%s%s --resume "$session_id"%s`,
+		workDir, configDirPrefix, claudeCmd, i.ClaudeSessionID, configDirPrefix, claudeCmd, dangerousFlag)
 
 	return cmd, nil
 }

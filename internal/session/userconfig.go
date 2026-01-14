@@ -160,6 +160,11 @@ func (c *UserConfig) GetShowAnalytics() bool {
 
 // ClaudeSettings defines Claude Code configuration
 type ClaudeSettings struct {
+	// Command is the Claude CLI command or alias to use (e.g., "claude", "cdw", "cdp")
+	// Default: "claude"
+	// This allows using shell aliases that set CLAUDE_CONFIG_DIR automatically
+	Command string `toml:"command"`
+
 	// ConfigDir is the path to Claude's config directory
 	// Default: ~/.claude (or CLAUDE_CONFIG_DIR env var)
 	ConfigDir string `toml:"config_dir"`
