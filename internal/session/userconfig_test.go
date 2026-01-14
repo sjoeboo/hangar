@@ -338,3 +338,156 @@ func TestGetWorktreeSettings_FromConfig(t *testing.T) {
 		t.Error("GetWorktreeSettings AutoCleanup: should be false from config")
 	}
 }
+
+// ============================================================================
+// Preview Settings Tests
+// ============================================================================
+
+func TestPreviewSettings(t *testing.T) {
+	// Create temp config
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "config.toml")
+
+	// Write config with preview settings
+	content := `
+[preview]
+show_output = true
+show_analytics = false
+`
+	if err := os.WriteFile(configPath, []byte(content), 0644); err != nil {
+		t.Fatalf("Failed to write config file: %v", err)
+	}
+
+	var config UserConfig
+	_, err := toml.DecodeFile(configPath, &config)
+	if err != nil {
+		t.Fatalf("Failed to decode: %v", err)
+	}
+
+	if !config.Preview.ShowOutput {
+		t.Error("Expected Preview.ShowOutput to be true")
+	}
+	if config.Preview.ShowAnalytics == nil {
+		t.Error("Expected Preview.ShowAnalytics to be set")
+	} else if *config.Preview.ShowAnalytics {
+		t.Error("Expected Preview.ShowAnalytics to be false")
+	}
+}
+
+func TestPreviewSettingsDefaults(t *testing.T) {
+	cfg := &UserConfig{}
+
+	// Default: output OFF, analytics ON
+	if cfg.GetShowOutput() {
+		t.Error("GetShowOutput should default to false")
+	}
+	if !cfg.GetShowAnalytics() {
+		t.Error("GetShowAnalytics should default to true")
+	}
+}
+
+func TestPreviewSettingsExplicitTrue(t *testing.T) {
+	// Test when analytics is explicitly set to true
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "config.toml")
+
+	content := `
+[preview]
+show_output = false
+show_analytics = true
+`
+	if err := os.WriteFile(configPath, []byte(content), 0644); err != nil {
+		t.Fatalf("Failed to write config file: %v", err)
+	}
+
+	var config UserConfig
+	_, err := toml.DecodeFile(configPath, &config)
+	if err != nil {
+		t.Fatalf("Failed to decode: %v", err)
+	}
+
+	if config.GetShowOutput() {
+		t.Error("GetShowOutput should be false")
+	}
+	if !config.GetShowAnalytics() {
+		t.Error("GetShowAnalytics should be true when explicitly set")
+	}
+}
+
+func TestPreviewSettingsNotSet(t *testing.T) {
+	// Test when preview section exists but analytics is not set
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "config.toml")
+
+	content := `
+[preview]
+show_output = true
+`
+	if err := os.WriteFile(configPath, []byte(content), 0644); err != nil {
+		t.Fatalf("Failed to write config file: %v", err)
+	}
+
+	var config UserConfig
+	_, err := toml.DecodeFile(configPath, &config)
+	if err != nil {
+		t.Fatalf("Failed to decode: %v", err)
+	}
+
+	if !config.GetShowOutput() {
+		t.Error("GetShowOutput should be true")
+	}
+	// When not set, ShowAnalytics should default to true
+	if !config.GetShowAnalytics() {
+		t.Error("GetShowAnalytics should default to true when not set")
+	}
+}
+
+func TestGetPreviewSettings(t *testing.T) {
+	// Setup: use temp directory with no config
+	tempDir := t.TempDir()
+	originalHome := os.Getenv("HOME")
+	os.Setenv("HOME", tempDir)
+	defer os.Setenv("HOME", originalHome)
+	ClearUserConfigCache()
+
+	// With no config, should return defaults
+	settings := GetPreviewSettings()
+	if settings.ShowOutput {
+		t.Error("GetPreviewSettings ShowOutput: should default to false")
+	}
+	if !settings.GetShowAnalytics() {
+		t.Error("GetPreviewSettings ShowAnalytics: should default to true")
+	}
+}
+
+func TestGetPreviewSettings_FromConfig(t *testing.T) {
+	tempDir := t.TempDir()
+	originalHome := os.Getenv("HOME")
+	os.Setenv("HOME", tempDir)
+	defer os.Setenv("HOME", originalHome)
+	ClearUserConfigCache()
+
+	// Create config with custom preview settings
+	agentDeckDir := filepath.Join(tempDir, ".agent-deck")
+	_ = os.MkdirAll(agentDeckDir, 0700)
+
+	// Write config directly to test explicit false
+	configPath := filepath.Join(agentDeckDir, "config.toml")
+	content := `
+[preview]
+show_output = true
+show_analytics = false
+`
+	if err := os.WriteFile(configPath, []byte(content), 0644); err != nil {
+		t.Fatalf("Failed to write config: %v", err)
+	}
+	ClearUserConfigCache()
+
+	settings := GetPreviewSettings()
+	if !settings.ShowOutput {
+		t.Error("GetPreviewSettings ShowOutput: should be true from config")
+	}
+	if settings.GetShowAnalytics() {
+		t.Error("GetPreviewSettings ShowAnalytics: should be false from config")
+	}
+}

@@ -49,6 +49,9 @@ type UserConfig struct {
 
 	// Updates defines auto-update settings
 	Updates UpdateSettings `toml:"updates"`
+
+	// Preview defines preview pane display settings
+	Preview PreviewSettings `toml:"preview"`
 }
 
 // MCPPoolSettings defines HTTP MCP pool configuration
@@ -124,6 +127,35 @@ type UpdateSettings struct {
 	// NotifyInCLI shows update notification in CLI commands (not just TUI)
 	// Default: true
 	NotifyInCLI bool `toml:"notify_in_cli"`
+}
+
+// PreviewSettings defines preview pane configuration
+type PreviewSettings struct {
+	// ShowOutput shows terminal output in preview pane
+	// Default: false (analytics-only mode)
+	ShowOutput bool `toml:"show_output"`
+
+	// ShowAnalytics shows session analytics panel for Claude sessions
+	// Default: true (pointer to distinguish "not set" from "explicitly false")
+	ShowAnalytics *bool `toml:"show_analytics"`
+}
+
+// GetShowAnalytics returns whether to show analytics, defaulting to true
+func (p *PreviewSettings) GetShowAnalytics() bool {
+	if p.ShowAnalytics == nil {
+		return true // Default: analytics ON
+	}
+	return *p.ShowAnalytics
+}
+
+// GetShowOutput returns whether to show terminal output in preview
+func (c *UserConfig) GetShowOutput() bool {
+	return c.Preview.ShowOutput
+}
+
+// GetShowAnalytics returns whether to show analytics panel, defaulting to true
+func (c *UserConfig) GetShowAnalytics() bool {
+	return c.Preview.GetShowAnalytics()
 }
 
 // ClaudeSettings defines Claude Code configuration
@@ -530,6 +562,19 @@ func GetUpdateSettings() UpdateSettings {
 	}
 
 	return settings
+}
+
+// GetPreviewSettings returns preview settings with defaults applied
+func GetPreviewSettings() PreviewSettings {
+	config, err := LoadUserConfig()
+	if err != nil || config == nil {
+		return PreviewSettings{
+			ShowOutput:    false, // Default: output OFF
+			ShowAnalytics: nil,   // nil means "default to true"
+		}
+	}
+
+	return config.Preview
 }
 
 // getMCPPoolConfigSection returns the MCP pool config section based on platform
