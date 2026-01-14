@@ -27,23 +27,25 @@ func TestSessionAnalytics_TotalTokens(t *testing.T) {
 
 func TestSessionAnalytics_ContextPercent(t *testing.T) {
 	analytics := &SessionAnalytics{
-		InputTokens:      1000,
-		OutputTokens:     500,
-		CacheReadTokens:  200,
-		CacheWriteTokens: 100,
+		InputTokens:          1000,
+		OutputTokens:         500,
+		CacheReadTokens:      200,
+		CacheWriteTokens:     100,
+		CurrentContextTokens: 1800, // Last turn's context size
 	}
 
-	// 1800 tokens / 200000 limit * 100 = 0.9%
+	// CurrentContextTokens 1800 / 200000 limit * 100 = 0.9%
 	assert.InDelta(t, 0.9, analytics.ContextPercent(200000), 0.01)
 }
 
 func TestSessionAnalytics_ContextPercent_DefaultLimit(t *testing.T) {
 	analytics := &SessionAnalytics{
-		InputTokens:  20000,
-		OutputTokens: 0,
+		InputTokens:          20000,
+		OutputTokens:         0,
+		CurrentContextTokens: 20000, // Last turn's context size
 	}
 
-	// 20000 tokens / 200000 default limit * 100 = 10%
+	// CurrentContextTokens 20000 / 200000 default limit * 100 = 10%
 	assert.InDelta(t, 10.0, analytics.ContextPercent(0), 0.01)
 }
 

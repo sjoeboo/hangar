@@ -10,11 +10,15 @@ import (
 
 // SessionAnalytics holds parsed session metrics from Claude JSONL files
 type SessionAnalytics struct {
-	// Token usage
+	// Token usage (cumulative across all turns)
 	InputTokens      int `json:"input_tokens"`
 	OutputTokens     int `json:"output_tokens"`
 	CacheReadTokens  int `json:"cache_read_input_tokens"`
 	CacheWriteTokens int `json:"cache_creation_input_tokens"`
+
+	// Current context size (last turn's input + cache read tokens)
+	// This represents the actual context window usage, not cumulative totals
+	CurrentContextTokens int `json:"current_context_tokens"`
 
 	// Session metrics
 	TotalTurns int           `json:"total_turns"`
@@ -62,12 +66,13 @@ func (a *SessionAnalytics) TotalTokens() int {
 }
 
 // ContextPercent returns the percentage of context window used
+// Uses CurrentContextTokens (last turn's input + cache) for accurate context usage
 // modelLimit is the model's context window size (defaults to 200000 for Claude)
 func (a *SessionAnalytics) ContextPercent(modelLimit int) float64 {
 	if modelLimit == 0 {
 		modelLimit = 200000 // Default Claude limit
 	}
-	return float64(a.TotalTokens()) / float64(modelLimit) * 100
+	return float64(a.CurrentContextTokens) / float64(modelLimit) * 100
 }
 
 // ModelPricing holds pricing per million tokens for a model
@@ -166,11 +171,16 @@ func ParseSessionJSONL(path string) (*SessionAnalytics, error) {
 			}
 		}
 
-		// Accumulate tokens
+		// Accumulate tokens (cumulative totals for cost calculation)
 		analytics.InputTokens += entry.Message.Usage.InputTokens
 		analytics.OutputTokens += entry.Message.Usage.OutputTokens
 		analytics.CacheReadTokens += entry.Message.Usage.CacheReadInputTokens
 		analytics.CacheWriteTokens += entry.Message.Usage.CacheCreationInputTokens
+
+		// Track current context size (last turn's input + cache read)
+		// This represents the actual context window usage
+		analytics.CurrentContextTokens = entry.Message.Usage.InputTokens +
+			entry.Message.Usage.CacheReadInputTokens
 
 		// Count turn
 		analytics.TotalTurns++
