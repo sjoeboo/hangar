@@ -4999,8 +4999,9 @@ func (h *Home) renderPreviewPane(width, height int) string {
 		}
 	}
 
-	// If output is disabled, return early
-	if !showOutput {
+	// If output is disabled AND not starting up, return early
+	// (We want to show the launch animation even if output is normally disabled)
+	if !showOutput && !isStartingUp {
 		// If analytics was also not shown, display session info card as fallback
 		if !showAnalytics {
 			infoCard := h.renderSessionInfoCard(selected, width, height)
