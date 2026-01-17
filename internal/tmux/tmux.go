@@ -628,7 +628,16 @@ func (s *Session) Start(command string) error {
 
 	// Send the command to the session
 	if command != "" {
-		if err := s.SendKeys(command); err != nil {
+		cmdToSend := command
+		// IMPORTANT: Commands containing bash-specific syntax (like `session_id=$(...)`)
+		// must be wrapped in `bash -c` for fish shell compatibility (#47).
+		// Fish uses different syntax: `set var (...)` instead of `var=$(...)`.
+		if strings.Contains(command, "$(") || strings.Contains(command, "session_id=") {
+			// Escape single quotes in the command for bash -c wrapper
+			escapedCmd := strings.ReplaceAll(command, "'", "'\"'\"'")
+			cmdToSend = fmt.Sprintf("bash -c '%s'", escapedCmd)
+		}
+		if err := s.SendKeys(cmdToSend); err != nil {
 			return fmt.Errorf("failed to send command: %w", err)
 		}
 		if err := s.SendEnter(); err != nil {
@@ -824,6 +833,15 @@ func (s *Session) RespawnPane(command string) error {
 		if shell == "" {
 			shell = "/bin/bash"
 		}
+
+		// IMPORTANT: Commands containing bash-specific syntax (like `session_id=$(...)`)
+		// must use bash, regardless of user's shell. This fixes fish shell compatibility (#47).
+		// Fish uses different syntax: `set var (...)` instead of `var=$(...)`.
+		// We detect bash-specific constructs and force bash for those commands.
+		if strings.Contains(command, "$(") || strings.Contains(command, "session_id=") {
+			shell = "/bin/bash"
+		}
+
 		// Use -i for interactive (loads aliases) and -c for command
 		wrappedCmd := fmt.Sprintf("%s -ic %q", shell, command)
 		args = append(args, wrappedCmd)
