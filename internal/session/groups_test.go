@@ -2,6 +2,7 @@ package session
 
 import (
 	"testing"
+	"time"
 )
 
 func TestNewGroupTree(t *testing.T) {
@@ -470,6 +471,68 @@ func TestMoveSessionToGroup(t *testing.T) {
 	// Target group should have the session
 	if len(tree.Groups["target"].Sessions) != 1 {
 		t.Error("Target group should have 1 session")
+	}
+}
+
+func TestGroupDefaultPath(t *testing.T) {
+	now := time.Now()
+
+	instances := []*Instance{
+		{ID: "1", Title: "old-session", GroupPath: "projects", ProjectPath: "/old/path", LastAccessedAt: now.Add(-1 * time.Hour)},
+		{ID: "2", Title: "new-session", GroupPath: "projects", ProjectPath: "/new/path", LastAccessedAt: now},
+		{ID: "3", Title: "other-session", GroupPath: "other", ProjectPath: "/other/path", LastAccessedAt: now},
+	}
+
+	tree := NewGroupTree(instances)
+
+	// Check that DefaultPath is set to most recent session's path
+	if tree.Groups["projects"].DefaultPath != "/new/path" {
+		t.Errorf("Expected default path '/new/path', got '%s'", tree.Groups["projects"].DefaultPath)
+	}
+	if tree.Groups["other"].DefaultPath != "/other/path" {
+		t.Errorf("Expected default path '/other/path', got '%s'", tree.Groups["other"].DefaultPath)
+	}
+}
+
+func TestGroupDefaultPathOnMove(t *testing.T) {
+	now := time.Now()
+
+	instances := []*Instance{
+		{ID: "1", Title: "session-1", GroupPath: "source", ProjectPath: "/source/path", LastAccessedAt: now},
+	}
+
+	tree := NewGroupTree(instances)
+	tree.CreateGroup("target")
+
+	// Move session to target group
+	tree.MoveSessionToGroup(instances[0], "target")
+
+	// Source group should have empty default path (no sessions left)
+	// Actually, it keeps the default path since the function only updates if there's a session
+	// Target group should have the moved session's path
+	if tree.Groups["target"].DefaultPath != "/source/path" {
+		t.Errorf("Expected target default path '/source/path', got '%s'", tree.Groups["target"].DefaultPath)
+	}
+}
+
+func TestGroupDefaultPathPersistence(t *testing.T) {
+	now := time.Now()
+
+	// Simulate stored groups with default path
+	storedGroups := []*GroupData{
+		{Name: "Projects", Path: "projects", Expanded: true, Order: 0, DefaultPath: "/stored/path"},
+	}
+
+	// Create instances with older path
+	instances := []*Instance{
+		{ID: "1", Title: "session-1", GroupPath: "projects", ProjectPath: "/newer/path", LastAccessedAt: now},
+	}
+
+	tree := NewGroupTreeWithGroups(instances, storedGroups)
+
+	// Should use the most recent session's path, not the stored one
+	if tree.Groups["projects"].DefaultPath != "/newer/path" {
+		t.Errorf("Expected default path '/newer/path', got '%s'", tree.Groups["projects"].DefaultPath)
 	}
 }
 
