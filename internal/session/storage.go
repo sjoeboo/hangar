@@ -79,6 +79,9 @@ type InstanceData struct {
 	GeminiDetectedAt time.Time `json:"gemini_detected_at,omitempty"`
 	GeminiYoloMode   *bool     `json:"gemini_yolo_mode,omitempty"`
 
+	// Latest user input for context
+	LatestPrompt string `json:"latest_prompt,omitempty"`
+
 	// MCP tracking (persisted for sync status display)
 	LoadedMCPNames []string `json:"loaded_mcp_names,omitempty"`
 }
@@ -216,6 +219,7 @@ func (s *Storage) SaveWithGroups(instances []*Instance, groupTree *GroupTree) er
 			GeminiSessionID:  inst.GeminiSessionID,
 			GeminiDetectedAt: inst.GeminiDetectedAt,
 			GeminiYoloMode:   inst.GeminiYoloMode,
+			LatestPrompt:     inst.LatestPrompt,
 			LoadedMCPNames:   inst.LoadedMCPNames,
 		}
 	}
@@ -520,6 +524,7 @@ func (s *Storage) convertToInstances(data *StorageData) ([]*Instance, []*GroupDa
 			GeminiSessionID:  instData.GeminiSessionID,
 			GeminiDetectedAt: instData.GeminiDetectedAt,
 			GeminiYoloMode:   instData.GeminiYoloMode,
+			LatestPrompt:     instData.LatestPrompt,
 			LoadedMCPNames:   instData.LoadedMCPNames,
 			tmuxSession:      tmuxSess,
 		}

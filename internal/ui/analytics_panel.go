@@ -12,9 +12,10 @@ import (
 
 // AnalyticsPanel displays session analytics in a formatted panel
 type AnalyticsPanel struct {
-	analytics *session.SessionAnalytics
-	width     int
-	height    int
+	analytics       *session.SessionAnalytics
+	geminiAnalytics *session.GeminiSessionAnalytics
+	width           int
+	height          int
 }
 
 // NewAnalyticsPanel creates a new analytics panel
@@ -22,9 +23,16 @@ func NewAnalyticsPanel() *AnalyticsPanel {
 	return &AnalyticsPanel{}
 }
 
-// SetAnalytics sets the analytics data to display
+// SetAnalytics sets the Claude analytics data to display
 func (p *AnalyticsPanel) SetAnalytics(a *session.SessionAnalytics) {
 	p.analytics = a
+	p.geminiAnalytics = nil // Clear Gemini analytics when setting Claude
+}
+
+// SetGeminiAnalytics sets the Gemini analytics data to display
+func (p *AnalyticsPanel) SetGeminiAnalytics(a *session.GeminiSessionAnalytics) {
+	p.geminiAnalytics = a
+	p.analytics = nil // Clear Claude analytics when setting Gemini
 }
 
 // SetSize sets the panel dimensions
@@ -35,8 +43,13 @@ func (p *AnalyticsPanel) SetSize(width, height int) {
 
 // View renders the analytics panel
 func (p *AnalyticsPanel) View() string {
-	if p.analytics == nil {
+	if p.analytics == nil && p.geminiAnalytics == nil {
 		return p.renderEmpty()
+	}
+
+	// Render Gemini analytics if available
+	if p.geminiAnalytics != nil {
+		return p.renderGeminiView()
 	}
 
 	var b strings.Builder
@@ -71,6 +84,180 @@ func (p *AnalyticsPanel) View() string {
 	return b.String()
 }
 
+// renderGeminiView renders Gemini-specific analytics
+func (p *AnalyticsPanel) renderGeminiView() string {
+	var b strings.Builder
+
+	// Header
+	b.WriteString(p.renderHeader())
+	b.WriteString("\n")
+
+	// Context bar (Gemini-specific)
+	b.WriteString(p.renderGeminiContextBar())
+	b.WriteString("\n\n")
+
+	// Token breakdown (Gemini-specific)
+	b.WriteString(p.renderGeminiTokens())
+	b.WriteString("\n")
+
+	// Session info (Gemini-specific)
+	b.WriteString(p.renderGeminiSessionInfo())
+	b.WriteString("\n")
+
+	// Cost estimate (Gemini-specific)
+	if p.geminiAnalytics.TotalTokens() > 0 {
+		b.WriteString(p.renderGeminiCost())
+	}
+
+	return b.String()
+}
+
+// renderGeminiContextBar renders a visual bar for Gemini context usage
+func (p *AnalyticsPanel) renderGeminiContextBar() string {
+	labelStyle := lipgloss.NewStyle().Foreground(ColorText).Bold(true)
+	dimStyle := lipgloss.NewStyle().Foreground(ColorTextDim)
+
+	// Gemini 2.0 Flash has 1M context window
+	contextLimit := 1000000
+	percent := float64(p.geminiAnalytics.CurrentContextTokens) / float64(contextLimit) * 100
+	if percent > 100 {
+		percent = 100
+	}
+
+	// Choose color based on usage
+	var barColor lipgloss.Color
+	switch {
+	case percent < 60:
+		barColor = ColorGreen
+	case percent < 80:
+		barColor = ColorYellow
+	default:
+		barColor = ColorRed
+	}
+
+	barStyle := lipgloss.NewStyle().Foreground(barColor)
+
+	// Calculate bar width
+	maxBarWidth := 30
+	if p.width > 0 && p.width < 50 {
+		maxBarWidth = p.width - 20
+		if maxBarWidth < 10 {
+			maxBarWidth = 10
+		}
+	}
+
+	filledWidth := int(percent / 100 * float64(maxBarWidth))
+	if filledWidth > maxBarWidth {
+		filledWidth = maxBarWidth
+	}
+	emptyWidth := maxBarWidth - filledWidth
+
+	bar := barStyle.Render(strings.Repeat("█", filledWidth)) +
+		dimStyle.Render(strings.Repeat("░", emptyWidth))
+
+	percentStr := fmt.Sprintf("%.1f%%", percent)
+	percentStyle := lipgloss.NewStyle().Foreground(barColor).Bold(true)
+
+	return fmt.Sprintf("%s [%s] %s",
+		labelStyle.Render("Context"),
+		bar,
+		percentStyle.Render(percentStr),
+	)
+}
+
+// renderGeminiTokens renders the token breakdown for Gemini
+func (p *AnalyticsPanel) renderGeminiTokens() string {
+	labelStyle := lipgloss.NewStyle().Foreground(ColorText).Bold(true)
+	valueStyle := lipgloss.NewStyle().Foreground(ColorAccent)
+	dimStyle := lipgloss.NewStyle().Foreground(ColorTextDim)
+
+	var b strings.Builder
+	b.WriteString(labelStyle.Render("Tokens"))
+	b.WriteString("\n")
+
+	inputStr := formatNumber(p.geminiAnalytics.InputTokens)
+	outputStr := formatNumber(p.geminiAnalytics.OutputTokens)
+	totalStr := formatNumber(p.geminiAnalytics.TotalTokens())
+
+	// Input/Output row
+	b.WriteString(fmt.Sprintf("  %s %s  %s %s\n",
+		dimStyle.Render("In:"),
+		valueStyle.Render(inputStr),
+		dimStyle.Render("Out:"),
+		valueStyle.Render(outputStr),
+	))
+
+	// Total row
+	totalStyle := lipgloss.NewStyle().Foreground(ColorCyan).Bold(true)
+	b.WriteString(fmt.Sprintf("  %s %s\n",
+		dimStyle.Render("Total:"),
+		totalStyle.Render(totalStr),
+	))
+
+	return b.String()
+}
+
+// renderGeminiSessionInfo renders Gemini session info
+func (p *AnalyticsPanel) renderGeminiSessionInfo() string {
+	labelStyle := lipgloss.NewStyle().Foreground(ColorText).Bold(true)
+	valueStyle := lipgloss.NewStyle().Foreground(ColorAccent)
+	dimStyle := lipgloss.NewStyle().Foreground(ColorTextDim)
+
+	var b strings.Builder
+	b.WriteString(labelStyle.Render("Session"))
+	b.WriteString("\n")
+
+	// Duration
+	durationStr := formatDuration(p.geminiAnalytics.Duration)
+	b.WriteString(fmt.Sprintf("  %s %s",
+		dimStyle.Render("Duration:"),
+		valueStyle.Render(durationStr),
+	))
+
+	// Turns
+	b.WriteString(fmt.Sprintf("  %s %s\n",
+		dimStyle.Render("Turns:"),
+		valueStyle.Render(fmt.Sprintf("%d", p.geminiAnalytics.TotalTurns)),
+	))
+
+	// Start time if available
+	if !p.geminiAnalytics.StartTime.IsZero() {
+		timeStr := p.geminiAnalytics.StartTime.Format("Jan 2 15:04")
+		b.WriteString(fmt.Sprintf("  %s %s\n",
+			dimStyle.Render("Started:"),
+			valueStyle.Render(timeStr),
+		))
+	}
+
+	return b.String()
+}
+
+// renderGeminiCost renders the estimated cost for Gemini
+func (p *AnalyticsPanel) renderGeminiCost() string {
+	labelStyle := lipgloss.NewStyle().Foreground(ColorText).Bold(true)
+	valueStyle := lipgloss.NewStyle().Foreground(ColorGreen).Bold(true)
+	dimStyle := lipgloss.NewStyle().Foreground(ColorTextDim)
+
+	var b strings.Builder
+	b.WriteString(labelStyle.Render("Cost"))
+	b.WriteString("\n")
+
+	// Use default Gemini Flash pricing
+	cost := p.geminiAnalytics.CalculateCost("gemini-2.0-flash")
+
+	if cost > 0 {
+		costStr := fmt.Sprintf("$%.4f", cost)
+		b.WriteString(fmt.Sprintf("  %s %s\n",
+			dimStyle.Render("Estimated:"),
+			valueStyle.Render(costStr),
+		))
+	} else {
+		b.WriteString(dimStyle.Render("  (calculating...)\n"))
+	}
+
+	return b.String()
+}
+
 // renderEmpty renders the panel when no analytics are available
 func (p *AnalyticsPanel) renderEmpty() string {
 	dimStyle := lipgloss.NewStyle().Foreground(ColorTextDim).Italic(true)
@@ -80,7 +267,7 @@ func (p *AnalyticsPanel) renderEmpty() string {
 	b.WriteString("\n\n")
 	b.WriteString(dimStyle.Render("No analytics available"))
 	b.WriteString("\n")
-	b.WriteString(dimStyle.Render("(Claude sessions only)"))
+	b.WriteString(dimStyle.Render("(Claude/Gemini sessions only)"))
 
 	return b.String()
 }

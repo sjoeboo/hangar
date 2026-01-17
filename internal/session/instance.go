@@ -55,9 +55,13 @@ type Instance struct {
 	ClaudeDetectedAt time.Time `json:"claude_detected_at,omitempty"`
 
 	// Gemini CLI integration
-	GeminiSessionID  string    `json:"gemini_session_id,omitempty"`
-	GeminiDetectedAt time.Time `json:"gemini_detected_at,omitempty"`
-	GeminiYoloMode   *bool     `json:"gemini_yolo_mode,omitempty"` // Per-session override (nil = use global config)
+	GeminiSessionID  string                  `json:"gemini_session_id,omitempty"`
+	GeminiDetectedAt time.Time               `json:"gemini_detected_at,omitempty"`
+	GeminiYoloMode   *bool                   `json:"gemini_yolo_mode,omitempty"`   // Per-session override (nil = use global config)
+	GeminiAnalytics  *GeminiSessionAnalytics `json:"gemini_analytics,omitempty"`   // Per-session analytics
+
+	// Latest user input for context (extracted from session files)
+	LatestPrompt string `json:"latest_prompt,omitempty"`
 
 	// MCP tracking - which MCPs were loaded when session started/restarted
 	// Used to detect pending MCPs (added after session start) and stale MCPs (removed but still running)
@@ -744,6 +748,18 @@ func (i *Instance) UpdateClaudeSession(excludeIDs map[string]bool) {
 		}
 		i.ClaudeDetectedAt = time.Now()
 	}
+
+	// Update latest prompt from JSONL file
+	if i.ClaudeSessionID != "" {
+		jsonlPath := i.GetJSONLPath()
+		if jsonlPath != "" {
+			if data, err := os.ReadFile(jsonlPath); err == nil {
+				if prompt, err := parseClaudeLatestUserPrompt(data); err == nil && prompt != "" {
+					i.LatestPrompt = prompt
+				}
+			}
+		}
+	}
 }
 
 // UpdateGeminiSession updates the Gemini session ID from tmux environment.
@@ -763,6 +779,28 @@ func (i *Instance) UpdateGeminiSession(excludeIDs map[string]bool) {
 				i.GeminiSessionID = sessionID
 			}
 			i.GeminiDetectedAt = time.Now()
+		}
+	}
+
+	// Update analytics if we have a session ID
+	if i.GeminiSessionID != "" {
+		if i.GeminiAnalytics == nil {
+			i.GeminiAnalytics = &GeminiSessionAnalytics{}
+		}
+		// Non-blocking update (ignore errors, best effort)
+		_ = UpdateGeminiAnalyticsFromDisk(i.ProjectPath, i.GeminiSessionID, i.GeminiAnalytics)
+	}
+
+	// Update latest prompt from session file
+	if i.GeminiSessionID != "" && len(i.GeminiSessionID) >= 8 {
+		sessionsDir := GetGeminiSessionsDir(i.ProjectPath)
+		pattern := filepath.Join(sessionsDir, "session-*-"+i.GeminiSessionID[:8]+".json")
+		if files, _ := filepath.Glob(pattern); len(files) > 0 {
+			if data, err := os.ReadFile(files[0]); err == nil {
+				if prompt, err := parseGeminiLatestUserPrompt(data); err == nil && prompt != "" {
+					i.LatestPrompt = prompt
+				}
+			}
 		}
 	}
 }
@@ -1028,6 +1066,111 @@ func parseClaudeLastAssistantMessage(data []byte, sessionID string) (*ResponseOu
 		Timestamp: lastTimestamp,
 		SessionID: foundSessionID,
 	}, nil
+}
+
+// parseClaudeLatestUserPrompt parses a Claude JSONL file to extract the last user message
+func parseClaudeLatestUserPrompt(data []byte) (string, error) {
+	// JSONL record structure
+	type claudeMessage struct {
+		Role    string          `json:"role"`
+		Content json.RawMessage `json:"content"`
+	}
+	type claudeRecord struct {
+		Message json.RawMessage `json:"message"`
+	}
+
+	var latestPrompt string
+
+	scanner := bufio.NewScanner(bytes.NewReader(data))
+	// Handle large lines
+	buf := make([]byte, 0, 64*1024)
+	scanner.Buffer(buf, 1024*1024)
+
+	for scanner.Scan() {
+		line := scanner.Bytes()
+		if len(line) == 0 {
+			continue
+		}
+
+		var record claudeRecord
+		if err := json.Unmarshal(line, &record); err != nil {
+			continue // Skip malformed lines
+		}
+
+		// Only care about messages
+		if len(record.Message) == 0 {
+			continue
+		}
+
+		var msg claudeMessage
+		if err := json.Unmarshal(record.Message, &msg); err != nil {
+			continue
+		}
+
+		// Only care about user messages
+		if msg.Role != "user" {
+			continue
+		}
+
+		// Extract content (can be string or array of blocks)
+		var contentStr string
+		var extractedText string
+		if err := json.Unmarshal(msg.Content, &contentStr); err == nil {
+			// Simple string content
+			extractedText = contentStr
+		} else {
+			// Try as array of content blocks
+			var blocks []map[string]interface{}
+			if err := json.Unmarshal(msg.Content, &blocks); err == nil {
+				var sb strings.Builder
+				for _, block := range blocks {
+					if blockType, ok := block["type"].(string); ok && blockType == "text" {
+						if text, ok := block["text"].(string); ok {
+							sb.WriteString(text)
+							sb.WriteString(" ")
+						}
+					}
+				}
+				extractedText = strings.TrimSpace(sb.String())
+			}
+		}
+
+		// Sanitize: strip newlines and extra spaces for single-line display
+		if extractedText != "" {
+			content := strings.ReplaceAll(extractedText, "\n", " ")
+			latestPrompt = strings.Join(strings.Fields(content), " ")
+		}
+	}
+
+	return latestPrompt, nil
+}
+
+// parseGeminiLatestUserPrompt parses a Gemini JSON file to extract the last user message
+func parseGeminiLatestUserPrompt(data []byte) (string, error) {
+	var session struct {
+		Messages []struct {
+			Type    string `json:"type"` // "user" or "gemini"
+			Content string `json:"content"`
+		} `json:"messages"`
+	}
+
+	if err := json.Unmarshal(data, &session); err != nil {
+		return "", fmt.Errorf("failed to parse Gemini session: %w", err)
+	}
+
+	var latestPrompt string
+	// Find last "user" type message
+	for i := len(session.Messages) - 1; i >= 0; i-- {
+		msg := session.Messages[i]
+		if msg.Type == "user" {
+			// Sanitize: strip newlines and extra spaces for single-line display
+			content := strings.ReplaceAll(msg.Content, "\n", " ")
+			latestPrompt = strings.Join(strings.Fields(content), " ")
+			break
+		}
+	}
+
+	return latestPrompt, nil
 }
 
 // getGeminiLastResponse extracts the last assistant message from Gemini's JSON file
