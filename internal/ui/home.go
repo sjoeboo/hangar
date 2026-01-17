@@ -215,6 +215,9 @@ type Home struct {
 	// Double ESC to quit (#28) - for non-English keyboard users
 	lastEscTime time.Time // When ESC was last pressed (double-tap within 500ms quits)
 
+	// Vi-style gg to jump to top (#38)
+	lastGTime time.Time // When 'g' was last pressed (double-tap within 500ms jumps to top)
+
 	// Navigation tracking (PERFORMANCE: suspend background updates during rapid navigation)
 	lastNavigationTime time.Time // When user last navigated (up/down/j/k)
 	isNavigating       bool      // True if user is rapidly navigating
@@ -719,6 +722,41 @@ func (h *Home) syncViewport() {
 	if h.viewOffset < 0 {
 		h.viewOffset = 0
 	}
+}
+
+// getVisibleHeight returns the number of visible items in the session list
+// Used for vi-style pagination (Ctrl+u/d/f/b)
+func (h *Home) getVisibleHeight() int {
+	helpBarHeight := 2
+	panelTitleLines := 2
+	filterBarHeight := 1
+	updateBannerHeight := 0
+	if h.updateInfo != nil && h.updateInfo.Available {
+		updateBannerHeight = 1
+	}
+
+	contentHeight := h.height - 1 - helpBarHeight - updateBannerHeight - filterBarHeight
+
+	var panelContentHeight int
+	layoutMode := h.getLayoutMode()
+	switch layoutMode {
+	case LayoutModeStacked:
+		listHeight := (contentHeight * 60) / 100
+		if listHeight < 5 {
+			listHeight = 5
+		}
+		panelContentHeight = listHeight - panelTitleLines
+	case LayoutModeSingle:
+		panelContentHeight = contentHeight - panelTitleLines
+	default: // LayoutModeDual
+		panelContentHeight = contentHeight - panelTitleLines
+	}
+
+	maxVisible := panelContentHeight - 1
+	if maxVisible < 1 {
+		maxVisible = 1
+	}
+	return maxVisible
 }
 
 // jumpToRootGroup jumps the cursor to the Nth root-level group (1-indexed)
@@ -2180,6 +2218,93 @@ func (h *Home) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return h, nil
 
+	// Vi-style pagination (#38) - half/full page scrolling
+	case "ctrl+u": // Half page up
+		pageSize := h.getVisibleHeight() / 2
+		if pageSize < 1 {
+			pageSize = 1
+		}
+		h.cursor -= pageSize
+		if h.cursor < 0 {
+			h.cursor = 0
+		}
+		h.syncViewport()
+		h.lastNavigationTime = time.Now()
+		h.isNavigating = true
+		if selected := h.getSelectedSession(); selected != nil {
+			return h, h.fetchPreviewDebounced(selected.ID)
+		}
+		return h, nil
+
+	case "ctrl+d": // Half page down
+		pageSize := h.getVisibleHeight() / 2
+		if pageSize < 1 {
+			pageSize = 1
+		}
+		h.cursor += pageSize
+		if h.cursor >= len(h.flatItems) {
+			h.cursor = len(h.flatItems) - 1
+		}
+		if h.cursor < 0 {
+			h.cursor = 0
+		}
+		h.syncViewport()
+		h.lastNavigationTime = time.Now()
+		h.isNavigating = true
+		if selected := h.getSelectedSession(); selected != nil {
+			return h, h.fetchPreviewDebounced(selected.ID)
+		}
+		return h, nil
+
+	case "ctrl+b": // Full page up (backward)
+		pageSize := h.getVisibleHeight()
+		if pageSize < 1 {
+			pageSize = 1
+		}
+		h.cursor -= pageSize
+		if h.cursor < 0 {
+			h.cursor = 0
+		}
+		h.syncViewport()
+		h.lastNavigationTime = time.Now()
+		h.isNavigating = true
+		if selected := h.getSelectedSession(); selected != nil {
+			return h, h.fetchPreviewDebounced(selected.ID)
+		}
+		return h, nil
+
+	case "ctrl+f": // Full page down (forward)
+		pageSize := h.getVisibleHeight()
+		if pageSize < 1 {
+			pageSize = 1
+		}
+		h.cursor += pageSize
+		if h.cursor >= len(h.flatItems) {
+			h.cursor = len(h.flatItems) - 1
+		}
+		if h.cursor < 0 {
+			h.cursor = 0
+		}
+		h.syncViewport()
+		h.lastNavigationTime = time.Now()
+		h.isNavigating = true
+		if selected := h.getSelectedSession(); selected != nil {
+			return h, h.fetchPreviewDebounced(selected.ID)
+		}
+		return h, nil
+
+	case "G": // Jump to bottom
+		if len(h.flatItems) > 0 {
+			h.cursor = len(h.flatItems) - 1
+			h.syncViewport()
+			h.lastNavigationTime = time.Now()
+			h.isNavigating = true
+			if selected := h.getSelectedSession(); selected != nil {
+				return h, h.fetchPreviewDebounced(selected.ID)
+			}
+		}
+		return h, nil
+
 	case "enter":
 		if h.cursor < len(h.flatItems) {
 			item := h.flatItems[h.cursor]
@@ -2315,6 +2440,23 @@ func (h *Home) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return h, nil
 
 	case "g":
+		// Vi-style gg to jump to top (#38) - check for double-tap first
+		if time.Since(h.lastGTime) < 500*time.Millisecond {
+			// Double g - jump to top
+			if len(h.flatItems) > 0 {
+				h.cursor = 0
+				h.syncViewport()
+				h.lastNavigationTime = time.Now()
+				h.isNavigating = true
+				if selected := h.getSelectedSession(); selected != nil {
+					return h, h.fetchPreviewDebounced(selected.ID)
+				}
+			}
+			return h, nil
+		}
+		// Record time for potential gg detection
+		h.lastGTime = time.Now()
+
 		// Create new group based on context:
 		// - Session in a group → create subgroup in session's group
 		// - Group selected → create peer group (sibling at same level)
