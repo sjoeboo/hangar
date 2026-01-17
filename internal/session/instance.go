@@ -1685,17 +1685,22 @@ func (i *Instance) ForkWithOptions(newTitle, newGroupPath string, opts *ClaudeOp
 	// Build extra flags from options (for fork, we use ToArgsForFork which excludes session mode)
 	extraFlags := i.buildClaudeExtraFlags(opts)
 
-	// Use --session-id to specify UUID upfront, avoiding capture-resume with "." prompt
-	// 1. Generate UUID for new forked session
-	// 2. Store in tmux environment
-	// 3. Start fork with --fork-session and --session-id (no intermediate print mode needed)
+	// Use capture-resume pattern for fork:
+	// 1. Run claude with --fork-session -p "." --output-format json to create fork and capture session ID
+	// 2. Store captured session ID in tmux environment
+	// 3. Resume the forked session interactively
+	// Note: --session-id flag does NOT work for creating new sessions (Claude ignores it)
 	// Note: Path is single-quoted to handle spaces and special characters
-	// Note: Uses uuidgen instead of jq parsing (removes external dependency)
 	cmd := fmt.Sprintf(
-		`cd '%s' && session_id=$(uuidgen | tr '[:upper:]' '[:lower:]') && `+
-			`tmux set-environment CLAUDE_SESSION_ID "$session_id" && `+
-			`%s%s --resume %s --fork-session --session-id "$session_id"%s`,
-		workDir, configDirPrefix, claudeCmd, i.ClaudeSessionID, extraFlags)
+		`cd '%s' && `+
+			`session_id=$(%s%s -p "." --output-format json --resume %s --fork-session 2>/dev/null | jq -r '.session_id' 2>/dev/null) || session_id=""; `+
+			`if [ -n "$session_id" ] && [ "$session_id" != "null" ]; then `+
+			`tmux set-environment CLAUDE_SESSION_ID "$session_id"; `+
+			`%s%s --resume "$session_id"%s; `+
+			`else echo "Fork failed: could not capture session ID"; fi`,
+		workDir,
+		configDirPrefix, claudeCmd, i.ClaudeSessionID,
+		configDirPrefix, claudeCmd, extraFlags)
 
 	return cmd, nil
 }
