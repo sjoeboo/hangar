@@ -817,7 +817,16 @@ func (s *Session) RespawnPane(command string) error {
 	target := s.Name + ":"  // Append colon to target the active pane
 	args := []string{"respawn-pane", "-k", "-t", target}
 	if command != "" {
-		args = append(args, command)
+		// Wrap command in interactive shell to ensure aliases and shell configs are available
+		// tmux respawn-pane runs commands directly without loading ~/.bashrc or ~/.zshrc,
+		// so shell aliases (like 'cdw' for claude) won't work without this wrapper
+		shell := os.Getenv("SHELL")
+		if shell == "" {
+			shell = "/bin/bash"
+		}
+		// Use -i for interactive (loads aliases) and -c for command
+		wrappedCmd := fmt.Sprintf("%s -ic %q", shell, command)
+		args = append(args, wrappedCmd)
 	}
 
 	log.Printf("[MCP-DEBUG] RespawnPane executing: tmux %v", args)
