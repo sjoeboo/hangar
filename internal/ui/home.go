@@ -212,6 +212,9 @@ type Home struct {
 	// PERFORMANCE: Only update statuses when user is actively interacting
 	lastUserInputTime time.Time // When user last pressed a key
 
+	// Double ESC to quit (#28) - for non-English keyboard users
+	lastEscTime time.Time // When ESC was last pressed (double-tap within 500ms quits)
+
 	// Navigation tracking (PERFORMANCE: suspend background updates during rapid navigation)
 	lastNavigationTime time.Time // When user last navigated (up/down/j/k)
 	isNavigating       bool      // True if user is rapidly navigating
@@ -2120,6 +2123,32 @@ func (h *Home) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// Save both instances AND groups on quit (critical fix: was losing groups!)
 		h.saveInstances()
 		return h, tea.Quit
+
+	case "esc":
+		// Double ESC to quit (#28) - for non-English keyboard users
+		// If ESC pressed twice within 500ms, quit the application
+		if time.Since(h.lastEscTime) < 500*time.Millisecond {
+			// Same quit logic as "q"
+			h.cancel()
+			<-h.statusWorkerDone
+			if h.logWatcher != nil {
+				h.logWatcher.Close()
+			}
+			if h.storageWatcher != nil {
+				h.storageWatcher.Close()
+			}
+			if h.globalSearchIndex != nil {
+				h.globalSearchIndex.Close()
+			}
+			if err := session.ShutdownGlobalPool(); err != nil {
+				log.Printf("Warning: error shutting down MCP pool: %v", err)
+			}
+			h.saveInstances()
+			return h, tea.Quit
+		}
+		// First ESC - record time, show hint in status bar
+		h.lastEscTime = time.Now()
+		return h, nil
 
 	case "up", "k":
 		if h.cursor > 0 {
