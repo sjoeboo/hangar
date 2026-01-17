@@ -36,11 +36,12 @@ type Item struct {
 
 // Group represents a group of sessions
 type Group struct {
-	Name     string
-	Path     string // Full path like "projects" or "projects/devops"
-	Expanded bool
-	Sessions []*Instance
-	Order    int
+	Name        string
+	Path        string // Full path like "projects" or "projects/devops"
+	Expanded    bool
+	Sessions    []*Instance
+	Order       int
+	DefaultPath string // Most recent project path used for sessions in this group
 }
 
 // GroupTree manages hierarchical session organization
@@ -88,6 +89,11 @@ func NewGroupTree(instances []*Instance) *GroupTree {
 	// Sort groups alphabetically and assign order
 	tree.rebuildGroupList()
 
+	// Update default paths for all groups
+	for groupPath := range tree.Groups {
+		tree.updateGroupDefaultPath(groupPath)
+	}
+
 	return tree
 }
 
@@ -101,11 +107,12 @@ func NewGroupTreeWithGroups(instances []*Instance, storedGroups []*GroupData) *G
 	// First, create groups from stored data (preserves empty groups)
 	for _, gd := range storedGroups {
 		group := &Group{
-			Name:     gd.Name,
-			Path:     gd.Path,
-			Expanded: gd.Expanded,
-			Sessions: []*Instance{},
-			Order:    gd.Order,
+			Name:        gd.Name,
+			Path:        gd.Path,
+			Expanded:    gd.Expanded,
+			Sessions:    []*Instance{},
+			Order:       gd.Order,
+			DefaultPath: gd.DefaultPath,
 		}
 		tree.Groups[gd.Path] = group
 		tree.Expanded[gd.Path] = gd.Expanded
@@ -142,6 +149,11 @@ func NewGroupTreeWithGroups(instances []*Instance, storedGroups []*GroupData) *G
 
 	// Rebuild group list maintaining stored order
 	tree.rebuildGroupList()
+
+	// Update default paths for all groups (may override stored if sessions have newer paths)
+	for groupPath := range tree.Groups {
+		tree.updateGroupDefaultPath(groupPath)
+	}
 
 	return tree
 }
@@ -480,8 +492,10 @@ func (t *GroupTree) MoveSessionDown(inst *Instance) {
 
 // MoveSessionToGroup moves a session to a different group
 func (t *GroupTree) MoveSessionToGroup(inst *Instance, newGroupPath string) {
+	oldGroupPath := inst.GroupPath
+
 	// Remove from old group
-	if oldGroup, exists := t.Groups[inst.GroupPath]; exists {
+	if oldGroup, exists := t.Groups[oldGroupPath]; exists {
 		for i, s := range oldGroup.Sessions {
 			if s.ID == inst.ID {
 				oldGroup.Sessions = append(oldGroup.Sessions[:i], oldGroup.Sessions[i+1:]...)
@@ -505,6 +519,10 @@ func (t *GroupTree) MoveSessionToGroup(inst *Instance, newGroupPath string) {
 		t.rebuildGroupList()
 	}
 	newGroup.Sessions = append(newGroup.Sessions, inst)
+
+	// Update default paths for both old and new groups
+	t.updateGroupDefaultPath(oldGroupPath)
+	t.updateGroupDefaultPath(newGroupPath)
 }
 
 // sanitizeGroupName removes dangerous characters from group names
@@ -852,10 +870,11 @@ func (t *GroupTree) ShallowCopyForSave() *GroupTree {
 	groupListCopy := make([]*Group, len(t.GroupList))
 	for i, g := range t.GroupList {
 		groupListCopy[i] = &Group{
-			Name:     g.Name,
-			Path:     g.Path,
-			Expanded: g.Expanded,
-			Order:    g.Order,
+			Name:        g.Name,
+			Path:        g.Path,
+			Expanded:    g.Expanded,
+			Order:       g.Order,
+			DefaultPath: g.DefaultPath,
 			// Don't copy Sessions - not needed for save, only metadata is saved
 		}
 	}
@@ -863,5 +882,40 @@ func (t *GroupTree) ShallowCopyForSave() *GroupTree {
 	return &GroupTree{
 		GroupList: groupListCopy,
 		// Groups and Expanded maps not needed since only GroupList is iterated in save
+	}
+}
+
+// mostRecentPathForSessions returns the project path from the most recently accessed session
+// in the given list. Returns empty string if no sessions have paths.
+func mostRecentPathForSessions(sessions []*Instance) string {
+	if len(sessions) == 0 {
+		return ""
+	}
+
+	var mostRecent *Instance
+	for _, s := range sessions {
+		if s.ProjectPath == "" {
+			continue
+		}
+		if mostRecent == nil || s.LastAccessedAt.After(mostRecent.LastAccessedAt) {
+			mostRecent = s
+		}
+	}
+
+	if mostRecent != nil {
+		return mostRecent.ProjectPath
+	}
+	return ""
+}
+
+// updateGroupDefaultPath updates the DefaultPath of a group based on its sessions
+func (t *GroupTree) updateGroupDefaultPath(groupPath string) {
+	group, exists := t.Groups[groupPath]
+	if !exists {
+		return
+	}
+
+	if path := mostRecentPathForSessions(group.Sessions); path != "" {
+		group.DefaultPath = path
 	}
 }

@@ -479,13 +479,38 @@ func TestNewDialog_ShowInGroup_ResetsWorktree(t *testing.T) {
 	dialog.worktreeEnabled = true
 	dialog.branchInput.SetValue("feature/old-branch")
 
-	dialog.ShowInGroup("projects", "Projects")
+	dialog.ShowInGroup("projects", "Projects", "")
 
 	if dialog.worktreeEnabled {
 		t.Error("worktreeEnabled should be reset to false on ShowInGroup")
 	}
 	if dialog.branchInput.Value() != "" {
 		t.Errorf("branchInput should be reset, got: %q", dialog.branchInput.Value())
+	}
+}
+
+func TestNewDialog_ShowInGroup_SetsDefaultPath(t *testing.T) {
+	dialog := NewNewDialog()
+
+	dialog.ShowInGroup("projects", "Projects", "/test/default/path")
+
+	// Verify path input is set to the default path
+	if dialog.pathInput.Value() != "/test/default/path" {
+		t.Errorf("pathInput should be set to default path, got: %q", dialog.pathInput.Value())
+	}
+}
+
+func TestNewDialog_ShowInGroup_EmptyDefaultPath(t *testing.T) {
+	dialog := NewNewDialog()
+
+	dialog.ShowInGroup("projects", "Projects", "")
+
+	// With empty default path, it should fall back to current working directory
+	// We can't test the exact value, but we can verify it's not empty
+	// (assuming we're not in a system temp directory)
+	value := dialog.pathInput.Value()
+	if value == "" {
+		t.Error("pathInput should not be empty when defaultPath is empty (should use cwd)")
 	}
 }
 

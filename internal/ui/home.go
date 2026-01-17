@@ -1082,6 +1082,18 @@ func (h *Home) getInstanceByID(id string) *session.Instance {
 	return h.instanceByID[id]
 }
 
+// getDefaultPathForGroup returns the default path for a group
+// Returns empty string if group not found or no default path set
+func (h *Home) getDefaultPathForGroup(groupPath string) string {
+	if h.groupTree == nil {
+		return ""
+	}
+	if group, exists := h.groupTree.Groups[groupPath]; exists {
+		return group.DefaultPath
+	}
+	return ""
+}
+
 // statusWorker runs in a background goroutine (Priority 1C)
 // It receives status update requests and processes them without blocking the UI
 func (h *Home) statusWorker() {
@@ -2415,7 +2427,8 @@ func (h *Home) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				}
 			}
 		}
-		h.newDialog.ShowInGroup(groupPath, groupName)
+		defaultPath := h.getDefaultPathForGroup(groupPath)
+		h.newDialog.ShowInGroup(groupPath, groupName, defaultPath)
 		return h, nil
 
 	case "d":
@@ -3502,7 +3515,7 @@ func (h *Home) renderPanelTitle(title string, width int) string {
 		Width(width)
 
 	// Create underline that extends to panel width
-	underlineLen := width
+	underlineLen := max(0, width)
 	underline := underlineStyle.Render(strings.Repeat("─", underlineLen))
 
 	return titleStyle.Render(title) + "\n" + underline
@@ -3875,7 +3888,7 @@ func (h *Home) renderStackedLayout(totalHeight int) string {
 
 	// Separator
 	sepStyle := lipgloss.NewStyle().Foreground(ColorBorder)
-	b.WriteString(sepStyle.Render(strings.Repeat("─", h.width)))
+	b.WriteString(sepStyle.Render(strings.Repeat("─", max(0, h.width))))
 	b.WriteString("\n")
 
 	// Preview (full width)
@@ -3913,7 +3926,7 @@ func renderSectionDivider(label string, width int) string {
 	lineStyle := lipgloss.NewStyle().Foreground(ColorBorder)
 
 	if label == "" {
-		return lineStyle.Render(strings.Repeat("─", width))
+		return lineStyle.Render(strings.Repeat("─", max(0, width)))
 	}
 
 	// Label with subtle background for better visibility
@@ -3951,7 +3964,7 @@ func (h *Home) renderHelpBar() string {
 // renderHelpBarTiny renders minimal help for very narrow terminals (<50 cols)
 func (h *Home) renderHelpBarTiny() string {
 	borderStyle := lipgloss.NewStyle().Foreground(ColorBorder)
-	border := borderStyle.Render(strings.Repeat("─", h.width))
+	border := borderStyle.Render(strings.Repeat("─", max(0, h.width)))
 
 	hintStyle := lipgloss.NewStyle().Foreground(ColorComment)
 	hint := hintStyle.Render("? for help")
@@ -3969,7 +3982,7 @@ func (h *Home) renderHelpBarTiny() string {
 // renderHelpBarMinimal renders keys-only help for narrow terminals (50-69 cols)
 func (h *Home) renderHelpBarMinimal() string {
 	borderStyle := lipgloss.NewStyle().Foreground(ColorBorder)
-	border := borderStyle.Render(strings.Repeat("─", h.width))
+	border := borderStyle.Render(strings.Repeat("─", max(0, h.width)))
 
 	keyStyle := lipgloss.NewStyle().
 		Foreground(ColorBg).
@@ -4018,7 +4031,7 @@ func (h *Home) renderHelpBarMinimal() string {
 // renderHelpBarCompact renders abbreviated help for medium terminals (70-99 cols)
 func (h *Home) renderHelpBarCompact() string {
 	borderStyle := lipgloss.NewStyle().Foreground(ColorBorder)
-	border := borderStyle.Render(strings.Repeat("─", h.width))
+	border := borderStyle.Render(strings.Repeat("─", max(0, h.width)))
 
 	sepStyle := lipgloss.NewStyle().Foreground(ColorBorder)
 	sep := sepStyle.Render(" │ ")
@@ -4138,7 +4151,7 @@ func (h *Home) renderHelpBarFull() string {
 
 	// Top border
 	borderStyle := lipgloss.NewStyle().Foreground(ColorBorder)
-	border := borderStyle.Render(strings.Repeat("─", h.width))
+	border := borderStyle.Render(strings.Repeat("─", max(0, h.width)))
 
 	// Context indicator with subtle styling
 	ctxStyle := lipgloss.NewStyle().
@@ -4274,7 +4287,7 @@ func (h *Home) renderGroupItem(b *strings.Builder, item session.Item, selected b
 
 	// Calculate indentation based on nesting level (no tree lines, just spaces)
 	// Uses spacingNormal (2 chars) per level for consistent hierarchy visualization
-	indent := strings.Repeat(strings.Repeat(" ", spacingNormal), item.Level)
+	indent := strings.Repeat(strings.Repeat(" ", spacingNormal), max(0, item.Level))
 
 	// Expand/collapse indicator with filled triangles (using cached styles)
 	var expandIcon string
@@ -4443,7 +4456,7 @@ func (h *Home) renderSessionItem(b *strings.Builder, item session.Item, selected
 		treeStyle = TreeConnectorSelStyle
 		// Rebuild baseIndent with selection styling for sub-sessions
 		if item.IsSubSession && !item.ParentIsLastInGroup {
-			groupIndent := strings.Repeat(treeEmpty, item.Level-2)
+			groupIndent := strings.Repeat(treeEmpty, max(0, item.Level-2))
 			baseIndent = groupIndent + " " + treeStyle.Render("│")
 		}
 	}
@@ -4691,7 +4704,7 @@ func (h *Home) renderSessionInfoCard(inst *session.Instance, width, height int) 
 		Render(fmt.Sprintf("%s %s", icon, inst.Title))
 	b.WriteString(header)
 	b.WriteString("\n")
-	b.WriteString(strings.Repeat("─", min(width-4, 40)))
+	b.WriteString(strings.Repeat("─", max(0, min(width-4, 40))))
 	b.WriteString("\n\n")
 
 	labelStyle := lipgloss.NewStyle().Foreground(ColorTextDim)

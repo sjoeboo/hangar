@@ -85,8 +85,8 @@ func NewNewDialog() *NewDialog {
 	}
 }
 
-// ShowInGroup shows the dialog with a pre-selected parent group
-func (d *NewDialog) ShowInGroup(groupPath, groupName string) {
+// ShowInGroup shows the dialog with a pre-selected parent group and optional default path
+func (d *NewDialog) ShowInGroup(groupPath, groupName, defaultPath string) {
 	if groupPath == "" {
 		groupPath = "default"
 		groupName = "default"
@@ -103,6 +103,16 @@ func (d *NewDialog) ShowInGroup(groupPath, groupName string) {
 	// Reset worktree fields
 	d.worktreeEnabled = false
 	d.branchInput.SetValue("")
+	// Set path input to group's default path if provided, otherwise use current working directory
+	if defaultPath != "" {
+		d.pathInput.SetValue(defaultPath)
+	} else {
+		// Fall back to current working directory
+		cwd, err := os.Getwd()
+		if err == nil {
+			d.pathInput.SetValue(cwd)
+		}
+	}
 	// Initialize Gemini YOLO mode from global config
 	d.geminiYoloMode = false
 	if userConfig, err := session.LoadUserConfig(); err == nil && userConfig != nil {
@@ -150,7 +160,7 @@ func (d *NewDialog) SetPathSuggestions(paths []string) {
 
 // Show makes the dialog visible (uses default group)
 func (d *NewDialog) Show() {
-	d.ShowInGroup("default", "default")
+	d.ShowInGroup("default", "default", "")
 }
 
 // Hide hides the dialog
