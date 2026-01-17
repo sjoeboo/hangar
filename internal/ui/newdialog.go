@@ -439,6 +439,7 @@ func (d *NewDialog) Update(msg tea.Msg) (*NewDialog, tea.Cmd) {
 				if d.commandCursor < 0 {
 					d.commandCursor = len(d.presetCommands) - 1
 				}
+				d.updateFocus() // Focus command input when shell is selected (#32)
 				return d, nil
 			}
 			// Delegate to claude options if focused there
@@ -451,6 +452,7 @@ func (d *NewDialog) Update(msg tea.Msg) (*NewDialog, tea.Cmd) {
 			// Command selection
 			if d.focusIndex == 2 {
 				d.commandCursor = (d.commandCursor + 1) % len(d.presetCommands)
+				d.updateFocus() // Focus command input when shell is selected (#32)
 				return d, nil
 			}
 			// Delegate to claude options if focused there
