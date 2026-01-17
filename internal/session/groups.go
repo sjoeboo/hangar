@@ -194,10 +194,11 @@ func (t *GroupTree) rebuildGroupList() {
 		// Different parents - sort by full path to keep hierarchy together
 		return pathI < pathJ
 	})
-	// Assign sequential orders (preserving relative order)
-	for i, g := range t.GroupList {
-		g.Order = i
-	}
+	// Note: Do NOT reassign Order values here - this would destroy user-customized
+	// order stored in sessions.json. Order values are set:
+	// 1. When loaded from storage (preserved)
+	// 2. When creating new groups (Order = len(GroupList))
+	// 3. When manually reordering with K/J keys (MoveGroupUp/Down)
 }
 
 // getParentPath returns the parent path of a group path
@@ -741,6 +742,19 @@ func (t *GroupTree) SessionCount() int {
 	count := 0
 	for _, g := range t.Groups {
 		count += len(g.Sessions)
+	}
+	return count
+}
+
+// SessionCountForGroup returns session count for a group INCLUDING all its subgroups
+// This enables hierarchical counts like "Project (5)" where 5 includes all nested sessions
+func (t *GroupTree) SessionCountForGroup(groupPath string) int {
+	count := 0
+	for path, g := range t.Groups {
+		// Count this group if it matches OR is a subgroup (prefix match)
+		if path == groupPath || strings.HasPrefix(path, groupPath+"/") {
+			count += len(g.Sessions)
+		}
 	}
 	return count
 }

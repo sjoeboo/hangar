@@ -179,25 +179,50 @@ func (d *PromptDetector) hasClaudePrompt(content string) bool {
 		cleanLastLine := StripANSI(lastLine)
 		cleanLastLine = strings.TrimSpace(cleanLastLine)
 
-		// Claude Code shows just ">" when waiting for input
+		// Claude Code shows just ">" or "❯" when waiting for input
+		// Note: Claude Code uses "❯" (Unicode U+276F), not ASCII ">"
 		// This is the standard prompt in --dangerously-skip-permissions mode
-		if cleanLastLine == ">" {
+		if cleanLastLine == ">" || cleanLastLine == "❯" {
 			return true
 		}
 
-		// Also check for "> " (with trailing space/cursor position)
-		if cleanLastLine == "> " {
+		// Also check for "> " or "❯ " (with trailing space/cursor position)
+		if cleanLastLine == "> " || cleanLastLine == "❯ " {
 			return true
 		}
 
 		// Check for prompt with partial user input (user started typing)
-		// Pattern: "> some text" where user is typing
-		if strings.HasPrefix(cleanLastLine, "> ") && !strings.Contains(cleanLastLine, "esc") {
+		// Pattern: "> some text" or "❯ some text" where user is typing
+		if (strings.HasPrefix(cleanLastLine, "> ") || strings.HasPrefix(cleanLastLine, "❯ ")) && !strings.Contains(cleanLastLine, "esc") {
 			// Make sure it's not a quote or output line
 			// Real prompts are short (user input in progress)
 			if len(cleanLastLine) < 100 {
 				return true
 			}
+		}
+	}
+
+	// ═══════════════════════════════════════════════════════════════════════
+	// WAITING indicators - Prompt in recent lines (not just last line)
+	// Claude Code's UI has status bar AFTER the prompt, so check last 5 lines
+	// ═══════════════════════════════════════════════════════════════════════
+	checkLines := lastLines
+	if len(checkLines) > 5 {
+		checkLines = checkLines[len(checkLines)-5:]
+	}
+	for _, line := range checkLines {
+		cleanLine := strings.TrimSpace(StripANSI(line))
+		// Normalize non-breaking spaces (U+00A0) to regular spaces
+		// Claude Code uses NBSP after the prompt character
+		cleanLine = strings.ReplaceAll(cleanLine, "\u00A0", " ")
+		// Check for standalone prompt character (user hasn't typed yet)
+		if cleanLine == ">" || cleanLine == "❯" || cleanLine == "> " || cleanLine == "❯ " {
+			return true
+		}
+		// Check for prompt with suggestion (Claude shows "❯ Try..." when waiting)
+		// This is Claude's suggestion feature - still means waiting for input
+		if strings.HasPrefix(cleanLine, "❯ Try ") || strings.HasPrefix(cleanLine, "> Try ") {
+			return true
 		}
 	}
 
@@ -245,10 +270,10 @@ func (d *PromptDetector) hasClaudePrompt(content string) bool {
 		}
 	}
 	if hasCompletionIndicator {
-		// Check if there's a ">" in the last few lines
+		// Check if there's a ">" or "❯" in the last few lines
 		for _, line := range last3Lines {
 			cleanLine := strings.TrimSpace(StripANSI(line))
-			if cleanLine == ">" || cleanLine == "> " {
+			if cleanLine == ">" || cleanLine == "> " || cleanLine == "❯" || cleanLine == "❯ " {
 				return true
 			}
 		}

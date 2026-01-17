@@ -4322,18 +4322,24 @@ func (h *Home) renderGroupItem(b *strings.Builder, item session.Item, selected b
 		countStyle = GroupCountSelStyle
 	}
 
-	sessionCount := len(group.Sessions)
+	// Use recursive count to include sessions in subgroups (Issue #48)
+	sessionCount := h.groupTree.SessionCountForGroup(group.Path)
 	countStr := countStyle.Render(fmt.Sprintf(" (%d)", sessionCount))
 
 	// Status indicators (compact, on same line) using cached styles
+	// Also count recursively for subgroups
 	running := 0
 	waiting := 0
-	for _, sess := range group.Sessions {
-		switch sess.Status {
-		case session.StatusRunning:
-			running++
-		case session.StatusWaiting:
-			waiting++
+	for path, g := range h.groupTree.Groups {
+		if path == group.Path || strings.HasPrefix(path, group.Path+"/") {
+			for _, sess := range g.Sessions {
+				switch sess.Status {
+				case session.StatusRunning:
+					running++
+				case session.StatusWaiting:
+					waiting++
+				}
+			}
 		}
 	}
 

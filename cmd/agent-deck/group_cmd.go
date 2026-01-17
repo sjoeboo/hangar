@@ -112,30 +112,36 @@ func handleGroupList(profile string, args []string) {
 			Children     []groupJSON      `json:"children,omitempty"`
 		}
 
-		// Build hierarchical structure
+		// Build hierarchical structure (with recursive session counts - Issue #48)
 		buildGroupJSON := func(g *session.Group) groupJSON {
-			// Count status for this group's direct sessions
+			// Count status recursively for this group and all subgroups
 			status := groupStatusJSON{}
-			for _, sess := range g.Sessions {
-				_ = sess.UpdateStatus() // Refresh status
-				switch sess.Status {
-				case session.StatusRunning:
-					status.Running++
-				case session.StatusWaiting:
-					status.Waiting++
-				case session.StatusIdle:
-					status.Idle++
-				case session.StatusError:
-					status.Error++
+			for path, subGroup := range groupTree.Groups {
+				if path == g.Path || strings.HasPrefix(path, g.Path+"/") {
+					for _, sess := range subGroup.Sessions {
+						_ = sess.UpdateStatus() // Refresh status
+						switch sess.Status {
+						case session.StatusRunning:
+							status.Running++
+						case session.StatusWaiting:
+							status.Waiting++
+						case session.StatusIdle:
+							status.Idle++
+						case session.StatusError:
+							status.Error++
+						}
+					}
 				}
 			}
 
+			// Use recursive session count
+			sessCount := groupTree.SessionCountForGroup(g.Path)
 			gj := groupJSON{
 				Name:         g.Name,
 				Path:         g.Path,
-				SessionCount: len(g.Sessions),
+				SessionCount: sessCount,
 			}
-			if len(g.Sessions) > 0 {
+			if sessCount > 0 {
 				gj.Status = &status
 			}
 			return gj
@@ -234,20 +240,25 @@ func handleGroupList(profile string, args []string) {
 			}
 		}
 
-		// Count sessions and status for this group
-		sessCount := len(g.Sessions)
+		// Count sessions and status for this group (including subgroups - Issue #48)
+		sessCount := groupTree.SessionCountForGroup(g.Path)
 		statusStr := ""
 		if sessCount > 0 {
 			running, waiting, idle := 0, 0, 0
-			for _, sess := range g.Sessions {
-				_ = sess.UpdateStatus()
-				switch sess.Status {
-				case session.StatusRunning:
-					running++
-				case session.StatusWaiting:
-					waiting++
-				case session.StatusIdle:
-					idle++
+			// Count status recursively for all sessions in this group and subgroups
+			for path, subGroup := range groupTree.Groups {
+				if path == g.Path || strings.HasPrefix(path, g.Path+"/") {
+					for _, sess := range subGroup.Sessions {
+						_ = sess.UpdateStatus()
+						switch sess.Status {
+						case session.StatusRunning:
+							running++
+						case session.StatusWaiting:
+							waiting++
+						case session.StatusIdle:
+							idle++
+						}
+					}
 				}
 			}
 			var parts []string
@@ -295,6 +306,11 @@ func handleGroupCreate(profile string, args []string) {
 		fmt.Println("  agent-deck group create mobile")
 		fmt.Println("  agent-deck group create ios --parent mobile")
 	}
+
+	// Reorder args: move name to end so flags are parsed correctly
+	// Go's flag package stops parsing at first non-flag argument
+	// This allows: "group create ios --parent mobile" to work correctly
+	args = reorderGroupArgs(args)
 
 	if err := fs.Parse(args); err != nil {
 		os.Exit(1)
@@ -639,4 +655,41 @@ func truncateGroupName(s string, max int) string {
 		return s[:max]
 	}
 	return s[:max-3] + "..."
+}
+
+// reorderGroupArgs reorders arguments so flags come before positional args
+// This fixes Go's flag package limitation where flags after positional args are ignored
+// e.g., "ios --parent mobile" becomes "--parent mobile ios"
+func reorderGroupArgs(args []string) []string {
+	if len(args) == 0 {
+		return args
+	}
+
+	// Known flags that take a value
+	valueFlags := map[string]bool{
+		"--parent": true,
+	}
+
+	var flags []string
+	var positional []string
+
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+
+		// Check if it's a flag
+		if strings.HasPrefix(arg, "-") {
+			flags = append(flags, arg)
+
+			// Check if this flag takes a value (and value is separate)
+			if !strings.Contains(arg, "=") && valueFlags[arg] && i+1 < len(args) {
+				i++
+				flags = append(flags, args[i])
+			}
+		} else {
+			positional = append(positional, arg)
+		}
+	}
+
+	// Return flags first, then positional args
+	return append(flags, positional...)
 }
