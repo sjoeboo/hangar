@@ -743,27 +743,14 @@ func (h *Home) syncNotifications() {
 		return
 	}
 
-	// Get current session (the one user is attached to)
-	currentSession, _ := tmux.GetActiveSession()
-	currentSessionID := ""
-	h.instancesMu.RLock()
-	for _, inst := range h.instances {
-		if ts := inst.GetTmuxSession(); ts != nil && ts.Name == currentSession {
-			currentSessionID = inst.ID
-			break
-		}
-	}
-	h.instancesMu.RUnlock()
-
 	// Sync notifications with current instance states
+	// Don't exclude any session - show all waiting sessions in the bar
 	h.instancesMu.RLock()
-	added, removed := h.notificationManager.SyncFromInstances(h.instances, currentSessionID)
+	h.notificationManager.SyncFromInstances(h.instances, "")
 	h.instancesMu.RUnlock()
 
-	// Update tmux if anything changed
-	if len(added) > 0 || len(removed) > 0 {
-		h.updateTmuxNotifications()
-	}
+	// Always update tmux status bars and key bindings
+	h.updateTmuxNotifications()
 }
 
 // updateTmuxNotifications updates status bars and key bindings

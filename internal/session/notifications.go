@@ -154,38 +154,18 @@ func (nm *NotificationManager) FormatBar() string {
 		return ""
 	}
 
-	// Determine title length based on count
-	titleLen := nm.getTitleLength()
-
 	var parts []string
 	for _, e := range nm.entries {
-		title := e.Title
-		if len(title) > titleLen {
-			if titleLen > 3 {
-				title = title[:titleLen-3] + "..."
-			} else {
-				title = title[:titleLen] // Edge case: no room for ellipsis
-			}
-		}
-		parts = append(parts, fmt.Sprintf("[%s] %s", e.AssignedKey, title))
+		// No truncation - show full title, tmux will handle overflow
+		parts = append(parts, fmt.Sprintf("[%s] %s", e.AssignedKey, e.Title))
 	}
 
 	return "⚡ " + strings.Join(parts, " ")
 }
 
-// getTitleLength returns max title length based on entry count
-func (nm *NotificationManager) getTitleLength() int {
-	count := len(nm.entries)
-	switch {
-	case count == 1:
-		return 40 // Single session: show full name
-	case count == 2:
-		return 25 // Two sessions: generous space
-	case count <= 4:
-		return 16 // 3-4 sessions: moderate
-	default:
-		return 10 // 5-6 sessions: compact
-	}
+// GetBarText returns the current formatted bar text (for comparison)
+func (nm *NotificationManager) GetBarText() string {
+	return nm.FormatBar()
 }
 
 // SyncFromInstances updates notifications based on current instance states

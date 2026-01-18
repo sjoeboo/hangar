@@ -104,7 +104,7 @@ func TestNotificationManager_FormatBar(t *testing.T) {
 	assert.Contains(t, bar, "[2]")
 }
 
-func TestNotificationManager_DynamicTruncation(t *testing.T) {
+func TestNotificationManager_FullTitles(t *testing.T) {
 	nm := NewNotificationManager(6)
 
 	// Add 6 sessions with long names
@@ -118,9 +118,10 @@ func TestNotificationManager_DynamicTruncation(t *testing.T) {
 	}
 
 	bar := nm.FormatBar()
-	// With 6 sessions, titles should be truncated to ~6 chars
-	// Bar shouldn't be excessively long
-	assert.Less(t, len(bar), 120)
+	// Full titles should be shown (no truncation)
+	// Each title is ~20 chars, bar should contain all of them
+	assert.Contains(t, bar, "verylongsessionname5") // newest
+	assert.Contains(t, bar, "verylongsessionname0") // oldest
 }
 
 func TestNotificationManager_GetSessionByKey(t *testing.T) {
