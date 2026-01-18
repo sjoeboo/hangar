@@ -17,6 +17,7 @@ const (
 	SettingDefaultTool
 	SettingDangerousMode
 	SettingClaudeConfigDir
+	SettingGeminiYoloMode
 	SettingCheckForUpdates
 	SettingAutoUpdate
 	SettingLogMaxSize
@@ -30,7 +31,7 @@ const (
 )
 
 // Total number of navigable settings
-const settingsCount = 14
+const settingsCount = 15
 
 // SettingsPanel displays and edits user configuration
 type SettingsPanel struct {
@@ -44,6 +45,7 @@ type SettingsPanel struct {
 	selectedTool        int    // 0=claude, 1=gemini, 2=opencode, 3=codex, 4=none
 	dangerousMode       bool
 	claudeConfigDir     string
+	geminiYoloMode      bool
 	checkForUpdates     bool
 	autoUpdate          bool
 	logMaxSizeMB        int
@@ -152,6 +154,9 @@ func (s *SettingsPanel) LoadConfig(config *session.UserConfig) {
 	s.dangerousMode = config.Claude.DangerousMode
 	s.claudeConfigDir = config.Claude.ConfigDir
 
+	// Gemini settings
+	s.geminiYoloMode = config.Gemini.YoloMode
+
 	// Update settings
 	s.checkForUpdates = config.Updates.CheckEnabled
 	s.autoUpdate = config.Updates.AutoUpdate
@@ -207,6 +212,9 @@ func (s *SettingsPanel) GetConfig() *session.UserConfig {
 	// Claude settings
 	config.Claude.DangerousMode = s.dangerousMode
 	config.Claude.ConfigDir = s.claudeConfigDir
+
+	// Gemini settings
+	config.Gemini.YoloMode = s.geminiYoloMode
 
 	// Update settings
 	config.Updates.CheckEnabled = s.checkForUpdates
@@ -353,6 +361,10 @@ func (s *SettingsPanel) toggleValue() bool {
 	switch setting {
 	case SettingDangerousMode:
 		s.dangerousMode = !s.dangerousMode
+		return true
+
+	case SettingGeminiYoloMode:
+		s.geminiYoloMode = !s.geminiYoloMode
 		return true
 
 	case SettingCheckForUpdates:
@@ -520,6 +532,17 @@ func (s *SettingsPanel) View() string {
 		line += s.claudeConfigDir
 	}
 	if s.cursor == int(SettingClaudeConfigDir) {
+		line = highlightStyle.Render(line)
+	}
+	content.WriteString("  " + labelStyle.Render(line) + "\n\n")
+
+	// GEMINI
+	content.WriteString(sectionStyle.Render("GEMINI"))
+	content.WriteString("\n")
+
+	// YOLO mode checkbox
+	line = s.renderCheckbox("YOLO mode", s.geminiYoloMode) + " - Auto-approve all actions"
+	if s.cursor == int(SettingGeminiYoloMode) {
 		line = highlightStyle.Render(line)
 	}
 	content.WriteString("  " + labelStyle.Render(line) + "\n\n")

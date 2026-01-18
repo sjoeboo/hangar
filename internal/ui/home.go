@@ -2775,6 +2775,36 @@ func (h *Home) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return h, nil
 
+	case "y":
+		// Toggle Gemini YOLO mode (requires restart)
+		if h.cursor < len(h.flatItems) {
+			item := h.flatItems[h.cursor]
+			if item.Type == session.ItemTypeSession && item.Session != nil && item.Session.Tool == "gemini" {
+				inst := item.Session
+				// Determine current YOLO state
+				currentYolo := false
+				if inst.GeminiYoloMode != nil {
+					currentYolo = *inst.GeminiYoloMode
+				} else {
+					// Fall back to global config
+					userConfig, _ := session.LoadUserConfig()
+					if userConfig != nil {
+						currentYolo = userConfig.Gemini.YoloMode
+					}
+				}
+				// Toggle: set per-session override to opposite of current
+				newYolo := !currentYolo
+				inst.GeminiYoloMode = &newYolo
+				h.saveInstances()
+				// If session is running, it needs restart to apply
+				if inst.Status == session.StatusRunning || inst.Status == session.StatusWaiting {
+					h.resumingSessions[inst.ID] = time.Now()
+					return h, h.restartSession(inst)
+				}
+			}
+		}
+		return h, nil
+
 	case "R":
 		// Restart session (Shift+R - recreate tmux session with resume)
 		if h.cursor < len(h.flatItems) {
@@ -3141,16 +3171,6 @@ func (h *Home) getUsedClaudeSessionIDs() map[string]bool {
 	return usedIDs
 }
 
-// createSessionInGroup creates a new session in a specific group
-func (h *Home) createSessionInGroup(name, path, command, groupPath string) tea.Cmd {
-	return h.createSessionInGroupWithWorktreeAndOptions(name, path, command, groupPath, "", "", "", false, nil)
-}
-
-// createSessionInGroupWithWorktree creates a new session in a specific group with optional worktree settings
-func (h *Home) createSessionInGroupWithWorktree(name, path, command, groupPath, worktreePath, worktreeRepoRoot, worktreeBranch string) tea.Cmd {
-	return h.createSessionInGroupWithWorktreeAndOptions(name, path, command, groupPath, worktreePath, worktreeRepoRoot, worktreeBranch, false, nil)
-}
-
 // createSessionInGroupWithWorktreeAndOptions creates a new session with full options including YOLO mode and Claude options
 func (h *Home) createSessionInGroupWithWorktreeAndOptions(name, path, command, groupPath, worktreePath, worktreeRepoRoot, worktreeBranch string, geminiYoloMode bool, claudeOpts *session.ClaudeOptions) tea.Cmd {
 	return func() tea.Msg {
@@ -3195,7 +3215,9 @@ func (h *Home) createSessionInGroupWithWorktreeAndOptions(name, path, command, g
 
 		// Apply Claude options if provided
 		if tool == "claude" && claudeOpts != nil {
-			inst.SetClaudeOptions(claudeOpts)
+			if err := inst.SetClaudeOptions(claudeOpts); err != nil {
+				return sessionCreatedMsg{err: fmt.Errorf("failed to set Claude options: %w", err)}
+			}
 		}
 
 		if err := inst.Start(); err != nil {
@@ -4796,10 +4818,20 @@ func (h *Home) renderSessionItem(b *strings.Builder, item session.Item, selected
 	title := titleStyle.Render(inst.Title)
 	tool := toolStyle.Render(" " + inst.Tool)
 
-	// Build row: [baseIndent][selection][tree][status] [title] [tool]
+	// YOLO badge for Gemini sessions with YOLO mode enabled
+	yoloBadge := ""
+	if inst.Tool == "gemini" && inst.GeminiYoloMode != nil && *inst.GeminiYoloMode {
+		yoloStyle := lipgloss.NewStyle().Foreground(ColorYellow).Bold(true)
+		if selected {
+			yoloStyle = SessionStatusSelStyle
+		}
+		yoloBadge = yoloStyle.Render(" [YOLO]")
+	}
+
+	// Build row: [baseIndent][selection][tree][status] [title] [tool] [yolo]
 	// Format: " ├─ ● session-name tool" or "▶└─ ● session-name tool"
 	// Sub-sessions get extra indent: "   ├─◐ sub-session tool"
-	row := fmt.Sprintf("%s%s%s %s %s%s", baseIndent, selectionPrefix, treeStyle.Render(treeConnector), status, title, tool)
+	row := fmt.Sprintf("%s%s%s %s %s%s%s", baseIndent, selectionPrefix, treeStyle.Render(treeConnector), status, title, tool, yoloBadge)
 	b.WriteString(row)
 	b.WriteString("\n")
 }

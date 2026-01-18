@@ -107,6 +107,19 @@ func (inst *Instance) GetLastActivityTime() time.Time {
 	return inst.CreatedAt
 }
 
+// GetWaitingSince returns when the session transitioned to waiting status
+// Used for sorting notification bar (newest waiting sessions first)
+func (inst *Instance) GetWaitingSince() time.Time {
+	if inst.tmuxSession != nil {
+		waitingSince := inst.tmuxSession.GetWaitingSince()
+		if !waitingSince.IsZero() {
+			return waitingSince
+		}
+	}
+	// Fallback to CreatedAt if no waiting time tracked
+	return inst.CreatedAt
+}
+
 // IsSubSession returns true if this session has a parent
 func (inst *Instance) IsSubSession() bool {
 	return inst.ParentSessionID != ""
@@ -369,22 +382,24 @@ func (i *Instance) buildGeminiCommand(baseCommand string) string {
 	}
 
 	yoloFlag := ""
+	yoloEnv := "false"
 	if yoloMode {
 		yoloFlag = " --yolo"
+		yoloEnv = "true"
 	}
 
 	// If baseCommand is just "gemini", handle specially
 	if baseCommand == "gemini" {
 		// If we already have a session ID, use simple resume
 		if i.GeminiSessionID != "" {
-			return fmt.Sprintf("gemini --resume %s%s", i.GeminiSessionID, yoloFlag)
+			return fmt.Sprintf("tmux set-environment GEMINI_YOLO_MODE %s; gemini --resume %s%s", yoloEnv, i.GeminiSessionID, yoloFlag)
 		}
 
 		// Build the capture-resume command for new sessions with fallback
 		// This command:
 		// 1. Runs Gemini with a minimal prompt "." to completion (saves session to disk)
 		// 2. Extracts session_id from the JSON output
-		// 3. Stores session ID in tmux environment (for retrieval by agent-deck)
+		// 3. Stores session ID and YOLO mode in tmux environment (for retrieval by agent-deck)
 		// 4. Resumes that session interactively
 		// Fallback: If capture fails (jq not installed, auth issues), start Gemini fresh
 		// NOTE: Using --output-format json (not stream-json with head -1) because:
@@ -393,8 +408,9 @@ func (i *Instance) buildGeminiCommand(baseCommand string) string {
 		return fmt.Sprintf(`session_id=$(gemini --output-format json "." 2>/dev/null | jq -r '.session_id' 2>/dev/null) || session_id=""; `+
 			`if [ -n "$session_id" ] && [ "$session_id" != "null" ]; then `+
 			`tmux set-environment GEMINI_SESSION_ID "$session_id"; `+
+			`tmux set-environment GEMINI_YOLO_MODE %s; `+
 			`gemini --resume "$session_id"%s; `+
-			`else gemini%s; fi`, yoloFlag, yoloFlag)
+			`else tmux set-environment GEMINI_YOLO_MODE %s; gemini%s; fi`, yoloEnv, yoloFlag, yoloEnv, yoloFlag)
 	}
 
 	// For custom commands (e.g., resume commands), return as-is
@@ -808,7 +824,27 @@ func (i *Instance) UpdateClaudeSession(excludeIDs map[string]bool) {
 	}
 }
 
-// UpdateGeminiSession updates the Gemini session ID from tmux environment.
+// SetGeminiYoloMode sets the YOLO mode for Gemini and syncs it to the tmux environment.
+// This ensures the background status worker sees the correct state during restarts.
+func (i *Instance) SetGeminiYoloMode(enabled bool) {
+	if i.Tool != "gemini" {
+		return
+	}
+
+	i.GeminiYoloMode = &enabled
+
+	// Sync to tmux environment immediately if session exists
+	// This ensures background detection (UpdateGeminiSession) sees the new value
+	if i.tmuxSession != nil && i.tmuxSession.Exists() {
+		val := "false"
+		if enabled {
+			val = "true"
+		}
+		_ = i.tmuxSession.SetEnvironment("GEMINI_YOLO_MODE", val)
+	}
+}
+
+// UpdateGeminiSession updates the Gemini session ID and YOLO mode from tmux environment.
 // The capture-resume pattern (used in Start/Restart) sets GEMINI_SESSION_ID
 // in the tmux environment, making this the single authoritative source.
 //
@@ -820,11 +856,18 @@ func (i *Instance) UpdateGeminiSession(excludeIDs map[string]bool) {
 
 	// Read from tmux environment (set by capture-resume pattern)
 	if i.tmuxSession != nil {
+		// 1. Detect Session ID
 		if sessionID, err := i.tmuxSession.GetEnvironment("GEMINI_SESSION_ID"); err == nil && sessionID != "" {
 			if i.GeminiSessionID != sessionID {
 				i.GeminiSessionID = sessionID
 			}
 			i.GeminiDetectedAt = time.Now()
+		}
+
+		// 2. Detect YOLO Mode from environment (authoritative sync)
+		if yoloEnv, err := i.tmuxSession.GetEnvironment("GEMINI_YOLO_MODE"); err == nil && yoloEnv != "" {
+			enabled := yoloEnv == "true"
+			i.GeminiYoloMode = &enabled
 		}
 	}
 
@@ -1750,7 +1793,10 @@ func (i *Instance) CreateForkedInstanceWithOptions(newTitle, newGroupPath string
 
 	// Store options in the new instance for persistence
 	if opts != nil {
-		forked.SetClaudeOptions(opts)
+		if err := forked.SetClaudeOptions(opts); err != nil {
+			// Log but don't fail - options are not critical for fork
+			log.Printf("Warning: failed to set Claude options on forked session: %v", err)
+		}
 	}
 
 	return forked, cmd, nil
