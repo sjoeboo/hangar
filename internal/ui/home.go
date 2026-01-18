@@ -748,32 +748,41 @@ func (h *Home) syncNotifications() {
 	// This handles Ctrl+b 1-6 shortcuts which bypass agent-deck's attach flow
 	activeSession, _ := tmux.GetActiveSession()
 
-	// Phase 1: Read-only pass to find active session and collect info
-	// Use RLock since we're only reading
+	// Phase 1: Read-only pass to find active session ID (immutable identifier)
+	// Store only the ID, not pointers, to avoid stale pointer issues after lock release
 	var activeSessionID string
-	var instToAcknowledge *session.Instance
-	var tsToAcknowledge *tmux.Session
+	var sessionToAcknowledgeID string
 
 	h.instancesMu.RLock()
 	for _, inst := range h.instances {
 		ts := inst.GetTmuxSession()
 		if ts != nil && ts.Name == activeSession {
 			activeSessionID = inst.ID
-			// Check if this session needs acknowledgment
+			// Check if this session needs acknowledgment (store ID, not pointer)
 			if h.notificationManager.Has(inst.ID) && inst.Status == session.StatusWaiting {
-				instToAcknowledge = inst
-				tsToAcknowledge = ts
+				sessionToAcknowledgeID = inst.ID
 			}
 			break
 		}
 	}
 	h.instancesMu.RUnlock()
 
-	// Phase 2: Perform modifications outside the lock
-	// Acknowledge() and UpdateStatus() have their own internal locks
-	if tsToAcknowledge != nil && instToAcknowledge != nil {
-		tsToAcknowledge.Acknowledge()
-		_ = instToAcknowledge.UpdateStatus()
+	// Phase 2: Re-fetch and acknowledge under lock to avoid data races
+	// Codex review: storing pointers after lock release risks stale data if session restarts
+	if sessionToAcknowledgeID != "" {
+		h.instancesMu.RLock()
+		// Re-fetch the instance by ID to get current pointers
+		if inst, ok := h.instanceByID[sessionToAcknowledgeID]; ok {
+			// Re-validate status in case it changed
+			if inst.Status == session.StatusWaiting {
+				if ts := inst.GetTmuxSession(); ts != nil {
+					// Acknowledge() and UpdateStatus() have their own internal locks
+					ts.Acknowledge()
+					_ = inst.UpdateStatus()
+				}
+			}
+		}
+		h.instancesMu.RUnlock()
 	}
 
 	// Phase 3: Sync notifications (uses its own lock internally)
