@@ -824,6 +824,16 @@ check_interval_hours = 24
 # Show update notification in CLI commands, not just TUI (default: true)
 notify_in_cli = true
 
+# Experiments (for 'agent-deck try' command)
+# Quick experiment folder management with auto-dated directories
+[experiments]
+# Base directory for experiments (default: ~/src/tries)
+directory = "~/src/tries"
+# Add YYYY-MM-DD- prefix to new experiment folders (default: true)
+date_prefix = true
+# Default AI tool for experiment sessions (default: "claude")
+default_tool = "claude"
+
 # ============================================================================
 # MCP Server Definitions
 # ============================================================================
