@@ -748,30 +748,38 @@ func (h *Home) syncNotifications() {
 	// This handles Ctrl+b 1-6 shortcuts which bypass agent-deck's attach flow
 	activeSession, _ := tmux.GetActiveSession()
 
-	h.instancesMu.RLock()
-	defer h.instancesMu.RUnlock()
-
-	// Find which of our instances corresponds to the active session
+	// Phase 1: Read-only pass to find active session and collect info
+	// Use RLock since we're only reading
 	var activeSessionID string
+	var instToAcknowledge *session.Instance
+	var tsToAcknowledge *tmux.Session
+
+	h.instancesMu.RLock()
 	for _, inst := range h.instances {
 		ts := inst.GetTmuxSession()
 		if ts != nil && ts.Name == activeSession {
-			// If this session is currently in the notification bar (waiting),
-			// acknowledge it since user is now looking at it
-			if h.notificationManager.Has(inst.ID) && inst.Status == session.StatusWaiting {
-				// Acknowledge the session - this changes status from waiting to idle
-				ts.Acknowledge()
-				// Force status update to reflect the change
-				_ = inst.UpdateStatus()
-			}
 			activeSessionID = inst.ID
+			// Check if this session needs acknowledgment
+			if h.notificationManager.Has(inst.ID) && inst.Status == session.StatusWaiting {
+				instToAcknowledge = inst
+				tsToAcknowledge = ts
+			}
 			break
 		}
 	}
+	h.instancesMu.RUnlock()
 
-	// Sync notifications with current instance states
-	// Exclude the active session from the bar (user is already looking at it)
+	// Phase 2: Perform modifications outside the lock
+	// Acknowledge() and UpdateStatus() have their own internal locks
+	if tsToAcknowledge != nil && instToAcknowledge != nil {
+		tsToAcknowledge.Acknowledge()
+		_ = instToAcknowledge.UpdateStatus()
+	}
+
+	// Phase 3: Sync notifications (uses its own lock internally)
+	h.instancesMu.RLock()
 	h.notificationManager.SyncFromInstances(h.instances, activeSessionID)
+	h.instancesMu.RUnlock()
 
 	// Always update tmux status bars and key bindings
 	h.updateTmuxNotifications()

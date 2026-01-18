@@ -164,11 +164,6 @@ func (nm *NotificationManager) FormatBar() string {
 	return "⚡ " + strings.Join(parts, " ")
 }
 
-// GetBarText returns the current formatted bar text (for comparison)
-func (nm *NotificationManager) GetBarText() string {
-	return nm.FormatBar()
-}
-
 // SyncFromInstances updates notifications based on current instance states
 // Call this periodically to sync with actual session statuses
 func (nm *NotificationManager) SyncFromInstances(instances []*Instance, currentSessionID string) (added, removed []string) {
