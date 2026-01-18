@@ -246,6 +246,28 @@ Works with Claude Code, Gemini CLI, OpenCode, Codex, Cursor, and any terminal to
 
 **Why this matters:** Stop checking every session manually. See the full picture at a glance. Respond when needed. Stay in flow.
 
+### ⚡ Never Miss a Waiting Agent
+
+**Notification bar shows waiting sessions right in your tmux status bar.** Working in one session while another needs input? You'll see it instantly. Press `Ctrl+b 1` to jump there.
+
+```
+⚡ [1] frontend [2] api [3] backend
+```
+
+- Newest waiting session gets key `1`, second-newest gets `2`, etc.
+- Quick-switch with `Ctrl+b 1-6` directly from any tmux session
+- Session disappears from bar when you switch to it
+
+**Enable in `~/.agent-deck/config.toml`:**
+
+```toml
+[notifications]
+enabled = true   # Show waiting sessions in status bar
+max_shown = 6    # Max sessions to show (default: 6)
+```
+
+**Why this matters:** Running multiple agents in parallel? Now you'll never lose track of which ones need your attention.
+
 ## Installation
 
 **Works on:** macOS • Linux • Windows (WSL)
@@ -705,12 +727,26 @@ Data stored in `~/.agent-deck/`:
 └── config.toml       # User config (optional)
 ```
 
-For custom Claude profile directory:
+**Set defaults for new sessions** in `~/.agent-deck/config.toml`:
 
 ```toml
+# Pre-select Claude when creating new sessions (instead of shell)
+default_tool = "claude"
+
+# Claude-specific settings
 [claude]
+# Custom profile directory (for dual account setups)
 config_dir = "~/.claude-work"
+# Enable --dangerously-skip-permissions by default
+dangerous_mode = true
+
+# Gemini-specific settings
+[gemini]
+# Enable --yolo (auto-approve all) by default
+yolo_mode = true
 ```
+
+**Available `default_tool` values:** `"claude"`, `"gemini"`, `"opencode"`, `"codex"`, or any custom tool name from `[tools.*]`.
 
 ### tmux Configuration
 

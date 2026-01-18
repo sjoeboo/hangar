@@ -630,6 +630,37 @@ tier = "auto"  # "instant" (<100MB), "balanced", or "auto"
 
 ---
 
+## Notification Bar (Issue #33)
+
+Shows waiting sessions in tmux status bar with quick-switch keys.
+
+**How it works:**
+- When sessions enter "waiting" status, they appear in the status bar
+- Newest waiting session gets key `1`, second-newest gets `2`, etc.
+- Press `Ctrl+b 1` to switch to the first waiting session
+- When you switch to a session, it's removed from the notification bar
+
+**Display format:**
+```
+⚡ [1] frontend [2] api [3] backend
+```
+
+**Key bindings (conditional):**
+- Only active when notifications exist
+- Uses `Ctrl+b 1-6` (overrides default tmux window switching temporarily)
+- Keys are unbound when no notifications remain
+
+**Config:**
+```toml
+[notifications]
+enabled = true   # Enable notification bar (default: false)
+max_shown = 6    # Max sessions shown (default: 6)
+```
+
+**Implementation:** `internal/session/notifications.go`, `internal/ui/home.go`
+
+---
+
 ## Core Concepts
 
 ### Session (instance.go)
@@ -696,6 +727,10 @@ remove_orphans = true # Clean logs for deleted sessions
 enabled = true
 recent_days = 30
 tier = "auto"
+
+[notifications]
+enabled = true        # Show waiting sessions in tmux status bar (default: false)
+max_shown = 6         # Max sessions in notification bar (default: 6)
 
 [mcps.example]
 command = "npx"
