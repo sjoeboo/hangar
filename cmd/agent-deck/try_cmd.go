@@ -16,6 +16,8 @@ func handleTry(profile string, args []string) {
 	listOnly := fs.Bool("list", false, "List experiments without creating session")
 	listShort := fs.Bool("l", false, "List experiments (short)")
 	jsonOutput := fs.Bool("json", false, "Output as JSON")
+	quiet := fs.Bool("quiet", false, "Minimal output")
+	quietShort := fs.Bool("q", false, "Minimal output (short)")
 	tool := fs.String("cmd", "", "AI tool to use (defaults to config)")
 	toolShort := fs.String("c", "", "AI tool to use (short)")
 	noSession := fs.Bool("no-session", false, "Create folder only, don't start session")
@@ -60,10 +62,14 @@ func handleTry(profile string, args []string) {
 
 	// Merge flags
 	listMode := *listOnly || *listShort
+	quietMode := *quiet || *quietShort
 	selectedTool := mergeFlags(*tool, *toolShort)
 	if selectedTool == "" {
 		selectedTool = settings.DefaultTool
 	}
+
+	// Create CLI output handler
+	out := NewCLIOutput(*jsonOutput, quietMode)
 
 	// Handle list mode
 	if listMode {
@@ -86,25 +92,25 @@ func handleTry(profile string, args []string) {
 	}
 
 	if *noSession {
-		// Just print the path
+		action := "Found"
 		if created {
-			fmt.Printf("Created: %s\n", exp.Path)
-		} else {
-			fmt.Printf("Found: %s\n", exp.Path)
+			action = "Created"
 		}
+		out.Print(
+			fmt.Sprintf("%s: %s\n", action, exp.Path),
+			map[string]interface{}{
+				"action": strings.ToLower(action),
+				"name":   exp.Name,
+				"path":   exp.Path,
+			},
+		)
 		return
 	}
 
 	// Create and start session
-	storage, err := session.NewStorageWithProfile(profile)
+	storage, instances, _, err := loadSessionData(profile)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(1)
-	}
-
-	instances, groups, err := storage.LoadWithGroups()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		out.Error(err.Error(), ErrCodeInvalidOperation)
 		os.Exit(1)
 	}
 
@@ -114,12 +120,20 @@ func handleTry(profile string, args []string) {
 			// Session exists - just start it if not running
 			if !inst.Exists() {
 				if err := inst.Start(); err != nil {
-					fmt.Fprintf(os.Stderr, "Error starting session: %v\n", err)
+					out.Error(fmt.Sprintf("starting session: %v", err), ErrCodeInvalidOperation)
 					os.Exit(1)
 				}
 			}
-			fmt.Printf("Session: %s (%s)\n", inst.Title, inst.ID[:8])
-			fmt.Printf("Path: %s\n", exp.Path)
+			out.Print(
+				fmt.Sprintf("Session: %s (%s)\nPath: %s\n", inst.Title, inst.ID[:8], exp.Path),
+				map[string]interface{}{
+					"action":  "existing",
+					"session": inst.Title,
+					"id":      inst.ID[:8],
+					"path":    exp.Path,
+					"tool":    inst.Tool,
+				},
+			)
 			return
 		}
 	}
@@ -131,18 +145,15 @@ func handleTry(profile string, args []string) {
 
 	instances = append(instances, newInst)
 
-	// Rebuild group tree and ensure experiments group exists
-	groupTree := session.NewGroupTreeWithGroups(instances, groups)
-	groupTree.CreateGroup("experiments")
-
-	if err := storage.SaveWithGroups(instances, groupTree); err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+	// Save using helper (rebuilds group tree including "experiments" group from instance)
+	if err := saveSessionData(storage, instances); err != nil {
+		out.Error(err.Error(), ErrCodeInvalidOperation)
 		os.Exit(1)
 	}
 
 	// Start the session
 	if err := newInst.Start(); err != nil {
-		fmt.Fprintf(os.Stderr, "Error starting session: %v\n", err)
+		out.Error(fmt.Sprintf("starting session: %v", err), ErrCodeInvalidOperation)
 		os.Exit(1)
 	}
 
@@ -151,10 +162,17 @@ func handleTry(profile string, args []string) {
 		action = "Found"
 	}
 
-	fmt.Printf("%s %s experiment: %s\n", successSymbol, action, exp.Name)
-	fmt.Printf("  Path: %s\n", exp.Path)
-	fmt.Printf("  Session: %s (%s)\n", newInst.Title, newInst.ID[:8])
-	fmt.Printf("  Tool: %s\n", selectedTool)
+	out.Success(
+		fmt.Sprintf("%s experiment: %s", action, exp.Name),
+		map[string]interface{}{
+			"action":  strings.ToLower(action),
+			"name":    exp.Name,
+			"path":    exp.Path,
+			"session": newInst.Title,
+			"id":      newInst.ID[:8],
+			"tool":    selectedTool,
+		},
+	)
 }
 
 // handleTryList lists experiments with optional fuzzy search
