@@ -406,6 +406,16 @@ agent-deck version / help
 | `group delete <name>` | Delete group (flag: `--force` to delete with sessions) |
 | `group move <id> <group>` | Move session to group |
 
+### Try Commands (Quick Experiments)
+
+| Command | Description |
+|---------|-------------|
+| `try <name>` | Find or create experiment, start session |
+| `try --list` | List all experiments |
+| `try --list <query>` | Fuzzy search experiments |
+| `try <name> -c <tool>` | Use specific AI tool |
+| `try <name> --no-session` | Create folder only |
+
 ### Global Flags
 
 | Flag | Description |

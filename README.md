@@ -473,6 +473,24 @@ agent-deck group move my-session work   # Move session to group
 | `--parent` | Parent group for creating subgroups |
 | `--force` | Force delete by moving sessions to default group |
 
+### Quick Experiments
+
+```bash
+agent-deck try <name>              # Create/find dated folder + start session
+agent-deck try --list              # List all experiments
+agent-deck try --list <query>      # Fuzzy search experiments
+agent-deck try <name> -c gemini    # Use different AI tool
+agent-deck try <name> --no-session # Create folder only
+```
+
+**Config** (`~/.agent-deck/config.toml`):
+```toml
+[experiments]
+directory = "~/src/tries"
+date_prefix = true
+default_tool = "claude"
+```
+
 ### Status Command
 
 Quick status check without launching the TUI.
