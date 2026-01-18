@@ -2052,6 +2052,60 @@ func RunLogMaintenance(maxSizeMB int, maxLines int, removeOrphans bool) {
 
 // ═══════════════════════════════════════════════════════════════════════════
 
+// ═══════════════════════════════════════════════════════════════════════════
+// Notification Bar Helper Functions
+// ═══════════════════════════════════════════════════════════════════════════
+
+// SetStatusLeft sets the left side of tmux status bar for a session.
+// Used by NotificationManager to display waiting session notifications.
+func SetStatusLeft(sessionName, text string) error {
+	// Escape single quotes for tmux by replacing ' with '\''
+	escaped := strings.ReplaceAll(text, "'", "'\\''")
+	cmd := exec.Command("tmux", "set-option", "-t", sessionName, "status-left", escaped)
+	return cmd.Run()
+}
+
+// ClearStatusLeft resets status-left to default for a session.
+// Called when notifications are cleared or acknowledged.
+func ClearStatusLeft(sessionName string) error {
+	// -u flag unsets the option, reverting to tmux default
+	cmd := exec.Command("tmux", "set-option", "-t", sessionName, "-u", "status-left")
+	return cmd.Run()
+}
+
+// BindSwitchKey binds a number key to switch to target session.
+// Uses prefix table (default) so Ctrl+b N works.
+// The key should be a single character like "1", "2", etc.
+func BindSwitchKey(key, targetSession string) error {
+	cmd := exec.Command("tmux", "bind-key", key, "switch-client", "-t", targetSession)
+	return cmd.Run()
+}
+
+// UnbindKey removes a key binding and restores default behavior.
+// After unbinding, restores the default behavior where number keys select windows.
+func UnbindKey(key string) error {
+	// First unbind our custom binding
+	_ = exec.Command("tmux", "unbind-key", key).Run()
+
+	// Restore default: number keys select windows
+	// bind-key 1 select-window -t :1
+	cmd := exec.Command("tmux", "bind-key", key, "select-window", "-t", ":"+key)
+	return cmd.Run()
+}
+
+// GetActiveSession returns the session name the user is currently attached to.
+// Returns empty string and error if not attached to any session.
+func GetActiveSession() (string, error) {
+	cmd := exec.Command("tmux", "display-message", "-p", "#{client_session}")
+	out, err := cmd.Output()
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+
 // DiscoverAllTmuxSessions returns all tmux sessions (including non-Agent Deck ones)
 func DiscoverAllTmuxSessions() ([]*Session, error) {
 	cmd := exec.Command("tmux", "list-sessions", "-F", "#{session_name}:#{pane_current_path}")

@@ -2015,3 +2015,81 @@ func TestSession_SendCommand(t *testing.T) {
 		t.Errorf("Expected 'hello' in output, got: %s", content)
 	}
 }
+
+// =============================================================================
+// Notification Bar tmux Helper Functions Tests (Task 2)
+// =============================================================================
+
+func TestSetStatusLeft(t *testing.T) {
+	// Skip if no tmux
+	if _, err := exec.LookPath("tmux"); err != nil {
+		t.Skip("tmux not available")
+	}
+
+	// Create a test session
+	sessionName := "agentdeck_test_notification_" + fmt.Sprintf("%d", time.Now().UnixNano())
+	cmd := exec.Command("tmux", "new-session", "-d", "-s", sessionName)
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("Failed to create test session: %v", err)
+	}
+	defer exec.Command("tmux", "kill-session", "-t", sessionName).Run()
+
+	// Test setting status-left
+	err := SetStatusLeft(sessionName, "⚡ [1] test")
+	assert.NoError(t, err)
+
+	// Verify it was set
+	out, err := exec.Command("tmux", "show-option", "-t", sessionName, "-v", "status-left").Output()
+	assert.NoError(t, err)
+	assert.Contains(t, string(out), "⚡ [1] test")
+}
+
+func TestClearStatusLeft(t *testing.T) {
+	if _, err := exec.LookPath("tmux"); err != nil {
+		t.Skip("tmux not available")
+	}
+
+	sessionName := "agentdeck_test_notification_" + fmt.Sprintf("%d", time.Now().UnixNano())
+	cmd := exec.Command("tmux", "new-session", "-d", "-s", sessionName)
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("Failed to create test session: %v", err)
+	}
+	defer exec.Command("tmux", "kill-session", "-t", sessionName).Run()
+
+	// Set then clear
+	err := SetStatusLeft(sessionName, "⚡ [1] test")
+	assert.NoError(t, err)
+
+	err = ClearStatusLeft(sessionName)
+	assert.NoError(t, err)
+}
+
+func TestBindUnbindKey(t *testing.T) {
+	if _, err := exec.LookPath("tmux"); err != nil {
+		t.Skip("tmux not available")
+	}
+
+	// Bind a key
+	err := BindSwitchKey("9", "nonexistent-session")
+	assert.NoError(t, err)
+
+	// Unbind it
+	err = UnbindKey("9")
+	assert.NoError(t, err)
+}
+
+func TestGetActiveSession(t *testing.T) {
+	if _, err := exec.LookPath("tmux"); err != nil {
+		t.Skip("tmux not available")
+	}
+
+	// GetActiveSession returns the current client session
+	// This may fail if not running inside tmux, which is expected
+	session, err := GetActiveSession()
+	if err != nil {
+		// Not running inside tmux is expected in test environment
+		t.Logf("GetActiveSession error (expected if not in tmux): %v", err)
+	} else {
+		t.Logf("Active session: %s", session)
+	}
+}
