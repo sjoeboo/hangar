@@ -361,7 +361,9 @@ func (d *PromptDetector) hasShellPrompt(content string) bool {
 // can cause catastrophic backtracking on malformed escape sequences.
 func StripANSI(content string) string {
 	// Fast path: if no escape chars, return as-is
-	if !strings.ContainsAny(content, "\x1b\x9B") {
+	// Note: Using IndexByte instead of ContainsAny to avoid UTF-8 validation issues
+	// \x1b is ESC, \x9B is CSI (C1 control character)
+	if strings.IndexByte(content, '\x1b') < 0 && strings.IndexByte(content, '\x9B') < 0 {
 		return content
 	}
 

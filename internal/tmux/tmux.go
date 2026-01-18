@@ -325,6 +325,7 @@ type StateTracker struct {
 	acknowledged          bool      // User has seen this state (yellow vs gray)
 	acknowledgedAt        time.Time // When acknowledged was set (for grace period)
 	lastActivityTimestamp int64     // tmux window_activity timestamp for spike detection
+	waitingSince          time.Time // When session transitioned to waiting status
 
 	// Non-blocking spike detection: track changes across tick cycles
 	activityCheckStart  time.Time // When we started tracking for sustained activity
@@ -1155,10 +1156,12 @@ func (s *Session) GetStatus() (string, error) {
 
 	// Initialize on first call
 	if s.stateTracker == nil {
+		now := time.Now()
 		s.stateTracker = &StateTracker{
-			lastChangeTime:        time.Now().Add(-activityCooldown),
+			lastChangeTime:        now.Add(-activityCooldown),
 			acknowledged:          false, // Start unacknowledged so stopped sessions show YELLOW
 			lastActivityTimestamp: currentTS,
+			waitingSince:          now, // Track when session became waiting
 		}
 		s.lastStableStatus = "waiting"
 		debugLog("%s: INIT → waiting", shortName)
@@ -1171,6 +1174,9 @@ func (s *Session) GetStatus() (string, error) {
 		if s.stateTracker.acknowledged {
 			s.lastStableStatus = "idle"
 			return "idle", nil
+		}
+		if s.lastStableStatus != "waiting" {
+			s.stateTracker.waitingSince = time.Now()
 		}
 		s.lastStableStatus = "waiting"
 		return "waiting", nil
@@ -1244,6 +1250,10 @@ func (s *Session) GetStatus() (string, error) {
 		s.lastStableStatus = "idle"
 		return "idle", nil
 	}
+	// Track when we transition to waiting (not already waiting)
+	if s.lastStableStatus != "waiting" {
+		s.stateTracker.waitingSince = time.Now()
+	}
 	s.lastStableStatus = "waiting"
 	return "waiting", nil
 }
@@ -1284,10 +1294,12 @@ func (s *Session) getStatusFallback() (string, error) {
 	defer s.mu.Unlock()
 
 	if s.stateTracker == nil {
+		now := time.Now()
 		s.stateTracker = &StateTracker{
 			lastHash:       currentHash,
-			lastChangeTime: time.Now().Add(-activityCooldown),
+			lastChangeTime: now.Add(-activityCooldown),
 			acknowledged:   false, // Start unacknowledged so stopped sessions show YELLOW
+			waitingSince:   now,   // Track when session became waiting
 		}
 		s.lastStableStatus = "waiting"
 		return "waiting", nil
@@ -1298,6 +1310,9 @@ func (s *Session) getStatusFallback() (string, error) {
 		if s.stateTracker.acknowledged {
 			s.lastStableStatus = "idle"
 			return "idle", nil
+		}
+		if s.lastStableStatus != "waiting" {
+			s.stateTracker.waitingSince = time.Now()
 		}
 		s.lastStableStatus = "waiting"
 		return "waiting", nil
@@ -1325,6 +1340,10 @@ func (s *Session) getStatusFallback() (string, error) {
 	if s.stateTracker.acknowledged {
 		s.lastStableStatus = "idle"
 		return "idle", nil
+	}
+	// Track when we transition to waiting (not already waiting)
+	if s.lastStableStatus != "waiting" {
+		s.stateTracker.waitingSince = time.Now()
 	}
 	s.lastStableStatus = "waiting"
 	return "waiting", nil
@@ -1376,6 +1395,18 @@ func (s *Session) GetLastActivityTime() time.Time {
 		return time.Time{}
 	}
 	return s.stateTracker.lastChangeTime
+}
+
+// GetWaitingSince returns when the session transitioned to waiting status
+// Returns zero time if session has never been waiting
+func (s *Session) GetWaitingSince() time.Time {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.stateTracker == nil {
+		return time.Time{}
+	}
+	return s.stateTracker.waitingSince
 }
 
 // hasBusyIndicator checks if the terminal shows explicit busy indicators

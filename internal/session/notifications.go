@@ -192,20 +192,20 @@ func (nm *NotificationManager) SyncFromInstances(instances []*Instance, currentS
 
 	// Collect new waiting sessions into a slice for sorting
 	type newEntry struct {
-		inst      *Instance
-		activityT time.Time
+		inst         *Instance
+		waitingSince time.Time
 	}
 	var newWaiting []newEntry
 	for _, inst := range waitingSet {
 		newWaiting = append(newWaiting, newEntry{
-			inst:      inst,
-			activityT: inst.GetLastActivityTime(), // When content last changed
+			inst:         inst,
+			waitingSince: inst.GetWaitingSince(), // When session became waiting
 		})
 	}
 
-	// Sort by activity time (most recent first = newest waiting sessions)
+	// Sort by waiting since (most recent first = newest waiting sessions)
 	sort.Slice(newWaiting, func(i, j int) bool {
-		return newWaiting[i].activityT.After(newWaiting[j].activityT)
+		return newWaiting[i].waitingSince.After(newWaiting[j].waitingSince)
 	})
 
 	// Prepend new entries (newest first, maintaining sorted order)
@@ -219,7 +219,7 @@ func (nm *NotificationManager) SyncFromInstances(instances []*Instance, currentS
 			SessionID:    inst.ID,
 			TmuxName:     tmuxName,
 			Title:        inst.Title,
-			WaitingSince: nw.activityT, // Use activity time for better ordering
+			WaitingSince: nw.waitingSince, // When session became waiting
 		}
 		nm.entries = append([]*NotificationEntry{entry}, nm.entries...)
 		added = append(added, inst.ID)
