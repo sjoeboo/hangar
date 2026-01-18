@@ -858,19 +858,22 @@ func TestBuildGeminiCommand(t *testing.T) {
 		t.Error("Should check for null session_id from jq")
 	}
 	// Should start Gemini even without session ID (fallback path)
-	if !strings.Contains(cmd, "else gemini; fi") {
+	// Note: The else branch now includes YOLO mode setup before starting gemini
+	if !strings.Contains(cmd, "else") || !strings.Contains(cmd, "gemini; fi") {
 		t.Error("Should have else branch to start Gemini fresh")
 	}
 
-	// With session ID, should use simple resume
+	// With session ID, should use simple resume with YOLO env var
 	inst.GeminiSessionID = "abc-123-def"
 	cmd = inst.buildGeminiCommand("gemini")
-	expected := "gemini --resume abc-123-def"
-	if cmd != expected {
-		t.Errorf("buildGeminiCommand('gemini') = %q, want %q", cmd, expected)
+	if !strings.Contains(cmd, "gemini --resume abc-123-def") {
+		t.Errorf("buildGeminiCommand('gemini') should contain resume command, got %q", cmd)
+	}
+	if !strings.Contains(cmd, "GEMINI_YOLO_MODE") {
+		t.Errorf("buildGeminiCommand('gemini') should set GEMINI_YOLO_MODE env, got %q", cmd)
 	}
 
-	// Custom commands should pass through
+	// Custom commands should pass through (e.g., existing --resume commands)
 	customCmd := "gemini --some-flag"
 	cmd = inst.buildGeminiCommand(customCmd)
 	if cmd != customCmd {
