@@ -100,9 +100,9 @@ func FuzzyFind(experiments []Experiment, query string) []Experiment {
 // FindExact returns an experiment with exact name match (case-insensitive)
 func FindExact(experiments []Experiment, name string) *Experiment {
 	nameLower := strings.ToLower(name)
-	for _, exp := range experiments {
-		if strings.ToLower(exp.Name) == nameLower {
-			return &exp
+	for i := range experiments {
+		if strings.ToLower(experiments[i].Name) == nameLower {
+			return &experiments[i] // Safe: points to slice element
 		}
 	}
 	return nil
@@ -149,8 +149,15 @@ func CreateExperiment(baseDir, name string, datePrefix bool) (*Experiment, error
 		return nil, fmt.Errorf("failed to create experiment directory: %w", err)
 	}
 
+	// Extract display name from folder name to be consistent with ListExperiments
+	// When datePrefix is true, folderName is "YYYY-MM-DD-name", so strip the date prefix
+	displayName := name
+	if datePrefix && len(folderName) >= 11 && folderName[4] == '-' && folderName[7] == '-' && folderName[10] == '-' {
+		displayName = folderName[11:]
+	}
+
 	exp := &Experiment{
-		Name:    name,
+		Name:    displayName,
 		Path:    targetPath,
 		Date:    time.Now(),
 		HasDate: datePrefix,
@@ -183,8 +190,13 @@ func FindOrCreate(baseDir, query string, datePrefix bool) (*Experiment, bool, er
 	matches := FuzzyFind(experiments, query)
 
 	// If there's a strong single match (only 1 result), use it
+	// Find the matching experiment in the original slice to return a stable pointer
 	if len(matches) == 1 {
-		return &matches[0], false, nil
+		for i := range experiments {
+			if experiments[i].Path == matches[0].Path {
+				return &experiments[i], false, nil // Safe: points to slice element
+			}
+		}
 	}
 
 	// No good match - create new experiment
