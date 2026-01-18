@@ -491,3 +491,114 @@ show_analytics = false
 		t.Error("GetPreviewSettings ShowAnalytics: should be false from config")
 	}
 }
+
+// ============================================================================
+// Notifications Settings Tests
+// ============================================================================
+
+func TestNotificationsConfig_Defaults(t *testing.T) {
+	// Test that default values are applied when section not present
+	tempDir := t.TempDir()
+	originalHome := os.Getenv("HOME")
+	os.Setenv("HOME", tempDir)
+	defer os.Setenv("HOME", originalHome)
+	ClearUserConfigCache()
+
+	// With no config file, GetNotificationsSettings should return defaults
+	settings := GetNotificationsSettings()
+	if settings.Enabled {
+		t.Error("notifications should be disabled by default")
+	}
+	if settings.MaxShown != 6 {
+		t.Errorf("max_shown should default to 6, got %d", settings.MaxShown)
+	}
+}
+
+func TestNotificationsConfig_FromTOML(t *testing.T) {
+	// Test parsing explicit TOML config
+	tmpDir := t.TempDir()
+	configContent := `
+[notifications]
+enabled = true
+max_shown = 4
+`
+	configPath := filepath.Join(tmpDir, "config.toml")
+	if err := os.WriteFile(configPath, []byte(configContent), 0600); err != nil {
+		t.Fatalf("Failed to write config file: %v", err)
+	}
+
+	var config UserConfig
+	_, err := toml.DecodeFile(configPath, &config)
+	if err != nil {
+		t.Fatalf("Failed to decode: %v", err)
+	}
+
+	if !config.Notifications.Enabled {
+		t.Error("Expected Notifications.Enabled to be true")
+	}
+	if config.Notifications.MaxShown != 4 {
+		t.Errorf("Expected MaxShown 4, got %d", config.Notifications.MaxShown)
+	}
+}
+
+func TestGetNotificationsSettings(t *testing.T) {
+	tempDir := t.TempDir()
+	originalHome := os.Getenv("HOME")
+	os.Setenv("HOME", tempDir)
+	defer os.Setenv("HOME", originalHome)
+	ClearUserConfigCache()
+
+	// Create config with custom notification settings
+	agentDeckDir := filepath.Join(tempDir, ".agent-deck")
+	_ = os.MkdirAll(agentDeckDir, 0700)
+
+	configPath := filepath.Join(agentDeckDir, "config.toml")
+	content := `
+[notifications]
+enabled = true
+max_shown = 8
+`
+	if err := os.WriteFile(configPath, []byte(content), 0644); err != nil {
+		t.Fatalf("Failed to write config: %v", err)
+	}
+	ClearUserConfigCache()
+
+	settings := GetNotificationsSettings()
+	if !settings.Enabled {
+		t.Error("GetNotificationsSettings Enabled: should be true from config")
+	}
+	if settings.MaxShown != 8 {
+		t.Errorf("GetNotificationsSettings MaxShown: got %d, want 8", settings.MaxShown)
+	}
+}
+
+func TestGetNotificationsSettings_PartialConfig(t *testing.T) {
+	// Test that missing fields get defaults
+	tempDir := t.TempDir()
+	originalHome := os.Getenv("HOME")
+	os.Setenv("HOME", tempDir)
+	defer os.Setenv("HOME", originalHome)
+	ClearUserConfigCache()
+
+	agentDeckDir := filepath.Join(tempDir, ".agent-deck")
+	_ = os.MkdirAll(agentDeckDir, 0700)
+
+	// Config with only enabled set, max_shown should get default
+	configPath := filepath.Join(agentDeckDir, "config.toml")
+	content := `
+[notifications]
+enabled = true
+`
+	if err := os.WriteFile(configPath, []byte(content), 0644); err != nil {
+		t.Fatalf("Failed to write config: %v", err)
+	}
+	ClearUserConfigCache()
+
+	settings := GetNotificationsSettings()
+	if !settings.Enabled {
+		t.Error("GetNotificationsSettings Enabled: should be true")
+	}
+	if settings.MaxShown != 6 {
+		t.Errorf("GetNotificationsSettings MaxShown: should default to 6, got %d", settings.MaxShown)
+	}
+}

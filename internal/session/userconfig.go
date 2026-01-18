@@ -59,6 +59,9 @@ type UserConfig struct {
 
 	// Experiments defines experiment folder settings for 'try' command
 	Experiments ExperimentsSettings `toml:"experiments"`
+
+	// Notifications defines waiting session notification bar settings
+	Notifications NotificationsConfig `toml:"notifications"`
 }
 
 // MCPPoolSettings defines HTTP MCP pool configuration
@@ -160,6 +163,15 @@ type ExperimentsSettings struct {
 	// DefaultTool is the AI tool to use for experiment sessions
 	// Default: "claude"
 	DefaultTool string `toml:"default_tool"`
+}
+
+// NotificationsConfig configures the waiting session notification bar
+type NotificationsConfig struct {
+	// Enabled shows notification bar in tmux status (default: false)
+	Enabled bool `toml:"enabled"`
+
+	// MaxShown is the maximum number of sessions shown in the bar (default: 6)
+	MaxShown int `toml:"max_shown"`
 }
 
 // GetShowAnalytics returns whether to show analytics, defaulting to true
@@ -677,6 +689,27 @@ func GetExperimentsSettings() ExperimentsSettings {
 
 	if settings.DefaultTool == "" {
 		settings.DefaultTool = "claude"
+	}
+
+	return settings
+}
+
+// GetNotificationsSettings returns notification bar settings with defaults applied
+func GetNotificationsSettings() NotificationsConfig {
+	config, err := LoadUserConfig()
+	if err != nil || config == nil {
+		return NotificationsConfig{
+			Enabled:  false,
+			MaxShown: 6,
+		}
+	}
+
+	settings := config.Notifications
+
+	// Apply defaults for unset values
+	// Enabled defaults to false (Go zero value is correct)
+	if settings.MaxShown <= 0 {
+		settings.MaxShown = 6
 	}
 
 	return settings
