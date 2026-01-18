@@ -743,11 +743,35 @@ func (h *Home) syncNotifications() {
 		return
 	}
 
-	// Sync notifications with current instance states
-	// Don't exclude any session - show all waiting sessions in the bar
+	// Detect which session the user is currently attached to (via shortcuts or otherwise)
+	// If they've switched to a waiting session, acknowledge it so it shows as "seen"
+	// This handles Ctrl+b 1-6 shortcuts which bypass agent-deck's attach flow
+	activeSession, _ := tmux.GetActiveSession()
+
 	h.instancesMu.RLock()
-	h.notificationManager.SyncFromInstances(h.instances, "")
-	h.instancesMu.RUnlock()
+	defer h.instancesMu.RUnlock()
+
+	// Find which of our instances corresponds to the active session
+	var activeSessionID string
+	for _, inst := range h.instances {
+		ts := inst.GetTmuxSession()
+		if ts != nil && ts.Name == activeSession {
+			// If this session is currently in the notification bar (waiting),
+			// acknowledge it since user is now looking at it
+			if h.notificationManager.Has(inst.ID) && inst.Status == session.StatusWaiting {
+				// Acknowledge the session - this changes status from waiting to idle
+				ts.Acknowledge()
+				// Force status update to reflect the change
+				_ = inst.UpdateStatus()
+			}
+			activeSessionID = inst.ID
+			break
+		}
+	}
+
+	// Sync notifications with current instance states
+	// Exclude the active session from the bar (user is already looking at it)
+	h.notificationManager.SyncFromInstances(h.instances, activeSessionID)
 
 	// Always update tmux status bars and key bindings
 	h.updateTmuxNotifications()

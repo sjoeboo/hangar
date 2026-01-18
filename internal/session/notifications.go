@@ -2,6 +2,7 @@ package session
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -194,20 +195,39 @@ func (nm *NotificationManager) SyncFromInstances(instances []*Instance, currentS
 	}
 	nm.entries = newEntries
 
-	// Add new waiting sessions (prepend, newest first)
-	for id, inst := range waitingSet {
+	// Collect new waiting sessions into a slice for sorting
+	type newEntry struct {
+		inst      *Instance
+		activityT time.Time
+	}
+	var newWaiting []newEntry
+	for _, inst := range waitingSet {
+		newWaiting = append(newWaiting, newEntry{
+			inst:      inst,
+			activityT: inst.GetLastActivityTime(), // When content last changed
+		})
+	}
+
+	// Sort by activity time (most recent first = newest waiting sessions)
+	sort.Slice(newWaiting, func(i, j int) bool {
+		return newWaiting[i].activityT.After(newWaiting[j].activityT)
+	})
+
+	// Prepend new entries (newest first, maintaining sorted order)
+	for _, nw := range newWaiting {
+		inst := nw.inst
 		tmuxName := ""
 		if ts := inst.GetTmuxSession(); ts != nil {
 			tmuxName = ts.Name
 		}
 		entry := &NotificationEntry{
-			SessionID:    id,
+			SessionID:    inst.ID,
 			TmuxName:     tmuxName,
 			Title:        inst.Title,
-			WaitingSince: time.Now(),
+			WaitingSince: nw.activityT, // Use activity time for better ordering
 		}
 		nm.entries = append([]*NotificationEntry{entry}, nm.entries...)
-		added = append(added, id)
+		added = append(added, inst.ID)
 	}
 
 	// Trim to max
