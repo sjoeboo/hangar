@@ -177,12 +177,14 @@ func (nm *NotificationManager) FormatBar() string {
 func (nm *NotificationManager) getTitleLength() int {
 	count := len(nm.entries)
 	switch {
-	case count <= 2:
-		return 14
+	case count == 1:
+		return 40 // Single session: show full name
+	case count == 2:
+		return 25 // Two sessions: generous space
 	case count <= 4:
-		return 10
+		return 16 // 3-4 sessions: moderate
 	default:
-		return 6
+		return 10 // 5-6 sessions: compact
 	}
 }
 
