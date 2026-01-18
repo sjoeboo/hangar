@@ -63,8 +63,8 @@ func TestNotificationManager_Remove(t *testing.T) {
 
 	inst1 := &Instance{ID: "a", Title: "first", Status: StatusWaiting}
 	inst2 := &Instance{ID: "b", Title: "second", Status: StatusWaiting}
-	nm.Add(inst1)
-	nm.Add(inst2)
+	_ = nm.Add(inst1)
+	_ = nm.Add(inst2)
 
 	nm.Remove("b") // Remove newest
 
@@ -79,7 +79,7 @@ func TestNotificationManager_MaxShown(t *testing.T) {
 
 	for i := 0; i < 5; i++ {
 		inst := &Instance{ID: string(rune('a' + i)), Title: string(rune('A' + i)), Status: StatusWaiting}
-		nm.Add(inst)
+		_ = nm.Add(inst)
 		time.Sleep(5 * time.Millisecond)
 	}
 
@@ -98,13 +98,13 @@ func TestNotificationManager_FormatBar(t *testing.T) {
 	assert.Equal(t, "", nm.FormatBar())
 
 	// One session
-	nm.Add(&Instance{ID: "a", Title: "frontend", Status: StatusWaiting})
+	_ = nm.Add(&Instance{ID: "a", Title: "frontend", Status: StatusWaiting})
 	bar := nm.FormatBar()
 	assert.Contains(t, bar, "[1]")
 	assert.Contains(t, bar, "frontend")
 
 	// Two sessions
-	nm.Add(&Instance{ID: "b", Title: "api", Status: StatusWaiting})
+	_ = nm.Add(&Instance{ID: "b", Title: "api", Status: StatusWaiting})
 	bar = nm.FormatBar()
 	assert.Contains(t, bar, "[1]")
 	assert.Contains(t, bar, "[2]")
@@ -120,7 +120,7 @@ func TestNotificationManager_FullTitles(t *testing.T) {
 			Title:  "verylongsessionname" + string(rune('0'+i)),
 			Status: StatusWaiting,
 		}
-		nm.Add(inst)
+		_ = nm.Add(inst)
 	}
 
 	bar := nm.FormatBar()
@@ -135,8 +135,8 @@ func TestNotificationManager_GetSessionByKey(t *testing.T) {
 
 	inst1 := &Instance{ID: "a", Title: "first", Status: StatusWaiting}
 	inst2 := &Instance{ID: "b", Title: "second", Status: StatusWaiting}
-	nm.Add(inst1)
-	nm.Add(inst2)
+	_ = nm.Add(inst1)
+	_ = nm.Add(inst2)
 
 	// Key "1" should return newest (second)
 	entry := nm.GetSessionByKey("1")
@@ -158,10 +158,10 @@ func TestNotificationManager_Count(t *testing.T) {
 
 	assert.Equal(t, 0, nm.Count())
 
-	nm.Add(&Instance{ID: "a", Title: "first", Status: StatusWaiting})
+	_ = nm.Add(&Instance{ID: "a", Title: "first", Status: StatusWaiting})
 	assert.Equal(t, 1, nm.Count())
 
-	nm.Add(&Instance{ID: "b", Title: "second", Status: StatusWaiting})
+	_ = nm.Add(&Instance{ID: "b", Title: "second", Status: StatusWaiting})
 	assert.Equal(t, 2, nm.Count())
 
 	nm.Remove("a")
@@ -171,8 +171,8 @@ func TestNotificationManager_Count(t *testing.T) {
 func TestNotificationManager_Clear(t *testing.T) {
 	nm := NewNotificationManager(6)
 
-	nm.Add(&Instance{ID: "a", Title: "first", Status: StatusWaiting})
-	nm.Add(&Instance{ID: "b", Title: "second", Status: StatusWaiting})
+	_ = nm.Add(&Instance{ID: "a", Title: "first", Status: StatusWaiting})
+	_ = nm.Add(&Instance{ID: "b", Title: "second", Status: StatusWaiting})
 	assert.Equal(t, 2, nm.Count())
 
 	nm.Clear()
@@ -183,7 +183,7 @@ func TestNotificationManager_Clear(t *testing.T) {
 func TestNotificationManager_Has(t *testing.T) {
 	nm := NewNotificationManager(6)
 
-	nm.Add(&Instance{ID: "a", Title: "first", Status: StatusWaiting})
+	_ = nm.Add(&Instance{ID: "a", Title: "first", Status: StatusWaiting})
 
 	assert.True(t, nm.Has("a"))
 	assert.False(t, nm.Has("b"))
@@ -193,8 +193,8 @@ func TestNotificationManager_DuplicateAdd(t *testing.T) {
 	nm := NewNotificationManager(6)
 
 	inst := &Instance{ID: "a", Title: "first", Status: StatusWaiting}
-	nm.Add(inst)
-	nm.Add(inst) // Add same instance again
+	_ = nm.Add(inst)
+	_ = nm.Add(inst) // Add same instance again
 
 	// Should only have one entry
 	assert.Equal(t, 1, nm.Count())
@@ -204,7 +204,7 @@ func TestNotificationManager_SyncFromInstances(t *testing.T) {
 	nm := NewNotificationManager(6)
 
 	// Initial add
-	nm.Add(&Instance{ID: "a", Title: "first", Status: StatusWaiting})
+	_ = nm.Add(&Instance{ID: "a", Title: "first", Status: StatusWaiting})
 
 	instances := []*Instance{
 		{ID: "a", Title: "first", Status: StatusWaiting},  // Still waiting
@@ -225,8 +225,8 @@ func TestNotificationManager_SyncFromInstances(t *testing.T) {
 func TestNotificationManager_SyncFromInstances_RemovesNonWaiting(t *testing.T) {
 	nm := NewNotificationManager(6)
 
-	nm.Add(&Instance{ID: "a", Title: "first", Status: StatusWaiting})
-	nm.Add(&Instance{ID: "b", Title: "second", Status: StatusWaiting})
+	_ = nm.Add(&Instance{ID: "a", Title: "first", Status: StatusWaiting})
+	_ = nm.Add(&Instance{ID: "b", Title: "second", Status: StatusWaiting})
 
 	// "a" is no longer waiting (became idle)
 	instances := []*Instance{
@@ -265,7 +265,7 @@ func TestNotificationManager_DefaultMaxShown(t *testing.T) {
 	nm := NewNotificationManager(0) // Invalid value should default to 6
 
 	for i := 0; i < 10; i++ {
-		nm.Add(&Instance{ID: string(rune('a' + i)), Title: string(rune('A' + i)), Status: StatusWaiting})
+		_ = nm.Add(&Instance{ID: string(rune('a' + i)), Title: string(rune('A' + i)), Status: StatusWaiting})
 	}
 
 	assert.Equal(t, 6, nm.Count())
