@@ -231,6 +231,11 @@ type Home struct {
 
 	// Reusable string builder for View() to reduce allocations
 	viewBuilder strings.Builder
+
+	// Notification bar (tmux status-left for waiting sessions)
+	notificationManager  *session.NotificationManager
+	notificationsEnabled bool
+	boundKeys            map[string]bool // Track which keys we've bound in tmux
 }
 
 // reloadState preserves UI state during storage reload
@@ -373,6 +378,14 @@ func NewHomeWithProfile(profile string) *Home {
 		lastLogActivity:    make(map[string]time.Time),
 		statusTrigger:     make(chan statusUpdateRequest, 1), // Buffered to avoid blocking
 		statusWorkerDone:  make(chan struct{}),
+		boundKeys:         make(map[string]bool),
+	}
+
+	// Initialize notification manager if enabled in config
+	notifSettings := session.GetNotificationsSettings()
+	if notifSettings.Enabled {
+		h.notificationsEnabled = true
+		h.notificationManager = session.NewNotificationManager(notifSettings.MaxShown)
 	}
 
 	// Initialize event-driven log watcher
@@ -722,6 +735,100 @@ func (h *Home) syncViewport() {
 	if h.viewOffset < 0 {
 		h.viewOffset = 0
 	}
+}
+
+// syncNotifications updates the notification bar based on current session states
+func (h *Home) syncNotifications() {
+	if !h.notificationsEnabled || h.notificationManager == nil {
+		return
+	}
+
+	// Get current session (the one user is attached to)
+	currentSession, _ := tmux.GetActiveSession()
+	currentSessionID := ""
+	h.instancesMu.RLock()
+	for _, inst := range h.instances {
+		if ts := inst.GetTmuxSession(); ts != nil && ts.Name == currentSession {
+			currentSessionID = inst.ID
+			break
+		}
+	}
+	h.instancesMu.RUnlock()
+
+	// Sync notifications with current instance states
+	h.instancesMu.RLock()
+	added, removed := h.notificationManager.SyncFromInstances(h.instances, currentSessionID)
+	h.instancesMu.RUnlock()
+
+	// Update tmux if anything changed
+	if len(added) > 0 || len(removed) > 0 {
+		h.updateTmuxNotifications()
+	}
+}
+
+// updateTmuxNotifications updates status bars and key bindings
+func (h *Home) updateTmuxNotifications() {
+	barText := h.notificationManager.FormatBar()
+
+	// Update status-left for all agent-deck sessions
+	h.instancesMu.RLock()
+	for _, inst := range h.instances {
+		ts := inst.GetTmuxSession()
+		if ts == nil {
+			continue
+		}
+
+		if barText == "" {
+			tmux.ClearStatusLeft(ts.Name)
+		} else {
+			tmux.SetStatusLeft(ts.Name, barText)
+		}
+	}
+	h.instancesMu.RUnlock()
+
+	// Update key bindings
+	entries := h.notificationManager.GetEntries()
+
+	// Bind keys for current entries
+	currentKeys := make(map[string]bool)
+	for _, e := range entries {
+		currentKeys[e.AssignedKey] = true
+		if !h.boundKeys[e.AssignedKey] {
+			tmux.BindSwitchKey(e.AssignedKey, e.TmuxName)
+			h.boundKeys[e.AssignedKey] = true
+		}
+	}
+
+	// Unbind keys no longer needed
+	for key := range h.boundKeys {
+		if !currentKeys[key] {
+			tmux.UnbindKey(key)
+			delete(h.boundKeys, key)
+		}
+	}
+}
+
+// cleanupNotifications removes all notification bar state on exit
+func (h *Home) cleanupNotifications() {
+	if !h.notificationsEnabled || h.notificationManager == nil {
+		return
+	}
+
+	// Clear all status bars
+	h.instancesMu.RLock()
+	for _, inst := range h.instances {
+		ts := inst.GetTmuxSession()
+		if ts != nil {
+			tmux.ClearStatusLeft(ts.Name)
+		}
+	}
+	h.instancesMu.RUnlock()
+
+	// Unbind all keys
+	for key := range h.boundKeys {
+		tmux.UnbindKey(key)
+	}
+	h.boundKeys = make(map[string]bool)
 }
 
 // getVisibleHeight returns the number of visible items in the session list
@@ -1798,6 +1905,9 @@ func (h *Home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		h.cleanupExpiredAnimations(h.mcpLoadingSessions, claudeTimeout, defaultTimeout)
 		h.cleanupExpiredAnimations(h.forkingSessions, claudeTimeout, defaultTimeout)
 
+		// Sync notification bar with current session states
+		h.syncNotifications()
+
 		// Fetch preview for currently selected session (if stale/missing and not fetching)
 		// Cache expires after 2 seconds to show live terminal updates without excessive fetching
 		const previewCacheTTL = 2 * time.Second
@@ -2158,6 +2268,8 @@ func (h *Home) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if err := session.ShutdownGlobalPool(); err != nil {
 			log.Printf("Warning: error shutting down MCP pool: %v", err)
 		}
+		// Clean up notification bar (clear tmux status bars and unbind keys)
+		h.cleanupNotifications()
 		// Save both instances AND groups on quit (critical fix: was losing groups!)
 		h.saveInstances()
 		return h, tea.Quit
@@ -2181,6 +2293,8 @@ func (h *Home) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			if err := session.ShutdownGlobalPool(); err != nil {
 				log.Printf("Warning: error shutting down MCP pool: %v", err)
 			}
+			// Clean up notification bar (clear tmux status bars and unbind keys)
+			h.cleanupNotifications()
 			h.saveInstances()
 			return h, tea.Quit
 		}
