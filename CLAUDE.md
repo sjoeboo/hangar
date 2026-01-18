@@ -50,6 +50,46 @@ tail -500 ~/.agent-deck/logs/agentdeck_<session-name>_<id>.log
 ~/.agent-deck/profiles/default/sessions.json.bak{,.1,.2}
 ```
 
+### config.toml Protection (CRITICAL - 26 MCPs with API Keys)
+
+**🚨 EXTREMELY CRITICAL: ~/.agent-deck/config.toml contains ALL MCP definitions with API keys! 🚨**
+
+**THIS FILE IS IRREPLACEABLE WITHOUT SIGNIFICANT EFFORT TO RECOVER!**
+
+**NEVER DO THESE THINGS:**
+1. **NEVER delete or overwrite config.toml** - Contains 26+ MCP definitions with API keys
+2. **NEVER remove MCP sections** from config.toml - Each `[mcps.*]` section has credentials
+3. **NEVER "simplify" or "clean up"** the config - ALL sections are needed
+4. **NEVER replace the entire file** - Only add/edit specific sections
+5. **NEVER reset config.toml to defaults** - You will lose ALL MCP configurations
+
+**What's in config.toml (PROTECT THIS DATA):**
+- EXA_API_KEY, YOUTUBE_API_KEY, NOTION_TOKEN, FIRECRAWL_API_KEY
+- Twitter OAuth tokens (4 keys)
+- Neo4j Softbrary connection credentials
+- GitHub token, Google Workspace config
+- 26+ MCP server definitions with commands, args, and env vars
+
+**BEFORE ANY config.toml EDIT:**
+```bash
+# ALWAYS backup first!
+cp ~/.agent-deck/config.toml ~/.agent-deck/config.toml.backup-$(date +%Y%m%d-%H%M%S)
+```
+
+**Incident (2026-01-18):** config.toml was reduced to minimal settings, losing ALL 26 MCP definitions with API keys. Recovery required searching through Claude conversation history to reconstruct the file.
+
+**Recovery (if lost):**
+```bash
+# Check for backups
+ls -la ~/.agent-deck/config.toml*
+
+# Restored backup location
+~/.agent-deck/config.toml.restored
+
+# Search conversation history for config content
+grep -rh "mcps\." ~/.claude-work/projects/-Users-ashesh-claude-deck/*.jsonl
+```
+
 ### Test Isolation (CRITICAL)
 
 **2025-12-11 Incident**: Tests with `AGENTDECK_PROFILE=work` overwrote ALL 36 production sessions.
