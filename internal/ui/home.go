@@ -807,9 +807,9 @@ func (h *Home) updateTmuxNotifications() {
 		}
 
 		if barText == "" {
-			tmux.ClearStatusLeft(ts.Name)
+			_ = tmux.ClearStatusLeft(ts.Name)
 		} else {
-			tmux.SetStatusLeft(ts.Name, barText)
+			_ = tmux.SetStatusLeft(ts.Name, barText)
 		}
 	}
 	h.instancesMu.RUnlock()
@@ -822,7 +822,7 @@ func (h *Home) updateTmuxNotifications() {
 	for _, e := range entries {
 		currentKeys[e.AssignedKey] = true
 		if !h.boundKeys[e.AssignedKey] {
-			tmux.BindSwitchKey(e.AssignedKey, e.TmuxName)
+			_ = tmux.BindSwitchKey(e.AssignedKey, e.TmuxName)
 			h.boundKeys[e.AssignedKey] = true
 		}
 	}
@@ -830,7 +830,7 @@ func (h *Home) updateTmuxNotifications() {
 	// Unbind keys no longer needed
 	for key := range h.boundKeys {
 		if !currentKeys[key] {
-			tmux.UnbindKey(key)
+			_ = tmux.UnbindKey(key)
 			delete(h.boundKeys, key)
 		}
 	}
@@ -847,14 +847,14 @@ func (h *Home) cleanupNotifications() {
 	for _, inst := range h.instances {
 		ts := inst.GetTmuxSession()
 		if ts != nil {
-			tmux.ClearStatusLeft(ts.Name)
+			_ = tmux.ClearStatusLeft(ts.Name)
 		}
 	}
 	h.instancesMu.RUnlock()
 
 	// Unbind all keys
 	for key := range h.boundKeys {
-		tmux.UnbindKey(key)
+		_ = tmux.UnbindKey(key)
 	}
 	h.boundKeys = make(map[string]bool)
 }

@@ -40,7 +40,9 @@ func TestTryCommand_FindExisting(t *testing.T) {
 
 	// Pre-create an experiment folder
 	existingPath := filepath.Join(tmpDir, today+"-my-project")
-	os.MkdirAll(existingPath, 0755)
+	if err := os.MkdirAll(existingPath, 0755); err != nil {
+		t.Fatalf("failed to create experiment folder: %v", err)
+	}
 
 	// Try to find it
 	exp, created, err := experiments.FindOrCreate(tmpDir, "my-project", true)
@@ -62,8 +64,12 @@ func TestTryCommand_FuzzyMatch(t *testing.T) {
 	today := time.Now().Format("2006-01-02")
 
 	// Create experiments
-	os.MkdirAll(filepath.Join(tmpDir, today+"-redis-cache"), 0755)
-	os.MkdirAll(filepath.Join(tmpDir, today+"-redis-server"), 0755)
+	if err := os.MkdirAll(filepath.Join(tmpDir, today+"-redis-cache"), 0755); err != nil {
+		t.Fatalf("failed to create redis-cache folder: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(tmpDir, today+"-redis-server"), 0755); err != nil {
+		t.Fatalf("failed to create redis-server folder: %v", err)
+	}
 
 	// Fuzzy search
 	exps, _ := experiments.ListExperiments(tmpDir)

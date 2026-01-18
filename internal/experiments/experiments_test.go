@@ -24,7 +24,9 @@ func TestListExperiments(t *testing.T) {
 		"not-dated-folder",
 	}
 	for _, f := range folders {
-		os.MkdirAll(filepath.Join(tmpDir, f), 0755)
+		if err := os.MkdirAll(filepath.Join(tmpDir, f), 0755); err != nil {
+			t.Fatalf("failed to create folder %s: %v", f, err)
+		}
 	}
 
 	experiments, err := ListExperiments(tmpDir)

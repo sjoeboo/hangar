@@ -2032,7 +2032,9 @@ func TestSetStatusLeft(t *testing.T) {
 	if err := cmd.Run(); err != nil {
 		t.Fatalf("Failed to create test session: %v", err)
 	}
-	defer exec.Command("tmux", "kill-session", "-t", sessionName).Run()
+	defer func() {
+		_ = exec.Command("tmux", "kill-session", "-t", sessionName).Run()
+	}()
 
 	// Test setting status-left
 	err := SetStatusLeft(sessionName, "⚡ [1] test")
@@ -2054,7 +2056,9 @@ func TestClearStatusLeft(t *testing.T) {
 	if err := cmd.Run(); err != nil {
 		t.Fatalf("Failed to create test session: %v", err)
 	}
-	defer exec.Command("tmux", "kill-session", "-t", sessionName).Run()
+	defer func() {
+		_ = exec.Command("tmux", "kill-session", "-t", sessionName).Run()
+	}()
 
 	// Set then clear
 	err := SetStatusLeft(sessionName, "⚡ [1] test")

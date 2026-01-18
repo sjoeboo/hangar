@@ -31,15 +31,21 @@ func TestNotificationManager_NewestFirst(t *testing.T) {
 
 	// Add three sessions with delays
 	inst1 := &Instance{ID: "a", Title: "first", Status: StatusWaiting}
-	nm.Add(inst1)
+	if err := nm.Add(inst1); err != nil {
+		t.Fatalf("failed to add inst1: %v", err)
+	}
 	time.Sleep(10 * time.Millisecond)
 
 	inst2 := &Instance{ID: "b", Title: "second", Status: StatusWaiting}
-	nm.Add(inst2)
+	if err := nm.Add(inst2); err != nil {
+		t.Fatalf("failed to add inst2: %v", err)
+	}
 	time.Sleep(10 * time.Millisecond)
 
 	inst3 := &Instance{ID: "c", Title: "third", Status: StatusWaiting}
-	nm.Add(inst3)
+	if err := nm.Add(inst3); err != nil {
+		t.Fatalf("failed to add inst3: %v", err)
+	}
 
 	entries := nm.GetEntries()
 	assert.Len(t, entries, 3)
