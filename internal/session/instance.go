@@ -150,15 +150,19 @@ func (inst *Instance) ClearParent() {
 
 // NewInstance creates a new session instance
 func NewInstance(title, projectPath string) *Instance {
+	id := generateID()
+	tmuxSess := tmux.NewSession(title, projectPath)
+	tmuxSess.InstanceID = id // Pass instance ID for activity hooks
+
 	return &Instance{
-		ID:          generateID(),
+		ID:          id,
 		Title:       title,
 		ProjectPath: projectPath,
 		GroupPath:   extractGroupPath(projectPath), // Auto-assign group from path
 		Tool:        "shell",
 		Status:      StatusIdle,
 		CreatedAt:   time.Now(),
-		tmuxSession: tmux.NewSession(title, projectPath),
+		tmuxSession: tmuxSess,
 	}
 }
 
@@ -171,15 +175,19 @@ func NewInstanceWithGroup(title, projectPath, groupPath string) *Instance {
 
 // NewInstanceWithTool creates a new session with tool-specific initialization
 func NewInstanceWithTool(title, projectPath, tool string) *Instance {
+	id := generateID()
+	tmuxSess := tmux.NewSession(title, projectPath)
+	tmuxSess.InstanceID = id // Pass instance ID for activity hooks
+
 	inst := &Instance{
-		ID:          generateID(),
+		ID:          id,
 		Title:       title,
 		ProjectPath: projectPath,
 		GroupPath:   extractGroupPath(projectPath),
 		Tool:        tool,
 		Status:      StatusIdle,
 		CreatedAt:   time.Now(),
-		tmuxSession: tmux.NewSession(title, projectPath),
+		tmuxSession: tmuxSess,
 	}
 
 	// Claude session ID will be detected from files Claude creates
@@ -1585,6 +1593,7 @@ func (i *Instance) Restart() error {
 
 	// Fallback: recreate tmux session (for dead sessions or unknown ID)
 	i.tmuxSession = tmux.NewSession(i.Title, i.ProjectPath)
+	i.tmuxSession.InstanceID = i.ID // Pass instance ID for activity hooks
 
 	var command string
 	if i.Tool == "claude" && i.ClaudeSessionID != "" {

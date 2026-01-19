@@ -493,6 +493,8 @@ func (s *Storage) convertToInstances(data *StorageData) ([]*Instance, []*GroupDa
 				instData.Command,
 				previousStatus,
 			)
+			// Pass instance ID for activity hooks (enables real-time status updates)
+			tmuxSess.InstanceID = instData.ID
 			// Enable mouse mode for proper scrolling (only if session still exists)
 			// Sessions may no longer exist after tmux server restart
 			if tmuxSess.Exists() {
