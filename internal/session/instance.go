@@ -1675,15 +1675,28 @@ func (i *Instance) buildClaudeResumeCommand() string {
 		dangerousMode = userConfig.Claude.DangerousMode
 	}
 
+	// Check if session has actual conversation data
+	// If not, use --session-id instead of --resume to avoid "No conversation found" error
+	useResume := sessionHasConversationData(i.ClaudeSessionID, i.ProjectPath)
+	log.Printf("[SESSION-DATA] buildClaudeResumeCommand: sessionID=%s, path=%s, useResume=%v",
+		i.ClaudeSessionID, i.ProjectPath, useResume)
+
+	// Build dangerous mode flag
+	dangerousFlag := ""
+	if dangerousMode {
+		dangerousFlag = " --dangerously-skip-permissions"
+	}
+
 	// Build the command with tmux environment update
 	// This ensures CLAUDE_SESSION_ID is set in tmux env after restart,
 	// so GetSessionIDFromTmux() works correctly and detects the session
-	if dangerousMode {
-		return fmt.Sprintf("tmux set-environment CLAUDE_SESSION_ID %s && %s%s --resume %s --dangerously-skip-permissions",
-			i.ClaudeSessionID, configDirPrefix, claudeCmd, i.ClaudeSessionID)
+	if useResume {
+		return fmt.Sprintf("tmux set-environment CLAUDE_SESSION_ID %s && %s%s --resume %s%s",
+			i.ClaudeSessionID, configDirPrefix, claudeCmd, i.ClaudeSessionID, dangerousFlag)
 	}
-	return fmt.Sprintf("tmux set-environment CLAUDE_SESSION_ID %s && %s%s --resume %s",
-		i.ClaudeSessionID, configDirPrefix, claudeCmd, i.ClaudeSessionID)
+	// Session was never interacted with - use --session-id to create fresh session
+	return fmt.Sprintf("tmux set-environment CLAUDE_SESSION_ID %s && %s%s --session-id %s%s",
+		i.ClaudeSessionID, configDirPrefix, claudeCmd, i.ClaudeSessionID, dangerousFlag)
 }
 
 // CanRestart returns true if the session can be restarted
@@ -1965,18 +1978,23 @@ func sessionHasConversationData(sessionID string, projectPath string) bool {
 	}
 
 	sessionFile := filepath.Join(configDir, "projects", encodedPath, sessionID+".jsonl")
+	log.Printf("[SESSION-DATA] Checking session file: %s", sessionFile)
 
 	// Check if file exists
 	if _, err := os.Stat(sessionFile); os.IsNotExist(err) {
 		// File doesn't exist - use --session-id to create fresh session
 		// (there's nothing to resume if the file doesn't exist)
+		log.Printf("[SESSION-DATA] File does NOT exist → returning false (use --session-id)")
 		return false
 	}
+
+	log.Printf("[SESSION-DATA] File EXISTS, scanning for sessionId...")
 
 	// Read file and search for "sessionId" field
 	file, err := os.Open(sessionFile)
 	if err != nil {
 		// Error opening - safe fallback to --resume
+		log.Printf("[SESSION-DATA] Error opening file: %v → returning true (safe fallback)", err)
 		return true
 	}
 	defer file.Close()
@@ -1991,16 +2009,19 @@ func sessionHasConversationData(sessionID string, projectPath string) bool {
 		line := scanner.Text()
 		// Simple string search - faster than JSON parsing
 		if strings.Contains(line, `"sessionId"`) {
+			log.Printf("[SESSION-DATA] Found sessionId → returning true (use --resume)")
 			return true // Found conversation data
 		}
 	}
 
 	if err := scanner.Err(); err != nil {
 		// Error reading - safe fallback to --resume
+		log.Printf("[SESSION-DATA] Scanner error: %v → returning true (safe fallback)", err)
 		return true
 	}
 
 	// No sessionId found - session was never interacted with
+	log.Printf("[SESSION-DATA] No sessionId found in file → returning false (use --session-id)")
 	return false
 }
 
