@@ -1476,9 +1476,10 @@ func (s *Session) hasBusyIndicator(content string) bool {
 		shortName = shortName[:12]
 	}
 
-	// Get last 10 lines for analysis, skipping trailing blank lines
+	// Get last 20 lines for analysis, skipping trailing blank lines
 	// tmux capture-pane returns the full terminal buffer including blank lines at the end
-	// which can push "ctrl+c to interrupt" out of the last 10 lines window
+	// Need 20 lines (not 10) because Claude's todo list and status bar can push
+	// "ctrl+c to interrupt" further up from the bottom
 	lines := strings.Split(content, "\n")
 
 	// Strip trailing blank lines
@@ -1486,19 +1487,19 @@ func (s *Session) hasBusyIndicator(content string) bool {
 		lines = lines[:len(lines)-1]
 	}
 
-	start := len(lines) - 10
+	start := len(lines) - 20
 	if start < 0 {
 		start = 0
 	}
-	last10Lines := lines[start:]
-	recentContent := strings.ToLower(strings.Join(last10Lines, "\n"))
+	lastLines := lines[start:]
+	recentContent := strings.ToLower(strings.Join(lastLines, "\n"))
 
 	// ═══════════════════════════════════════════════════════════════════════
 	// CHECK 1: "ctrl+c to interrupt" - PRIMARY indicator for Claude Code
 	// This text ALWAYS appears when Claude is actively working
 	// ═══════════════════════════════════════════════════════════════════════
 	hasCtrlC := strings.Contains(recentContent, "ctrl+c to interrupt")
-	debugLog("%s: hasBusyIndicator lines=%d hasCtrlC=%v", shortName, len(last10Lines), hasCtrlC)
+	debugLog("%s: hasBusyIndicator lines=%d hasCtrlC=%v", shortName, len(lastLines), hasCtrlC)
 	if hasCtrlC {
 		debugLog("%s: BUSY_REASON=ctrl+c to interrupt", shortName)
 		return true
@@ -1523,7 +1524,7 @@ func (s *Session) hasBusyIndicator(content string) bool {
 	// Only check last 3 lines (spinners appear at status line)
 	// ═══════════════════════════════════════════════════════════════════════
 	spinnerChars := []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
-	last3 := last10Lines
+	last3 := lastLines
 	if len(last3) > 3 {
 		last3 = last3[len(last3)-3:]
 	}
