@@ -1295,6 +1295,20 @@ func (s *Session) GetStatus() (string, error) {
 		return "waiting", nil
 	}
 
+	// If we were previously active but skipped the busy check (no timestamp change),
+	// verify before transitioning away from GREEN - the session might still be busy
+	if s.lastStableStatus == "active" && !needsBusyCheck {
+		// Re-check busy indicator before dropping out of GREEN
+		s.mu.Unlock()
+		content, captureErr := s.CapturePane()
+		s.mu.Lock()
+		if captureErr == nil && s.hasBusyIndicator(content) {
+			debugLog("%s: STILL_BUSY (verified) → keeping active", shortName)
+			return "active", nil
+		}
+		debugLog("%s: NO_LONGER_BUSY → transitioning from active", shortName)
+	}
+
 	// No busy indicator found - check acknowledged state
 	if s.stateTracker.acknowledged {
 		s.lastStableStatus = "idle"
