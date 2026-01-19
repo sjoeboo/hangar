@@ -1170,7 +1170,6 @@ func (h *Home) hasActiveAnimation(sessionID string) bool {
 	// Determine animation start time and type
 	var startTime time.Time
 	var hasAnimation bool
-	var isMcpLoading bool
 
 	if t, ok := h.launchingSessions[sessionID]; ok {
 		startTime = t
@@ -1181,68 +1180,74 @@ func (h *Home) hasActiveAnimation(sessionID string) bool {
 	} else if t, ok := h.mcpLoadingSessions[sessionID]; ok {
 		startTime = t
 		hasAnimation = true
-		isMcpLoading = true
 	}
 
 	if !hasAnimation {
 		return false
 	}
 
-	// MUST match renderPreviewPane display logic exactly:
-	// - Claude and Gemini: 6s minimum, then check if ready, up to 15s total
-	// - Others: 3s fixed
+	// STATUS-BASED ANIMATION: Show animation until session is ready
+	// Instead of hardcoded 6-second minimum, use actual session status
+	// Status is updated in real-time via polling (100ms) and hooks
 	timeSinceStart := time.Since(startTime)
 
-	if inst.Tool == "claude" || inst.Tool == "gemini" {
-		minAnimationTime := 6 * time.Second
-		maxAnimationTime := 15 * time.Second
+	// Brief minimum (500ms) to prevent flicker during rapid status changes
+	if timeSinceStart < 500*time.Millisecond {
+		return true
+	}
 
-		if timeSinceStart < minAnimationTime {
-			// Always block for first 6 seconds
-			return true
-		} else if timeSinceStart < maxAnimationTime {
-			// After 6 seconds, check if agent is ready (same logic as renderPreviewPane)
-			h.previewCacheMu.RLock()
-			previewContent := h.previewCache[sessionID]
-			h.previewCacheMu.RUnlock()
-
-			// Agent is ready when we see its prompt or it is actively running
-			// Claude prompts
-			agentReady := strings.Contains(previewContent, "No, and tell Claude what to do differently") ||
-				strings.Contains(previewContent, "\n> ") ||
-				strings.Contains(previewContent, "> \n") ||
-				strings.Contains(previewContent, "esc to interrupt") ||
-				strings.Contains(previewContent, "⠋") || strings.Contains(previewContent, "⠙") ||
-				strings.Contains(previewContent, "Thinking")
-
-			// Gemini prompts (triangular prompt indicator)
-			if inst.Tool == "gemini" {
-				agentReady = agentReady ||
-					strings.Contains(previewContent, "▸") ||
-					strings.Contains(previewContent, "gemini>")
-			}
-
-			// If agent not ready, animation is still showing (and should block)
-			// If agent IS ready, animation stops (and should allow attachment)
-			if !agentReady {
-				return true
-			}
-		}
-		// After 15 seconds or agent is ready, allow attachment
+	// Maximum animation time (15s) as safety fallback
+	if timeSinceStart >= 15*time.Second {
 		return false
 	}
 
-	// Non-Claude/Gemini: block for 3 seconds
-	if timeSinceStart < 3*time.Second {
-		return true
+	// STATUS-BASED CHECK: Session is ready when status is Running or Waiting
+	// - StatusRunning (GREEN): Claude is actively processing
+	// - StatusWaiting (YELLOW): Claude is at prompt, waiting for input
+	// - StatusIdle (GRAY): Claude has stopped and user acknowledged
+	if inst.Status == session.StatusRunning ||
+		inst.Status == session.StatusWaiting ||
+		inst.Status == session.StatusIdle {
+		// Session is ready - stop animation immediately
+		return false
 	}
 
-	// Handle MCP loading for non-Claude/Gemini (same 3s rule)
-	if isMcpLoading && timeSinceStart < 3*time.Second {
-		return true
+	// CONTENT-BASED CHECK: Also check preview content for faster detection
+	// This catches cases where status hasn't updated yet but content is visible
+	h.previewCacheMu.RLock()
+	previewContent := h.previewCache[sessionID]
+	h.previewCacheMu.RUnlock()
+
+	if inst.Tool == "claude" || inst.Tool == "gemini" {
+		// Claude ready indicators
+		agentReady := strings.Contains(previewContent, "ctrl+c to interrupt") ||
+			strings.Contains(previewContent, "No, and tell Claude what to do differently") ||
+			strings.Contains(previewContent, "\n> ") ||
+			strings.Contains(previewContent, "> \n") ||
+			strings.Contains(previewContent, "esc to interrupt") ||
+			strings.Contains(previewContent, "⠋") || strings.Contains(previewContent, "⠙") ||
+			strings.Contains(previewContent, "Thinking") ||
+			strings.Contains(previewContent, "╭─") // Claude UI border
+
+		// Gemini prompts
+		if inst.Tool == "gemini" {
+			agentReady = agentReady ||
+				strings.Contains(previewContent, "▸") ||
+				strings.Contains(previewContent, "gemini>")
+		}
+
+		if agentReady {
+			return false
+		}
+	} else {
+		// Non-Claude/Gemini: ready if any substantial content (>50 chars)
+		if len(strings.TrimSpace(previewContent)) > 50 {
+			return false
+		}
 	}
 
-	return false
+	// Not ready yet - keep showing animation
+	return true
 }
 
 // fetchPreview returns a command that asynchronously fetches preview content
@@ -1444,6 +1449,10 @@ func (h *Home) triggerStatusUpdate() {
 // With batching (3 visible + 2 non-visible per tick), we keep each tick under 100ms.
 func (h *Home) processStatusUpdate(req statusUpdateRequest) {
 	const batchSize = 2 // Reduced from 5 to 2 - fewer CapturePane() calls per tick
+
+	// TEMPORARY: Skip polling to test hook-based status detection in isolation
+	// Remove this return statement once hooks are verified working
+	return
 
 	// CRITICAL FIX: Refresh session cache in background worker, NOT main goroutine
 	// This prevents UI freezing when subprocess spawning is slow (high system load)
@@ -5689,53 +5698,67 @@ func (h *Home) renderPreviewPane(width, height int) string {
 		animationStartTime = mcpLoadTime
 	}
 
-	// Apply animation logic to launching, resuming, AND MCP loading
+	// Apply STATUS-BASED animation logic (matches hasActiveAnimation exactly)
+	// Animation shows until session is ready, detected via status or content
 	if isLaunching || isResuming || isMcpLoading {
 		timeSinceStart := time.Since(animationStartTime)
-		if selected.Tool == "claude" {
-			// Claude session: show animation for at least 6 seconds
-			minAnimationTime := 6 * time.Second
-			if timeSinceStart < minAnimationTime {
-				// Always show animation for first 6 seconds
-				if isMcpLoading {
-					showMcpLoadingAnimation = true
-				} else {
-					showLaunchingAnimation = true
-				}
+
+		// Brief minimum (500ms) to prevent flicker
+		if timeSinceStart < 500*time.Millisecond {
+			if isMcpLoading {
+				showMcpLoadingAnimation = true
 			} else {
-				// After 6 seconds, check if Claude UI is visible
+				showLaunchingAnimation = true
+			}
+		} else if timeSinceStart < 15*time.Second {
+			// STATUS-BASED CHECK: Session ready when Running/Waiting/Idle
+			sessionReady := selected.Status == session.StatusRunning ||
+				selected.Status == session.StatusWaiting ||
+				selected.Status == session.StatusIdle
+
+			if !sessionReady {
+				// Also check content for faster detection
 				h.previewCacheMu.RLock()
 				previewContent := h.previewCache[selected.ID]
 				h.previewCacheMu.RUnlock()
-				// Claude is ready when we see its prompt or it is actively running
-				// Detection patterns (from Claude Squad + our own):
-				// - Permission prompt: "No, and tell Claude what to do differently" (most reliable)
-				// - Input prompt: "\n> " or "> \n"
-				// - Active running: "esc to interrupt", spinner chars, "Thinking"
-				claudeReady := strings.Contains(previewContent, "No, and tell Claude what to do differently") ||
-					strings.Contains(previewContent, "\n> ") ||
-					strings.Contains(previewContent, "> \n") ||
-					strings.Contains(previewContent, "esc to interrupt") ||
-					strings.Contains(previewContent, "⠋") || strings.Contains(previewContent, "⠙") ||
-					strings.Contains(previewContent, "Thinking")
-				if !claudeReady && timeSinceStart < 15*time.Second {
-					if isMcpLoading {
-						showMcpLoadingAnimation = true
-					} else {
-						showLaunchingAnimation = true
+
+				if selected.Tool == "claude" || selected.Tool == "gemini" {
+					// Claude/Gemini ready indicators
+					agentReady := strings.Contains(previewContent, "ctrl+c to interrupt") ||
+						strings.Contains(previewContent, "No, and tell Claude what to do differently") ||
+						strings.Contains(previewContent, "\n> ") ||
+						strings.Contains(previewContent, "> \n") ||
+						strings.Contains(previewContent, "esc to interrupt") ||
+						strings.Contains(previewContent, "⠋") || strings.Contains(previewContent, "⠙") ||
+						strings.Contains(previewContent, "Thinking") ||
+						strings.Contains(previewContent, "╭─")
+
+					if selected.Tool == "gemini" {
+						agentReady = agentReady ||
+							strings.Contains(previewContent, "▸") ||
+							strings.Contains(previewContent, "gemini>")
+					}
+
+					if !agentReady {
+						if isMcpLoading {
+							showMcpLoadingAnimation = true
+						} else {
+							showLaunchingAnimation = true
+						}
+					}
+				} else {
+					// Non-Claude/Gemini: ready if substantial content
+					if len(strings.TrimSpace(previewContent)) <= 50 {
+						if isMcpLoading {
+							showMcpLoadingAnimation = true
+						} else {
+							showLaunchingAnimation = true
+						}
 					}
 				}
 			}
-		} else {
-			// Non-Claude: show animation for first 3 seconds
-			if timeSinceStart < 3*time.Second {
-				if isMcpLoading {
-					showMcpLoadingAnimation = true
-				} else {
-					showLaunchingAnimation = true
-				}
-			}
 		}
+		// After 15 seconds, animation stops regardless
 	}
 
 	// Terminal preview - use cached content (async fetching keeps View() pure)
