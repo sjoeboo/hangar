@@ -246,6 +246,7 @@ type Home struct {
 	notificationManager  *session.NotificationManager
 	notificationsEnabled bool
 	boundKeys            map[string]string // Track which session ID each key is bound to
+	lastBarText          string            // Cache to avoid updating all sessions every tick
 }
 
 // reloadState preserves UI state during storage reload
@@ -804,15 +805,20 @@ func (h *Home) syncNotifications() {
 func (h *Home) updateTmuxNotifications() {
 	barText := h.notificationManager.FormatBar()
 
-	// Update status-left for ALL agentdeck sessions (not just current profile)
-	// This ensures consistent notification bars across all sessions
-	allSessions, err := tmux.ListAgentDeckSessions()
-	if err == nil {
-		for _, sessName := range allSessions {
-			if barText == "" {
-				_ = tmux.ClearStatusLeft(sessName)
-			} else {
-				_ = tmux.SetStatusLeft(sessName, barText)
+	// Only update status bars if the content changed (avoids 100+ tmux calls per tick)
+	if barText != h.lastBarText {
+		h.lastBarText = barText
+
+		// Update status-left for ALL agentdeck sessions (not just current profile)
+		// This ensures consistent notification bars across all sessions
+		allSessions, err := tmux.ListAgentDeckSessions()
+		if err == nil {
+			for _, sessName := range allSessions {
+				if barText == "" {
+					_ = tmux.ClearStatusLeft(sessName)
+				} else {
+					_ = tmux.SetStatusLeft(sessName, barText)
+				}
 			}
 		}
 	}
