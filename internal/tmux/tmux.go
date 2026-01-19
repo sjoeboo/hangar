@@ -1110,6 +1110,7 @@ func (s *Session) GetStatus() (string, error) {
 		s.mu.Lock()
 		s.lastStableStatus = "inactive"
 		s.mu.Unlock()
+		debugLog("%s: INACTIVE (session not found)", shortName)
 		return "inactive", nil
 	}
 
@@ -1206,12 +1207,14 @@ func (s *Session) GetStatus() (string, error) {
 		s.stateTracker.lastActivityTimestamp = currentTS
 		if s.stateTracker.acknowledged {
 			s.lastStableStatus = "idle"
+			debugLog("%s: IDLE (restored session, acknowledged)", shortName)
 			return "idle", nil
 		}
 		if s.lastStableStatus != "waiting" {
 			s.stateTracker.waitingSince = time.Now()
 		}
 		s.lastStableStatus = "waiting"
+		debugLog("%s: WAITING (restored session, not acknowledged)", shortName)
 		return "waiting", nil
 	}
 
@@ -1299,6 +1302,7 @@ func (s *Session) GetStatus() (string, error) {
 			return s.lastStableStatus, nil
 		}
 		// Fallback if no previous status
+		debugLog("%s: WAITING (spike window fallback)", shortName)
 		return "waiting", nil
 	}
 
@@ -1319,6 +1323,7 @@ func (s *Session) GetStatus() (string, error) {
 	// No busy indicator found - check acknowledged state
 	if s.stateTracker.acknowledged {
 		s.lastStableStatus = "idle"
+		debugLog("%s: IDLE (acknowledged, no busy indicator)", shortName)
 		return "idle", nil
 	}
 	// Track when we transition to waiting (not already waiting)
@@ -1326,6 +1331,7 @@ func (s *Session) GetStatus() (string, error) {
 		s.stateTracker.waitingSince = time.Now()
 	}
 	s.lastStableStatus = "waiting"
+	debugLog("%s: WAITING (not acknowledged, no busy indicator)", shortName)
 	return "waiting", nil
 }
 
@@ -1342,6 +1348,7 @@ func (s *Session) getStatusFallback() (string, error) {
 		s.mu.Lock()
 		s.lastStableStatus = "inactive"
 		s.mu.Unlock()
+		debugLog("%s: FALLBACK INACTIVE (capture failed: %v)", shortName, err)
 		return "inactive", nil
 	}
 
@@ -1352,6 +1359,7 @@ func (s *Session) getStatusFallback() (string, error) {
 		s.stateTracker.lastChangeTime = time.Now()
 		s.stateTracker.acknowledged = false
 		s.lastStableStatus = "active"
+		debugLog("%s: FALLBACK ACTIVE (busy indicator found)", shortName)
 		return "active", nil
 	}
 
@@ -1373,6 +1381,7 @@ func (s *Session) getStatusFallback() (string, error) {
 			waitingSince:   now,   // Track when session became waiting
 		}
 		s.lastStableStatus = "waiting"
+		debugLog("%s: FALLBACK INIT → waiting", shortName)
 		return "waiting", nil
 	}
 
@@ -1380,12 +1389,14 @@ func (s *Session) getStatusFallback() (string, error) {
 		s.stateTracker.lastHash = currentHash
 		if s.stateTracker.acknowledged {
 			s.lastStableStatus = "idle"
+			debugLog("%s: FALLBACK IDLE (restored, acknowledged)", shortName)
 			return "idle", nil
 		}
 		if s.lastStableStatus != "waiting" {
 			s.stateTracker.waitingSince = time.Now()
 		}
 		s.lastStableStatus = "waiting"
+		debugLog("%s: FALLBACK WAITING (restored, not acknowledged)", shortName)
 		return "waiting", nil
 	}
 
@@ -1400,6 +1411,7 @@ func (s *Session) getStatusFallback() (string, error) {
 	// No busy indicator found - check acknowledged state
 	if s.stateTracker.acknowledged {
 		s.lastStableStatus = "idle"
+		debugLog("%s: FALLBACK IDLE (acknowledged, no busy indicator)", shortName)
 		return "idle", nil
 	}
 	// Track when we transition to waiting (not already waiting)
@@ -1407,6 +1419,7 @@ func (s *Session) getStatusFallback() (string, error) {
 		s.stateTracker.waitingSince = time.Now()
 	}
 	s.lastStableStatus = "waiting"
+	debugLog("%s: FALLBACK WAITING (not acknowledged, no busy indicator)", shortName)
 	return "waiting", nil
 }
 
