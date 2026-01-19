@@ -1462,14 +1462,6 @@ func (s *Session) hasBusyIndicator(content string) bool {
 	return false
 }
 
-// truncateForLog truncates a string for logging purposes
-func truncateForLog(s string, maxLen int) string {
-	if len(s) <= maxLen {
-		return s
-	}
-	return s[:maxLen] + "..."
-}
-
 // isSustainedActivity checks if activity is sustained (real work) or a spike.
 // Checks 5 times over 1 second, counts timestamp changes.
 // Returns true if 1+ changes detected AFTER initial check (sustained activity).
