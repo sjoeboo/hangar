@@ -189,9 +189,6 @@ type Home struct {
 	// Event-driven status detection (Priority 2)
 	logWatcher *tmux.LogWatcher
 
-	// Hook-based status detection (instant status updates)
-	statusWatcher *StatusWatcher // Watches for Claude hook-written status files
-
 	// PERFORMANCE: Debounce log activity status updates
 	lastLogActivity map[string]time.Time // sessionID -> last update time
 	logActivityMu   sync.Mutex           // Protects lastLogActivity map
@@ -298,10 +295,6 @@ type statusUpdateMsg struct{} // Triggers immediate status update without reload
 
 // storageChangedMsg signals that sessions.json was modified externally
 type storageChangedMsg struct{}
-
-// statusEventMsg is sent when a Claude hook writes a status file
-// This enables instant status detection without polling
-type statusEventMsg StatusEvent
 
 type updateCheckMsg struct {
 	info *update.UpdateInfo
@@ -478,17 +471,6 @@ func NewHomeWithProfile(profile string) *Home {
 				watcher.Start()
 			}
 		}
-	}
-
-	// Initialize status watcher for instant hook-based status detection
-	// Watches ~/.agent-deck/status/ for .stop and .active files written by Claude hooks
-	statusWatcher, err := NewStatusWatcher(StatusDir())
-	if err != nil {
-		// Log but don't fail - fall back to polling
-		log.Printf("Warning: could not create status watcher: %v", err)
-	} else {
-		h.statusWatcher = statusWatcher
-		h.statusWatcher.Start()
 	}
 
 	// Run log maintenance at startup (non-blocking)
@@ -985,11 +967,6 @@ func (h *Home) Init() tea.Cmd {
 		cmds = append(cmds, listenForReloads(h.storageWatcher))
 	}
 
-	// Start listening for status events from Claude hooks
-	if h.statusWatcher != nil {
-		cmds = append(cmds, h.waitForStatusEvent())
-	}
-
 	return tea.Batch(cmds...)
 }
 
@@ -1045,62 +1022,6 @@ func (h *Home) tick() tea.Cmd {
 	return tea.Tick(tickInterval, func(t time.Time) tea.Msg {
 		return tickMsg(t)
 	})
-}
-
-// waitForStatusEvent returns a command that waits for status events from the hook watcher
-// This enables instant status detection when Claude hooks write status files
-func (h *Home) waitForStatusEvent() tea.Cmd {
-	if h.statusWatcher == nil {
-		return nil
-	}
-	return func() tea.Msg {
-		evt := <-h.statusWatcher.EventChannel()
-		return statusEventMsg(evt)
-	}
-}
-
-// handleStatusEvent processes a status event from the hook watcher
-// Updates the session status based on the event type (activity or Stop)
-func (h *Home) handleStatusEvent(evt StatusEvent) {
-	h.instancesMu.Lock()
-	defer h.instancesMu.Unlock()
-
-	// Find instance by ID first
-	inst, ok := h.instanceByID[evt.InstanceID]
-	if !ok {
-		// Try by Claude session ID
-		for _, i := range h.instances {
-			if i.ClaudeSessionID == evt.SessionID {
-				inst = i
-				break
-			}
-		}
-	}
-
-	if inst == nil {
-		log.Printf("[STATUS-EVENT] No instance found for event: instance_id=%s session_id=%s", evt.InstanceID, evt.SessionID)
-		return
-	}
-
-	// Update status based on event
-	oldStatus := inst.Status
-	switch evt.Event {
-	case "activity":
-		// Activity detected - mark as running (green)
-		inst.Status = session.StatusRunning
-	case "Stop":
-		// Claude stopped - mark as waiting (yellow)
-		inst.Status = session.StatusWaiting
-	}
-
-	if oldStatus != inst.Status {
-		log.Printf("[STATUS-EVENT] Status changed: %s -> %s for session %s", oldStatus, inst.Status, inst.Title)
-		// Invalidate status counts cache
-		h.cachedStatusCounts.valid.Store(false)
-		// Save to storage (async to not block UI)
-		instances := h.instances
-		go h.storage.Save(instances)
-	}
 }
 
 // invalidatePreviewCache removes a session's preview from the cache
@@ -1829,13 +1750,6 @@ func (h *Home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Continue listening for next change
 		return h, tea.Batch(cmd, listenForReloads(h.storageWatcher))
 
-	case statusEventMsg:
-		// Instant status update from Claude hooks (Stop/activity events)
-		evt := StatusEvent(msg)
-		h.handleStatusEvent(evt)
-		// Continue listening for more events (tick runs independently)
-		return h, h.waitForStatusEvent()
-
 	case statusUpdateMsg:
 		// Clear attach flag - we've returned from the attached session
 		h.isAttaching.Store(false) // Atomic store for thread safety
@@ -2414,10 +2328,6 @@ func (h *Home) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if h.logWatcher != nil {
 			h.logWatcher.Close()
 		}
-		// Close status watcher (hook-based status detection)
-		if h.statusWatcher != nil {
-			h.statusWatcher.Close()
-		}
 		// Close storage watcher
 		if h.storageWatcher != nil {
 			h.storageWatcher.Close()
@@ -2445,9 +2355,6 @@ func (h *Home) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			<-h.statusWorkerDone
 			if h.logWatcher != nil {
 				h.logWatcher.Close()
-			}
-			if h.statusWatcher != nil {
-				h.statusWatcher.Close()
 			}
 			if h.storageWatcher != nil {
 				h.storageWatcher.Close()
