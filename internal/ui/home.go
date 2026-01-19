@@ -235,7 +235,7 @@ type Home struct {
 	// Notification bar (tmux status-left for waiting sessions)
 	notificationManager  *session.NotificationManager
 	notificationsEnabled bool
-	boundKeys            map[string]bool // Track which keys we've bound in tmux
+	boundKeys            map[string]string // Track which session ID each key is bound to
 }
 
 // reloadState preserves UI state during storage reload
@@ -378,7 +378,7 @@ func NewHomeWithProfile(profile string) *Home {
 		lastLogActivity:    make(map[string]time.Time),
 		statusTrigger:     make(chan statusUpdateRequest, 1), // Buffered to avoid blocking
 		statusWorkerDone:  make(chan struct{}),
-		boundKeys:         make(map[string]bool),
+		boundKeys:         make(map[string]string),
 	}
 
 	// Initialize notification manager if enabled in config
@@ -743,37 +743,19 @@ func (h *Home) syncNotifications() {
 		return
 	}
 
-	// Detect which session the user is currently attached to (via shortcuts or otherwise)
-	// If they've switched to a waiting session, acknowledge it so it shows as "seen"
-	// This handles Ctrl+b 1-6 shortcuts which bypass agent-deck's attach flow
-	activeSession, _ := tmux.GetActiveSession()
-
-	// Phase 1: Read-only pass to find active session ID (immutable identifier)
-	// Store only the ID, not pointers, to avoid stale pointer issues after lock release
-	var activeSessionID string
+	// Phase 1: Check for signal file from Ctrl+b 1-6 shortcuts
+	// When user presses Ctrl+b N, the key binding writes the session ID to a signal file
+	// This is the ONLY reliable way to detect session switches via shortcuts
 	var sessionToAcknowledgeID string
-
-	h.instancesMu.RLock()
-	for _, inst := range h.instances {
-		ts := inst.GetTmuxSession()
-		if ts != nil && ts.Name == activeSession {
-			activeSessionID = inst.ID
-			// Check if this session needs acknowledgment (store ID, not pointer)
-			if h.notificationManager.Has(inst.ID) && inst.Status == session.StatusWaiting {
-				sessionToAcknowledgeID = inst.ID
-			}
-			break
-		}
+	if signalSessionID := tmux.ReadAndClearAckSignal(); signalSessionID != "" {
+		// User switched to this session via shortcut - acknowledge it
+		sessionToAcknowledgeID = signalSessionID
 	}
-	h.instancesMu.RUnlock()
 
-	// Phase 2: Re-fetch and acknowledge under lock to avoid data races
-	// Codex review: storing pointers after lock release risks stale data if session restarts
+	// Phase 2: Acknowledge the session if signal was received
 	if sessionToAcknowledgeID != "" {
 		h.instancesMu.RLock()
-		// Re-fetch the instance by ID to get current pointers
 		if inst, ok := h.instanceByID[sessionToAcknowledgeID]; ok {
-			// Re-validate status in case it changed
 			if inst.Status == session.StatusWaiting {
 				if ts := inst.GetTmuxSession(); ts != nil {
 					// Acknowledge() and UpdateStatus() have their own internal locks
@@ -786,8 +768,9 @@ func (h *Home) syncNotifications() {
 	}
 
 	// Phase 3: Sync notifications (uses its own lock internally)
+	// Pass the acknowledged session ID so it gets excluded from the bar
 	h.instancesMu.RLock()
-	h.notificationManager.SyncFromInstances(h.instances, activeSessionID)
+	h.notificationManager.SyncFromInstances(h.instances, sessionToAcknowledgeID)
 	h.instancesMu.RUnlock()
 
 	// Always update tmux status bars and key bindings
@@ -817,19 +800,23 @@ func (h *Home) updateTmuxNotifications() {
 	// Update key bindings
 	entries := h.notificationManager.GetEntries()
 
-	// Bind keys for current entries
-	currentKeys := make(map[string]bool)
+	// Bind/rebind keys for current entries
+	// Track which keys are still needed
+	currentKeys := make(map[string]string) // key -> sessionID
 	for _, e := range entries {
-		currentKeys[e.AssignedKey] = true
-		if !h.boundKeys[e.AssignedKey] {
-			_ = tmux.BindSwitchKey(e.AssignedKey, e.TmuxName)
-			h.boundKeys[e.AssignedKey] = true
+		currentKeys[e.AssignedKey] = e.SessionID
+		// Bind if: key not bound, OR key bound to different session
+		existingSessionID, isBound := h.boundKeys[e.AssignedKey]
+		if !isBound || existingSessionID != e.SessionID {
+			// Use BindSwitchKeyWithAck to write signal file for acknowledgment
+			_ = tmux.BindSwitchKeyWithAck(e.AssignedKey, e.TmuxName, e.SessionID)
+			h.boundKeys[e.AssignedKey] = e.SessionID
 		}
 	}
 
 	// Unbind keys no longer needed
 	for key := range h.boundKeys {
-		if !currentKeys[key] {
+		if _, stillNeeded := currentKeys[key]; !stillNeeded {
 			_ = tmux.UnbindKey(key)
 			delete(h.boundKeys, key)
 		}
@@ -856,7 +843,7 @@ func (h *Home) cleanupNotifications() {
 	for key := range h.boundKeys {
 		_ = tmux.UnbindKey(key)
 	}
-	h.boundKeys = make(map[string]bool)
+	h.boundKeys = make(map[string]string)
 }
 
 // getVisibleHeight returns the number of visible items in the session list

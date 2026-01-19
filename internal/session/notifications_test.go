@@ -270,3 +270,67 @@ func TestNotificationManager_DefaultMaxShown(t *testing.T) {
 
 	assert.Equal(t, 6, nm.Count())
 }
+
+// TestNotificationManager_SyncFromInstances_NewestFirst verifies that SyncFromInstances
+// correctly sorts entries with newest waiting sessions first.
+func TestNotificationManager_SyncFromInstances_NewestFirst(t *testing.T) {
+	nm := NewNotificationManager(6)
+
+	now := time.Now()
+
+	// Create instances with different CreatedAt times (used as fallback for GetWaitingSince)
+	instances := []*Instance{
+		{ID: "oldest", Title: "oldest-session", Status: StatusWaiting, CreatedAt: now.Add(-30 * time.Second)},
+		{ID: "middle", Title: "middle-session", Status: StatusWaiting, CreatedAt: now.Add(-15 * time.Second)},
+		{ID: "newest", Title: "newest-session", Status: StatusWaiting, CreatedAt: now},
+	}
+
+	added, _ := nm.SyncFromInstances(instances, "")
+
+	assert.Len(t, added, 3)
+	assert.Equal(t, 3, nm.Count())
+
+	entries := nm.GetEntries()
+	// Newest should be first (key "1")
+	assert.Equal(t, "newest", entries[0].SessionID)
+	assert.Equal(t, "1", entries[0].AssignedKey)
+	assert.Equal(t, "middle", entries[1].SessionID)
+	assert.Equal(t, "2", entries[1].AssignedKey)
+	assert.Equal(t, "oldest", entries[2].SessionID)
+	assert.Equal(t, "3", entries[2].AssignedKey)
+}
+
+// TestNotificationManager_SyncFromInstances_MixedNewAndExisting verifies sorting
+// works correctly when mixing new and existing entries
+func TestNotificationManager_SyncFromInstances_MixedNewAndExisting(t *testing.T) {
+	nm := NewNotificationManager(6)
+
+	now := time.Now()
+
+	// First sync: add one session
+	existingSession := &Instance{
+		ID: "existing", Title: "existing-session", Status: StatusWaiting,
+		CreatedAt: now.Add(-60 * time.Second),
+	}
+	nm.SyncFromInstances([]*Instance{existingSession}, "")
+	assert.Equal(t, 1, nm.Count())
+
+	// Second sync: add new sessions (some newer, some older than existing)
+	instances := []*Instance{
+		existingSession,
+		{ID: "newest", Title: "newest-session", Status: StatusWaiting, CreatedAt: now},
+		{ID: "older", Title: "older-session", Status: StatusWaiting, CreatedAt: now.Add(-120 * time.Second)},
+		{ID: "middle", Title: "middle-session", Status: StatusWaiting, CreatedAt: now.Add(-30 * time.Second)},
+	}
+
+	nm.SyncFromInstances(instances, "")
+
+	entries := nm.GetEntries()
+	assert.Len(t, entries, 4)
+
+	// Should be sorted: newest, middle, existing, older
+	assert.Equal(t, "newest", entries[0].SessionID)
+	assert.Equal(t, "middle", entries[1].SessionID)
+	assert.Equal(t, "existing", entries[2].SessionID)
+	assert.Equal(t, "older", entries[3].SessionID)
+}

@@ -190,27 +190,8 @@ func (nm *NotificationManager) SyncFromInstances(instances []*Instance, currentS
 	}
 	nm.entries = newEntries
 
-	// Collect new waiting sessions into a slice for sorting
-	type newEntry struct {
-		inst         *Instance
-		waitingSince time.Time
-	}
-	var newWaiting []newEntry
+	// Add new waiting sessions to entries
 	for _, inst := range waitingSet {
-		newWaiting = append(newWaiting, newEntry{
-			inst:         inst,
-			waitingSince: inst.GetWaitingSince(), // When session became waiting
-		})
-	}
-
-	// Sort by waiting since (most recent first = newest waiting sessions)
-	sort.Slice(newWaiting, func(i, j int) bool {
-		return newWaiting[i].waitingSince.After(newWaiting[j].waitingSince)
-	})
-
-	// Prepend new entries (newest first, maintaining sorted order)
-	for _, nw := range newWaiting {
-		inst := nw.inst
 		tmuxName := ""
 		if ts := inst.GetTmuxSession(); ts != nil {
 			tmuxName = ts.Name
@@ -219,13 +200,19 @@ func (nm *NotificationManager) SyncFromInstances(instances []*Instance, currentS
 			SessionID:    inst.ID,
 			TmuxName:     tmuxName,
 			Title:        inst.Title,
-			WaitingSince: nw.waitingSince, // When session became waiting
+			WaitingSince: inst.GetWaitingSince(),
 		}
-		nm.entries = append([]*NotificationEntry{entry}, nm.entries...)
+		nm.entries = append(nm.entries, entry)
 		added = append(added, inst.ID)
 	}
 
-	// Trim to max
+	// Sort ALL entries by WaitingSince (newest first)
+	// This ensures correct ordering regardless of how entries were added
+	sort.Slice(nm.entries, func(i, j int) bool {
+		return nm.entries[i].WaitingSince.After(nm.entries[j].WaitingSince)
+	})
+
+	// Trim to maxShown (keeps the newest waiting sessions)
 	if len(nm.entries) > nm.maxShown {
 		nm.entries = nm.entries[:nm.maxShown]
 	}

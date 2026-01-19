@@ -2107,9 +2107,58 @@ func ClearStatusLeft(sessionName string) error {
 // BindSwitchKey binds a number key to switch to target session.
 // Uses prefix table (default) so Ctrl+b N works.
 // The key should be a single character like "1", "2", etc.
+// Deprecated: Use BindSwitchKeyWithAck for notification bar integration.
 func BindSwitchKey(key, targetSession string) error {
 	cmd := exec.Command("tmux", "bind-key", key, "switch-client", "-t", targetSession)
 	return cmd.Run()
+}
+
+// BindSwitchKeyWithAck binds a number key to switch to target session AND
+// writes a signal file so agent-deck can acknowledge the session was selected.
+// This enables proper acknowledgment when user presses Ctrl+b 1-6 shortcuts.
+func BindSwitchKeyWithAck(key, targetSession, sessionID string) error {
+	// Get signal file path
+	signalFile, err := GetAckSignalPath()
+	if err != nil {
+		// Fall back to simple binding if we can't get the path
+		return BindSwitchKey(key, targetSession)
+	}
+
+	// Create a compound command that:
+	// 1. Writes the session ID to a signal file (for agent-deck to acknowledge)
+	// 2. Switches to the target session
+	script := fmt.Sprintf("echo '%s' > '%s' && tmux switch-client -t '%s'",
+		sessionID, signalFile, targetSession)
+	cmd := exec.Command("tmux", "bind-key", key, "run-shell", script)
+	return cmd.Run()
+}
+
+// GetAckSignalPath returns the path to the acknowledgment signal file
+func GetAckSignalPath() (string, error) {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(homeDir, ".agent-deck", "ack-signal"), nil
+}
+
+// ReadAndClearAckSignal reads the session ID from the signal file and deletes it.
+// Returns empty string if no signal file exists or on error.
+func ReadAndClearAckSignal() string {
+	signalFile, err := GetAckSignalPath()
+	if err != nil {
+		return ""
+	}
+
+	data, err := os.ReadFile(signalFile)
+	if err != nil {
+		return "" // File doesn't exist or can't be read
+	}
+
+	// Delete the file immediately after reading
+	_ = os.Remove(signalFile)
+
+	return strings.TrimSpace(string(data))
 }
 
 // UnbindKey removes a key binding and restores default behavior.
