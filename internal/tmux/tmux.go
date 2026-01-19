@@ -38,9 +38,16 @@ var (
 // RefreshSessionCache updates the cache of existing tmux sessions and their activity
 // Call this ONCE per tick, then use Session.Exists() and Session.GetWindowActivity()
 // which read from cache. This reduces 30+ subprocess spawns to just 1 per tick cycle.
+//
+// NOTE: We use window_activity (not session_activity) because window_activity updates
+// when there's actual terminal output, while session_activity only updates on
+// session-level events. This is critical for detecting when Claude is actively working.
 func RefreshSessionCache() {
-	// Get both session name AND activity timestamp in single call
-	cmd := exec.Command("tmux", "list-sessions", "-F", "#{session_name}\t#{session_activity}")
+	// Get both session name AND window activity timestamp in single call
+	// Using list-windows with -a flag to get all windows across all sessions
+	// window_activity updates on actual terminal output (Claude typing)
+	// session_activity does NOT update on terminal output, only session-level events
+	cmd := exec.Command("tmux", "list-windows", "-a", "-F", "#{session_name}\t#{window_activity}")
 	output, err := cmd.Output()
 	if err != nil {
 		// tmux not running or error - clear cache
@@ -63,7 +70,10 @@ func RefreshSessionCache() {
 		name := parts[0]
 		var activity int64
 		_, _ = fmt.Sscanf(parts[1], "%d", &activity) // ignore error, 0 is valid default
-		newCache[name] = activity
+		// Keep maximum activity (most recent) if session has multiple windows
+		if existing, ok := newCache[name]; !ok || activity > existing {
+			newCache[name] = activity
+		}
 	}
 
 	sessionCacheMu.Lock()
@@ -1135,6 +1145,19 @@ func (s *Session) GetStatus() (string, error) {
 
 			// Check for explicit busy indicator (spinner, "ctrl+c to interrupt")
 			isExplicitlyBusy := s.hasBusyIndicator(content)
+			// Debug: show last line of content for this session
+			lines := strings.Split(content, "\n")
+			lastLine := ""
+			for i := len(lines) - 1; i >= 0; i-- {
+				if strings.TrimSpace(lines[i]) != "" {
+					lastLine = lines[i]
+					if len(lastLine) > 60 {
+						lastLine = lastLine[:60] + "..."
+					}
+					break
+				}
+			}
+			debugLog("%s: needsBusyCheck busy=%v lastLine=%q", shortName, isExplicitlyBusy, lastLine)
 
 			// Update content hash for spike detection (used later to confirm real activity)
 			cleanContent := s.normalizeContent(content)
@@ -1438,8 +1461,16 @@ func (s *Session) hasBusyIndicator(content string) bool {
 		shortName = shortName[:12]
 	}
 
-	// Get last 10 lines for analysis
+	// Get last 10 lines for analysis, skipping trailing blank lines
+	// tmux capture-pane returns the full terminal buffer including blank lines at the end
+	// which can push "ctrl+c to interrupt" out of the last 10 lines window
 	lines := strings.Split(content, "\n")
+
+	// Strip trailing blank lines
+	for len(lines) > 0 && strings.TrimSpace(lines[len(lines)-1]) == "" {
+		lines = lines[:len(lines)-1]
+	}
+
 	start := len(lines) - 10
 	if start < 0 {
 		start = 0
@@ -1451,7 +1482,9 @@ func (s *Session) hasBusyIndicator(content string) bool {
 	// CHECK 1: "ctrl+c to interrupt" - PRIMARY indicator for Claude Code
 	// This text ALWAYS appears when Claude is actively working
 	// ═══════════════════════════════════════════════════════════════════════
-	if strings.Contains(recentContent, "ctrl+c to interrupt") {
+	hasCtrlC := strings.Contains(recentContent, "ctrl+c to interrupt")
+	debugLog("%s: hasBusyIndicator lines=%d hasCtrlC=%v", shortName, len(last10Lines), hasCtrlC)
+	if hasCtrlC {
 		debugLog("%s: BUSY_REASON=ctrl+c to interrupt", shortName)
 		return true
 	}
