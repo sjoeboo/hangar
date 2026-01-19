@@ -41,13 +41,12 @@ const (
 	// Screen clear + cursor home
 	clearScreen = "\033[2J\033[H"
 
-	// tickInterval for UI refresh - event-driven detection still reduces
-	// expensive operations (SignalFileActivity updates state, tick just redraws)
-	// PERFORMANCE: Increased from 500ms to 1s to reduce CapturePane() load
-	// With 10 sessions, each tick triggers 5-10 CapturePane() calls
-	// At 500ms: 10-20 calls/sec = 2-10 sec of blocking per second
-	// At 1s: 5-10 calls/sec = 0.5-5 sec of blocking per second
-	tickInterval = 1 * time.Second
+	// tickInterval for UI refresh - hook-based detection handles most status updates
+	// Polling is now a fallback for edge cases and UI refresh
+	// PERFORMANCE: Increased from 1s to 2s since hooks handle real-time updates
+	// With hook-based detection, polling is less critical for responsiveness
+	// At 2s: 2-5 CapturePane() calls/sec = minimal CPU overhead
+	tickInterval = 2 * time.Second
 
 	// logCheckInterval - how often to check for oversized logs (fast check, just file stats)
 	// This catches runaway logs before they cause high CPU
@@ -1487,6 +1486,9 @@ func (h *Home) processStatusUpdate(req statusUpdateRequest) {
 	}
 
 	// Step 2: Round-robin through non-visible sessions (Priority 1A - batching)
+	// OPTIMIZATION: Skip idle sessions - they need user interaction to become active,
+	// and hook-based detection will catch when Claude starts processing again.
+	// This significantly reduces CapturePane() calls for large session lists.
 	remaining := batchSize
 	startIdx := int(h.statusUpdateIndex.Load())
 	instanceCount := len(instancesCopy)
@@ -1497,6 +1499,12 @@ func (h *Home) processStatusUpdate(req statusUpdateRequest) {
 
 		// Skip if already updated (visible)
 		if updated[inst.ID] {
+			continue
+		}
+
+		// Skip idle sessions - they require user interaction to change state
+		// Hook-based detection will catch any activity when it starts
+		if inst.Status == "idle" {
 			continue
 		}
 
