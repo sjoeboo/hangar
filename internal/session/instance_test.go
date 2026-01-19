@@ -1503,9 +1503,9 @@ func TestSessionHasConversationData(t *testing.T) {
 		}
 	})
 
-	t.Run("missing file returns true (safe fallback)", func(t *testing.T) {
-		if !sessionHasConversationData("nonexistent-file", projectPath) {
-			t.Error("Expected true (safe fallback) for missing file")
+	t.Run("missing file returns false (use --session-id)", func(t *testing.T) {
+		if sessionHasConversationData("nonexistent-file", projectPath) {
+			t.Error("Expected false for missing file (nothing to resume)")
 		}
 	})
 }

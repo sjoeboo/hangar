@@ -1930,11 +1930,11 @@ func (i *Instance) regenerateMCPConfig() error {
 //
 // Returns true if:
 // - File has any "sessionId" field (user interacted with session)
-// - File doesn't exist (safe fallback - let --resume handle it)
-// - Any error occurs (safe fallback - don't risk losing sessions)
+// - Error reading file (safe fallback - don't risk losing sessions)
 //
-// Returns false only if:
-// - File exists AND has zero "sessionId" occurrences (never interacted)
+// Returns false if:
+// - File doesn't exist (nothing to resume, use --session-id)
+// - File exists but has zero "sessionId" occurrences (never interacted)
 func sessionHasConversationData(sessionID string, projectPath string) bool {
 	// Build the session file path
 	// Format: {config_dir}/projects/{encoded_path}/{sessionID}.jsonl
@@ -1959,8 +1959,9 @@ func sessionHasConversationData(sessionID string, projectPath string) bool {
 
 	// Check if file exists
 	if _, err := os.Stat(sessionFile); os.IsNotExist(err) {
-		// File doesn't exist - safe fallback to --resume
-		return true
+		// File doesn't exist - use --session-id to create fresh session
+		// (there's nothing to resume if the file doesn't exist)
+		return false
 	}
 
 	// Read file and search for "sessionId" field
