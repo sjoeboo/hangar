@@ -741,15 +741,23 @@ const errorRecheckInterval = 30 * time.Second
 
 // UpdateStatus updates the session status by checking tmux
 func (i *Instance) UpdateStatus() error {
-	// Grace period FIRST: Skip all checks for recently created sessions
-	// If session was created within last 5 seconds, keep status as starting
-	// This prevents error flash during auto-reload while tmux initializes
-	if time.Since(i.CreatedAt) < 5*time.Second {
-		// Keep status as starting during grace period
-		if i.Status != StatusRunning && i.Status != StatusIdle {
-			i.Status = StatusStarting
+	// Short grace period for tmux initialization (not Claude startup)
+	// Use lastStartTime for accuracy on restarts, fallback to CreatedAt
+	graceTime := i.lastStartTime
+	if graceTime.IsZero() {
+		graceTime = i.CreatedAt
+	}
+	// 1.5 seconds is enough for tmux to create the session (<100ms typically)
+	// Don't block status detection once tmux session exists
+	if time.Since(graceTime) < 1500*time.Millisecond {
+		// Only skip if tmux session doesn't exist yet
+		if i.tmuxSession == nil || !i.tmuxSession.Exists() {
+			if i.Status != StatusRunning && i.Status != StatusIdle {
+				i.Status = StatusStarting
+			}
+			return nil
 		}
-		return nil
+		// Session exists - allow normal status detection below
 	}
 
 	if i.tmuxSession == nil {
