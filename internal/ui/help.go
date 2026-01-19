@@ -87,6 +87,7 @@ func (h *HelpOverlay) View() string {
 				{"d", "Delete session"},
 				{"m", "Move to group"},
 				{"Shift+M", "MCP Manager (Claude)"},
+				{"v", "Toggle preview mode (output/stats/both)"},
 				{"u", "Mark unread"},
 				{"K / J", "Reorder up/down"},
 				{"f", "Quick fork (Claude only)"},

@@ -90,6 +90,15 @@ const (
 	LayoutModeDual    = "dual"    // 80+ cols: side-by-side
 )
 
+// PreviewMode defines what to show in the preview pane
+type PreviewMode int
+
+const (
+	PreviewModeBoth     PreviewMode = iota // Show both analytics and output (default)
+	PreviewModeOutput                      // Show output only (content preview)
+	PreviewModeAnalytics                   // Show analytics only
+)
+
 // Responsive breakpoints for empty state content tiers
 // These define when to show full/compact/minimal content
 const (
@@ -149,6 +158,7 @@ type Home struct {
 	viewOffset    int            // First visible item index (for scrolling)
 	isAttaching   atomic.Bool   // Prevents View() output during attach (fixes Bubble Tea Issue #431) - atomic for thread safety
 	statusFilter  session.Status // Filter sessions by status ("" = all, or specific status)
+	previewMode   PreviewMode    // What to show in preview pane (both, output-only, analytics-only)
 	err           error
 	errTime       time.Time // When error occurred (for auto-dismiss)
 	isReloading    bool      // Visual feedback during auto-reload
@@ -2763,6 +2773,11 @@ func (h *Home) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return h, nil
 
+	case "v":
+		// Toggle preview mode (cycle: both → output-only → analytics-only → both)
+		h.previewMode = (h.previewMode + 1) % 3
+		return h, nil
+
 	case "y":
 		// Toggle Gemini YOLO mode (requires restart)
 		if h.cursor < len(h.flatItems) {
@@ -4397,6 +4412,7 @@ func (h *Home) renderHelpBarCompact() string {
 			}
 			if item.Session != nil && (item.Session.Tool == "claude" || item.Session.Tool == "gemini") {
 				contextHints = append(contextHints, h.helpKeyShort("M", "MCP"))
+				contextHints = append(contextHints, h.helpKeyShort("v", h.previewModeShort()))
 			}
 		}
 	}
@@ -4428,6 +4444,18 @@ func (h *Home) helpKeyShort(key, desc string) string {
 		Bold(true)
 	descStyle := lipgloss.NewStyle().Foreground(ColorText)
 	return keyStyle.Render(key) + descStyle.Render(desc)
+}
+
+// previewModeShort returns a short description of current preview mode for help bar
+func (h *Home) previewModeShort() string {
+	switch h.previewMode {
+	case PreviewModeOutput:
+		return "Out"
+	case PreviewModeAnalytics:
+		return "Stats"
+	default:
+		return "Both"
+	}
 }
 
 // renderHelpBarFull renders context-aware keyboard shortcuts with visual grouping (100+ cols)
@@ -4473,9 +4501,10 @@ func (h *Home) renderHelpBarFull() string {
 			if item.Session != nil && item.Session.CanFork() {
 				primaryHints = append(primaryHints, h.helpKey("f/F", "Fork"))
 			}
-			// Show MCP Manager hint for Claude and Gemini sessions
+			// Show MCP Manager and preview mode toggle for Claude and Gemini sessions
 			if item.Session != nil && (item.Session.Tool == "claude" || item.Session.Tool == "gemini") {
 				primaryHints = append(primaryHints, h.helpKey("M", "MCP"))
+				primaryHints = append(primaryHints, h.helpKey("v", h.previewModeShort()))
 			}
 			secondaryHints = []string{
 				h.helpKey("r", "Rename"),
@@ -5431,6 +5460,17 @@ func (h *Home) renderPreviewPane(width, height int) string {
 	config, _ := session.LoadUserConfig()
 	showAnalytics := config != nil && config.GetShowAnalytics() && (selected.Tool == "claude" || selected.Tool == "gemini")
 	showOutput := config == nil || config.GetShowOutput() // Default to true if config fails
+
+	// Apply preview mode override (v key cycles through modes)
+	switch h.previewMode {
+	case PreviewModeOutput:
+		showAnalytics = false
+		showOutput = true
+	case PreviewModeAnalytics:
+		showAnalytics = showAnalytics // Only show if actually available (Claude/Gemini)
+		showOutput = false
+	// PreviewModeBoth: use config settings (default)
+	}
 
 	// Check if session is launching/resuming (for animation priority)
 	_, isSessionLaunching := h.launchingSessions[selected.ID]
