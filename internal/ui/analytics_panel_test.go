@@ -258,6 +258,7 @@ func TestAnalyticsPanel_View_ToolCalls(t *testing.T) {
 	}
 
 	panel.SetAnalytics(analytics)
+	panel.SetDisplaySettings(allSectionsEnabled()) // Enable tools section
 	panel.SetSize(60, 30)
 
 	view := panel.View()
@@ -455,6 +456,7 @@ func TestAnalyticsPanel_ToolsSortedByCount(t *testing.T) {
 	}
 
 	panel.SetAnalytics(analytics)
+	panel.SetDisplaySettings(allSectionsEnabled()) // Enable tools section
 	panel.SetSize(60, 20)
 
 	view := panel.View()
@@ -518,7 +520,7 @@ func TestAnalyticsPanel_View_HighContextUsage(t *testing.T) {
 	}
 }
 
-// TestAnalyticsPanel_View_DefaultSettings tests that default settings show only context bar and tools
+// TestAnalyticsPanel_View_DefaultSettings tests that default settings show only context bar
 func TestAnalyticsPanel_View_DefaultSettings(t *testing.T) {
 	panel := NewAnalyticsPanel()
 
@@ -540,23 +542,20 @@ func TestAnalyticsPanel_View_DefaultSettings(t *testing.T) {
 
 	view := panel.View()
 
-	// Default ON: Context bar and Tools
+	// Default ON: Only context bar
 	if !strings.Contains(view, "Context") {
 		t.Error("Default view should show context bar")
 	}
-	if !strings.Contains(view, "Tools") {
-		t.Error("Default view should show tools section")
-	}
-	if !strings.Contains(view, "Read") {
-		t.Error("Default view should show tool names")
-	}
 
-	// Default OFF: Tokens, Session info, Cost
+	// Default OFF: Tokens, Session info, Tools, Cost
 	if strings.Contains(view, "Tokens") {
 		t.Error("Default view should NOT show tokens section")
 	}
 	if strings.Contains(view, "Duration:") {
 		t.Error("Default view should NOT show session info (duration)")
+	}
+	if strings.Contains(view, "Tools") {
+		t.Error("Default view should NOT show tools section")
 	}
 	if strings.Contains(view, "Cost") {
 		t.Error("Default view should NOT show cost section")

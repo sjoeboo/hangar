@@ -241,10 +241,10 @@ func (a *AnalyticsDisplaySettings) GetShowSessionInfo() bool {
 	return *a.ShowSessionInfo
 }
 
-// GetShowTools returns whether to show tool calls, defaulting to true
+// GetShowTools returns whether to show tool calls, defaulting to false
 func (a *AnalyticsDisplaySettings) GetShowTools() bool {
 	if a.ShowTools == nil {
-		return true // Default: ON - useful context
+		return false // Default: OFF - keeps display minimal
 	}
 	return *a.ShowTools
 }
