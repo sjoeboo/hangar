@@ -337,12 +337,6 @@ type StateTracker struct {
 // outputs a final message right after user detaches.
 const acknowledgeGracePeriod = 300 * time.Millisecond
 
-// activityCooldown is how long to show GREEN after content stops changing.
-// This prevents flickering during natural micro-pauses in AI output.
-// - 2 seconds: Covers most pauses between output bursts
-// - 3 seconds: More conservative, fewer false yellows
-const activityCooldown = 2 * time.Second
-
 // Session represents a tmux session
 // NOTE: All mutable fields are protected by mu. The Bubble Tea event loop is single-threaded,
 // but we use mutex protection for defensive programming and future-proofing.
@@ -390,7 +384,7 @@ func (s *Session) ensureStateTrackerLocked() {
 	if s.stateTracker == nil {
 		s.stateTracker = &StateTracker{
 			lastHash:       "",
-			lastChangeTime: time.Now().Add(-activityCooldown),
+			lastChangeTime: time.Now(),
 			acknowledged:   false,
 		}
 	}
@@ -1070,7 +1064,7 @@ func (s *Session) AcknowledgeWithSnapshot() {
 
 	// Clear cooldown to show GRAY status immediately
 	// This ensures explicit user acknowledge (Ctrl+Q detach) takes effect immediately
-	s.stateTracker.lastChangeTime = time.Now().Add(-activityCooldown)
+	s.stateTracker.lastChangeTime = time.Now()
 	debugLog("%s: AckSnapshot → acknowledged, cleared cooldown", shortName)
 }
 
@@ -1122,14 +1116,12 @@ func (s *Session) GetStatus() (string, error) {
 	needsBusyCheck := false
 	if s.stateTracker != nil {
 		// Check busy indicator if:
+		// Check busy indicator if:
 		// 1. timestamp changed (new activity)
-		// 2. we're in cooldown (might still be working)
-		// 3. we're in spike detection window (activity recently detected, waiting to confirm)
+		// 2. in spike detection window (activity recently detected, waiting to confirm)
 		inSpikeWindow := !s.stateTracker.activityCheckStart.IsZero() &&
 			time.Since(s.stateTracker.activityCheckStart) < 1*time.Second
-		if s.stateTracker.lastActivityTimestamp != currentTS ||
-			time.Since(s.stateTracker.lastChangeTime) < activityCooldown ||
-			inSpikeWindow {
+		if s.stateTracker.lastActivityTimestamp != currentTS || inSpikeWindow {
 			needsBusyCheck = true
 		}
 	} else {
@@ -1174,7 +1166,7 @@ func (s *Session) GetStatus() (string, error) {
 	if s.stateTracker == nil {
 		now := time.Now()
 		s.stateTracker = &StateTracker{
-			lastChangeTime:        now.Add(-activityCooldown),
+			lastChangeTime:        now,
 			acknowledged:          false, // Start unacknowledged so stopped sessions show YELLOW
 			lastActivityTimestamp: currentTS,
 			waitingSince:          now, // Track when session became waiting
@@ -1285,13 +1277,7 @@ func (s *Session) GetStatus() (string, error) {
 		return "waiting", nil
 	}
 
-	// Check cooldown
-	if time.Since(s.stateTracker.lastChangeTime) < activityCooldown {
-		s.lastStableStatus = "active"
-		return "active", nil
-	}
-
-	// Cooldown expired
+	// No busy indicator found - check acknowledged state
 	if s.stateTracker.acknowledged {
 		s.lastStableStatus = "idle"
 		return "idle", nil
@@ -1343,7 +1329,7 @@ func (s *Session) getStatusFallback() (string, error) {
 		now := time.Now()
 		s.stateTracker = &StateTracker{
 			lastHash:       currentHash,
-			lastChangeTime: now.Add(-activityCooldown),
+			lastChangeTime: now,
 			acknowledged:   false, // Start unacknowledged so stopped sessions show YELLOW
 			waitingSince:   now,   // Track when session became waiting
 		}
@@ -1372,11 +1358,7 @@ func (s *Session) getStatusFallback() (string, error) {
 		debugLog("%s: FALLBACK hash updated (no status change)", shortName)
 	}
 
-	if time.Since(s.stateTracker.lastChangeTime) < activityCooldown {
-		s.lastStableStatus = "active"
-		return "active", nil
-	}
-
+	// No busy indicator found - check acknowledged state
 	if s.stateTracker.acknowledged {
 		s.lastStableStatus = "idle"
 		return "idle", nil
@@ -2086,6 +2068,34 @@ func RunLogMaintenance(maxSizeMB int, maxLines int, removeOrphans bool) {
 // ═══════════════════════════════════════════════════════════════════════════
 // Notification Bar Helper Functions
 // ═══════════════════════════════════════════════════════════════════════════
+
+// ListAgentDeckSessions returns the names of all agentdeck tmux sessions.
+// This is used to update notification bars across ALL sessions, not just
+// those in the current profile. This ensures consistent notification bars
+// when users switch between sessions.
+func ListAgentDeckSessions() ([]string, error) {
+	cmd := exec.Command("tmux", "list-sessions", "-F", "#{session_name}")
+	output, err := cmd.Output()
+	if err != nil {
+		// No sessions exist
+		if strings.Contains(err.Error(), "no server running") ||
+			strings.Contains(err.Error(), "no sessions") {
+			return []string{}, nil
+		}
+		return nil, fmt.Errorf("failed to list sessions: %w", err)
+	}
+
+	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
+	var sessions []string
+
+	for _, line := range lines {
+		if strings.HasPrefix(line, SessionPrefix) {
+			sessions = append(sessions, line)
+		}
+	}
+
+	return sessions, nil
+}
 
 // SetStatusLeft sets the left side of tmux status bar for a session.
 // Used by NotificationManager to display waiting session notifications.

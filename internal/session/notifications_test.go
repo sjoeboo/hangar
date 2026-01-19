@@ -1,6 +1,7 @@
 package session
 
 import (
+	"fmt"
 	"testing"
 	"time"
 
@@ -333,4 +334,223 @@ func TestNotificationManager_SyncFromInstances_MixedNewAndExisting(t *testing.T)
 	assert.Equal(t, "middle", entries[1].SessionID)
 	assert.Equal(t, "existing", entries[2].SessionID)
 	assert.Equal(t, "older", entries[3].SessionID)
+}
+
+// =============================================================================
+// ISSUE VERIFICATION TESTS
+// These tests verify the 4 notification bar issues are fixed
+// =============================================================================
+
+// TestIssue1_AcknowledgmentRemovesFromBar verifies that when a session becomes idle
+// (acknowledged), it gets removed from the notification bar on next sync.
+// ISSUE: Sessions not acknowledged when switching via Ctrl+b shortcuts
+func TestIssue1_AcknowledgmentRemovesFromBar(t *testing.T) {
+	nm := NewNotificationManager(6)
+
+	now := time.Now()
+
+	// Create 3 waiting sessions
+	instances := []*Instance{
+		{ID: "session1", Title: "session-1", Status: StatusWaiting, CreatedAt: now.Add(-30 * time.Second)},
+		{ID: "session2", Title: "session-2", Status: StatusWaiting, CreatedAt: now.Add(-20 * time.Second)},
+		{ID: "session3", Title: "session-3", Status: StatusWaiting, CreatedAt: now.Add(-10 * time.Second)},
+	}
+
+	// Initial sync - all 3 should be in bar
+	nm.SyncFromInstances(instances, "")
+	assert.Equal(t, 3, nm.Count(), "All 3 waiting sessions should be in notification bar")
+	assert.True(t, nm.Has("session1"))
+	assert.True(t, nm.Has("session2"))
+	assert.True(t, nm.Has("session3"))
+
+	// Simulate: User switches to session2 (Ctrl+b 2) and acknowledges it
+	// Session2 transitions from WAITING to IDLE
+	instances[1].Status = StatusIdle // session2 is now idle (acknowledged)
+
+	// Sync again
+	_, removed := nm.SyncFromInstances(instances, "")
+
+	// session2 should be removed from bar
+	assert.Contains(t, removed, "session2", "Acknowledged session should be removed from bar")
+	assert.Equal(t, 2, nm.Count(), "Only 2 sessions should remain in bar")
+	assert.True(t, nm.Has("session1"), "session1 should still be in bar")
+	assert.False(t, nm.Has("session2"), "session2 (now idle) should NOT be in bar")
+	assert.True(t, nm.Has("session3"), "session3 should still be in bar")
+
+	// Keys should be reassigned: session3 [1], session1 [2]
+	entries := nm.GetEntries()
+	assert.Equal(t, "session3", entries[0].SessionID) // newest waiting
+	assert.Equal(t, "1", entries[0].AssignedKey)
+	assert.Equal(t, "session1", entries[1].SessionID)
+	assert.Equal(t, "2", entries[1].AssignedKey)
+}
+
+// TestIssue2_MaxSixSessionsShown verifies that exactly 6 sessions are shown
+// (not fewer due to bugs, not more due to config issues).
+// ISSUE: Only showing ~3 sessions instead of 6
+func TestIssue2_MaxSixSessionsShown(t *testing.T) {
+	nm := NewNotificationManager(6)
+
+	now := time.Now()
+
+	// Create 10 waiting sessions
+	instances := make([]*Instance, 10)
+	for i := 0; i < 10; i++ {
+		instances[i] = &Instance{
+			ID:        fmt.Sprintf("session%d", i),
+			Title:     fmt.Sprintf("session-%d", i),
+			Status:    StatusWaiting,
+			CreatedAt: now.Add(time.Duration(-i) * time.Second), // Newer sessions have smaller i
+		}
+	}
+
+	nm.SyncFromInstances(instances, "")
+
+	// Exactly 6 should be shown
+	assert.Equal(t, 6, nm.Count(), "Exactly 6 sessions should be shown in notification bar")
+
+	entries := nm.GetEntries()
+	// The 6 newest should be shown (session0-5)
+	for i, entry := range entries {
+		expectedID := fmt.Sprintf("session%d", i)
+		assert.Equal(t, expectedID, entry.SessionID, "Entry %d should be session%d", i, i)
+		assert.Equal(t, fmt.Sprintf("%d", i+1), entry.AssignedKey, "Entry %d should have key %d", i, i+1)
+	}
+
+	// Verify bar format includes all 6
+	bar := nm.FormatBar()
+	assert.Contains(t, bar, "[1]")
+	assert.Contains(t, bar, "[6]")
+	assert.NotContains(t, bar, "[7]") // No 7th entry
+}
+
+// TestIssue3_NewestWaitingSessionFirst verifies that the most recently waiting
+// session appears at position [1], not oldest.
+// ISSUE: Newest waiting sessions should appear first at position [1]
+func TestIssue3_NewestWaitingSessionFirst(t *testing.T) {
+	nm := NewNotificationManager(6)
+
+	now := time.Now()
+
+	// Create sessions with different waiting times
+	// Session that became waiting most recently should be [1]
+	instances := []*Instance{
+		{ID: "old-waiting", Title: "old-session", Status: StatusWaiting, CreatedAt: now.Add(-5 * time.Minute)},
+		{ID: "mid-waiting", Title: "mid-session", Status: StatusWaiting, CreatedAt: now.Add(-2 * time.Minute)},
+		{ID: "new-waiting", Title: "new-session", Status: StatusWaiting, CreatedAt: now.Add(-10 * time.Second)},
+	}
+
+	nm.SyncFromInstances(instances, "")
+
+	entries := nm.GetEntries()
+	assert.Len(t, entries, 3)
+
+	// Newest waiting session should be [1]
+	assert.Equal(t, "new-waiting", entries[0].SessionID, "Newest waiting session should be first")
+	assert.Equal(t, "1", entries[0].AssignedKey, "Newest should have key 1")
+
+	// Verify by key lookup
+	entry := nm.GetSessionByKey("1")
+	assert.NotNil(t, entry)
+	assert.Equal(t, "new-waiting", entry.SessionID, "Key 1 should return newest waiting session")
+
+	// Middle and oldest should follow
+	assert.Equal(t, "mid-waiting", entries[1].SessionID)
+	assert.Equal(t, "old-waiting", entries[2].SessionID)
+}
+
+// TestIssue4_RealTimeUpdatesAcrossSessions verifies that when one session's status
+// changes, it affects the notification bar for ALL sessions on the next sync.
+// ISSUE: Real-time updates across all sessions
+func TestIssue4_RealTimeUpdatesAcrossSessions(t *testing.T) {
+	nm := NewNotificationManager(6)
+
+	now := time.Now()
+
+	// Initial state: 2 waiting sessions
+	instances := []*Instance{
+		{ID: "session-a", Title: "A", Status: StatusWaiting, CreatedAt: now.Add(-30 * time.Second)},
+		{ID: "session-b", Title: "B", Status: StatusWaiting, CreatedAt: now.Add(-20 * time.Second)},
+		{ID: "session-c", Title: "C", Status: StatusIdle, CreatedAt: now.Add(-10 * time.Second)}, // idle
+	}
+
+	nm.SyncFromInstances(instances, "")
+	assert.Equal(t, 2, nm.Count())
+
+	bar1 := nm.FormatBar()
+	t.Logf("Initial bar: %s", bar1)
+
+	// Simulate: session-c becomes waiting (agent finished, needs attention)
+	instances[2].Status = StatusWaiting // C is now waiting
+
+	added, _ := nm.SyncFromInstances(instances, "")
+
+	// session-c should be added
+	assert.Contains(t, added, "session-c", "Newly waiting session should be added")
+	assert.Equal(t, 3, nm.Count())
+
+	bar2 := nm.FormatBar()
+	t.Logf("After C becomes waiting: %s", bar2)
+	assert.NotEqual(t, bar1, bar2, "Bar should change when session becomes waiting")
+
+	// C should now be [1] since it became waiting most recently
+	entries := nm.GetEntries()
+	assert.Equal(t, "session-c", entries[0].SessionID, "Most recently waiting session should be first")
+
+	// Simulate: session-b becomes idle (acknowledged)
+	instances[1].Status = StatusIdle
+
+	_, removed := nm.SyncFromInstances(instances, "")
+
+	assert.Contains(t, removed, "session-b")
+	assert.Equal(t, 2, nm.Count())
+
+	bar3 := nm.FormatBar()
+	t.Logf("After B acknowledged: %s", bar3)
+	assert.NotEqual(t, bar2, bar3, "Bar should update when session becomes idle")
+
+	// Final state: C [1], A [2]
+	entries = nm.GetEntries()
+	assert.Equal(t, "session-c", entries[0].SessionID)
+	assert.Equal(t, "1", entries[0].AssignedKey)
+	assert.Equal(t, "session-a", entries[1].SessionID)
+	assert.Equal(t, "2", entries[1].AssignedKey)
+}
+
+// TestNotificationManager_KeyReassignmentAfterRemoval verifies that keys are
+// correctly reassigned when sessions are removed from the middle.
+func TestNotificationManager_KeyReassignmentAfterRemoval(t *testing.T) {
+	nm := NewNotificationManager(6)
+
+	now := time.Now()
+
+	instances := []*Instance{
+		{ID: "a", Title: "A", Status: StatusWaiting, CreatedAt: now.Add(-4 * time.Second)},
+		{ID: "b", Title: "B", Status: StatusWaiting, CreatedAt: now.Add(-3 * time.Second)},
+		{ID: "c", Title: "C", Status: StatusWaiting, CreatedAt: now.Add(-2 * time.Second)},
+		{ID: "d", Title: "D", Status: StatusWaiting, CreatedAt: now.Add(-1 * time.Second)},
+	}
+
+	nm.SyncFromInstances(instances, "")
+	entries := nm.GetEntries()
+	// Order: d[1], c[2], b[3], a[4]
+	assert.Equal(t, "d", entries[0].SessionID)
+	assert.Equal(t, "1", entries[0].AssignedKey)
+	assert.Equal(t, "a", entries[3].SessionID)
+	assert.Equal(t, "4", entries[3].AssignedKey)
+
+	// Remove C (middle session) - it becomes idle
+	instances[2].Status = StatusIdle
+
+	nm.SyncFromInstances(instances, "")
+	entries = nm.GetEntries()
+
+	// Keys should be reassigned: d[1], b[2], a[3]
+	assert.Equal(t, 3, nm.Count())
+	assert.Equal(t, "d", entries[0].SessionID)
+	assert.Equal(t, "1", entries[0].AssignedKey)
+	assert.Equal(t, "b", entries[1].SessionID)
+	assert.Equal(t, "2", entries[1].AssignedKey)
+	assert.Equal(t, "a", entries[2].SessionID)
+	assert.Equal(t, "3", entries[2].AssignedKey)
 }

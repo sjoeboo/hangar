@@ -1459,7 +1459,13 @@ func TestTimeBasedStatusModel(t *testing.T) {
 			status = "active" // Within cooldown - this is the key!
 		}
 
-		assert.Equal(t, "active", status, "Should stay active within cooldown period")
+		// With activityCooldown=0, cooldown is always expired, so status is "waiting"
+		// With activityCooldown>0, status would be "active" during cooldown
+		expectedStatus := "waiting"
+		if activityCooldown > 0 {
+			expectedStatus = "active"
+		}
+		assert.Equal(t, expectedStatus, status, "Status depends on cooldown setting")
 	})
 
 	t.Run("Different hash returns active and resets acknowledged", func(t *testing.T) {
@@ -1625,14 +1631,17 @@ func TestNormalizeShouldStripTimeCounters(t *testing.T) {
 }
 
 // TestFlickeringScenarioEndToEnd simulates the full flickering scenario
+// With activityCooldown=0, there's no GREEN period after busy indicator disappears.
+// The key test is that hash normalization prevents flickering when only dynamic
+// content (timers, spinners) changes.
 func TestFlickeringScenarioEndToEnd(t *testing.T) {
 	session := NewSession("e2e-flicker", "/tmp")
 
-	// === STEP 1: Claude is actively outputting ===
+	// === STEP 1: Claude output with dynamic timer ===
 	activeContent := `Writing code...
 ⠋ Thinking... (5s · 50 tokens · esc to interrupt)`
 
-	// Initialize as if we're mid-activity
+	// Initialize state tracker
 	normalized := session.normalizeContent(activeContent)
 	session.stateTracker = &StateTracker{
 		lastHash:       session.hashContent(normalized),
@@ -1640,14 +1649,20 @@ func TestFlickeringScenarioEndToEnd(t *testing.T) {
 		acknowledged:   false,
 	}
 
-	// Status should be ACTIVE (within cooldown)
+	// With activityCooldown=0, status transitions to waiting immediately
+	// (GREEN is only shown when busy indicator is actively detected, not by cooldown)
 	timeSinceChange := time.Since(session.stateTracker.lastChangeTime)
 	status1 := "waiting"
-	if timeSinceChange < activityCooldown {
+	if activityCooldown > 0 && timeSinceChange < activityCooldown {
 		status1 = "active"
 	}
-	assert.Equal(t, "active", status1, "Step 1: Should be active during output")
-	t.Logf("Step 1: Status=%s (within cooldown)", status1)
+	// With cooldown=0, expect waiting; with cooldown>0, expect active
+	expectedStatus1 := "waiting"
+	if activityCooldown > 0 {
+		expectedStatus1 = "active"
+	}
+	assert.Equal(t, expectedStatus1, status1, "Step 1: Status depends on cooldown setting")
+	t.Logf("Step 1: Status=%s (cooldown=%v)", status1, activityCooldown)
 
 	// === STEP 2: Wait for cooldown to expire ===
 	session.stateTracker.lastChangeTime = time.Now().Add(-3 * time.Second)

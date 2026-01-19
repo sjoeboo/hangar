@@ -752,6 +752,9 @@ func (h *Home) syncNotifications() {
 		return
 	}
 
+	// Debug: Check if we're being called
+	debugNotif := os.Getenv("AGENTDECK_DEBUG_NOTIF") != ""
+
 	// Phase 1: Check for signal file from Ctrl+b 1-6 shortcuts
 	// When user presses Ctrl+b N, the key binding writes the session ID to a signal file
 	// This is the ONLY reliable way to detect session switches via shortcuts
@@ -759,6 +762,9 @@ func (h *Home) syncNotifications() {
 	if signalSessionID := tmux.ReadAndClearAckSignal(); signalSessionID != "" {
 		// User switched to this session via shortcut - acknowledge it
 		sessionToAcknowledgeID = signalSessionID
+		if debugNotif {
+			log.Printf("[NOTIF] Signal file found: %s", signalSessionID)
+		}
 	}
 
 	// Phase 2: Acknowledge the session if signal was received
@@ -772,6 +778,9 @@ func (h *Home) syncNotifications() {
 				// Acknowledge() and UpdateStatus() have their own internal locks
 				ts.Acknowledge()
 				_ = inst.UpdateStatus()
+				if debugNotif {
+					log.Printf("[NOTIF] Acknowledged %s, new status: %s", inst.Title, inst.Status)
+				}
 			}
 		}
 		h.instancesMu.RUnlock()
@@ -780,8 +789,12 @@ func (h *Home) syncNotifications() {
 	// Phase 3: Sync notifications (uses its own lock internally)
 	// Pass the acknowledged session ID so it gets excluded from the bar
 	h.instancesMu.RLock()
-	h.notificationManager.SyncFromInstances(h.instances, sessionToAcknowledgeID)
+	added, removed := h.notificationManager.SyncFromInstances(h.instances, sessionToAcknowledgeID)
 	h.instancesMu.RUnlock()
+
+	if debugNotif && (len(added) > 0 || len(removed) > 0) {
+		log.Printf("[NOTIF] Sync: added=%v removed=%v", added, removed)
+	}
 
 	// Always update tmux status bars and key bindings
 	h.updateTmuxNotifications()
@@ -791,21 +804,18 @@ func (h *Home) syncNotifications() {
 func (h *Home) updateTmuxNotifications() {
 	barText := h.notificationManager.FormatBar()
 
-	// Update status-left for all agent-deck sessions
-	h.instancesMu.RLock()
-	for _, inst := range h.instances {
-		ts := inst.GetTmuxSession()
-		if ts == nil {
-			continue
-		}
-
-		if barText == "" {
-			_ = tmux.ClearStatusLeft(ts.Name)
-		} else {
-			_ = tmux.SetStatusLeft(ts.Name, barText)
+	// Update status-left for ALL agentdeck sessions (not just current profile)
+	// This ensures consistent notification bars across all sessions
+	allSessions, err := tmux.ListAgentDeckSessions()
+	if err == nil {
+		for _, sessName := range allSessions {
+			if barText == "" {
+				_ = tmux.ClearStatusLeft(sessName)
+			} else {
+				_ = tmux.SetStatusLeft(sessName, barText)
+			}
 		}
 	}
-	h.instancesMu.RUnlock()
 
 	// Update key bindings
 	entries := h.notificationManager.GetEntries()
