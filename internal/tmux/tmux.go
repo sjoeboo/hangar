@@ -1475,18 +1475,19 @@ func (s *Session) GetWaitingSince() time.Time {
 // This is a quick check used in GetStatus() to detect active processing
 //
 // Busy indicators for Claude Code:
-// - PRIMARY: "ctrl+c to interrupt" - Always present when Claude is actively working
-// - BACKUP: Spinner characters (braille dots) in last 3 lines
+// - PRIMARY: "ctrl+c to interrupt" - Current Claude Code (2024+), always present when working
+// - FALLBACK: "esc to interrupt" - Older Claude Code versions
+// - BACKUP: Spinner characters (braille dots) in last 5 lines
 func (s *Session) hasBusyIndicator(content string) bool {
 	shortName := s.DisplayName
 	if len(shortName) > 12 {
 		shortName = shortName[:12]
 	}
 
-	// Get last 20 lines for analysis, skipping trailing blank lines
+	// Get last 25 lines for analysis, skipping trailing blank lines
 	// tmux capture-pane returns the full terminal buffer including blank lines at the end
-	// Need 20 lines (not 10) because Claude's todo list and status bar can push
-	// "ctrl+c to interrupt" further up from the bottom
+	// Need 25 lines (not 20) because Claude's todo list and status bar can push
+	// the interrupt message further up from the bottom
 	lines := strings.Split(content, "\n")
 
 	// Strip trailing blank lines
@@ -1494,7 +1495,7 @@ func (s *Session) hasBusyIndicator(content string) bool {
 		lines = lines[:len(lines)-1]
 	}
 
-	start := len(lines) - 20
+	start := len(lines) - 25
 	if start < 0 {
 		start = 0
 	}
@@ -1502,18 +1503,25 @@ func (s *Session) hasBusyIndicator(content string) bool {
 	recentContent := strings.ToLower(strings.Join(lastLines, "\n"))
 
 	// ═══════════════════════════════════════════════════════════════════════
-	// CHECK 1: "ctrl+c to interrupt" - PRIMARY indicator for Claude Code
+	// CHECK 1: "ctrl+c to interrupt" - PRIMARY indicator for Claude Code (2024+)
 	// This text ALWAYS appears when Claude is actively working
 	// ═══════════════════════════════════════════════════════════════════════
-	hasCtrlC := strings.Contains(recentContent, "ctrl+c to interrupt")
-	debugLog("%s: hasBusyIndicator lines=%d hasCtrlC=%v", shortName, len(lastLines), hasCtrlC)
-	if hasCtrlC {
+	if strings.Contains(recentContent, "ctrl+c to interrupt") {
 		debugLog("%s: BUSY_REASON=ctrl+c to interrupt", shortName)
 		return true
 	}
 
 	// ═══════════════════════════════════════════════════════════════════════
-	// CHECK 2: Custom busy patterns from config.toml
+	// CHECK 2: "esc to interrupt" - FALLBACK for older Claude Code versions
+	// Older versions showed "esc to interrupt" instead of "ctrl+c to interrupt"
+	// ═══════════════════════════════════════════════════════════════════════
+	if strings.Contains(recentContent, "esc to interrupt") {
+		debugLog("%s: BUSY_REASON=esc to interrupt (fallback)", shortName)
+		return true
+	}
+
+	// ═══════════════════════════════════════════════════════════════════════
+	// CHECK 3: Custom busy patterns from config.toml
 	// Allows custom tools to define their own busy indicators
 	// ═══════════════════════════════════════════════════════════════════════
 	if len(s.customBusyPatterns) > 0 {
@@ -1526,17 +1534,17 @@ func (s *Session) hasBusyIndicator(content string) bool {
 	}
 
 	// ═══════════════════════════════════════════════════════════════════════
-	// CHECK 3: Spinner characters - BACKUP indicator
+	// CHECK 4: Spinner characters - BACKUP indicator
 	// Braille spinner dots from cli-spinners "dots" pattern
-	// Only check last 3 lines (spinners appear at status line)
+	// Check last 5 lines (spinners appear at status line)
 	// ═══════════════════════════════════════════════════════════════════════
 	spinnerChars := []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
-	last3 := lastLines
-	if len(last3) > 3 {
-		last3 = last3[len(last3)-3:]
+	last5 := lastLines
+	if len(last5) > 5 {
+		last5 = last5[len(last5)-5:]
 	}
 
-	for _, line := range last3 {
+	for _, line := range last5 {
 		for _, spinner := range spinnerChars {
 			if strings.Contains(line, spinner) {
 				debugLog("%s: BUSY_REASON=spinner char=%q", shortName, spinner)

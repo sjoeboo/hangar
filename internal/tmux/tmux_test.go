@@ -179,9 +179,9 @@ func TestBusyIndicatorDetection(t *testing.T) {
 			expected: false, // Changed: whimsical words pattern removed
 		},
 		{
-			name:     "esc to interrupt - no longer detected",
+			name:     "esc to interrupt - fallback for older Claude Code",
 			content:  "Working on task...\nesc to interrupt\n",
-			expected: false, // Changed: old pattern no longer matches
+			expected: true, // Restored: esc to interrupt is fallback for older Claude Code
 		},
 		{
 			name:     "normal output",

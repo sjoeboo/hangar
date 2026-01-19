@@ -68,7 +68,7 @@ func (d *PromptDetector) HasPrompt(content string) bool {
 // Handles BOTH normal mode AND --dangerously-skip-permissions mode
 //
 // Claude Code UI States (from research):
-// - BUSY: Shows "esc to interrupt" with spinner (⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏)
+// - BUSY: Shows "ctrl+c to interrupt" (2024+) or "esc to interrupt" (older) with spinner
 // - WAITING (normal mode): Shows permission dialogs with Yes/No options
 // - WAITING (--dangerously-skip-permissions): Shows just ">" prompt
 // - THINKING: Extended reasoning mode with "think"/"think harder" keywords
@@ -96,9 +96,8 @@ func (d *PromptDetector) hasClaudePrompt(content string) bool {
 	// Priority: Check busy state FIRST - if busy, definitely not waiting
 	// ═══════════════════════════════════════════════════════════════════════
 	busyIndicators := []string{
-		"esc to interrupt",   // Main busy indicator from Claude Code
-		"(esc to interrupt)", // Sometimes in parentheses
-		"· esc to interrupt", // With separator
+		"ctrl+c to interrupt", // PRIMARY - current Claude Code (2024+)
+		"esc to interrupt",    // FALLBACK - older versions
 	}
 	for _, indicator := range busyIndicators {
 		if strings.Contains(recentLower, indicator) {
@@ -123,8 +122,8 @@ func (d *PromptDetector) hasClaudePrompt(content string) bool {
 	}
 
 	// Check for timing indicators that show Claude is processing
-	// Format: "Thinking… (45s · 1234 tokens · esc to interrupt)"
-	// Or: "Connecting… (80s · 121 tokens · esc to interrupt)"
+	// Format: "Thinking… (45s · 1234 tokens · ctrl+c to interrupt)" (2024+)
+	// Or older: "Thinking… (45s · 1234 tokens · esc to interrupt)"
 	if strings.Contains(recentLower, "thinking") && strings.Contains(recentLower, "tokens") {
 		return false // Actively thinking
 	}

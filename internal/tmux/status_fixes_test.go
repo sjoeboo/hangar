@@ -445,10 +445,10 @@ func TestClaudeCodeBusyPatterns(t *testing.T) {
 			wantBusy: false,
 		},
 		{
-			name: "idle - old esc to interrupt text should NOT match",
+			name: "busy - esc to interrupt fallback for older Claude Code",
 			content: `Some text mentioning esc to interrupt from docs
 ❯`,
-			wantBusy: false,
+			wantBusy: true, // Restored: esc to interrupt is fallback for older Claude Code
 		},
 		{
 			name: "idle - just prompt",
