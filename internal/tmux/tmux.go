@@ -1412,11 +1412,9 @@ func (s *Session) GetWaitingSince() time.Time {
 // hasBusyIndicator checks if the terminal shows explicit busy indicators
 // This is a quick check used in GetStatus() to detect active processing
 //
-// Busy indicators for different tools:
-// - Claude Code: "esc to interrupt", spinner chars, "Thinking...", "Connecting..."
-// - Gemini: Similar spinner patterns
-// - OpenCode: TUI elements, mode indicators, input box
-// - Shell: Running commands (no prompt visible)
+// Busy indicators for Claude Code:
+// - PRIMARY: "ctrl+c to interrupt" - Always present when Claude is actively working
+// - BACKUP: Spinner characters (braille dots) in last 3 lines
 func (s *Session) hasBusyIndicator(content string) bool {
 	shortName := s.DisplayName
 	if len(shortName) > 12 {
@@ -1429,76 +1427,33 @@ func (s *Session) hasBusyIndicator(content string) bool {
 	if start < 0 {
 		start = 0
 	}
-	recentContent := strings.ToLower(strings.Join(lines[start:], "\n"))
+	last10Lines := lines[start:]
+	recentContent := strings.ToLower(strings.Join(last10Lines, "\n"))
 
 	// ═══════════════════════════════════════════════════════════════════════
-	// Text-based busy indicators
+	// CHECK 1: "ctrl+c to interrupt" - PRIMARY indicator for Claude Code
+	// This text ALWAYS appears when Claude is actively working
 	// ═══════════════════════════════════════════════════════════════════════
-	busyIndicators := []string{
-		"esc to interrupt",   // Claude Code main indicator
-		"(esc to interrupt)", // Claude Code in parentheses
-		"· esc to interrupt", // With separator
-	}
-
-	for _, indicator := range busyIndicators {
-		if strings.Contains(recentContent, indicator) {
-			debugLog("%s: BUSY_REASON=text_indicator matched=%q", shortName, indicator)
-			return true
-		}
-	}
-
-	// Check for whimsical thinking words with "tokens" pattern
-	// Claude Code shows status like "Flibbertigibbeting... (25s · 340 tokens)"
-	// We check for any of the 90 whimsical words + "tokens" in content
-	if strings.Contains(recentContent, "tokens") {
-		for _, word := range claudeWhimsicalWords {
-			if strings.Contains(recentContent, word) {
-				debugLog("%s: BUSY_REASON=%s+tokens pattern", shortName, word)
-				return true
-			}
-		}
+	if strings.Contains(recentContent, "ctrl+c to interrupt") {
+		debugLog("%s: BUSY_REASON=ctrl+c to interrupt", shortName)
+		return true
 	}
 
 	// ═══════════════════════════════════════════════════════════════════════
-	// Spinner characters (from cli-spinners "dots" - used by Claude Code)
-	// These braille characters animate to show processing
+	// CHECK 2: Spinner characters - BACKUP indicator
+	// Braille spinner dots from cli-spinners "dots" pattern
+	// Only check last 3 lines (spinners appear at status line)
 	// ═══════════════════════════════════════════════════════════════════════
 	spinnerChars := []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
-
-	// Only check last 5 lines for spinners (they appear near the bottom)
-	last5 := lines
-	if len(last5) > 5 {
-		last5 = last5[len(last5)-5:]
+	last3 := last10Lines
+	if len(last3) > 3 {
+		last3 = last3[len(last3)-3:]
 	}
 
-	for lineIdx, line := range last5 {
+	for _, line := range last3 {
 		for _, spinner := range spinnerChars {
 			if strings.Contains(line, spinner) {
-				debugLog("%s: BUSY_REASON=spinner char=%q line=%d content=%q", shortName, spinner, lineIdx, truncateForLog(line, 50))
-				return true
-			}
-		}
-	}
-
-	// ═══════════════════════════════════════════════════════════════════════
-	// Additional busy indicators (for other tools)
-	// ═══════════════════════════════════════════════════════════════════════
-
-	// Generic "working" indicators that appear in various tools
-	workingIndicators := []string{
-		"processing",
-		"loading",
-		"please wait",
-		"working",
-	}
-
-	// Only match these if they're standalone (not part of other text)
-	for _, indicator := range workingIndicators {
-		// Check if indicator appears at start of a line (more reliable)
-		for lineIdx, line := range last5 {
-			lineLower := strings.ToLower(strings.TrimSpace(line))
-			if strings.HasPrefix(lineLower, indicator) {
-				debugLog("%s: BUSY_REASON=working_indicator matched=%q line=%d content=%q", shortName, indicator, lineIdx, truncateForLog(line, 50))
+				debugLog("%s: BUSY_REASON=spinner char=%q", shortName, spinner)
 				return true
 			}
 		}

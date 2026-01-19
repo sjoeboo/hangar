@@ -377,3 +377,93 @@ func TestValidate_Summary(t *testing.T) {
 	t.Log("")
 	t.Log("RECOMMENDATION: Start with Fix 1.1 and 1.2 (low risk, high impact)")
 }
+
+// =============================================================================
+// VALIDATION 4.0: Claude Code Busy Pattern Detection (ctrl+c to interrupt)
+// =============================================================================
+// Current bug: Code checks for "esc to interrupt" but Claude Code shows "ctrl+c to interrupt"
+// Expected: "ctrl+c to interrupt" should trigger busy detection
+// This causes false negatives - Claude shows as idle when it's actually working
+
+// TestClaudeCodeBusyPatterns tests the simplified busy indicator detection
+func TestClaudeCodeBusyPatterns(t *testing.T) {
+	tests := []struct {
+		name     string
+		content  string
+		wantBusy bool
+	}{
+		{
+			name: "running - ctrl+c to interrupt visible",
+			content: `Some previous output
+✳ Enchanting… (ctrl+c to interrupt · 3m 17s · ↓ 3.1k tokens)
+──────────────────────────────────────────────────────────────
+❯
+──────────────────────────────────────────────────────────────`,
+			wantBusy: true,
+		},
+		{
+			name: "running - ctrl+c with thinking and todos",
+			content: `Some output
+✢ Channelling… (ctrl+c to interrupt · ctrl+t to hide todos · 2m 54s · ↓ 2.5k tokens · thinking)
+❯`,
+			wantBusy: true,
+		},
+		{
+			name: "running - spinner character visible",
+			content: `Working on something
+⠙ Processing request...
+❯`,
+			wantBusy: true,
+		},
+		{
+			name: "finished - Brewed message, no ctrl+c",
+			content: `Some insight here
+
+✻ Brewed for 3m 36s
+
+──────────────────────────────────────────────────────────────
+❯
+──────────────────────────────────────────────────────────────`,
+			wantBusy: false,
+		},
+		{
+			name: "finished - Done message, no ctrl+c",
+			content: `Output here
+✻ Conjured for 1m 22s
+❯`,
+			wantBusy: false,
+		},
+		{
+			name: "idle - tokens in skill loading output, no ctrl+c",
+			content: `     └ using-superpowers: 47 tokens
+     └ brainstorming: 56 tokens
+     └ feature-dev:feature-dev: 25 tokens
+
+──────────────────────────────────────────────────────────────
+❯
+──────────────────────────────────────────────────────────────`,
+			wantBusy: false,
+		},
+		{
+			name: "idle - old esc to interrupt text should NOT match",
+			content: `Some text mentioning esc to interrupt from docs
+❯`,
+			wantBusy: false,
+		},
+		{
+			name: "idle - just prompt",
+			content: `❯`,
+			wantBusy: false,
+		},
+	}
+
+	sess := &Session{DisplayName: "test"}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := sess.hasBusyIndicator(tt.content)
+			if got != tt.wantBusy {
+				t.Errorf("hasBusyIndicator() = %v, want %v\nContent:\n%s", got, tt.wantBusy, tt.content)
+			}
+		})
+	}
+}

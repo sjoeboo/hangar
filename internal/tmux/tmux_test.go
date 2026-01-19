@@ -148,25 +148,34 @@ func TestBusyIndicatorDetection(t *testing.T) {
 	sess := NewSession("test", "/tmp")
 	sess.Command = "claude"
 
+	// NOTE: This test validates the SIMPLIFIED busy detection (2026-01)
+	// Primary indicator: "ctrl+c to interrupt"
+	// Backup indicator: Spinner characters in last 3 lines only
+	// REMOVED: "esc to interrupt", whimsical words + tokens pattern
 	tests := []struct {
 		name     string
 		content  string
 		expected bool
 	}{
 		{
-			name:     "esc to interrupt",
-			content:  "Working on task...\nesc to interrupt\n",
+			name:     "ctrl+c to interrupt",
+			content:  "Working on task...\nctrl+c to interrupt\n",
 			expected: true,
 		},
 		{
-			name:     "spinner character",
+			name:     "spinner character in last 3 lines",
 			content:  "Loading...\n⠋ Processing\n",
 			expected: true,
 		},
 		{
-			name:     "thinking with tokens",
+			name:     "thinking with tokens - no longer detected",
 			content:  "Thinking... (45s · 1234 tokens)\n",
-			expected: true,
+			expected: false, // Changed: whimsical words pattern removed
+		},
+		{
+			name:     "esc to interrupt - no longer detected",
+			content:  "Working on task...\nesc to interrupt\n",
+			expected: false, // Changed: old pattern no longer matches
 		},
 		{
 			name:     "normal output",
