@@ -1143,14 +1143,31 @@ func (s *Session) GetStatus() (string, error) {
 		content, err := s.CapturePane()
 		s.mu.Lock()
 
-		if err == nil && s.hasBusyIndicator(content) {
+		if err == nil {
 			s.ensureStateTrackerLocked()
-			s.stateTracker.lastChangeTime = time.Now()
-			s.stateTracker.acknowledged = false
-			s.stateTracker.lastActivityTimestamp = currentTS
-			s.lastStableStatus = "active"
-			debugLog("%s: BUSY INDICATOR → active", shortName)
-			return "active", nil
+
+			// Check 1: Explicit busy indicator (spinner, "ctrl+c to interrupt")
+			isExplicitlyBusy := s.hasBusyIndicator(content)
+
+			// Check 2: Content hash changed (real output)
+			cleanContent := s.normalizeContent(content)
+			currentHash := s.hashContent(cleanContent)
+			hasContentChanged := currentHash != s.stateTracker.lastHash && s.stateTracker.lastHash != ""
+
+			// Update hash for next comparison
+			if currentHash != "" {
+				s.stateTracker.lastHash = currentHash
+			}
+
+			// GREEN if busy indicator OR content changed
+			if isExplicitlyBusy || hasContentChanged {
+				s.stateTracker.lastChangeTime = time.Now()
+				s.stateTracker.acknowledged = false
+				s.stateTracker.lastActivityTimestamp = currentTS
+				s.lastStableStatus = "active"
+				debugLog("%s: CONTENT CHECK (busy=%v, hashChanged=%v) → active", shortName, isExplicitlyBusy, hasContentChanged)
+				return "active", nil
+			}
 		}
 	}
 
@@ -1201,15 +1218,46 @@ func (s *Session) GetStatus() (string, error) {
 			s.stateTracker.activityChangeCount++
 			debugLog("%s: ACTIVITY_COUNT ts=%d→%d count=%d", shortName, oldTS, currentTS, s.stateTracker.activityChangeCount)
 
-			// 2+ changes within 1 second = sustained activity
+			// 2+ changes within 1 second = potential sustained activity
+			// BUT we must confirm with content check (fixes cursor blink false positives)
 			if s.stateTracker.activityChangeCount >= 2 {
-				s.stateTracker.lastChangeTime = now
-				s.stateTracker.acknowledged = false
-				s.stateTracker.activityCheckStart = time.Time{} // Reset window
+				// Gate the spike: confirm with content check before setting GREEN
+				s.mu.Unlock()
+				content, captureErr := s.CapturePane()
+				s.mu.Lock()
+
+				if captureErr == nil {
+					// Check 1: Explicit busy indicator (spinner, "ctrl+c to interrupt")
+					isExplicitlyBusy := s.hasBusyIndicator(content)
+
+					// Check 2: Content hash changed (real output, not cursor blink)
+					cleanContent := s.normalizeContent(content)
+					currentHash := s.hashContent(cleanContent)
+					hasContentChanged := currentHash != s.stateTracker.lastHash && s.stateTracker.lastHash != ""
+
+					// Update hash for next comparison
+					if currentHash != "" {
+						s.stateTracker.lastHash = currentHash
+					}
+
+					// Only GREEN if content confirms activity
+					if isExplicitlyBusy || hasContentChanged {
+						s.stateTracker.lastChangeTime = now
+						s.stateTracker.acknowledged = false
+						s.stateTracker.activityCheckStart = time.Time{} // Reset window
+						s.stateTracker.activityChangeCount = 0
+						s.lastStableStatus = "active"
+						debugLog("%s: SUSTAINED CONFIRMED (busy=%v, hashChanged=%v) → active", shortName, isExplicitlyBusy, hasContentChanged)
+						return "active", nil
+					}
+
+					// Content didn't confirm - it was a false positive (cursor blink)
+					debugLog("%s: SUSTAINED REJECTED (cursor blink) - busy=%v, hashChanged=%v", shortName, isExplicitlyBusy, hasContentChanged)
+				}
+
+				// Reset spike tracking - the activity was not real
+				s.stateTracker.activityCheckStart = time.Time{}
 				s.stateTracker.activityChangeCount = 0
-				s.lastStableStatus = "active"
-				debugLog("%s: SUSTAINED count=%d → active", shortName, s.stateTracker.activityChangeCount)
-				return "active", nil
 			}
 		}
 		// Not enough changes yet - continue with current status (don't block)
@@ -1440,7 +1488,20 @@ func (s *Session) hasBusyIndicator(content string) bool {
 	}
 
 	// ═══════════════════════════════════════════════════════════════════════
-	// CHECK 2: Spinner characters - BACKUP indicator
+	// CHECK 2: Custom busy patterns from config.toml
+	// Allows custom tools to define their own busy indicators
+	// ═══════════════════════════════════════════════════════════════════════
+	if len(s.customBusyPatterns) > 0 {
+		for _, pattern := range s.customBusyPatterns {
+			if strings.Contains(recentContent, strings.ToLower(pattern)) {
+				debugLog("%s: BUSY_REASON=custom pattern=%q", shortName, pattern)
+				return true
+			}
+		}
+	}
+
+	// ═══════════════════════════════════════════════════════════════════════
+	// CHECK 3: Spinner characters - BACKUP indicator
 	// Braille spinner dots from cli-spinners "dots" pattern
 	// Only check last 3 lines (spinners appear at status line)
 	// ═══════════════════════════════════════════════════════════════════════
