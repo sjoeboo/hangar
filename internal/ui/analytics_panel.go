@@ -16,11 +16,17 @@ type AnalyticsPanel struct {
 	geminiAnalytics *session.GeminiSessionAnalytics
 	width           int
 	height          int
+	displaySettings session.AnalyticsDisplaySettings
 }
 
 // NewAnalyticsPanel creates a new analytics panel
 func NewAnalyticsPanel() *AnalyticsPanel {
 	return &AnalyticsPanel{}
+}
+
+// SetDisplaySettings configures which sections to show
+func (p *AnalyticsPanel) SetDisplaySettings(settings session.AnalyticsDisplaySettings) {
+	p.displaySettings = settings
 }
 
 // SetAnalytics sets the Claude analytics data to display
@@ -53,32 +59,52 @@ func (p *AnalyticsPanel) View() string {
 	}
 
 	var b strings.Builder
+	sectionsRendered := 0
 
 	// Header
 	b.WriteString(p.renderHeader())
 	b.WriteString("\n")
 
-	// Context bar
-	b.WriteString(p.renderContextBar())
-	b.WriteString("\n\n")
-
-	// Token breakdown
-	b.WriteString(p.renderTokens())
-	b.WriteString("\n")
-
-	// Session info
-	b.WriteString(p.renderSessionInfo())
-	b.WriteString("\n")
-
-	// Tool calls
-	if len(p.analytics.ToolCalls) > 0 {
-		b.WriteString(p.renderToolCalls())
-		b.WriteString("\n")
+	// Context bar (default: ON)
+	if p.displaySettings.GetShowContextBar() {
+		b.WriteString(p.renderContextBar())
+		b.WriteString("\n\n")
+		sectionsRendered++
 	}
 
-	// Cost estimate
-	if p.analytics.EstimatedCost > 0 || p.analytics.TotalTokens() > 0 {
+	// Token breakdown (default: OFF)
+	if p.displaySettings.GetShowTokens() {
+		b.WriteString(p.renderTokens())
+		b.WriteString("\n")
+		sectionsRendered++
+	}
+
+	// Session info (default: OFF)
+	if p.displaySettings.GetShowSessionInfo() {
+		b.WriteString(p.renderSessionInfo())
+		b.WriteString("\n")
+		sectionsRendered++
+	}
+
+	// Tool calls (default: ON)
+	if p.displaySettings.GetShowTools() && len(p.analytics.ToolCalls) > 0 {
+		b.WriteString(p.renderToolCalls())
+		b.WriteString("\n")
+		sectionsRendered++
+	}
+
+	// Cost estimate (default: OFF)
+	if p.displaySettings.GetShowCost() && (p.analytics.EstimatedCost > 0 || p.analytics.TotalTokens() > 0) {
 		b.WriteString(p.renderCost())
+		sectionsRendered++
+	}
+
+	// If no sections were rendered, show a minimal message
+	if sectionsRendered == 0 {
+		dimStyle := lipgloss.NewStyle().Foreground(ColorTextDim).Italic(true)
+		b.WriteString(dimStyle.Render("Analytics available"))
+		b.WriteString("\n")
+		b.WriteString(dimStyle.Render("(enable sections in config.toml)"))
 	}
 
 	return b.String()
@@ -87,26 +113,45 @@ func (p *AnalyticsPanel) View() string {
 // renderGeminiView renders Gemini-specific analytics
 func (p *AnalyticsPanel) renderGeminiView() string {
 	var b strings.Builder
+	sectionsRendered := 0
 
 	// Header
 	b.WriteString(p.renderHeader())
 	b.WriteString("\n")
 
-	// Context bar (Gemini-specific)
-	b.WriteString(p.renderGeminiContextBar())
-	b.WriteString("\n\n")
+	// Context bar (default: ON)
+	if p.displaySettings.GetShowContextBar() {
+		b.WriteString(p.renderGeminiContextBar())
+		b.WriteString("\n\n")
+		sectionsRendered++
+	}
 
-	// Token breakdown (Gemini-specific)
-	b.WriteString(p.renderGeminiTokens())
-	b.WriteString("\n")
+	// Token breakdown (default: OFF)
+	if p.displaySettings.GetShowTokens() {
+		b.WriteString(p.renderGeminiTokens())
+		b.WriteString("\n")
+		sectionsRendered++
+	}
 
-	// Session info (Gemini-specific)
-	b.WriteString(p.renderGeminiSessionInfo())
-	b.WriteString("\n")
+	// Session info (default: OFF)
+	if p.displaySettings.GetShowSessionInfo() {
+		b.WriteString(p.renderGeminiSessionInfo())
+		b.WriteString("\n")
+		sectionsRendered++
+	}
 
-	// Cost estimate (Gemini-specific)
-	if p.geminiAnalytics.TotalTokens() > 0 {
+	// Cost estimate (default: OFF)
+	if p.displaySettings.GetShowCost() && p.geminiAnalytics.TotalTokens() > 0 {
 		b.WriteString(p.renderGeminiCost())
+		sectionsRendered++
+	}
+
+	// If no sections were rendered, show a minimal message
+	if sectionsRendered == 0 {
+		dimStyle := lipgloss.NewStyle().Foreground(ColorTextDim).Italic(true)
+		b.WriteString(dimStyle.Render("Analytics available"))
+		b.WriteString("\n")
+		b.WriteString(dimStyle.Render("(enable sections in config.toml)"))
 	}
 
 	return b.String()

@@ -5446,6 +5446,10 @@ func (h *Home) renderPreviewPane(width, height int) string {
 
 		// Check if we have analytics for this session
 		if h.analyticsSessionID == selected.ID && (h.currentAnalytics != nil || h.currentGeminiAnalytics != nil) {
+			// Pass display settings from config
+			if config != nil {
+				h.analyticsPanel.SetDisplaySettings(config.Preview.GetAnalyticsSettings())
+			}
 			h.analyticsPanel.SetSize(width-4, height/2)
 			b.WriteString(h.analyticsPanel.View())
 			b.WriteString("\n")

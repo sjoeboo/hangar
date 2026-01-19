@@ -148,6 +148,28 @@ type PreviewSettings struct {
 	// ShowAnalytics shows session analytics panel for Claude sessions
 	// Default: true (pointer to distinguish "not set" from "explicitly false")
 	ShowAnalytics *bool `toml:"show_analytics"`
+
+	// Analytics configures which sections to show in the analytics panel
+	Analytics AnalyticsDisplaySettings `toml:"analytics"`
+}
+
+// AnalyticsDisplaySettings configures which analytics sections to display
+// All settings use pointers to distinguish "not set" from "explicitly false"
+type AnalyticsDisplaySettings struct {
+	// ShowContextBar shows the context window usage bar (default: true)
+	ShowContextBar *bool `toml:"show_context_bar"`
+
+	// ShowTokens shows the token breakdown (In/Out/Cache/Total) (default: false)
+	ShowTokens *bool `toml:"show_tokens"`
+
+	// ShowSessionInfo shows duration, turns, start time (default: false)
+	ShowSessionInfo *bool `toml:"show_session_info"`
+
+	// ShowTools shows the top tool calls (default: true)
+	ShowTools *bool `toml:"show_tools"`
+
+	// ShowCost shows the estimated cost (default: false)
+	ShowCost *bool `toml:"show_cost"`
 }
 
 // ExperimentsSettings defines experiment folder configuration
@@ -188,6 +210,51 @@ func (p *PreviewSettings) GetShowOutput() bool {
 		return true // Default: output ON (shows launch animation)
 	}
 	return *p.ShowOutput
+}
+
+// GetAnalyticsSettings returns the analytics display settings with defaults applied
+func (p *PreviewSettings) GetAnalyticsSettings() AnalyticsDisplaySettings {
+	return p.Analytics
+}
+
+// GetShowContextBar returns whether to show context bar, defaulting to true
+func (a *AnalyticsDisplaySettings) GetShowContextBar() bool {
+	if a.ShowContextBar == nil {
+		return true // Default: ON - useful visual indicator
+	}
+	return *a.ShowContextBar
+}
+
+// GetShowTokens returns whether to show token breakdown, defaulting to false
+func (a *AnalyticsDisplaySettings) GetShowTokens() bool {
+	if a.ShowTokens == nil {
+		return false // Default: OFF - can be noisy
+	}
+	return *a.ShowTokens
+}
+
+// GetShowSessionInfo returns whether to show session info, defaulting to false
+func (a *AnalyticsDisplaySettings) GetShowSessionInfo() bool {
+	if a.ShowSessionInfo == nil {
+		return false // Default: OFF - less useful info
+	}
+	return *a.ShowSessionInfo
+}
+
+// GetShowTools returns whether to show tool calls, defaulting to true
+func (a *AnalyticsDisplaySettings) GetShowTools() bool {
+	if a.ShowTools == nil {
+		return true // Default: ON - useful context
+	}
+	return *a.ShowTools
+}
+
+// GetShowCost returns whether to show cost estimate, defaulting to false
+func (a *AnalyticsDisplaySettings) GetShowCost() bool {
+	if a.ShowCost == nil {
+		return false // Default: OFF - can be noisy
+	}
+	return *a.ShowCost
 }
 
 // GetShowOutput returns whether to show terminal output in preview

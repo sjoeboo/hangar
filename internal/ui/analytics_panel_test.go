@@ -8,6 +8,18 @@ import (
 	"github.com/asheshgoplani/agent-deck/internal/session"
 )
 
+// allSectionsEnabled returns display settings with all sections enabled for testing
+func allSectionsEnabled() session.AnalyticsDisplaySettings {
+	t := true
+	return session.AnalyticsDisplaySettings{
+		ShowContextBar:  &t,
+		ShowTokens:      &t,
+		ShowSessionInfo: &t,
+		ShowTools:       &t,
+		ShowCost:        &t,
+	}
+}
+
 func TestNewAnalyticsPanel(t *testing.T) {
 	panel := NewAnalyticsPanel()
 	if panel == nil {
@@ -76,6 +88,7 @@ func TestAnalyticsPanel_View_WithAnalytics(t *testing.T) {
 	}
 
 	panel.SetAnalytics(analytics)
+	panel.SetDisplaySettings(allSectionsEnabled()) // Enable all sections for this test
 	panel.SetSize(60, 20)
 
 	view := panel.View()
@@ -154,6 +167,7 @@ func TestAnalyticsPanel_View_TokenBreakdown(t *testing.T) {
 	}
 
 	panel.SetAnalytics(analytics)
+	panel.SetDisplaySettings(allSectionsEnabled()) // Enable tokens section
 	panel.SetSize(60, 20)
 
 	view := panel.View()
@@ -186,6 +200,7 @@ func TestAnalyticsPanel_View_NoCacheTokens(t *testing.T) {
 	}
 
 	panel.SetAnalytics(analytics)
+	panel.SetDisplaySettings(allSectionsEnabled()) // Enable tokens section
 	panel.SetSize(60, 20)
 
 	view := panel.View()
@@ -208,6 +223,7 @@ func TestAnalyticsPanel_View_SessionInfo(t *testing.T) {
 	}
 
 	panel.SetAnalytics(analytics)
+	panel.SetDisplaySettings(allSectionsEnabled()) // Enable session info section
 	panel.SetSize(60, 20)
 
 	view := panel.View()
@@ -308,6 +324,7 @@ func TestAnalyticsPanel_View_CostEstimate(t *testing.T) {
 	}
 
 	panel.SetAnalytics(analytics)
+	panel.SetDisplaySettings(allSectionsEnabled()) // Enable cost section
 	panel.SetSize(60, 20)
 
 	view := panel.View()
@@ -329,6 +346,7 @@ func TestAnalyticsPanel_View_PresetCost(t *testing.T) {
 	}
 
 	panel.SetAnalytics(analytics)
+	panel.SetDisplaySettings(allSectionsEnabled()) // Enable cost section
 	panel.SetSize(60, 20)
 
 	view := panel.View()
@@ -467,6 +485,7 @@ func TestAnalyticsPanel_View_LongDuration(t *testing.T) {
 	}
 
 	panel.SetAnalytics(analytics)
+	panel.SetDisplaySettings(allSectionsEnabled()) // Enable session info section
 	panel.SetSize(60, 20)
 
 	view := panel.View()
@@ -496,5 +515,96 @@ func TestAnalyticsPanel_View_HighContextUsage(t *testing.T) {
 		if view == "" {
 			t.Error("View should render at high context usage")
 		}
+	}
+}
+
+// TestAnalyticsPanel_View_DefaultSettings tests that default settings show only context bar and tools
+func TestAnalyticsPanel_View_DefaultSettings(t *testing.T) {
+	panel := NewAnalyticsPanel()
+
+	analytics := &session.SessionAnalytics{
+		InputTokens:  10000,
+		OutputTokens: 5000,
+		TotalTurns:   10,
+		Duration:     30 * time.Minute,
+		ToolCalls: []session.ToolCall{
+			{Name: "Read", Count: 5},
+			{Name: "Edit", Count: 3},
+		},
+		EstimatedCost: 0.05,
+	}
+
+	panel.SetAnalytics(analytics)
+	// Don't set display settings - use defaults
+	panel.SetSize(60, 20)
+
+	view := panel.View()
+
+	// Default ON: Context bar and Tools
+	if !strings.Contains(view, "Context") {
+		t.Error("Default view should show context bar")
+	}
+	if !strings.Contains(view, "Tools") {
+		t.Error("Default view should show tools section")
+	}
+	if !strings.Contains(view, "Read") {
+		t.Error("Default view should show tool names")
+	}
+
+	// Default OFF: Tokens, Session info, Cost
+	if strings.Contains(view, "Tokens") {
+		t.Error("Default view should NOT show tokens section")
+	}
+	if strings.Contains(view, "Duration:") {
+		t.Error("Default view should NOT show session info (duration)")
+	}
+	if strings.Contains(view, "Cost") {
+		t.Error("Default view should NOT show cost section")
+	}
+}
+
+// TestAnalyticsPanel_SetDisplaySettings tests the SetDisplaySettings method
+func TestAnalyticsPanel_SetDisplaySettings(t *testing.T) {
+	panel := NewAnalyticsPanel()
+
+	// Create custom settings with only tokens enabled
+	showTokens := true
+	showOthers := false
+	settings := session.AnalyticsDisplaySettings{
+		ShowContextBar:  &showOthers,
+		ShowTokens:      &showTokens,
+		ShowSessionInfo: &showOthers,
+		ShowTools:       &showOthers,
+		ShowCost:        &showOthers,
+	}
+
+	analytics := &session.SessionAnalytics{
+		InputTokens:  10000,
+		OutputTokens: 5000,
+		ToolCalls: []session.ToolCall{
+			{Name: "Read", Count: 5},
+		},
+	}
+
+	panel.SetAnalytics(analytics)
+	panel.SetDisplaySettings(settings)
+	panel.SetSize(60, 20)
+
+	view := panel.View()
+
+	// Only tokens should be shown
+	if !strings.Contains(view, "Tokens") {
+		t.Error("View should show tokens when enabled")
+	}
+	if !strings.Contains(view, "In:") {
+		t.Error("View should show input tokens")
+	}
+
+	// Others should NOT be shown
+	if strings.Contains(view, "Context") && strings.Contains(view, "[") {
+		t.Error("View should NOT show context bar when disabled")
+	}
+	if strings.Contains(view, "Tools") {
+		t.Error("View should NOT show tools when disabled")
 	}
 }
