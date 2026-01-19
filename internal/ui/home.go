@@ -1820,8 +1820,8 @@ func (h *Home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Instant status update from Claude hooks (Stop/activity events)
 		evt := StatusEvent(msg)
 		h.handleStatusEvent(evt)
-		// Continue listening for more events + schedule next tick
-		return h, tea.Batch(h.tick(), h.waitForStatusEvent())
+		// Continue listening for more events (tick runs independently)
+		return h, h.waitForStatusEvent()
 
 	case statusUpdateMsg:
 		// Clear attach flag - we've returned from the attached session
