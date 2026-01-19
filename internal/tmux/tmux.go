@@ -1146,26 +1146,25 @@ func (s *Session) GetStatus() (string, error) {
 		if err == nil {
 			s.ensureStateTrackerLocked()
 
-			// Check 1: Explicit busy indicator (spinner, "ctrl+c to interrupt")
+			// Check for explicit busy indicator (spinner, "ctrl+c to interrupt")
 			isExplicitlyBusy := s.hasBusyIndicator(content)
 
-			// Check 2: Content hash changed (real output)
+			// Update content hash for spike detection (used later to confirm real activity)
 			cleanContent := s.normalizeContent(content)
 			currentHash := s.hashContent(cleanContent)
-			hasContentChanged := currentHash != s.stateTracker.lastHash && s.stateTracker.lastHash != ""
-
-			// Update hash for next comparison
 			if currentHash != "" {
 				s.stateTracker.lastHash = currentHash
 			}
 
-			// GREEN if busy indicator OR content changed
-			if isExplicitlyBusy || hasContentChanged {
+			// GREEN only if explicit busy indicator found
+			// Content hash changes alone should NOT trigger GREEN here - they must
+			// go through spike detection (2+ changes in 1s) to filter cursor blinks
+			if isExplicitlyBusy {
 				s.stateTracker.lastChangeTime = time.Now()
 				s.stateTracker.acknowledged = false
 				s.stateTracker.lastActivityTimestamp = currentTS
 				s.lastStableStatus = "active"
-				debugLog("%s: CONTENT CHECK (busy=%v, hashChanged=%v) → active", shortName, isExplicitlyBusy, hasContentChanged)
+				debugLog("%s: BUSY_INDICATOR → active", shortName)
 				return "active", nil
 			}
 		}
