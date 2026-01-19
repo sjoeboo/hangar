@@ -1226,32 +1226,31 @@ func (s *Session) GetStatus() (string, error) {
 				s.mu.Lock()
 
 				if captureErr == nil {
-					// Check 1: Explicit busy indicator (spinner, "ctrl+c to interrupt")
+					// Check for explicit busy indicator (spinner, "ctrl+c to interrupt")
 					isExplicitlyBusy := s.hasBusyIndicator(content)
 
-					// Check 2: Content hash changed (real output, not cursor blink)
+					// Update content hash for tracking (but NOT used for GREEN decision)
 					cleanContent := s.normalizeContent(content)
 					currentHash := s.hashContent(cleanContent)
-					hasContentChanged := currentHash != s.stateTracker.lastHash && s.stateTracker.lastHash != ""
-
-					// Update hash for next comparison
 					if currentHash != "" {
 						s.stateTracker.lastHash = currentHash
 					}
 
-					// Only GREEN if content confirms activity
-					if isExplicitlyBusy || hasContentChanged {
+					// Only GREEN if explicit busy indicator found
+					// Content hash changes alone are NOT reliable - cursor blinks,
+					// terminal redraws, and status bar updates can cause hash changes
+					if isExplicitlyBusy {
 						s.stateTracker.lastChangeTime = now
 						s.stateTracker.acknowledged = false
 						s.stateTracker.activityCheckStart = time.Time{} // Reset window
 						s.stateTracker.activityChangeCount = 0
 						s.lastStableStatus = "active"
-						debugLog("%s: SUSTAINED CONFIRMED (busy=%v, hashChanged=%v) → active", shortName, isExplicitlyBusy, hasContentChanged)
+						debugLog("%s: SUSTAINED CONFIRMED (busy indicator) → active", shortName)
 						return "active", nil
 					}
 
-					// Content didn't confirm - it was a false positive (cursor blink)
-					debugLog("%s: SUSTAINED REJECTED (cursor blink) - busy=%v, hashChanged=%v", shortName, isExplicitlyBusy, hasContentChanged)
+					// No busy indicator - spike was false positive (cursor blink, status bar, etc.)
+					debugLog("%s: SUSTAINED REJECTED (no busy indicator)", shortName)
 				}
 
 				// Reset spike tracking - the activity was not real
@@ -1365,18 +1364,12 @@ func (s *Session) getStatusFallback() (string, error) {
 		return "waiting", nil
 	}
 
+	// Update hash for tracking, but do NOT trigger GREEN based on hash change alone
+	// The busy indicator check above (hasBusyIndicator) already handles the GREEN case
+	// Hash changes can occur from cursor blinks, terminal redraws, status bar updates, etc.
 	if s.stateTracker.lastHash != currentHash {
 		s.stateTracker.lastHash = currentHash
-		s.stateTracker.lastChangeTime = time.Now()
-		// Only reset acknowledged if we're outside the grace period
-		// This prevents brief YELLOW flash when Claude outputs right after user detaches
-		if time.Since(s.stateTracker.acknowledgedAt) > acknowledgeGracePeriod {
-			s.stateTracker.acknowledged = false
-		}
-		s.lastStableStatus = "active"
-		debugLog("%s: FALLBACK CHANGED → active (ack grace: %v)", shortName,
-			time.Since(s.stateTracker.acknowledgedAt) <= acknowledgeGracePeriod)
-		return "active", nil
+		debugLog("%s: FALLBACK hash updated (no status change)", shortName)
 	}
 
 	if time.Since(s.stateTracker.lastChangeTime) < activityCooldown {

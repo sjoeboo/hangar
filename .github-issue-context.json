@@ -1,0 +1,41 @@
+{
+  "number": 77,
+  "title": "Preview pane changed from session content to analytics - would like option to toggle back",
+  "body": "After updating to fix the freeze issues in #39, I noticed the preview pane now shows token/cost analytics instead of the actual session content.\n\n**What I used to see:**\nThe preview pane showed the last few lines of the session output, which was really helpful for quickly scanning sessions to remember what each one was doing.\n\n**What I see now:**\nSession Analytics with token counts, duration, and cost estimates.\n\n**What would be ideal:**\nEither:\n1. Option to toggle between content preview and analytics view (like a keyboard shortcut)\n2. Config option to choose which preview mode to use by default\n3. Show content preview by default, with analytics available somewhere else (maybe on demand?)\n\n**Why this matters:**\nWhen I have multiple sessions running, the content preview helps me quickly identify:\n- What task each session is working on\n- Whether it's paused/waiting for input\n- If there were any recent errors\n- General context at a glance\n\nThe analytics are great for tracking usage, but the content preview was more useful for day-to-day session management.\n\n**Environment:**\n- agent-deck v0.8.32\n- macOS (Darwin 24.6.0)",
+  "labels": [],
+  "author": "kyupid",
+  "url": "https://github.com/asheshgoplani/agent-deck/issues/77",
+  "created_at": "2026-01-19T07:45:58Z",
+  "comments": [],
+  "related_issues": [
+    {
+      "number": 39,
+      "title": "Performance Issue: UI Freeze (2-11 seconds) After Detaching from Long Sessions",
+      "state": "open",
+      "labels": []
+    }
+  ],
+  "recent_commits": [
+    {
+      "sha": "9abe6c5",
+      "message": "fix(status): gate spike detection with content check to prevent flickering"
+    },
+    {
+      "sha": "1d83850",
+      "message": "chore: bump version to v0.8.56"
+    },
+    {
+      "sha": "8a90687",
+      "message": "docs: add OpenCode skill installation instructions"
+    },
+    {
+      "sha": "c7e8966",
+      "message": "fix(notifications): always acknowledge session from signal regardless of status"
+    },
+    {
+      "sha": "daa32ba",
+      "message": "fix(lint): remove unused truncateForLog function"
+    }
+  ],
+  "detected_type": "bug"
+}
