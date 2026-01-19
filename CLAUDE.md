@@ -428,15 +428,9 @@ AGENTDECK_DEBUG=1 agent-deck  # Logs status transitions
 # 1. Update version in cmd/agent-deck/main.go
 git commit -m "chore: bump version to vX.Y.Z" && git push origin main
 git tag vX.Y.Z && git push origin vX.Y.Z  # Triggers release
-
-# 2. ALWAYS verify the Release pipeline completed successfully
-gh run list --repo asheshgoplani/agent-deck --limit 3
-# Look for: "completed success ... Release vX.Y.Z"
 ```
 
 **CI:** `.github/workflows/ci.yml` | **Release:** `.github/workflows/release.yml` (GoReleaser)
-
-**IMPORTANT:** Always verify the Release pipeline succeeded before announcing a new version. CI failures are often unrelated (test flakiness), but Release must succeed for users to download.
 
 ---
 
