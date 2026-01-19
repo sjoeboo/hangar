@@ -1511,7 +1511,7 @@ func (s *Session) isSustainedActivity() bool {
 // Precompiled regex patterns for dynamic content stripping
 // These are compiled once at package init for performance
 var (
-	// Matches Claude Code status line: "(45s · 1234 tokens · esc to interrupt)"
+	// Matches Claude Code status line: "(45s · 1234 tokens · ctrl+c to interrupt)"
 	dynamicStatusPattern = regexp.MustCompile(`\([^)]*\d+s\s*·[^)]*tokens[^)]*\)`)
 
 	// Matches whimsical thinking words with timing info (e.g., "Flibbertigibbeting... (25s · 340 tokens)")
@@ -1576,8 +1576,8 @@ func (s *Session) normalizeContent(content string) string {
 	}
 
 	// Strip dynamic time/token counters that change every second
-	// This prevents flickering when Claude Code shows "(45s · 1234 tokens · esc to interrupt)"
-	// which updates to "(46s · 1234 tokens · esc to interrupt)" one second later
+	// This prevents flickering when Claude Code shows "(45s · 1234 tokens · ctrl+c to interrupt)"
+	// which updates to "(46s · 1234 tokens · ctrl+c to interrupt)" one second later
 	result = dynamicStatusPattern.ReplaceAllString(result, "(STATUS)")
 	result = thinkingPattern.ReplaceAllString(result, "$1...")
 
@@ -1784,7 +1784,7 @@ func (s *Session) IsClaudeRunning() bool {
 
 	// Check for Claude-specific indicators
 	claudeIndicators := []string{
-		"esc to interrupt",
+		"ctrl+c to interrupt",
 		"Thinking...",
 		"Connecting...",
 		"Press Ctrl-C again to exit",
