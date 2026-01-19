@@ -22,9 +22,11 @@ import (
 func TestIntegration_NotificationBarFlow(t *testing.T) {
 	// Use test directory
 	testDir := filepath.Join(os.TempDir(), "agentdeck-notif-test")
-	os.RemoveAll(testDir)
-	os.MkdirAll(testDir, 0755)
-	defer os.RemoveAll(testDir)
+	_ = os.RemoveAll(testDir)
+	if err := os.MkdirAll(testDir, 0755); err != nil {
+		t.Fatalf("Failed to create test directory: %v", err)
+	}
+	defer func() { _ = os.RemoveAll(testDir) }()
 
 	// Create test instances (simulate waiting sessions)
 	now := time.Now()
@@ -150,9 +152,11 @@ func TestIntegration_NotificationBarFlow(t *testing.T) {
 func TestIntegration_SignalFileAcknowledgment(t *testing.T) {
 	// Use test directory
 	testDir := filepath.Join(os.TempDir(), "agentdeck-signal-test")
-	os.RemoveAll(testDir)
-	os.MkdirAll(testDir, 0755)
-	defer os.RemoveAll(testDir)
+	_ = os.RemoveAll(testDir)
+	if err := os.MkdirAll(testDir, 0755); err != nil {
+		t.Fatalf("Failed to create test directory: %v", err)
+	}
+	defer func() { _ = os.RemoveAll(testDir) }()
 
 	signalFile := filepath.Join(testDir, "ack-signal")
 

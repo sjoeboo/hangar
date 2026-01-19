@@ -5476,7 +5476,7 @@ func (h *Home) renderPreviewPane(width, height int) string {
 		showAnalytics = false
 		showOutput = true
 	case PreviewModeAnalytics:
-		showAnalytics = showAnalytics // Only show if actually available (Claude/Gemini)
+		// showAnalytics keeps its default value (only available for Claude/Gemini)
 		showOutput = false
 	// PreviewModeBoth: use config settings (default)
 	}

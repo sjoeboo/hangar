@@ -332,11 +332,6 @@ type StateTracker struct {
 	activityChangeCount int       // How many timestamp changes seen in current window
 }
 
-// acknowledgeGracePeriod is how long after user detaches before content changes
-// can reset the acknowledged flag. This prevents brief GREEN flashes when Claude
-// outputs a final message right after user detaches.
-const acknowledgeGracePeriod = 300 * time.Millisecond
-
 // Session represents a tmux session
 // NOTE: All mutable fields are protected by mu. The Bubble Tea event loop is single-threaded,
 // but we use mutex protection for defensive programming and future-proofing.
