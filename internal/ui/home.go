@@ -753,15 +753,16 @@ func (h *Home) syncNotifications() {
 	}
 
 	// Phase 2: Acknowledge the session if signal was received
+	// NOTE: We always acknowledge regardless of current status because:
+	// - Status might not be updated yet (async statusWorker)
+	// - If we skip acknowledgment, the session gets re-added on next tick
 	if sessionToAcknowledgeID != "" {
 		h.instancesMu.RLock()
 		if inst, ok := h.instanceByID[sessionToAcknowledgeID]; ok {
-			if inst.Status == session.StatusWaiting {
-				if ts := inst.GetTmuxSession(); ts != nil {
-					// Acknowledge() and UpdateStatus() have their own internal locks
-					ts.Acknowledge()
-					_ = inst.UpdateStatus()
-				}
+			if ts := inst.GetTmuxSession(); ts != nil {
+				// Acknowledge() and UpdateStatus() have their own internal locks
+				ts.Acknowledge()
+				_ = inst.UpdateStatus()
 			}
 		}
 		h.instancesMu.RUnlock()
