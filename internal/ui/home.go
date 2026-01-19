@@ -41,10 +41,8 @@ const (
 	// Screen clear + cursor home
 	clearScreen = "\033[2J\033[H"
 
-	// tickInterval for UI refresh - hook-based detection handles most status updates
-	// Polling is now a fallback for edge cases and UI refresh
-	// PERFORMANCE: Increased from 1s to 2s since hooks handle real-time updates
-	// With hook-based detection, polling is less critical for responsiveness
+	// tickInterval for UI refresh and status updates
+	// Background worker polls at 2s intervals for status detection
 	// At 2s: 2-5 CapturePane() calls/sec = minimal CPU overhead
 	tickInterval = 2 * time.Second
 
@@ -1114,7 +1112,7 @@ func (h *Home) hasActiveAnimation(sessionID string) bool {
 
 	// STATUS-BASED ANIMATION: Show animation until session is ready
 	// Instead of hardcoded 6-second minimum, use actual session status
-	// Status is updated in real-time via polling (100ms) and hooks
+	// Status is updated via background polling (2s interval)
 	timeSinceStart := time.Since(startTime)
 
 	// Brief minimum (500ms) to prevent flicker during rapid status changes
@@ -1515,8 +1513,7 @@ func (h *Home) processStatusUpdate(req statusUpdateRequest) {
 	}
 
 	// Step 2: Round-robin through non-visible sessions (Priority 1A - batching)
-	// OPTIMIZATION: Skip idle sessions - they need user interaction to become active,
-	// and hook-based detection will catch when Claude starts processing again.
+	// OPTIMIZATION: Skip idle sessions - they need user interaction to become active.
 	// This significantly reduces CapturePane() calls for large session lists.
 	remaining := batchSize
 	startIdx := int(h.statusUpdateIndex.Load())
@@ -1532,7 +1529,7 @@ func (h *Home) processStatusUpdate(req statusUpdateRequest) {
 		}
 
 		// Skip idle sessions - they require user interaction to change state
-		// Hook-based detection will catch any activity when it starts
+		// Background polling will catch any activity when user interacts
 		if inst.Status == "idle" {
 			continue
 		}
