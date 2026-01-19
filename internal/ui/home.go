@@ -758,17 +758,27 @@ func (h *Home) syncNotifications() {
 
 	// Phase 1: Check for signal file from Ctrl+b 1-6 shortcuts
 	// When user presses Ctrl+b N, the key binding writes the session ID to a signal file
-	// This is the ONLY reliable way to detect session switches via shortcuts
 	var sessionToAcknowledgeID string
 	if signalSessionID := tmux.ReadAndClearAckSignal(); signalSessionID != "" {
-		// User switched to this session via shortcut - acknowledge it
 		sessionToAcknowledgeID = signalSessionID
 		if debugNotif {
 			log.Printf("[NOTIF] Signal file found: %s", signalSessionID)
 		}
 	}
 
-	// Phase 2: Acknowledge the session if signal was received
+	// Phase 2: Detect currently attached session (handles manual switches like Ctrl+b s)
+	// This ensures sessions are excluded from bar even when switched via tmux directly
+	currentSessionID := h.getAttachedSessionID()
+	if debugNotif && currentSessionID != "" {
+		log.Printf("[NOTIF] Detected attached session: %s", currentSessionID)
+	}
+
+	// Signal file takes priority (explicit acknowledgment via Ctrl+b N)
+	if sessionToAcknowledgeID != "" {
+		currentSessionID = sessionToAcknowledgeID
+	}
+
+	// Phase 3: Acknowledge the session if signal was received
 	// NOTE: We always acknowledge regardless of current status because:
 	// - Status might not be updated yet (async statusWorker)
 	// - If we skip acknowledgment, the session gets re-added on next tick
@@ -776,7 +786,6 @@ func (h *Home) syncNotifications() {
 		h.instancesMu.RLock()
 		if inst, ok := h.instanceByID[sessionToAcknowledgeID]; ok {
 			if ts := inst.GetTmuxSession(); ts != nil {
-				// Acknowledge() and UpdateStatus() have their own internal locks
 				ts.Acknowledge()
 				_ = inst.UpdateStatus()
 				if debugNotif {
@@ -787,10 +796,10 @@ func (h *Home) syncNotifications() {
 		h.instancesMu.RUnlock()
 	}
 
-	// Phase 3: Sync notifications (uses its own lock internally)
-	// Pass the acknowledged session ID so it gets excluded from the bar
+	// Phase 4: Sync notifications (uses its own lock internally)
+	// Pass the current session ID so it gets excluded from the bar
 	h.instancesMu.RLock()
-	added, removed := h.notificationManager.SyncFromInstances(h.instances, sessionToAcknowledgeID)
+	added, removed := h.notificationManager.SyncFromInstances(h.instances, currentSessionID)
 	h.instancesMu.RUnlock()
 
 	if debugNotif && (len(added) > 0 || len(removed) > 0) {
@@ -801,25 +810,41 @@ func (h *Home) syncNotifications() {
 	h.updateTmuxNotifications()
 }
 
+// getAttachedSessionID returns the instance ID of the currently attached agentdeck session.
+// This detects which session the user is viewing, even if they switched via tmux directly.
+func (h *Home) getAttachedSessionID() string {
+	attachedSessions, err := tmux.GetAttachedSessions()
+	if err != nil || len(attachedSessions) == 0 {
+		return ""
+	}
+
+	h.instancesMu.RLock()
+	defer h.instancesMu.RUnlock()
+
+	// Find the first attached agentdeck session
+	for _, sessName := range attachedSessions {
+		for _, inst := range h.instances {
+			if ts := inst.GetTmuxSession(); ts != nil && ts.Name == sessName {
+				return inst.ID
+			}
+		}
+	}
+	return ""
+}
+
 // updateTmuxNotifications updates status bars and key bindings
 func (h *Home) updateTmuxNotifications() {
 	barText := h.notificationManager.FormatBar()
 
-	// Only update status bars if the content changed (avoids 100+ tmux calls per tick)
+	// Only update status bars if the content changed
+	// PERFORMANCE: Use global option - ONE tmux call instead of 100+
 	if barText != h.lastBarText {
 		h.lastBarText = barText
 
-		// Update status-left for ALL agentdeck sessions (not just current profile)
-		// This ensures consistent notification bars across all sessions
-		allSessions, err := tmux.ListAgentDeckSessions()
-		if err == nil {
-			for _, sessName := range allSessions {
-				if barText == "" {
-					_ = tmux.ClearStatusLeft(sessName)
-				} else {
-					_ = tmux.SetStatusLeft(sessName, barText)
-				}
-			}
+		if barText == "" {
+			_ = tmux.ClearStatusLeftGlobal()
+		} else {
+			_ = tmux.SetStatusLeftGlobal(barText)
 		}
 	}
 
@@ -855,15 +880,8 @@ func (h *Home) cleanupNotifications() {
 		return
 	}
 
-	// Clear all status bars
-	h.instancesMu.RLock()
-	for _, inst := range h.instances {
-		ts := inst.GetTmuxSession()
-		if ts != nil {
-			_ = tmux.ClearStatusLeft(ts.Name)
-		}
-	}
-	h.instancesMu.RUnlock()
+	// Clear global status bar (ONE call instead of per-session)
+	_ = tmux.ClearStatusLeftGlobal()
 
 	// Unbind all keys
 	for key := range h.boundKeys {

@@ -1423,6 +1423,7 @@ func (s *Session) ResetAcknowledged() {
 
 	s.ensureStateTrackerLocked()
 	s.stateTracker.acknowledged = false
+	s.stateTracker.waitingSince = time.Now() // Track when session became waiting for ordering
 	s.lastStableStatus = "waiting"
 }
 
@@ -2154,6 +2155,40 @@ func ClearStatusLeft(sessionName string) error {
 	// -u flag unsets the option, reverting to tmux default
 	cmd := exec.Command("tmux", "set-option", "-t", sessionName, "-u", "status-left")
 	return cmd.Run()
+}
+
+// SetStatusLeftGlobal sets the left side of tmux status bar globally.
+// This is a MAJOR performance optimization: ONE tmux call instead of 100+.
+// All agentdeck sessions inherit this global setting.
+func SetStatusLeftGlobal(text string) error {
+	escaped := strings.ReplaceAll(text, "'", "'\\''")
+	cmd := exec.Command("tmux", "set-option", "-g", "status-left", escaped)
+	return cmd.Run()
+}
+
+// ClearStatusLeftGlobal resets status-left to default globally.
+func ClearStatusLeftGlobal() error {
+	cmd := exec.Command("tmux", "set-option", "-gu", "status-left")
+	return cmd.Run()
+}
+
+// GetAttachedSessions returns the names of tmux sessions that have clients attached.
+// Used to detect which session the user is currently viewing.
+func GetAttachedSessions() ([]string, error) {
+	cmd := exec.Command("tmux", "list-clients", "-F", "#{session_name}")
+	output, err := cmd.Output()
+	if err != nil {
+		return nil, err
+	}
+
+	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
+	var sessions []string
+	for _, line := range lines {
+		if line != "" {
+			sessions = append(sessions, line)
+		}
+	}
+	return sessions, nil
 }
 
 // BindSwitchKey binds a number key to switch to target session.
