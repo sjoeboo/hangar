@@ -415,11 +415,10 @@ func NewHomeWithProfile(profile string) *Home {
 				h.lastLogActivity[inst.ID] = time.Now()
 				h.logActivityMu.Unlock()
 
-				// Signal file activity (triggers GREEN) then update status
+				// Log file changed - trigger status update (will check busy indicator)
+				// NOTE: We do NOT call SignalFileActivity() here anymore because
+				// it bypasses the busy indicator check and causes false GREENs
 				go func(i *session.Instance) {
-					if tmuxSess := i.GetTmuxSession(); tmuxSess != nil {
-						tmuxSess.SignalFileActivity() // Directly triggers GREEN
-					}
 					_ = i.UpdateStatus()
 				}(inst)
 				break
