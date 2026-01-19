@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // activityCooldown is defined here for test compatibility.
@@ -2043,6 +2044,30 @@ func TestSession_SendCommand(t *testing.T) {
 	if !strings.Contains(content, "hello") {
 		t.Errorf("Expected 'hello' in output, got: %s", content)
 	}
+}
+
+// =============================================================================
+// Activity Monitoring Hook Tests (Task 3)
+// =============================================================================
+
+func TestSession_SetsUpActivityMonitoring(t *testing.T) {
+	if os.Getenv("AGENTDECK_TEST_PROFILE") == "" {
+		t.Skip("Skipping tmux test - no test profile")
+	}
+
+	// Create a test session
+	s := NewSession("test-activity-monitor", t.TempDir())
+	s.InstanceID = "test-instance-abc"
+
+	err := s.Start("echo 'test'")
+	require.NoError(t, err)
+	defer func() { _ = s.Kill() }()
+
+	// Verify monitor-activity is enabled
+	cmd := exec.Command("tmux", "show-options", "-t", s.Name, "-v", "monitor-activity")
+	output, err := cmd.Output()
+	require.NoError(t, err)
+	assert.Equal(t, "on", strings.TrimSpace(string(output)))
 }
 
 // =============================================================================

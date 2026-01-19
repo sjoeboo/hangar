@@ -351,6 +351,7 @@ type Session struct {
 	WorkDir     string
 	Command     string
 	Created     time.Time
+	InstanceID  string // Agent-deck instance ID for hook callbacks
 
 	// mu protects all mutable fields below from concurrent access
 	mu sync.Mutex
@@ -649,6 +650,18 @@ func (s *Session) Start(command string) error {
 	if err := s.EnablePipePane(); err != nil {
 		// Non-fatal: status detection will fall back to polling
 		debugLog("Warning: failed to enable pipe-pane for %s: %v", s.Name, err)
+	}
+
+	// Set up activity monitoring for instant status detection
+	if s.InstanceID != "" {
+		// Enable activity monitoring
+		_ = exec.Command("tmux", "set-option", "-t", s.Name, "monitor-activity", "on").Run()
+
+		// Set up hook to call our script when activity detected
+		hookCmd := fmt.Sprintf("run-shell '%s %s'",
+			filepath.Join(os.Getenv("HOME"), ".agent-deck", "hooks", "tmux-activity.sh"),
+			s.InstanceID)
+		_ = exec.Command("tmux", "set-hook", "-t", s.Name, "alert-activity", hookCmd).Run()
 	}
 
 	return nil
