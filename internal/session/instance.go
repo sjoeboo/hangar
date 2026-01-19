@@ -296,8 +296,8 @@ func (i *Instance) buildClaudeCommandWithMessage(baseCommand, message string) st
 			`session_id=$(%sclaude -p "." --output-format json 2>/dev/null | jq -r '.session_id' 2>/dev/null) || session_id=""; `+
 				`if [ -n "$session_id" ] && [ "$session_id" != "null" ]; then `+
 				`tmux set-environment CLAUDE_SESSION_ID "$session_id"; `+
-				`%sclaude --resume "$session_id"%s; `+
-				`else %sclaude%s; fi`,
+				`exec %sclaude --resume "$session_id"%s; `+
+				`else exec %sclaude%s; fi`,
 			bashConfigPrefix,
 			bashConfigPrefix, extraFlags,
 			bashConfigPrefix, extraFlags)
@@ -317,8 +317,8 @@ func (i *Instance) buildClaudeCommandWithMessage(baseCommand, message string) st
 					`(sleep 2; SESSION_NAME=$(tmux display-message -p '#S'); `+
 					`while ! tmux capture-pane -p -t "$SESSION_NAME" | tail -5 | grep -qE "^>"; do sleep 0.2; done; `+
 					`tmux send-keys -l -t "$SESSION_NAME" '%s'; tmux send-keys -t "$SESSION_NAME" Enter) & `+
-					`%sclaude --resume "$session_id"%s; `+
-					`else %sclaude%s; fi`,
+					`exec %sclaude --resume "$session_id"%s; `+
+					`else exec %sclaude%s; fi`,
 				bashConfigPrefix,
 				escapedMsg,
 				bashConfigPrefix, extraFlags,
@@ -409,8 +409,8 @@ func (i *Instance) buildGeminiCommand(baseCommand string) string {
 			`if [ -n "$session_id" ] && [ "$session_id" != "null" ]; then `+
 			`tmux set-environment GEMINI_SESSION_ID "$session_id"; `+
 			`tmux set-environment GEMINI_YOLO_MODE %s; `+
-			`gemini --resume "$session_id"%s; `+
-			`else tmux set-environment GEMINI_YOLO_MODE %s; gemini%s; fi`, yoloEnv, yoloFlag, yoloEnv, yoloFlag)
+			`exec gemini --resume "$session_id"%s; `+
+			`else tmux set-environment GEMINI_YOLO_MODE %s; exec gemini%s; fi`, yoloEnv, yoloFlag, yoloEnv, yoloFlag)
 	}
 
 	// For custom commands (e.g., resume commands), return as-is
@@ -485,8 +485,8 @@ func (i *Instance) buildGenericCommand(baseCommand string) string {
 		`session_id=$(%s %s "." 2>/dev/null | jq -r '%s' 2>/dev/null) || session_id=""; `+
 			`if [ -n "$session_id" ] && [ "$session_id" != "null" ]; then `+
 			`tmux set-environment %s "$session_id"; `+
-			`%s %s "$session_id"%s; `+
-			`else %s%s; fi`,
+			`exec %s %s "$session_id"%s; `+
+			`else exec %s%s; fi`,
 		baseCommand, toolDef.OutputFormatFlag, toolDef.SessionIDJsonPath,
 		toolDef.SessionIDEnv,
 		baseCommand, toolDef.ResumeFlag, dangerousFlag,
@@ -1748,7 +1748,7 @@ func (i *Instance) ForkWithOptions(newTitle, newGroupPath string, opts *ClaudeOp
 			`session_id=$(%sclaude -p "." --output-format json --resume %s --fork-session 2>/dev/null | jq -r '.session_id' 2>/dev/null) || session_id=""; `+
 			`if [ -n "$session_id" ] && [ "$session_id" != "null" ]; then `+
 			`tmux set-environment CLAUDE_SESSION_ID "$session_id"; `+
-			`%sclaude --resume "$session_id"%s; `+
+			`exec %sclaude --resume "$session_id"%s; `+
 			`else echo "Fork failed: could not capture session ID"; fi`,
 		workDir,
 		bashConfigPrefix, i.ClaudeSessionID,
