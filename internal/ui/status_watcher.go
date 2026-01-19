@@ -65,6 +65,7 @@ func NewStatusWatcher(statusDir string) (*StatusWatcher, error) {
 
 // Start begins watching for status changes (non-blocking)
 func (sw *StatusWatcher) Start() {
+	log.Printf("[STATUS-WATCHER] Starting watcher for directory: %s", sw.statusDir)
 	go sw.watchLoop()
 }
 
@@ -80,9 +81,12 @@ func (sw *StatusWatcher) watchLoop() {
 				return
 			}
 
+			log.Printf("[STATUS-WATCHER] Event: %s op=%v", event.Name, event.Op)
+
 			// Care about write and create events on .stop and .active files
 			if event.Op&fsnotify.Write != 0 || event.Op&fsnotify.Create != 0 {
 				if strings.HasSuffix(event.Name, ".stop") || strings.HasSuffix(event.Name, ".active") {
+					log.Printf("[STATUS-WATCHER] Processing: %s", event.Name)
 					sw.processStatusFile(event.Name)
 				}
 			}

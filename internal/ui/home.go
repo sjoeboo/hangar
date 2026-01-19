@@ -1450,10 +1450,6 @@ func (h *Home) triggerStatusUpdate() {
 func (h *Home) processStatusUpdate(req statusUpdateRequest) {
 	const batchSize = 2 // Reduced from 5 to 2 - fewer CapturePane() calls per tick
 
-	// TEMPORARY: Skip polling to test hook-based status detection in isolation
-	// Remove this return statement once hooks are verified working
-	return
-
 	// CRITICAL FIX: Refresh session cache in background worker, NOT main goroutine
 	// This prevents UI freezing when subprocess spawning is slow (high system load)
 	// The cache refresh spawns `tmux list-sessions` which can block for 50-200ms

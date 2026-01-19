@@ -652,42 +652,13 @@ func (s *Session) Start(command string) error {
 		debugLog("Warning: failed to enable pipe-pane for %s: %v", s.Name, err)
 	}
 
-	// Set up activity monitoring for instant status detection
-	if s.InstanceID != "" {
-		// Enable activity monitoring
-		_ = exec.Command("tmux", "set-option", "-t", s.Name, "monitor-activity", "on").Run()
-
-		// Set up hook to call our script when activity detected
-		hookCmd := fmt.Sprintf("run-shell '%s %s'",
-			filepath.Join(os.Getenv("HOME"), ".agent-deck", "hooks", "tmux-activity.sh"),
-			s.InstanceID)
-		_ = exec.Command("tmux", "set-hook", "-t", s.Name, "alert-activity", hookCmd).Run()
-	}
+	// Note: We tried using tmux hooks for instant GREEN status detection:
+	// - alert-activity: Only fires for background windows (not current window)
+	// - after-send-keys: Fires for ALL send-keys calls (too noisy, catches agent-deck operations)
+	// Neither works reliably for detecting user input. We use polling for GREEN instead.
+	// The Stop hook (via Claude settings) handles instant YELLOW detection.
 
 	return nil
-}
-
-// SetupActivityMonitoring configures tmux hooks for instant status detection.
-// This should be called when loading existing sessions from storage to ensure
-// activity hooks are set up even for sessions that weren't just created.
-func (s *Session) SetupActivityMonitoring() {
-	if s.InstanceID == "" || s.Name == "" {
-		return
-	}
-
-	// Check if session exists first
-	if !s.Exists() {
-		return
-	}
-
-	// Enable activity monitoring
-	_ = exec.Command("tmux", "set-option", "-t", s.Name, "monitor-activity", "on").Run()
-
-	// Set up hook to call our script when activity detected
-	hookCmd := fmt.Sprintf("run-shell '%s %s'",
-		filepath.Join(os.Getenv("HOME"), ".agent-deck", "hooks", "tmux-activity.sh"),
-		s.InstanceID)
-	_ = exec.Command("tmux", "set-hook", "-t", s.Name, "alert-activity", hookCmd).Run()
 }
 
 // Exists checks if the tmux session exists
