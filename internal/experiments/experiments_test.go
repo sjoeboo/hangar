@@ -2,6 +2,7 @@ package experiments
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -10,7 +11,33 @@ import (
 
 func TestMain(m *testing.M) {
 	os.Setenv("AGENTDECK_PROFILE", "_test")
-	os.Exit(m.Run())
+
+	// Run tests
+	code := m.Run()
+
+	// Cleanup: Kill any orphaned test sessions after tests complete
+	// This prevents RAM waste from lingering test sessions
+	// See CLAUDE.md: "2026-01-20 Incident: 20+ Test-Skip-Regen sessions orphaned, wasting ~3GB RAM"
+	cleanupTestSessions()
+
+	os.Exit(code)
+}
+
+// cleanupTestSessions kills any tmux sessions created during testing
+func cleanupTestSessions() {
+	out, err := exec.Command("tmux", "list-sessions", "-F", "#{session_name}").Output()
+	if err != nil {
+		return
+	}
+
+	sessions := strings.Split(strings.TrimSpace(string(out)), "\n")
+	for _, sess := range sessions {
+		if strings.Contains(sess, "Test-Skip-Regen") ||
+			strings.Contains(sess, "test_") ||
+			strings.HasPrefix(sess, "agentdeck_test") {
+			exec.Command("tmux", "kill-session", "-t", sess).Run()
+		}
+	}
 }
 
 func TestListExperiments(t *testing.T) {

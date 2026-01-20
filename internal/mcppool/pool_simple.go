@@ -280,6 +280,20 @@ func (p *Pool) ListServers() []ProxyInfo {
 	return list
 }
 
+// GetRunningCount returns the number of running MCP proxies
+func (p *Pool) GetRunningCount() int {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+
+	count := 0
+	for _, proxy := range p.proxies {
+		if proxy.GetStatus() == StatusRunning {
+			count++
+		}
+	}
+	return count
+}
+
 type ProxyInfo struct {
 	Name       string
 	SocketPath string

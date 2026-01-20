@@ -128,15 +128,33 @@ func GetGlobalPool() *mcppool.Pool {
 	return globalPool
 }
 
-// ShutdownGlobalPool stops the global pool
-func ShutdownGlobalPool() error {
+// GetGlobalPoolRunningCount returns the number of running MCPs in the global pool
+func GetGlobalPoolRunningCount() int {
+	globalPoolMu.RLock()
+	defer globalPoolMu.RUnlock()
+
+	if globalPool != nil {
+		return globalPool.GetRunningCount()
+	}
+	return 0
+}
+
+// ShutdownGlobalPool stops the global pool if shouldShutdown is true.
+// If shouldShutdown is false, it disconnects from the pool but leaves MCPs running.
+func ShutdownGlobalPool(shouldShutdown bool) error {
 	globalPoolMu.Lock()
 	defer globalPoolMu.Unlock()
 
 	if globalPool != nil {
-		err := globalPool.Shutdown()
+		if shouldShutdown {
+			log.Printf("[Pool] Shutting down pool (killing MCP processes)")
+			err := globalPool.Shutdown()
+			globalPool = nil
+			return err
+		}
+		// Just disconnect - leave MCPs running for next instance
+		log.Printf("[Pool] Disconnecting from pool (leaving %d MCPs running in background)", globalPool.GetRunningCount())
 		globalPool = nil
-		return err
 	}
 
 	return nil

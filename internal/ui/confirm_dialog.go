@@ -14,6 +14,7 @@ type ConfirmType int
 const (
 	ConfirmDeleteSession ConfirmType = iota
 	ConfirmDeleteGroup
+	ConfirmQuitWithPool
 )
 
 // ConfirmDialog handles confirmation for destructive actions
@@ -24,6 +25,7 @@ type ConfirmDialog struct {
 	targetName  string // Display name
 	width       int
 	height      int
+	mcpCount    int // Number of running MCPs (for quit confirmation)
 }
 
 // NewConfirmDialog creates a new confirmation dialog
@@ -45,6 +47,15 @@ func (c *ConfirmDialog) ShowDeleteGroup(groupPath, groupName string) {
 	c.confirmType = ConfirmDeleteGroup
 	c.targetID = groupPath
 	c.targetName = groupName
+}
+
+// ShowQuitWithPool shows confirmation for quitting with MCP pool running
+func (c *ConfirmDialog) ShowQuitWithPool(mcpCount int) {
+	c.visible = true
+	c.confirmType = ConfirmQuitWithPool
+	c.mcpCount = mcpCount
+	c.targetID = ""
+	c.targetName = ""
 }
 
 // Hide hides the dialog
@@ -87,52 +98,98 @@ func (c *ConfirmDialog) View() string {
 		return ""
 	}
 
-	// Build warning message based on action type
+	// Build warning message and buttons based on action type
 	var title, warning, details string
+	var buttons string
+	var borderColor lipgloss.Color
+
+	// Styles (shared)
+	detailsStyle := lipgloss.NewStyle().
+		Foreground(ColorTextDim).
+		MarginBottom(1)
 
 	switch c.confirmType {
 	case ConfirmDeleteSession:
 		title = "⚠️  Delete Session?"
 		warning = fmt.Sprintf("This will PERMANENTLY KILL the tmux session:\n\n  \"%s\"", c.targetName)
 		details = "• The tmux session will be terminated\n• Any running processes will be killed\n• Terminal history will be lost\n• This cannot be undone"
+		borderColor = ColorRed
+
+		buttonYes := lipgloss.NewStyle().
+			Foreground(ColorBg).
+			Background(ColorRed).
+			Padding(0, 2).
+			Bold(true).
+			Render("y Delete")
+		buttonNo := lipgloss.NewStyle().
+			Foreground(ColorBg).
+			Background(ColorAccent).
+			Padding(0, 2).
+			Bold(true).
+			Render("n Cancel")
+		escHint := lipgloss.NewStyle().
+			Foreground(ColorTextDim).
+			Render("(Esc to cancel)")
+		buttons = lipgloss.JoinHorizontal(lipgloss.Center, buttonYes, "  ", buttonNo, "  ", escHint)
 
 	case ConfirmDeleteGroup:
 		title = "⚠️  Delete Group?"
 		warning = fmt.Sprintf("This will delete the group:\n\n  \"%s\"", c.targetName)
 		details = "• All sessions will be MOVED to 'default' group\n• Sessions will NOT be killed\n• The group structure will be lost"
+		borderColor = ColorRed
+
+		buttonYes := lipgloss.NewStyle().
+			Foreground(ColorBg).
+			Background(ColorRed).
+			Padding(0, 2).
+			Bold(true).
+			Render("y Delete")
+		buttonNo := lipgloss.NewStyle().
+			Foreground(ColorBg).
+			Background(ColorAccent).
+			Padding(0, 2).
+			Bold(true).
+			Render("n Cancel")
+		escHint := lipgloss.NewStyle().
+			Foreground(ColorTextDim).
+			Render("(Esc to cancel)")
+		buttons = lipgloss.JoinHorizontal(lipgloss.Center, buttonYes, "  ", buttonNo, "  ", escHint)
+
+	case ConfirmQuitWithPool:
+		title = "MCP Pool Running"
+		warning = fmt.Sprintf("%d MCP servers are running in the pool.", c.mcpCount)
+		details = "Keep them running for faster startup next time,\nor shut down to free resources."
+		borderColor = ColorAccent
+
+		// "Keep running" is the default (green), "Shut down" is secondary (red)
+		buttonKeep := lipgloss.NewStyle().
+			Foreground(ColorBg).
+			Background(ColorGreen).
+			Padding(0, 2).
+			Bold(true).
+			Render("k Keep running")
+		buttonShutdown := lipgloss.NewStyle().
+			Foreground(ColorBg).
+			Background(ColorRed).
+			Padding(0, 2).
+			Bold(true).
+			Render("s Shut down")
+		escHint := lipgloss.NewStyle().
+			Foreground(ColorTextDim).
+			Render("(Esc to cancel)")
+		buttons = lipgloss.JoinHorizontal(lipgloss.Center, buttonKeep, "  ", buttonShutdown, "  ", escHint)
 	}
 
-	// Styles
+	// Title style
 	titleStyle := lipgloss.NewStyle().
 		Bold(true).
-		Foreground(ColorRed).
+		Foreground(borderColor).
 		MarginBottom(1)
 
+	// Warning style
 	warningStyle := lipgloss.NewStyle().
 		Foreground(ColorYellow).
 		MarginBottom(1)
-
-	detailsStyle := lipgloss.NewStyle().
-		Foreground(ColorTextDim).
-		MarginBottom(1)
-
-	buttonYes := lipgloss.NewStyle().
-		Foreground(ColorBg).
-		Background(ColorRed).
-		Padding(0, 2).
-		Bold(true).
-		Render("y Delete")
-
-	buttonNo := lipgloss.NewStyle().
-		Foreground(ColorBg).
-		Background(ColorAccent).
-		Padding(0, 2).
-		Bold(true).
-		Render("n Cancel")
-
-	escHint := lipgloss.NewStyle().
-		Foreground(ColorTextDim).
-		Render("(Esc to cancel)")
 
 	// Build content
 	content := lipgloss.JoinVertical(lipgloss.Left,
@@ -140,7 +197,7 @@ func (c *ConfirmDialog) View() string {
 		warningStyle.Render(warning),
 		detailsStyle.Render(details),
 		"",
-		lipgloss.JoinHorizontal(lipgloss.Center, buttonYes, "  ", buttonNo, "  ", escHint),
+		buttons,
 	)
 
 	// Dialog box
@@ -151,7 +208,7 @@ func (c *ConfirmDialog) View() string {
 
 	dialogBox := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
-		BorderForeground(ColorRed).
+		BorderForeground(borderColor).
 		Padding(1, 2).
 		Width(dialogWidth).
 		Render(content)

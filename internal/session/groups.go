@@ -191,7 +191,29 @@ func (t *GroupTree) rebuildGroupList() {
 			return t.GroupList[i].Name < t.GroupList[j].Name
 		}
 
-		// Different parents - sort by full path to keep hierarchy together
+		// Different parents - compare at root level to keep tree structure
+		// This ensures subgroups stay grouped with their root ancestors
+		rootI := getRootPath(pathI)
+		rootJ := getRootPath(pathJ)
+
+		if rootI == rootJ {
+			// Same root ancestor - they're in the same subtree
+			// Use full path to maintain parent-child ordering within the subtree
+			return pathI < pathJ
+		}
+
+		// Different root ancestors - compare roots by order then name
+		// This ensures entire subtrees are kept together
+		rootGroupI := t.Groups[rootI]
+		rootGroupJ := t.Groups[rootJ]
+		if rootGroupI != nil && rootGroupJ != nil {
+			if rootGroupI.Order != rootGroupJ.Order {
+				return rootGroupI.Order < rootGroupJ.Order
+			}
+			return rootGroupI.Name < rootGroupJ.Name
+		}
+
+		// Fallback to full path comparison if root groups not found
 		return pathI < pathJ
 	})
 	// Note: Do NOT reassign Order values here - this would destroy user-customized
@@ -207,6 +229,15 @@ func getParentPath(path string) string {
 		return path[:idx]
 	}
 	return "" // root level
+}
+
+// getRootPath returns the root-level path (first segment) of a hierarchical path
+// e.g., "parent/child/grandchild" -> "parent", "root" -> "root"
+func getRootPath(path string) string {
+	if idx := strings.Index(path, "/"); idx != -1 {
+		return path[:idx]
+	}
+	return path // already root level
 }
 
 // extractGroupName extracts the display name from a group path

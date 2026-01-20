@@ -208,6 +208,62 @@ func TestFlattenWithNestedGroupsCollapsed(t *testing.T) {
 	}
 }
 
+// TestSubgroupSortingWithUnrelatedRoots verifies that subgroups stay with their
+// parent root and are not sorted between unrelated root groups.
+// This was a bug where "agent-deck/github-issues" would sort between "My Sessions"
+// and "agent-deck" because full path comparison doesn't respect tree hierarchy.
+func TestSubgroupSortingWithUnrelatedRoots(t *testing.T) {
+	tree := NewGroupTree([]*Instance{})
+
+	// Create root groups with names that alphabetically interleave
+	// "My Sessions" (M) < "agent-deck" (a) in ASCII (uppercase < lowercase)
+	// But "agent-deck/github-issues" would sort before "my-sessions" by full path
+	tree.CreateGroup("My Sessions") // path: my-sessions
+	tree.CreateGroup("agent-deck")  // path: agent-deck
+	tree.CreateGroup("ard")         // path: ard
+	tree.CreateSubgroup("agent-deck", "github-issues")
+
+	// Expand all so subgroups are visible
+	tree.ExpandGroup("my-sessions")
+	tree.ExpandGroup("agent-deck")
+	tree.ExpandGroup("ard")
+
+	// Flatten the tree
+	items := tree.Flatten()
+
+	// Find positions of each group
+	positions := make(map[string]int)
+	for i, item := range items {
+		if item.Type == ItemTypeGroup {
+			positions[item.Path] = i
+		}
+	}
+
+	// Verify: github-issues must come immediately after agent-deck, not before my-sessions
+	agentDeckPos := positions["agent-deck"]
+	githubIssuesPos := positions["agent-deck/github-issues"]
+	mySessionsPos := positions["my-sessions"]
+	ardPos := positions["ard"]
+
+	// agent-deck/github-issues should come right after agent-deck
+	if githubIssuesPos != agentDeckPos+1 {
+		t.Errorf("github-issues (pos %d) should come right after agent-deck (pos %d)",
+			githubIssuesPos, agentDeckPos)
+	}
+
+	// my-sessions should NOT be between agent-deck and github-issues
+	if mySessionsPos > agentDeckPos && mySessionsPos < githubIssuesPos {
+		t.Errorf("my-sessions (pos %d) should not be between agent-deck (pos %d) and github-issues (pos %d)",
+			mySessionsPos, agentDeckPos, githubIssuesPos)
+	}
+
+	// ard should come after both agent-deck and github-issues (same root family, then ard)
+	if ardPos < githubIssuesPos {
+		t.Errorf("ard (pos %d) should come after github-issues (pos %d)",
+			ardPos, githubIssuesPos)
+	}
+}
+
 func TestToggleGroup(t *testing.T) {
 	tree := NewGroupTree([]*Instance{})
 	tree.CreateGroup("Test")
@@ -741,6 +797,27 @@ func TestGetParentPath(t *testing.T) {
 		result := getParentPath(tt.path)
 		if result != tt.expected {
 			t.Errorf("getParentPath(%s) = %s, want %s", tt.path, result, tt.expected)
+		}
+	}
+}
+
+func TestGetRootPath(t *testing.T) {
+	tests := []struct {
+		path     string
+		expected string
+	}{
+		{"root", "root"},
+		{"parent/child", "parent"},
+		{"a/b/c", "a"},
+		{"my-sessions", "my-sessions"},
+		{"agent-deck/github-issues", "agent-deck"},
+		{"deep/nested/path/here", "deep"},
+	}
+
+	for _, tt := range tests {
+		result := getRootPath(tt.path)
+		if result != tt.expected {
+			t.Errorf("getRootPath(%s) = %s, want %s", tt.path, result, tt.expected)
 		}
 	}
 }

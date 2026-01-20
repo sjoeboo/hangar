@@ -2511,53 +2511,13 @@ func (h *Home) handleNewDialogKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 func (h *Home) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "q", "ctrl+c":
-		h.cancel() // Signal background worker to stop
-		// Wait for background worker to finish (prevents race on shutdown)
-		<-h.statusWorkerDone
-		if h.logWatcher != nil {
-			h.logWatcher.Close()
-		}
-		// Close storage watcher
-		if h.storageWatcher != nil {
-			h.storageWatcher.Close()
-		}
-		// Close global search index
-		if h.globalSearchIndex != nil {
-			h.globalSearchIndex.Close()
-		}
-		// Shutdown MCP pool if running
-		if err := session.ShutdownGlobalPool(); err != nil {
-			log.Printf("Warning: error shutting down MCP pool: %v", err)
-		}
-		// Clean up notification bar (clear tmux status bars and unbind keys)
-		h.cleanupNotifications()
-		// Save both instances AND groups on quit (critical fix: was losing groups!)
-		h.saveInstances()
-		return h, tea.Quit
+		return h.tryQuit()
 
 	case "esc":
 		// Double ESC to quit (#28) - for non-English keyboard users
 		// If ESC pressed twice within 500ms, quit the application
 		if time.Since(h.lastEscTime) < 500*time.Millisecond {
-			// Same quit logic as "q"
-			h.cancel()
-			<-h.statusWorkerDone
-			if h.logWatcher != nil {
-				h.logWatcher.Close()
-			}
-			if h.storageWatcher != nil {
-				h.storageWatcher.Close()
-			}
-			if h.globalSearchIndex != nil {
-				h.globalSearchIndex.Close()
-			}
-			if err := session.ShutdownGlobalPool(); err != nil {
-				log.Printf("Warning: error shutting down MCP pool: %v", err)
-			}
-			// Clean up notification bar (clear tmux status bars and unbind keys)
-			h.cleanupNotifications()
-			h.saveInstances()
-			return h, tea.Quit
+			return h.tryQuit()
 		}
 		// First ESC - record time, show hint in status bar
 		h.lastEscTime = time.Now()
@@ -3131,35 +3091,106 @@ func (h *Home) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 // handleConfirmDialogKey handles keys when confirmation dialog is visible
 func (h *Home) handleConfirmDialogKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	switch msg.String() {
-	case "y", "Y":
-		// User confirmed - perform the deletion
-		switch h.confirmDialog.GetConfirmType() {
-		case ConfirmDeleteSession:
-			sessionID := h.confirmDialog.GetTargetID()
-			if inst := h.getInstanceByID(sessionID); inst != nil {
-				h.confirmDialog.Hide()
-				return h, h.deleteSession(inst)
-			}
-		case ConfirmDeleteGroup:
-			groupPath := h.confirmDialog.GetTargetID()
-			h.groupTree.DeleteGroup(groupPath)
-			h.instancesMu.Lock()
-			h.instances = h.groupTree.GetAllInstances()
-			h.instancesMu.Unlock()
-			h.rebuildFlatItems()
-			h.saveInstances()
+	switch h.confirmDialog.GetConfirmType() {
+	case ConfirmQuitWithPool:
+		// Special handling for quit with pool dialog
+		switch msg.String() {
+		case "k", "K":
+			// Keep pool running - quit without shutting down
+			h.confirmDialog.Hide()
+			return h, h.performQuit(false) // false = don't shutdown pool
+		case "s", "S":
+			// Shut down pool - quit and shutdown
+			h.confirmDialog.Hide()
+			return h, h.performQuit(true) // true = shutdown pool
+		case "esc":
+			// Cancel - don't quit
+			h.confirmDialog.Hide()
+			return h, nil
 		}
-		h.confirmDialog.Hide()
 		return h, nil
 
-	case "n", "N", "esc":
-		// User cancelled
-		h.confirmDialog.Hide()
-		return h, nil
+	default:
+		// Handle delete confirmations (session/group)
+		switch msg.String() {
+		case "y", "Y":
+			// User confirmed - perform the deletion
+			switch h.confirmDialog.GetConfirmType() {
+			case ConfirmDeleteSession:
+				sessionID := h.confirmDialog.GetTargetID()
+				if inst := h.getInstanceByID(sessionID); inst != nil {
+					h.confirmDialog.Hide()
+					return h, h.deleteSession(inst)
+				}
+			case ConfirmDeleteGroup:
+				groupPath := h.confirmDialog.GetTargetID()
+				h.groupTree.DeleteGroup(groupPath)
+				h.instancesMu.Lock()
+				h.instances = h.groupTree.GetAllInstances()
+				h.instancesMu.Unlock()
+				h.rebuildFlatItems()
+				h.saveInstances()
+			}
+			h.confirmDialog.Hide()
+			return h, nil
+
+		case "n", "N", "esc":
+			// User cancelled
+			h.confirmDialog.Hide()
+			return h, nil
+		}
 	}
 
 	return h, nil
+}
+
+// tryQuit checks if MCP pool is running and shows confirmation dialog, or quits directly
+func (h *Home) tryQuit() (tea.Model, tea.Cmd) {
+	// Check if pool is enabled and has running MCPs
+	userConfig, _ := session.LoadUserConfig()
+	if userConfig != nil && userConfig.MCPPool.Enabled {
+		runningCount := session.GetGlobalPoolRunningCount()
+		if runningCount > 0 {
+			// Show quit confirmation dialog
+			h.confirmDialog.ShowQuitWithPool(runningCount)
+			return h, nil
+		}
+	}
+	// No pool running, quit directly (shutdown = true by default for clean exit)
+	return h, h.performQuit(true)
+}
+
+// performQuit performs the actual quit logic
+// shutdownPool: true = shutdown MCP pool, false = leave running in background
+func (h *Home) performQuit(shutdownPool bool) tea.Cmd {
+	return func() tea.Msg {
+		// Signal background worker to stop
+		h.cancel()
+		// Wait for background worker to finish (prevents race on shutdown)
+		<-h.statusWorkerDone
+
+		if h.logWatcher != nil {
+			h.logWatcher.Close()
+		}
+		// Close storage watcher
+		if h.storageWatcher != nil {
+			h.storageWatcher.Close()
+		}
+		// Close global search index
+		if h.globalSearchIndex != nil {
+			h.globalSearchIndex.Close()
+		}
+		// Shutdown or disconnect from MCP pool based on user choice
+		if err := session.ShutdownGlobalPool(shutdownPool); err != nil {
+			log.Printf("Warning: error handling MCP pool: %v", err)
+		}
+		// Clean up notification bar (clear tmux status bars and unbind keys)
+		h.cleanupNotifications()
+		// Save both instances AND groups on quit (critical fix: was losing groups!)
+		h.saveInstances()
+
+		return tea.Quit()
+	}
 }
 
 // handleMCPDialogKey handles keys when MCP dialog is visible
