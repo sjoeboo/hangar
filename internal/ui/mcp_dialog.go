@@ -267,6 +267,8 @@ func (m *MCPDialog) Hide() {
 	m.localAvailable = nil
 	m.globalAttached = nil
 	m.globalAvailable = nil
+	m.userAttached = nil
+	m.userAvailable = nil
 	m.err = nil
 }
 
