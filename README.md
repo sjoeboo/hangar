@@ -283,6 +283,35 @@ max_shown = 6    # Max sessions to show (default: 6)
 
 **Why this matters:** Running multiple agents in parallel? Now you'll never lose track of which ones need your attention.
 
+### 🌳 Work on Multiple Branches Simultaneously
+
+**Git worktrees let multiple agents work on the same repo without conflicts.** Each worktree is an isolated working directory with its own branch - perfect for parallel feature development, code reviews, or hotfixes.
+
+```bash
+# Create session in a new worktree
+agent-deck add /path/to/repo -t "Feature A" -c claude --worktree feature/a --new-branch
+
+# Create session in existing branch
+agent-deck add . --worktree develop -c claude
+```
+
+**Manage worktrees:**
+```bash
+agent-deck worktree list              # List all worktrees with sessions
+agent-deck worktree info "Feature A"  # Show worktree details
+agent-deck worktree cleanup           # Find orphaned worktrees (dry-run)
+agent-deck worktree cleanup --force   # Remove orphans
+```
+
+| Use Case | Benefit |
+|----------|---------|
+| **Parallel agent work** | Multiple agents on same repo, different branches |
+| **Feature isolation** | Keep main branch clean while agent experiments |
+| **Code review** | Agent reviews PR in worktree while main work continues |
+| **Hotfix work** | Quick branch off main without disrupting feature work |
+
+**Why this matters:** No more stashing changes or juggling branches. Each agent gets its own isolated workspace while sharing git history.
+
 ## Installation
 
 **Works on:** macOS • Linux • Windows (WSL)
@@ -487,6 +516,37 @@ agent-deck group move my-session work   # Move session to group
 |------|-------------|
 | `--parent` | Parent group for creating subgroups |
 | `--force` | Force delete by moving sessions to default group |
+
+### Worktree Commands
+
+Create sessions in git worktrees for isolated parallel development.
+
+```bash
+# Create session in new worktree with new branch
+agent-deck add /path/to/repo -t "Feature" -c claude --worktree feature/branch --new-branch
+
+# Create session in existing branch's worktree
+agent-deck add . --worktree develop -c claude
+
+# List all worktrees with session associations
+agent-deck worktree list
+agent-deck worktree list --json
+
+# Show worktree info for a session
+agent-deck worktree info "My Session"
+
+# Find orphaned worktrees/sessions (dry-run)
+agent-deck worktree cleanup
+
+# Actually remove orphans
+agent-deck worktree cleanup --force
+```
+
+**Add command worktree flags:**
+| Flag | Description |
+|------|-------------|
+| `-w, --worktree <branch>` | Create session in worktree for branch |
+| `-b, --new-branch` | Create new branch (use with --worktree) |
 
 ### Quick Experiments
 
