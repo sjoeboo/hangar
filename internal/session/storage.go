@@ -70,6 +70,11 @@ type InstanceData struct {
 	LastAccessedAt  time.Time `json:"last_accessed_at,omitempty"`
 	TmuxSession     string    `json:"tmux_session"`
 
+	// Worktree support
+	WorktreePath     string `json:"worktree_path,omitempty"`
+	WorktreeRepoRoot string `json:"worktree_repo_root,omitempty"`
+	WorktreeBranch   string `json:"worktree_branch,omitempty"`
+
 	// Claude session (persisted for resume after app restart)
 	ClaudeSessionID  string    `json:"claude_session_id,omitempty"`
 	ClaudeDetectedAt time.Time `json:"claude_detected_at,omitempty"`
@@ -215,6 +220,9 @@ func (s *Storage) SaveWithGroups(instances []*Instance, groupTree *GroupTree) er
 			CreatedAt:        inst.CreatedAt,
 			LastAccessedAt:   inst.LastAccessedAt,
 			TmuxSession:      tmuxName,
+			WorktreePath:     inst.WorktreePath,
+			WorktreeRepoRoot: inst.WorktreeRepoRoot,
+			WorktreeBranch:   inst.WorktreeBranch,
 			ClaudeSessionID:  inst.ClaudeSessionID,
 			ClaudeDetectedAt: inst.ClaudeDetectedAt,
 			GeminiSessionID:  inst.GeminiSessionID,
@@ -523,6 +531,9 @@ func (s *Storage) convertToInstances(data *StorageData) ([]*Instance, []*GroupDa
 			Status:           instData.Status,
 			CreatedAt:        instData.CreatedAt,
 			LastAccessedAt:   instData.LastAccessedAt,
+			WorktreePath:     instData.WorktreePath,
+			WorktreeRepoRoot: instData.WorktreeRepoRoot,
+			WorktreeBranch:   instData.WorktreeBranch,
 			ClaudeSessionID:  instData.ClaudeSessionID,
 			ClaudeDetectedAt: instData.ClaudeDetectedAt,
 			GeminiSessionID:  instData.GeminiSessionID,
