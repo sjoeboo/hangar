@@ -51,16 +51,21 @@ type MCPDialog struct {
 	localAvailable  []MCPItem
 	globalAttached  []MCPItem
 	globalAvailable []MCPItem
+	userAttached    []MCPItem // USER scope: ~/.claude.json (ROOT)
+	userAvailable   []MCPItem // USER scope: ~/.claude.json (ROOT)
 
-	// Selection index per scope/column (4 combinations)
+	// Selection index per scope/column (6 combinations)
 	localAttachedIdx   int
 	localAvailableIdx  int
 	globalAttachedIdx  int
 	globalAvailableIdx int
+	userAttachedIdx    int // USER scope index
+	userAvailableIdx   int // USER scope index
 
 	// Track changes
 	localChanged  bool
 	globalChanged bool
+	userChanged   bool // USER scope changed
 
 	err         error
 	configError string // Error message from config parsing
