@@ -537,32 +537,55 @@ func (m *MCPDialog) View() string {
 		globalTab := lipgloss.NewStyle().Bold(true).Foreground(ColorAccent).Render("[GLOBAL]")
 		tabs = "──────────────── " + globalTab + " ────────────────"
 	} else {
-		// Claude: Show LOCAL/GLOBAL tabs
+		// Claude: Show LOCAL/GLOBAL/USER tabs
 		localTab := "LOCAL"
 		globalTab := "GLOBAL"
-		if m.scope == MCPScopeLocal {
-			localTab = lipgloss.NewStyle().Bold(true).Foreground(ColorAccent).Render("[" + localTab + "]")
-			globalTab = lipgloss.NewStyle().Foreground(ColorTextDim).Render(" " + globalTab + " ")
-		} else {
-			localTab = lipgloss.NewStyle().Foreground(ColorTextDim).Render(" " + localTab + " ")
-			globalTab = lipgloss.NewStyle().Bold(true).Foreground(ColorAccent).Render("[" + globalTab + "]")
+		userTab := "USER"
+
+		localStyle := lipgloss.NewStyle().Foreground(ColorTextDim)
+		globalStyle := lipgloss.NewStyle().Foreground(ColorTextDim)
+		userStyle := lipgloss.NewStyle().Foreground(ColorTextDim)
+
+		switch m.scope {
+		case MCPScopeLocal:
+			localStyle = lipgloss.NewStyle().Bold(true).Foreground(ColorAccent)
+			localTab = "[" + localTab + "]"
+			globalTab = " " + globalTab + " "
+			userTab = " " + userTab + " "
+		case MCPScopeGlobal:
+			globalStyle = lipgloss.NewStyle().Bold(true).Foreground(ColorAccent)
+			localTab = " " + localTab + " "
+			globalTab = "[" + globalTab + "]"
+			userTab = " " + userTab + " "
+		case MCPScopeUser:
+			userStyle = lipgloss.NewStyle().Bold(true).Foreground(ColorYellow) // Yellow to indicate caution
+			localTab = " " + localTab + " "
+			globalTab = " " + globalTab + " "
+			userTab = "[" + userTab + "]"
 		}
-		tabs = localTab + " ───────────────────── " + globalTab
+
+		tabs = localStyle.Render(localTab) + " ─── " + globalStyle.Render(globalTab) + " ─── " + userStyle.Render(userTab)
 	}
 
 	// Get current scope's lists
 	var attached, available []MCPItem
 	var attachedIdx, availableIdx int
-	if m.scope == MCPScopeLocal {
+	switch m.scope {
+	case MCPScopeLocal:
 		attached = m.localAttached
 		available = m.localAvailable
 		attachedIdx = m.localAttachedIdx
 		availableIdx = m.localAvailableIdx
-	} else {
+	case MCPScopeGlobal:
 		attached = m.globalAttached
 		available = m.globalAvailable
 		attachedIdx = m.globalAttachedIdx
 		availableIdx = m.globalAvailableIdx
+	case MCPScopeUser:
+		attached = m.userAttached
+		available = m.userAvailable
+		attachedIdx = m.userAttachedIdx
+		availableIdx = m.userAvailableIdx
 	}
 
 	// Render columns
@@ -575,10 +598,15 @@ func (m *MCPDialog) View() string {
 	var scopeDesc string
 	if m.tool == "gemini" {
 		scopeDesc = DimStyle.Render("Writes to: ~/.gemini/settings.json")
-	} else if m.scope == MCPScopeLocal {
-		scopeDesc = DimStyle.Render("Writes to: .mcp.json (this project only)")
 	} else {
-		scopeDesc = DimStyle.Render("Writes to: Claude config (global + project-specific)")
+		switch m.scope {
+		case MCPScopeLocal:
+			scopeDesc = DimStyle.Render("Writes to: .mcp.json (this project only)")
+		case MCPScopeGlobal:
+			scopeDesc = DimStyle.Render("Writes to: Claude config (profile-specific)")
+		case MCPScopeUser:
+			scopeDesc = lipgloss.NewStyle().Foreground(ColorYellow).Render("⚠ Writes to: ~/.claude.json (ALL sessions!)")
+		}
 	}
 
 	// Error display
