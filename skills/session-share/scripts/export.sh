@@ -140,11 +140,15 @@ done < "$JSONL_FILE"
 # Create export JSON
 echo "Creating export file..."
 
-# Convert JSONL to JSON array
-MESSAGES_ARRAY=$(jq -s '.' "$TEMP_FILE" 2>/dev/null || echo "[]")
+# Convert JSONL to JSON array and save to temp file
+MESSAGES_FILE=$(mktemp)
+if ! jq -s '.' "$TEMP_FILE" > "$MESSAGES_FILE" 2>/dev/null; then
+    echo "[]" > "$MESSAGES_FILE"
+fi
 
-# Build export object
-EXPORT_JSON=$(jq -n \
+# Build export object using slurpfile to handle large message arrays
+# This avoids "Argument list too long" errors for large sessions
+if ! jq -n \
     --arg version "1.0" \
     --arg exported_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
     --arg exported_by "$(whoami)" \
@@ -152,7 +156,7 @@ EXPORT_JSON=$(jq -n \
     --arg session_title "$SESSION_TITLE" \
     --arg original_project "$PROJECT_PATH" \
     --arg summary "$SUMMARY" \
-    --argjson messages "$MESSAGES_ARRAY" \
+    --slurpfile messages "$MESSAGES_FILE" \
     --arg modified_files "$MODIFIED_FILES" \
     '{
         version: $version,
@@ -167,19 +171,19 @@ EXPORT_JSON=$(jq -n \
             summary: $summary,
             modified_files: ($modified_files | split("\n") | map(select(. != "")))
         },
-        messages: $messages,
+        messages: $messages[0],
         stats: {
-            total_messages: ($messages | length),
-            user_messages: ($messages | map(select(.type == "user")) | length),
-            assistant_messages: ($messages | map(select(.type == "assistant")) | length)
+            total_messages: ($messages[0] | length),
+            user_messages: ($messages[0] | map(select(.type == "user")) | length),
+            assistant_messages: ($messages[0] | map(select(.type == "assistant")) | length)
         }
-    }')
-
-# Write to file
-if ! echo "$EXPORT_JSON" > "$OUTPUT_PATH"; then
-    echo "Error: Failed to write export file" >&2
+    }' > "$OUTPUT_PATH"; then
+    rm -f "$MESSAGES_FILE"
+    echo "Error: Failed to create export JSON" >&2
     exit 1
 fi
+
+rm -f "$MESSAGES_FILE"
 
 # Get final file size
 FILE_SIZE=$(du -h "$OUTPUT_PATH" | cut -f1)
