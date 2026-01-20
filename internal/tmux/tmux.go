@@ -2210,11 +2210,26 @@ func InitializeStatusBarOptions() error {
 	return exec.Command("tmux", "set-option", "-g", "status-left-length", "120").Run()
 }
 
-// RefreshStatusBarImmediate forces an immediate status bar redraw.
+// RefreshStatusBarImmediate forces an immediate status bar redraw for ALL connected clients.
 // This bypasses the status-interval timer (default 15s) for instant visual feedback.
-// Uses -S flag which only refreshes the status line (lightweight operation ~1-2ms).
+// Uses -S flag which only refreshes the status line (lightweight operation ~1-2ms per client).
 func RefreshStatusBarImmediate() error {
-	return exec.Command("tmux", "refresh-client", "-S").Run()
+	// Get all connected clients
+	cmd := exec.Command("tmux", "list-clients", "-F", "#{client_name}")
+	output, err := cmd.Output()
+	if err != nil {
+		// No clients connected or tmux not running - not an error
+		return nil
+	}
+
+	// Refresh each client's status bar
+	clients := strings.Split(strings.TrimSpace(string(output)), "\n")
+	for _, client := range clients {
+		if client != "" {
+			_ = exec.Command("tmux", "refresh-client", "-S", "-t", client).Run()
+		}
+	}
+	return nil
 }
 
 // GetAttachedSessions returns the names of tmux sessions that have clients attached.
