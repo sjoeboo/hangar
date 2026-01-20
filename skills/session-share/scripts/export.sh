@@ -109,7 +109,7 @@ MODIFIED_FILES=$(extract_modified_files "$JSONL_FILE")
 
 # Create a temporary file for processed content
 TEMP_FILE=$(mktemp)
-trap "rm -f $TEMP_FILE" EXIT
+trap 'rm -f "$TEMP_FILE"' EXIT
 
 # Process JSONL content
 if [ "$NO_SANITIZE" = "false" ]; then
@@ -127,7 +127,10 @@ while IFS= read -r line || [ -n "$line" ]; do
 
         # Strip thinking blocks if needed
         if [ "$INCLUDE_THINKING" = "false" ]; then
-            processed_line=$(echo "$processed_line" | jq -c 'if .message.content then .message.content = [.message.content[] | select(.type != "thinking")] else . end' 2>/dev/null || echo "$processed_line")
+            filtered=$(echo "$processed_line" | jq -c 'if .message.content then .message.content = [.message.content[] | select(.type != "thinking")] else . end' 2>/dev/null)
+            if [ -n "$filtered" ]; then
+                processed_line="$filtered"
+            fi
         fi
 
         echo "$processed_line" >> "$TEMP_FILE"
@@ -173,7 +176,10 @@ EXPORT_JSON=$(jq -n \
     }')
 
 # Write to file
-echo "$EXPORT_JSON" > "$OUTPUT_PATH"
+if ! echo "$EXPORT_JSON" > "$OUTPUT_PATH"; then
+    echo "Error: Failed to write export file" >&2
+    exit 1
+fi
 
 # Get final file size
 FILE_SIZE=$(du -h "$OUTPUT_PATH" | cut -f1)
