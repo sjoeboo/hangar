@@ -288,6 +288,10 @@ func (m *MCPDialog) getCurrentList() (*[]MCPItem, *int) {
 		return &m.globalAttached, &m.globalAttachedIdx
 	case m.scope == MCPScopeGlobal && m.column == MCPColumnAvailable:
 		return &m.globalAvailable, &m.globalAvailableIdx
+	case m.scope == MCPScopeUser && m.column == MCPColumnAttached:
+		return &m.userAttached, &m.userAttachedIdx
+	case m.scope == MCPScopeUser && m.column == MCPColumnAvailable:
+		return &m.userAvailable, &m.userAvailableIdx
 	}
 	return &m.localAttached, &m.localAttachedIdx
 }
