@@ -15,6 +15,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/asheshgoplani/agent-deck/internal/git"
 	"github.com/asheshgoplani/agent-deck/internal/session"
 	"github.com/asheshgoplani/agent-deck/internal/ui"
 	"github.com/asheshgoplani/agent-deck/internal/update"
@@ -436,6 +437,12 @@ func handleAdd(profile string, args []string) {
 	parent := fs.String("parent", "", "Parent session (creates sub-session, inherits group)")
 	parentShort := fs.String("p", "", "Parent session (short)")
 
+	// Worktree flags
+	worktreeBranch := fs.String("w", "", "Create session in git worktree for branch")
+	worktreeBranchLong := fs.String("worktree", "", "Create session in git worktree for branch")
+	newBranch := fs.Bool("b", false, "Create new branch (use with --worktree)")
+	newBranchLong := fs.Bool("new-branch", false, "Create new branch")
+
 	// MCP flag - can be specified multiple times
 	var mcpFlags []string
 	fs.Func("mcp", "MCP to attach (can specify multiple times)", func(s string) error {
@@ -462,6 +469,11 @@ func handleAdd(profile string, args []string) {
 		fmt.Println("  agent-deck -p work add               # Add to 'work' profile")
 		fmt.Println("  agent-deck add -t \"Sub-task\" --parent \"Main Project\"  # Create sub-session")
 		fmt.Println("  agent-deck add -t \"Research\" -c claude --mcp memory --mcp sequential-thinking /tmp/x")
+		fmt.Println()
+		fmt.Println("Worktree Examples:")
+		fmt.Println("  agent-deck add -w feature/login .    # Create worktree for existing branch")
+		fmt.Println("  agent-deck add -w feature/new -b .   # Create worktree with new branch")
+		fmt.Println("  agent-deck add --worktree fix/bug-123 --new-branch /path/to/repo")
 	}
 
 	// Reorder args: move path to end so flags are parsed correctly
@@ -502,6 +514,64 @@ func handleAdd(profile string, args []string) {
 	if !info.IsDir() {
 		fmt.Printf("Error: path is not a directory: %s\n", path)
 		os.Exit(1)
+	}
+
+	// Resolve worktree flags
+	wtBranch := *worktreeBranch
+	if *worktreeBranchLong != "" {
+		wtBranch = *worktreeBranchLong
+	}
+	createNewBranch := *newBranch || *newBranchLong
+
+	// Handle worktree creation
+	var worktreePath, worktreeRepoRoot string
+	if wtBranch != "" {
+		// Validate path is a git repo
+		if !git.IsGitRepo(path) {
+			fmt.Fprintf(os.Stderr, "Error: %s is not a git repository\n", path)
+			os.Exit(1)
+		}
+
+		// Get repo root
+		repoRoot, err := git.GetRepoRoot(path)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: failed to get repo root: %v\n", err)
+			os.Exit(1)
+		}
+
+		// Pre-validate branch name for better error messages
+		if err := git.ValidateBranchName(wtBranch); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: invalid branch name: %v\n", err)
+			os.Exit(1)
+		}
+
+		// Check -b flag logic: if -b is passed, branch must NOT exist (user wants new branch)
+		branchExists := git.BranchExists(repoRoot, wtBranch)
+		if createNewBranch && branchExists {
+			fmt.Fprintf(os.Stderr, "Error: branch '%s' already exists (remove -b flag to use existing branch)\n", wtBranch)
+			os.Exit(1)
+		}
+
+		// Generate worktree path
+		worktreePath = git.GenerateWorktreePath(repoRoot, wtBranch)
+
+		// Check if worktree already exists
+		if _, err := os.Stat(worktreePath); err == nil {
+			fmt.Fprintf(os.Stderr, "Error: worktree already exists at %s\n", worktreePath)
+			fmt.Fprintf(os.Stderr, "Tip: Use 'agent-deck add %s' to add the existing worktree\n", worktreePath)
+			os.Exit(1)
+		}
+
+		// Create worktree
+		if err := git.CreateWorktree(repoRoot, worktreePath, wtBranch); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: failed to create worktree: %v\n", err)
+			os.Exit(1)
+		}
+
+		fmt.Printf("Created worktree at: %s\n", worktreePath)
+		worktreeRepoRoot = repoRoot
+		// Update path to point to worktree so session uses worktree as working directory
+		path = worktreePath
 	}
 
 	// Merge short and long flags
@@ -580,6 +650,13 @@ func handleAdd(profile string, args []string) {
 		newInstance.Tool = detectTool(sessionCommand)
 	}
 
+	// Set worktree fields if created
+	if worktreePath != "" {
+		newInstance.WorktreePath = worktreePath
+		newInstance.WorktreeRepoRoot = worktreeRepoRoot
+		newInstance.WorktreeBranch = wtBranch
+	}
+
 	// Add to instances
 	instances = append(instances, newInstance)
 
@@ -630,6 +707,10 @@ func handleAdd(profile string, args []string) {
 	}
 	if parentInstance != nil {
 		fmt.Printf("  Parent:  %s (%s)\n", parentInstance.Title, parentInstance.ID[:8])
+	}
+	if worktreePath != "" {
+		fmt.Printf("  Worktree: %s (branch: %s)\n", worktreePath, wtBranch)
+		fmt.Printf("  Repo:    %s\n", worktreeRepoRoot)
 	}
 
 	// Show helpful next steps
