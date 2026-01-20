@@ -116,6 +116,8 @@ func (m *MCPDialog) Show(projectPath string, sessionID string, tool string) erro
 	m.localAvailable = nil
 	m.globalAttached = nil
 	m.globalAvailable = nil
+	m.userAttached = nil
+	m.userAvailable = nil
 
 	if tool == "gemini" {
 		// Gemini: Only global MCPs from settings.json
@@ -206,6 +208,33 @@ func (m *MCPDialog) Show(projectPath string, sessionID string, tool string) erro
 				})
 			}
 		}
+
+		// Load USER attached from ~/.claude.json (ROOT config)
+		userAttachedNames := make(map[string]bool)
+		for _, name := range session.GetUserMCPNames() {
+			userAttachedNames[name] = true
+		}
+
+		// Build attached/available lists for USER
+		for _, name := range allNames {
+			item := itemsMap[name]
+			if userAttachedNames[name] {
+				m.userAttached = append(m.userAttached, item)
+			} else {
+				m.userAvailable = append(m.userAvailable, item)
+			}
+		}
+
+		// Add orphan USER MCPs (attached in ~/.claude.json but not in config.toml pool)
+		for name := range userAttachedNames {
+			if !poolNames[name] {
+				m.userAttached = append(m.userAttached, MCPItem{
+					Name:        name,
+					Description: "(not in config.toml)",
+					IsOrphan:    true,
+				})
+			}
+		}
 	}
 
 	m.visible = true
@@ -221,8 +250,11 @@ func (m *MCPDialog) Show(projectPath string, sessionID string, tool string) erro
 	m.localAvailableIdx = 0
 	m.globalAttachedIdx = 0
 	m.globalAvailableIdx = 0
+	m.userAttachedIdx = 0
+	m.userAvailableIdx = 0
 	m.localChanged = false
 	m.globalChanged = false
+	m.userChanged = false
 	m.err = nil
 
 	return nil
