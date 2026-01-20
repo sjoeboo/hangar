@@ -1,6 +1,8 @@
 #!/bin/bash
 # utils.sh - Shared utility functions for session-share skill
 
+set -euo pipefail
+
 # Encode a path the same way Claude does (/ becomes -)
 encode_path() {
     local path="$1"
@@ -8,6 +10,8 @@ encode_path() {
 }
 
 # Decode an encoded path back to original
+# WARNING: This is lossy - original hyphens in path names become slashes
+# For our use case (session sharing), we mainly use encode_path
 decode_path() {
     local encoded="$1"
     echo "$encoded" | sed 's|^-|/|' | sed 's|-|/|g'
@@ -22,6 +26,12 @@ get_claude_projects_dir() {
 find_session_file() {
     local session_id="$1"
     local project_path="$2"
+
+    if [ -z "$session_id" ] || [ -z "$project_path" ]; then
+        echo ""
+        return 1
+    fi
+
     local encoded_path=$(encode_path "$project_path")
     local projects_dir=$(get_claude_projects_dir)
     local session_file="$projects_dir/$encoded_path/$session_id.jsonl"
@@ -40,13 +50,17 @@ sanitize_jsonl() {
     local home_path="$HOME"
     local username=$(whoami)
 
+    # Escape special regex characters in home_path for sed
+    local escaped_home=$(printf '%s\n' "$home_path" | sed 's/[[\.*^$()+?{|]/\\&/g')
+    local escaped_username=$(printf '%s\n' "$username" | sed 's/[[\.*^$()+?{|]/\\&/g')
+
     echo "$content" | \
         # Remove common API key patterns
         sed -E 's/(api[_-]?key|apikey|token|secret|password|credential)["\s:=]+["\047]?[A-Za-z0-9_\-]{20,}["\047]?/\1="[REDACTED]"/gi' | \
         # Replace home directory with placeholder
-        sed "s|$home_path|~|g" | \
+        sed "s|$escaped_home|~|g" | \
         # Replace username in paths
-        sed "s|/Users/$username|/Users/\$USER|g" | \
+        sed "s|/Users/$escaped_username|/Users/\$USER|g" | \
         # Remove thinking blocks (they contain internal reasoning)
         jq -c 'if .message.content then .message.content = [.message.content[] | select(.type != "thinking")] else . end' 2>/dev/null || echo "$content"
 }
