@@ -335,12 +335,14 @@ func reorderArgsForFlagParsing(args []string) []string {
 	}
 
 	// Known flags that take a value (need to skip their values)
+	// Note: -b/--new-branch are boolean flags (no value), so not included here
 	valueFlags := map[string]bool{
 		"-t": true, "--title": true,
 		"-g": true, "--group": true,
 		"-c": true, "--cmd": true,
 		"-p": true, "--parent": true,
 		"--mcp": true,
+		"-w": true, "--worktree": true,
 	}
 
 	var flags []string
