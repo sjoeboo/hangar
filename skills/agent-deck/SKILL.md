@@ -1,6 +1,6 @@
 ---
 name: agent-deck
-description: Terminal session manager for AI coding agents. Use when user mentions "agent-deck", "session", "sub-agent", "MCP attach", or needs to (1) create/start/stop/restart/fork sessions, (2) attach/detach MCPs, (3) manage groups/profiles, (4) get session output, (5) configure agent-deck, (6) troubleshoot issues, or (7) launch sub-agents. Covers CLI commands, TUI shortcuts, config.toml options, and automation.
+description: Terminal session manager for AI coding agents. Use when user mentions "agent-deck", "session", "sub-agent", "MCP attach", "git worktree", or needs to (1) create/start/stop/restart/fork sessions, (2) attach/detach MCPs, (3) manage groups/profiles, (4) get session output, (5) configure agent-deck, (6) troubleshoot issues, (7) launch sub-agents, or (8) create/manage worktree sessions. Covers CLI commands, TUI shortcuts, config.toml options, and automation.
 compatibility: claude, opencode
 ---
 
@@ -39,6 +39,9 @@ agent-deck session output "Project"
 | `agent-deck mcp list` | List available MCPs |
 | `agent-deck mcp attach <name> <mcp>` | Attach MCP (then restart) |
 | `agent-deck status` | Quick status summary |
+| `agent-deck add --worktree <branch>` | Create session in git worktree |
+| `agent-deck worktree list` | List worktrees with sessions |
+| `agent-deck worktree cleanup` | Find orphaned worktrees/sessions |
 
 **Status:** `●` running | `◐` waiting | `○` idle | `✕` error
 
@@ -120,6 +123,45 @@ agent-deck add -t "Task" -c claude --mcp exa /path
 **Scopes:**
 - **LOCAL** (default) - `.mcp.json` in project, affects only that session
 - **GLOBAL** (`--global`) - Claude config, affects all projects
+
+## Worktree Workflows
+
+### Create Session in Git Worktree
+
+When working on a feature that needs isolation from main branch:
+
+```bash
+# Create session with new worktree and branch
+agent-deck add /path/to/repo -t "Feature Work" -c claude --worktree feature/my-feature --new-branch
+
+# Create session in existing branch's worktree
+agent-deck add . --worktree develop -c claude
+```
+
+### List and Manage Worktrees
+
+```bash
+# List all worktrees and their associated sessions
+agent-deck worktree list
+
+# Show detailed info for a session's worktree
+agent-deck worktree info "My Session"
+
+# Find orphaned worktrees/sessions (dry-run)
+agent-deck worktree cleanup
+
+# Actually clean up orphans
+agent-deck worktree cleanup --force
+```
+
+### When to Use Worktrees
+
+| Use Case | Benefit |
+|----------|---------|
+| **Parallel agent work** | Multiple agents on same repo, different branches |
+| **Feature isolation** | Keep main branch clean while agent experiments |
+| **Code review** | Agent reviews PR in worktree while main work continues |
+| **Hotfix work** | Quick branch off main without disrupting feature work |
 
 ## Configuration
 
