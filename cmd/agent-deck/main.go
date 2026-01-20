@@ -218,6 +218,9 @@ func main() {
 		case "try":
 			handleTry(profile, args[1:])
 			return
+		case "worktree", "wt":
+			handleWorktree(profile, args[1:])
+			return
 		case "uninstall":
 			handleUninstall(args[1:])
 			return
@@ -1335,6 +1338,7 @@ func printHelp() {
 	fmt.Println("  session          Manage session lifecycle")
 	fmt.Println("  mcp              Manage MCP servers")
 	fmt.Println("  group            Manage groups")
+	fmt.Println("  worktree, wt     Manage git worktrees")
 	fmt.Println("  profile          Manage profiles")
 	fmt.Println("  update           Check for and install updates")
 	fmt.Println("  uninstall        Uninstall Agent Deck")
@@ -1360,6 +1364,11 @@ func printHelp() {
 	fmt.Println("  group create <name>       Create a new group")
 	fmt.Println("  group delete <name>       Delete a group")
 	fmt.Println("  group move <id> <group>   Move session to group")
+	fmt.Println()
+	fmt.Println("Worktree Commands:")
+	fmt.Println("  worktree list             List worktrees with session associations")
+	fmt.Println("  worktree info <session>   Show worktree info for a session")
+	fmt.Println("  worktree cleanup          Find and remove orphaned worktrees/sessions")
 	fmt.Println()
 	fmt.Println("Profile Commands:")
 	fmt.Println("  profile list              List all profiles")
