@@ -324,7 +324,7 @@ func TestWriteUserMCP(t *testing.T) {
 	// Create initial ~/.claude.json with other fields to preserve
 	claudeJSON := filepath.Join(tmpHome, ".claude.json")
 	content := `{"numStartups": 100, "mcpServers": {}}`
-	os.WriteFile(claudeJSON, []byte(content), 0644)
+	_ = os.WriteFile(claudeJSON, []byte(content), 0644)
 
 	// Test writing empty list (clears MCPs)
 	err := WriteUserMCP([]string{})
@@ -335,7 +335,7 @@ func TestWriteUserMCP(t *testing.T) {
 	// Verify mcpServers is empty but other fields preserved
 	data, _ := os.ReadFile(claudeJSON)
 	var result map[string]interface{}
-	json.Unmarshal(data, &result)
+	_ = json.Unmarshal(data, &result)
 
 	if result["numStartups"] != float64(100) {
 		t.Errorf("expected numStartups=100, got %v", result["numStartups"])

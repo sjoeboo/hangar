@@ -1469,7 +1469,7 @@ func TestSessionHasConversationData(t *testing.T) {
 	encodedPath := "-test-project"
 
 	projectsDir := filepath.Join(tmpDir, "projects", encodedPath)
-	os.MkdirAll(projectsDir, 0755)
+	_ = os.MkdirAll(projectsDir, 0755)
 
 	// Override config dir for test
 	origConfigDir := os.Getenv("CLAUDE_CONFIG_DIR")
@@ -1484,7 +1484,7 @@ func TestSessionHasConversationData(t *testing.T) {
 		content := `{"type":"summary","leafUuid":"abc"}
 {"type":"queue-operation","sessionId":"has-session-id","timestamp":"2026-01-01"}
 {"type":"user","sessionId":"has-session-id","text":"hello"}`
-		os.WriteFile(filePath, []byte(content), 0644)
+		_ = os.WriteFile(filePath, []byte(content), 0644)
 
 		if !sessionHasConversationData(sessionID, projectPath) {
 			t.Error("Expected true for file with sessionId")
@@ -1496,7 +1496,7 @@ func TestSessionHasConversationData(t *testing.T) {
 		filePath := filepath.Join(projectsDir, sessionID+".jsonl")
 		content := `{"type":"summary","leafUuid":"abc"}
 {"type":"summary","leafUuid":"def"}`
-		os.WriteFile(filePath, []byte(content), 0644)
+		_ = os.WriteFile(filePath, []byte(content), 0644)
 
 		if sessionHasConversationData(sessionID, projectPath) {
 			t.Error("Expected false for file without sessionId")
