@@ -409,6 +409,139 @@ func GetUserMCPRootPath() string {
 	return filepath.Join(home, ".claude.json")
 }
 
+// WriteUserMCP writes MCPs to ~/.claude.json (ROOT config)
+// Uses socket proxies if pool is running, otherwise falls back to stdio
+// WARNING: MCPs written here affect ALL Claude sessions regardless of profile!
+func WriteUserMCP(enabledNames []string) error {
+	configFile := GetUserMCPRootPath()
+	if configFile == "" {
+		return fmt.Errorf("could not determine home directory")
+	}
+
+	// Read existing config (preserve other fields like numStartups, projects, etc.)
+	var rawConfig map[string]interface{}
+	if data, err := os.ReadFile(configFile); err == nil {
+		if err := json.Unmarshal(data, &rawConfig); err != nil {
+			rawConfig = make(map[string]interface{})
+		}
+	} else {
+		rawConfig = make(map[string]interface{})
+	}
+
+	// Build new mcpServers from enabled names using config.toml definitions
+	availableMCPs := GetAvailableMCPs()
+	pool := GetGlobalPool() // Get pool instance (may be nil)
+	mcpServers := make(map[string]MCPServerConfig)
+
+	for _, name := range enabledNames {
+		if def, ok := availableMCPs[name]; ok {
+			// Check if this is an HTTP/SSE MCP (has URL configured)
+			if def.URL != "" {
+				transport := def.Transport
+				if transport == "" {
+					transport = "http" // default to http if URL is set
+				}
+				mcpServers[name] = MCPServerConfig{
+					Type: transport,
+					URL:  def.URL,
+				}
+				log.Printf("[MCP] ✓ User %s: using %s transport at %s", name, transport, def.URL)
+				continue
+			}
+
+			// Check if pool exists and should pool this MCP (stdio only)
+			if pool != nil && pool.ShouldPool(name) {
+				// Check if socket is ready NOW - don't block waiting (Issue #36)
+				if pool.IsRunning(name) {
+					// Use Unix socket (nc connects to socket proxy)
+					socketPath := pool.GetSocketPath(name)
+					mcpServers[name] = MCPServerConfig{
+						Command: "nc",
+						Args:    []string{"-U", socketPath},
+					}
+					log.Printf("[MCP-POOL] ✓ User %s: using socket %s", name, socketPath)
+					continue
+				}
+
+				// Socket not ready - check fallback policy
+				if !pool.FallbackEnabled() {
+					log.Printf("[MCP-POOL] ✗ User %s: socket not ready, fallback disabled", name)
+					return fmt.Errorf("MCP '%s' socket not ready for USER scope. Options:\n"+
+						"  1. Enable fallback: set fallback_to_stdio = true in config.toml\n"+
+						"  2. Wait for pool to initialize and try again\n"+
+						"  3. Check MCP is running: ls /tmp/agentdeck-mcp-%s.sock", name, name)
+				}
+				log.Printf("[MCP-POOL] ⚠️ User %s: socket not ready - falling back to stdio", name)
+			} else if pool != nil && !pool.ShouldPool(name) {
+				// MCP is explicitly excluded from pool - use stdio
+				log.Printf("[MCP-POOL] User %s: excluded from pool, using stdio", name)
+			} else if pool == nil {
+				// Pool not initialized (CLI mode) - try to discover external sockets from TUI
+				config, _ := LoadUserConfig()
+				if config != nil && config.MCPPool.Enabled {
+					// Try to find existing socket from TUI's pool
+					if socketPath := getExternalSocketPath(name); socketPath != "" {
+						mcpServers[name] = MCPServerConfig{
+							Command: "nc",
+							Args:    []string{"-U", socketPath},
+						}
+						log.Printf("[MCP-POOL] ✓ User %s: discovered external socket %s", name, socketPath)
+						continue
+					}
+					// Socket not found - check fallback policy
+					if !config.MCPPool.FallbackStdio {
+						log.Printf("[MCP-POOL] ✗ User %s: pool enabled but socket not found - fallback disabled", name)
+						return fmt.Errorf("MCP '%s' socket not found for USER scope. Options:\n"+
+							"  1. Enable fallback: set fallback_to_stdio = true in config.toml\n"+
+							"  2. Start TUI to initialize pool: agent-deck\n"+
+							"  3. Check socket exists: ls /tmp/agentdeck-mcp-%s.sock", name, name)
+					}
+					log.Printf("[MCP-POOL] ⚠️ User %s: socket not found, falling back to stdio", name)
+				} else {
+					log.Printf("[MCP-POOL] User %s: pool disabled, using stdio", name)
+				}
+			}
+
+			// Fallback to stdio mode (pool disabled, excluded, or socket failed with fallback enabled)
+			args := def.Args
+			if args == nil {
+				args = []string{}
+			}
+			env := def.Env
+			if env == nil {
+				env = map[string]string{}
+			}
+			mcpServers[name] = MCPServerConfig{
+				Type:    "stdio",
+				Command: def.Command,
+				Args:    args,
+				Env:     env,
+			}
+			log.Printf("[MCP-POOL] ⚠️ User %s: using stdio (NOT pooled)", name)
+		}
+	}
+
+	rawConfig["mcpServers"] = mcpServers
+
+	// Write atomically
+	data, err := json.MarshalIndent(rawConfig, "", "  ")
+	if err != nil {
+		return fmt.Errorf("failed to marshal config: %w", err)
+	}
+
+	tmpPath := configFile + ".tmp"
+	if err := os.WriteFile(tmpPath, data, 0600); err != nil {
+		return fmt.Errorf("failed to write config: %w", err)
+	}
+
+	if err := os.Rename(tmpPath, configFile); err != nil {
+		os.Remove(tmpPath)
+		return fmt.Errorf("failed to save config: %w", err)
+	}
+
+	return nil
+}
+
 // GetUserMCPNames returns the names of MCPs in ~/.claude.json (ROOT config)
 // These MCPs are loaded by ALL Claude sessions regardless of CLAUDE_CONFIG_DIR.
 // This is different from GetGlobalMCPNames which reads from $CLAUDE_CONFIG_DIR/.claude.json

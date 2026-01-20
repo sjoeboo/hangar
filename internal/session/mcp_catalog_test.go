@@ -314,3 +314,70 @@ func TestGetUserMCPNamesEmptyServers(t *testing.T) {
 	}
 }
 
+func TestWriteUserMCP(t *testing.T) {
+	// Create temp home dir
+	tmpHome := t.TempDir()
+	originalHome := os.Getenv("HOME")
+	os.Setenv("HOME", tmpHome)
+	defer os.Setenv("HOME", originalHome)
+
+	// Create initial ~/.claude.json with other fields to preserve
+	claudeJSON := filepath.Join(tmpHome, ".claude.json")
+	content := `{"numStartups": 100, "mcpServers": {}}`
+	os.WriteFile(claudeJSON, []byte(content), 0644)
+
+	// Test writing empty list (clears MCPs)
+	err := WriteUserMCP([]string{})
+	if err != nil {
+		t.Errorf("WriteUserMCP failed: %v", err)
+	}
+
+	// Verify mcpServers is empty but other fields preserved
+	data, _ := os.ReadFile(claudeJSON)
+	var result map[string]interface{}
+	json.Unmarshal(data, &result)
+
+	if result["numStartups"] != float64(100) {
+		t.Errorf("expected numStartups=100, got %v", result["numStartups"])
+	}
+
+	mcpServers, ok := result["mcpServers"].(map[string]interface{})
+	if !ok || len(mcpServers) != 0 {
+		t.Errorf("expected empty mcpServers, got %v", mcpServers)
+	}
+}
+
+func TestWriteUserMCPCreatesFile(t *testing.T) {
+	// Create temp home dir (no .claude.json exists)
+	tmpHome := t.TempDir()
+	originalHome := os.Getenv("HOME")
+	os.Setenv("HOME", tmpHome)
+	defer os.Setenv("HOME", originalHome)
+
+	// Test writing to non-existent file
+	err := WriteUserMCP([]string{})
+	if err != nil {
+		t.Errorf("WriteUserMCP failed: %v", err)
+	}
+
+	// Verify file was created
+	claudeJSON := filepath.Join(tmpHome, ".claude.json")
+	data, err := os.ReadFile(claudeJSON)
+	if err != nil {
+		t.Fatalf("Failed to read created file: %v", err)
+	}
+
+	var result map[string]interface{}
+	if err := json.Unmarshal(data, &result); err != nil {
+		t.Fatalf("Failed to parse created file: %v", err)
+	}
+
+	mcpServers, ok := result["mcpServers"].(map[string]interface{})
+	if !ok {
+		t.Error("expected mcpServers field")
+	}
+	if len(mcpServers) != 0 {
+		t.Errorf("expected empty mcpServers, got %v", mcpServers)
+	}
+}
+
