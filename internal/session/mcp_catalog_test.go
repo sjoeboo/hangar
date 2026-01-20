@@ -229,3 +229,88 @@ func TestGetProjectMCPNames(t *testing.T) {
 	}
 }
 
+func TestGetUserMCPRootPath(t *testing.T) {
+	// GetUserMCPRootPath should return ~/.claude.json
+	path := GetUserMCPRootPath()
+	if path == "" {
+		t.Fatal("GetUserMCPRootPath returned empty string")
+	}
+
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Fatalf("Failed to get home dir: %v", err)
+	}
+
+	expected := filepath.Join(home, ".claude.json")
+	if path != expected {
+		t.Errorf("Expected %q, got %q", expected, path)
+	}
+}
+
+func TestGetUserMCPNames(t *testing.T) {
+	// Create temp home dir
+	tmpHome := t.TempDir()
+	originalHome := os.Getenv("HOME")
+	os.Setenv("HOME", tmpHome)
+	defer os.Setenv("HOME", originalHome)
+
+	// Create ~/.claude.json with test MCPs
+	claudeJSON := filepath.Join(tmpHome, ".claude.json")
+	content := `{
+		"mcpServers": {
+			"exa": {"command": "npx", "args": ["-y", "exa-mcp-server"]},
+			"reddit": {"command": "npx", "args": ["-y", "reddit-mcp-buddy"]}
+		}
+	}`
+	if err := os.WriteFile(claudeJSON, []byte(content), 0644); err != nil {
+		t.Fatalf("Failed to write test config: %v", err)
+	}
+
+	// Test
+	names := GetUserMCPNames()
+	if len(names) != 2 {
+		t.Errorf("expected 2 MCPs, got %d", len(names))
+	}
+	if len(names) >= 2 && (names[0] != "exa" || names[1] != "reddit") {
+		t.Errorf("expected [exa, reddit], got %v", names)
+	}
+}
+
+func TestGetUserMCPNamesNoFile(t *testing.T) {
+	// Create temp home dir with no .claude.json
+	tmpHome := t.TempDir()
+	originalHome := os.Getenv("HOME")
+	os.Setenv("HOME", tmpHome)
+	defer os.Setenv("HOME", originalHome)
+
+	// Test - should return nil when file doesn't exist
+	names := GetUserMCPNames()
+	if names != nil {
+		t.Errorf("expected nil when file doesn't exist, got %v", names)
+	}
+}
+
+func TestGetUserMCPNamesEmptyServers(t *testing.T) {
+	// Create temp home dir
+	tmpHome := t.TempDir()
+	originalHome := os.Getenv("HOME")
+	os.Setenv("HOME", tmpHome)
+	defer os.Setenv("HOME", originalHome)
+
+	// Create ~/.claude.json with empty mcpServers
+	claudeJSON := filepath.Join(tmpHome, ".claude.json")
+	content := `{"mcpServers": {}}`
+	if err := os.WriteFile(claudeJSON, []byte(content), 0644); err != nil {
+		t.Fatalf("Failed to write test config: %v", err)
+	}
+
+	// Test - should return empty slice (not nil)
+	names := GetUserMCPNames()
+	if names == nil {
+		t.Errorf("expected empty slice, got nil")
+	}
+	if len(names) != 0 {
+		t.Errorf("expected 0 MCPs, got %d", len(names))
+	}
+}
+

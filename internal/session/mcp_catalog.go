@@ -397,3 +397,43 @@ func ClearProjectMCPs(projectPath string) error {
 
 	return nil
 }
+
+// GetUserMCPRootPath returns the path to ~/.claude.json (ROOT config, always read by Claude)
+// This is the ROOT config that Claude ALWAYS reads, regardless of CLAUDE_CONFIG_DIR setting.
+// MCPs defined here apply to ALL Claude sessions globally.
+func GetUserMCPRootPath() string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(home, ".claude.json")
+}
+
+// GetUserMCPNames returns the names of MCPs in ~/.claude.json (ROOT config)
+// These MCPs are loaded by ALL Claude sessions regardless of CLAUDE_CONFIG_DIR.
+// This is different from GetGlobalMCPNames which reads from $CLAUDE_CONFIG_DIR/.claude.json
+func GetUserMCPNames() []string {
+	configFile := GetUserMCPRootPath()
+	if configFile == "" {
+		return nil
+	}
+
+	data, err := os.ReadFile(configFile)
+	if err != nil {
+		return nil
+	}
+
+	var config struct {
+		MCPServers map[string]json.RawMessage `json:"mcpServers"`
+	}
+	if err := json.Unmarshal(data, &config); err != nil {
+		return nil
+	}
+
+	names := make([]string, 0, len(config.MCPServers))
+	for name := range config.MCPServers {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
+}
