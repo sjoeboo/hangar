@@ -314,29 +314,40 @@ func (m *MCPDialog) Move() {
 	// Add to other column
 	if m.column == MCPColumnAttached {
 		// Moving from Attached -> Available
-		if m.scope == MCPScopeLocal {
+		switch m.scope {
+		case MCPScopeLocal:
 			m.localAvailable = append(m.localAvailable, item)
 			m.localChanged = true
 			log.Printf("[MCP-DEBUG] Moved to localAvailable, localChanged=true")
-		} else {
+		case MCPScopeGlobal:
 			m.globalAvailable = append(m.globalAvailable, item)
 			m.globalChanged = true
 			log.Printf("[MCP-DEBUG] Moved to globalAvailable, globalChanged=true")
+		case MCPScopeUser:
+			m.userAvailable = append(m.userAvailable, item)
+			m.userChanged = true
+			log.Printf("[MCP-DEBUG] Moved to userAvailable, userChanged=true")
 		}
 	} else {
 		// Moving from Available -> Attached
-		if m.scope == MCPScopeLocal {
+		switch m.scope {
+		case MCPScopeLocal:
 			m.localAttached = append(m.localAttached, item)
 			m.localChanged = true
 			log.Printf("[MCP-DEBUG] Moved to localAttached, localChanged=true")
-		} else {
+		case MCPScopeGlobal:
 			m.globalAttached = append(m.globalAttached, item)
 			m.globalChanged = true
 			log.Printf("[MCP-DEBUG] Moved to globalAttached, globalChanged=true")
+		case MCPScopeUser:
+			m.userAttached = append(m.userAttached, item)
+			m.userChanged = true
+			log.Printf("[MCP-DEBUG] Moved to userAttached, userChanged=true")
 		}
 	}
 
-	log.Printf("[MCP-DEBUG] After Move: localChanged=%v, globalChanged=%v", m.localChanged, m.globalChanged)
+	log.Printf("[MCP-DEBUG] After Move: localChanged=%v, globalChanged=%v, userChanged=%v",
+		m.localChanged, m.globalChanged, m.userChanged)
 
 	// Adjust index if needed
 	if *idx >= len(*list) && len(*list) > 0 {
