@@ -480,12 +480,15 @@ func (m *MCPDialog) Update(msg tea.KeyMsg) (*MCPDialog, tea.Cmd) {
 
 	switch msg.String() {
 	case "tab":
-		// Switch scope: LOCAL <-> GLOBAL (Claude only)
+		// Switch scope: LOCAL -> GLOBAL -> USER -> LOCAL (Claude only)
 		// Gemini only has global scope, so Tab does nothing
 		if m.tool != "gemini" {
-			if m.scope == MCPScopeLocal {
+			switch m.scope {
+			case MCPScopeLocal:
 				m.scope = MCPScopeGlobal
-			} else {
+			case MCPScopeGlobal:
+				m.scope = MCPScopeUser
+			case MCPScopeUser:
 				m.scope = MCPScopeLocal
 			}
 		}
