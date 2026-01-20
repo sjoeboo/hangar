@@ -2201,6 +2201,22 @@ func ClearStatusLeftGlobal() error {
 	return cmd.Run()
 }
 
+// InitializeStatusBarOptions sets optimal status bar options for agent-deck.
+// Fixes truncation by setting adequate status-left-length globally.
+// Should be called once during startup.
+func InitializeStatusBarOptions() error {
+	// Set adequate status-left-length globally (default is only 10 chars!)
+	// This ensures the notification bar content is not truncated
+	return exec.Command("tmux", "set-option", "-g", "status-left-length", "120").Run()
+}
+
+// RefreshStatusBarImmediate forces an immediate status bar redraw.
+// This bypasses the status-interval timer (default 15s) for instant visual feedback.
+// Uses -S flag which only refreshes the status line (lightweight operation ~1-2ms).
+func RefreshStatusBarImmediate() error {
+	return exec.Command("tmux", "refresh-client", "-S").Run()
+}
+
 // GetAttachedSessions returns the names of tmux sessions that have clients attached.
 // Used to detect which session the user is currently viewing.
 func GetAttachedSessions() ([]string, error) {

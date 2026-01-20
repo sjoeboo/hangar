@@ -242,7 +242,8 @@ type Home struct {
 	// Notification bar (tmux status-left for waiting sessions)
 	notificationManager  *session.NotificationManager
 	notificationsEnabled bool
-	boundKeys            map[string]string // Track which session ID each key is bound to
+	boundKeys            map[string]string // Track which key is bound (key -> "sessionID:tmuxName")
+	boundKeysMu          sync.Mutex        // Protects boundKeys for background worker access
 	lastBarText          string            // Cache to avoid updating all sessions every tick
 	lastBarTextMu        sync.Mutex        // Protects lastBarText for background worker access
 }
@@ -395,6 +396,10 @@ func NewHomeWithProfile(profile string) *Home {
 	if notifSettings.Enabled {
 		h.notificationsEnabled = true
 		h.notificationManager = session.NewNotificationManager(notifSettings.MaxShown)
+
+		// Initialize tmux status bar options for proper notification display
+		// Fixes truncation (default status-left-length is only 10 chars)
+		_ = tmux.InitializeStatusBarOptions()
 	}
 
 	// Initialize event-driven log watcher
@@ -752,7 +757,7 @@ func (h *Home) syncNotifications() {
 	}
 
 	// Debug: Check if we're being called
-	debugNotif := os.Getenv("AGENTDECK_DEBUG_NOTIF") != ""
+	debugNotif := os.Getenv("AGENTDECK_DEBUG") != ""
 
 	// Phase 1: Check for signal file from Ctrl+b 1-6 shortcuts
 	// When user presses Ctrl+b N, the key binding writes the session ID to a signal file
@@ -846,34 +851,15 @@ func (h *Home) updateTmuxNotifications() {
 		} else {
 			_ = tmux.SetStatusLeftGlobal(barText)
 		}
+
+		// Force immediate visual update (bypasses 15-second status-interval)
+		_ = tmux.RefreshStatusBarImmediate()
 	} else {
 		h.lastBarTextMu.Unlock()
 	}
 
-	// Update key bindings
-	entries := h.notificationManager.GetEntries()
-
-	// Bind/rebind keys for current entries
-	// Track which keys are still needed
-	currentKeys := make(map[string]string) // key -> sessionID
-	for _, e := range entries {
-		currentKeys[e.AssignedKey] = e.SessionID
-		// Bind if: key not bound, OR key bound to different session
-		existingSessionID, isBound := h.boundKeys[e.AssignedKey]
-		if !isBound || existingSessionID != e.SessionID {
-			// Use BindSwitchKeyWithAck to write signal file for acknowledgment
-			_ = tmux.BindSwitchKeyWithAck(e.AssignedKey, e.TmuxName, e.SessionID)
-			h.boundKeys[e.AssignedKey] = e.SessionID
-		}
-	}
-
-	// Unbind keys no longer needed
-	for key := range h.boundKeys {
-		if _, stillNeeded := currentKeys[key]; !stillNeeded {
-			_ = tmux.UnbindKey(key)
-			delete(h.boundKeys, key)
-		}
-	}
+	// Update key bindings (thread-safe, can be called from foreground or background)
+	h.updateKeyBindings()
 }
 
 // cleanupNotifications removes all notification bar state on exit
@@ -885,11 +871,13 @@ func (h *Home) cleanupNotifications() {
 	// Clear global status bar (ONE call instead of per-session)
 	_ = tmux.ClearStatusLeftGlobal()
 
-	// Unbind all keys
+	// Unbind all keys (with mutex protection)
+	h.boundKeysMu.Lock()
 	for key := range h.boundKeys {
 		_ = tmux.UnbindKey(key)
 	}
 	h.boundKeys = make(map[string]string)
+	h.boundKeysMu.Unlock()
 }
 
 // getVisibleHeight returns the number of visible items in the session list
@@ -1377,11 +1365,14 @@ func (h *Home) backgroundStatusUpdate() {
 		}
 	}
 
-	// If any status changed, invalidate cache and sync notification bar directly to tmux
+	// Invalidate cache if status changed
 	if statusChanged {
 		h.cachedStatusCounts.valid.Store(false)
-		h.syncNotificationsBackground()
 	}
+
+	// Always sync notification bar - must check for signal file (Ctrl+b N acknowledgments)
+	// even when no status changes occurred
+	h.syncNotificationsBackground()
 }
 
 // syncNotificationsBackground updates the tmux notification bar directly
@@ -1397,14 +1388,49 @@ func (h *Home) syncNotificationsBackground() {
 		return
 	}
 
+	debug := os.Getenv("AGENTDECK_DEBUG") != ""
+
+	// Phase 1: Check for signal file from Ctrl+b 1-6 shortcuts
+	// CRITICAL: This must be done in background sync too, because the foreground
+	// sync might not run when user is attached to a session (tea.Exec pauses TUI)
+	var sessionToAcknowledgeID string
+	if signalSessionID := tmux.ReadAndClearAckSignal(); signalSessionID != "" {
+		sessionToAcknowledgeID = signalSessionID
+		if debug {
+			log.Printf("[NOTIF-BG] Signal file found: %s", signalSessionID)
+		}
+	}
+
 	// Get current instances (copy to avoid race with main goroutine)
 	h.instancesMu.RLock()
 	instances := make([]*session.Instance, len(h.instances))
 	copy(instances, h.instances)
+
+	// Phase 2: Acknowledge the session if signal was received
+	if sessionToAcknowledgeID != "" {
+		if inst, ok := h.instanceByID[sessionToAcknowledgeID]; ok {
+			if ts := inst.GetTmuxSession(); ts != nil {
+				ts.Acknowledge()
+				_ = inst.UpdateStatus()
+				if debug {
+					log.Printf("[NOTIF-BG] Acknowledged %s, new status: %s", inst.Title, inst.Status)
+				}
+			}
+		}
+	}
 	h.instancesMu.RUnlock()
 
 	// Detect currently attached session (may be the user's session during tea.Exec)
 	currentSessionID := h.getAttachedSessionID()
+
+	// Signal file takes priority for determining "current" session
+	if sessionToAcknowledgeID != "" {
+		currentSessionID = sessionToAcknowledgeID
+	}
+
+	if debug {
+		log.Printf("[NOTIF-BG] currentSessionID=%s, instances=%d", currentSessionID, len(instances))
+	}
 
 	// Sync notification manager with current states
 	h.notificationManager.SyncFromInstances(instances, currentSessionID)
@@ -1423,10 +1449,75 @@ func (h *Home) syncNotificationsBackground() {
 		} else {
 			_ = tmux.SetStatusLeftGlobal(barText)
 		}
+
+		// Force immediate visual update (bypasses 15-second status-interval)
+		_ = tmux.RefreshStatusBarImmediate()
+
 		log.Printf("[BACKGROUND] Notification bar updated: %s", barText)
 	} else {
 		h.lastBarTextMu.Unlock()
 	}
+
+	// CRITICAL: Update key bindings in background too!
+	// This fixes the bug where key bindings became stale when TUI was paused (tea.Exec).
+	// The updateTmuxNotifications() function is now thread-safe via boundKeysMu.
+	h.updateKeyBindings()
+}
+
+// updateKeyBindings updates tmux key bindings based on current notification entries.
+// Thread-safe via boundKeysMu. Can be called from both foreground and background.
+func (h *Home) updateKeyBindings() {
+	entries := h.notificationManager.GetEntries()
+
+	// Phase 1: Collect binding info while holding instancesMu (read-only)
+	type bindingInfo struct {
+		key        string
+		sessionID  string
+		tmuxName   string
+		bindingKey string // "sessionID:tmuxName"
+	}
+	bindings := make([]bindingInfo, 0, len(entries))
+	currentKeys := make(map[string]string) // key -> sessionID
+
+	h.instancesMu.RLock()
+	for _, e := range entries {
+		currentKeys[e.AssignedKey] = e.SessionID
+
+		// Look up CURRENT TmuxName from instance (cached entry may be stale)
+		currentTmuxName := e.TmuxName
+		if inst, ok := h.instanceByID[e.SessionID]; ok {
+			if ts := inst.GetTmuxSession(); ts != nil {
+				currentTmuxName = ts.Name
+			}
+		}
+
+		bindings = append(bindings, bindingInfo{
+			key:        e.AssignedKey,
+			sessionID:  e.SessionID,
+			tmuxName:   currentTmuxName,
+			bindingKey: e.SessionID + ":" + currentTmuxName,
+		})
+	}
+	h.instancesMu.RUnlock()
+
+	// Phase 2: Update key bindings while holding boundKeysMu
+	h.boundKeysMu.Lock()
+	for _, b := range bindings {
+		existingBinding, isBound := h.boundKeys[b.key]
+		if !isBound || existingBinding != b.bindingKey {
+			_ = tmux.BindSwitchKeyWithAck(b.key, b.tmuxName, b.sessionID)
+			h.boundKeys[b.key] = b.bindingKey
+		}
+	}
+
+	// Unbind keys no longer needed
+	for key := range h.boundKeys {
+		if _, stillNeeded := currentKeys[key]; !stillNeeded {
+			_ = tmux.UnbindKey(key)
+			delete(h.boundKeys, key)
+		}
+	}
+	h.boundKeysMu.Unlock()
 }
 
 // triggerStatusUpdate sends a non-blocking request to the background worker
@@ -1854,11 +1945,9 @@ func (h *Home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Clear attach flag - we've returned from the attached session
 		h.isAttaching.Store(false) // Atomic store for thread safety
 
-		// PERFORMANCE FIX: Now safe to trigger status update on attach return
-		// Since AcknowledgeWithSnapshot() no longer calls CapturePane(),
-		// triggerStatusUpdate() won't cause 10+ second delays.
-		// The background worker uses batching (2 sessions per tick),
-		// so this is fast and maintains UI responsiveness.
+		// Trigger status update on attach return to reflect current state
+		// Acknowledgment was already done on attach (if session was waiting),
+		// so this just refreshes the display with current busy indicator state.
 		h.triggerStatusUpdate()
 
 		// Skip save during reload to avoid overwriting external changes (CLI)
@@ -3527,10 +3616,15 @@ func (h *Home) attachSession(inst *session.Instance) tea.Cmd {
 	}
 skipSave:
 
-	// NOTE: We DON'T call Acknowledge() here. Setting acknowledged=true before attach
-	// would cause brief "idle" status if a poll happens before content changes.
-	// The proper acknowledgment happens in AcknowledgeWithSnapshot() AFTER detach,
-	// which baselines the content hash the user saw.
+	// Acknowledge on ATTACH (not detach) - but ONLY if session is waiting (yellow)
+	// This ensures:
+	// - GREEN (running) sessions stay green when attached/detached
+	// - YELLOW (waiting) sessions turn gray when user looks at them
+	// - Detach just lets polling take over naturally
+	if inst.Status == session.StatusWaiting {
+		tmuxSess.Acknowledge()
+		log.Printf("[STATUS] Acknowledged %s on attach (was waiting)", inst.Title)
+	}
 
 	// Use tea.Exec with a custom command that runs our Attach method
 	// On return, immediately update all session statuses (don't reload from storage
@@ -3548,13 +3642,9 @@ skipSave:
 		// Update last accessed time to detach time (more accurate than attach time)
 		inst.MarkAccessed()
 
-		// CRITICAL PERFORMANCE FIX: Run AcknowledgeWithSnapshot in background
-		// AcknowledgeWithSnapshot calls CapturePane() which is BLOCKING and can take
-		// 200-500ms per session. Running it inline causes 10+ second delays.
-		// It's safe to run async because it only updates internal state.
-		go func() {
-			tmuxSess.AcknowledgeWithSnapshot()
-		}()
+		// NOTE: We don't acknowledge on detach anymore.
+		// Acknowledgment happens on ATTACH (only if session was waiting/yellow).
+		// This lets running sessions stay green through attach/detach cycles.
 
 		return statusUpdateMsg{}
 	})
