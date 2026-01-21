@@ -2126,6 +2126,10 @@ func TestBindUnbindKey(t *testing.T) {
 	if _, err := exec.LookPath("tmux"); err != nil {
 		t.Skip("tmux not available")
 	}
+	// Check if tmux server is actually running (not just the binary existing)
+	if err := exec.Command("tmux", "list-sessions").Run(); err != nil {
+		t.Skip("tmux server not running")
+	}
 
 	// Bind a key
 	err := BindSwitchKey("9", "nonexistent-session")
