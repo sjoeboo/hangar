@@ -1678,6 +1678,12 @@ func (h *Home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Deduplicate Claude session IDs on load to fix any existing duplicates
 			// This ensures no two sessions share the same Claude session ID
 			session.UpdateClaudeSessionsWithDedup(h.instances)
+			// Trigger OpenCode session detection for restored sessions without IDs
+			for _, inst := range h.instances {
+				if inst.Tool == "opencode" && inst.OpenCodeSessionID == "" {
+					go inst.DetectOpenCodeSession()
+				}
+			}
 			h.instancesMu.Unlock()
 			// Invalidate status counts cache
 			h.cachedStatusCounts.valid.Store(false)

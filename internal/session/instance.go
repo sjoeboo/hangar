@@ -454,6 +454,12 @@ func (i *Instance) buildOpenCodeCommand(baseCommand string) string {
 	return baseCommand
 }
 
+// DetectOpenCodeSession is the public wrapper for async OpenCode session detection
+// Call this for restored sessions that don't have a session ID yet
+func (i *Instance) DetectOpenCodeSession() {
+	i.detectOpenCodeSessionAsync()
+}
+
 // detectOpenCodeSessionAsync detects the OpenCode session ID after startup
 // OpenCode generates session IDs internally (format: ses_XXXXX)
 // We query "opencode session list --format json" and match by project directory,
