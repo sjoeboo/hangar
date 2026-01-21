@@ -1323,9 +1323,7 @@ func TestGetStatusInitializationVariants(t *testing.T) {
 // Time-based cooldown model: stays "active" for 2 seconds after any change,
 // then transitions to "waiting" or "idle".
 func TestStatusFlickerOnInvisibleCharsIntegration(t *testing.T) {
-	if _, err := exec.LookPath("tmux"); err != nil {
-		t.Skip("tmux not available, skipping integration test")
-	}
+	skipIfNoTmuxServer(t)
 
 	// 1. Setup a real tmux session
 	session := NewSession("flicker-test", t.TempDir())
@@ -1765,9 +1763,8 @@ func truncateEnd(s string, n int) string {
 
 // TestGetWindowActivity verifies GetWindowActivity returns a valid Unix timestamp
 func TestGetWindowActivity(t *testing.T) {
-	if _, err := exec.LookPath("tmux"); err != nil {
-		t.Skip("tmux not available")
-	}
+	skipIfNoTmuxServer(t)
+
 	sess := NewSession("activity-test", t.TempDir())
 	err := sess.Start("")
 	assert.NoError(t, err)
@@ -1905,9 +1902,7 @@ func TestSessionLogFile(t *testing.T) {
 }
 
 func TestStartEnablesPipePaneLogging(t *testing.T) {
-	if _, err := exec.LookPath("tmux"); err != nil {
-		t.Skip("tmux not available")
-	}
+	skipIfNoTmuxServer(t)
 
 	sess := NewSession("pipe-test", t.TempDir())
 	err := sess.Start("")
@@ -1941,9 +1936,7 @@ func TestStartEnablesPipePaneLogging(t *testing.T) {
 }
 
 func TestSession_SetAndGetEnvironment(t *testing.T) {
-	if _, err := exec.LookPath("tmux"); err != nil {
-		t.Skip("tmux not available")
-	}
+	skipIfNoTmuxServer(t)
 
 	// Create a test session
 	sess := NewSession("env-test", "/tmp")
@@ -1973,9 +1966,7 @@ func TestSession_SetAndGetEnvironment(t *testing.T) {
 }
 
 func TestSession_GetEnvironment_NotFound(t *testing.T) {
-	if _, err := exec.LookPath("tmux"); err != nil {
-		t.Skip("tmux not available")
-	}
+	skipIfNoTmuxServer(t)
 
 	sess := NewSession("env-test-notfound", "/tmp")
 	err := sess.Start("")
@@ -2075,10 +2066,7 @@ func TestSession_SetsUpActivityMonitoring(t *testing.T) {
 // =============================================================================
 
 func TestSetStatusLeft(t *testing.T) {
-	// Skip if no tmux
-	if _, err := exec.LookPath("tmux"); err != nil {
-		t.Skip("tmux not available")
-	}
+	skipIfNoTmuxServer(t)
 
 	// Create a test session
 	sessionName := "agentdeck_test_notification_" + fmt.Sprintf("%d", time.Now().UnixNano())
@@ -2101,9 +2089,7 @@ func TestSetStatusLeft(t *testing.T) {
 }
 
 func TestClearStatusLeft(t *testing.T) {
-	if _, err := exec.LookPath("tmux"); err != nil {
-		t.Skip("tmux not available")
-	}
+	skipIfNoTmuxServer(t)
 
 	sessionName := "agentdeck_test_notification_" + fmt.Sprintf("%d", time.Now().UnixNano())
 	cmd := exec.Command("tmux", "new-session", "-d", "-s", sessionName)
@@ -2123,13 +2109,7 @@ func TestClearStatusLeft(t *testing.T) {
 }
 
 func TestBindUnbindKey(t *testing.T) {
-	if _, err := exec.LookPath("tmux"); err != nil {
-		t.Skip("tmux not available")
-	}
-	// Check if tmux server is actually running (not just the binary existing)
-	if err := exec.Command("tmux", "list-sessions").Run(); err != nil {
-		t.Skip("tmux server not running")
-	}
+	skipIfNoTmuxServer(t)
 
 	// Bind a key
 	err := BindSwitchKey("9", "nonexistent-session")

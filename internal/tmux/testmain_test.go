@@ -7,6 +7,19 @@ import (
 	"testing"
 )
 
+// skipIfNoTmuxServer skips the test if tmux binary is missing or server isn't running.
+// Use this for integration tests that require an actual tmux server.
+func skipIfNoTmuxServer(t *testing.T) {
+	t.Helper()
+	if _, err := exec.LookPath("tmux"); err != nil {
+		t.Skip("tmux not available")
+	}
+	// Check if tmux server is actually running (not just the binary existing)
+	if err := exec.Command("tmux", "list-sessions").Run(); err != nil {
+		t.Skip("tmux server not running")
+	}
+}
+
 // TestMain ensures all tmux tests use the _test profile to prevent
 // accidental modification of production data.
 // CRITICAL: This was missing and caused test data to overwrite production sessions!
