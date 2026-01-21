@@ -35,7 +35,7 @@ func cleanupTestSessions() {
 		if strings.Contains(sess, "Test-Skip-Regen") ||
 			strings.Contains(sess, "test_") ||
 			strings.HasPrefix(sess, "agentdeck_test") {
-			exec.Command("tmux", "kill-session", "-t", sess).Run()
+			_ = exec.Command("tmux", "kill-session", "-t", sess).Run()
 		}
 	}
 }
