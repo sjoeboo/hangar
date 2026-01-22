@@ -506,8 +506,8 @@ func TestNotificationsConfig_Defaults(t *testing.T) {
 
 	// With no config file, GetNotificationsSettings should return defaults
 	settings := GetNotificationsSettings()
-	if settings.Enabled {
-		t.Error("notifications should be disabled by default")
+	if !settings.Enabled {
+		t.Error("notifications should be enabled by default")
 	}
 	if settings.MaxShown != 6 {
 		t.Errorf("max_shown should default to 6, got %d", settings.MaxShown)

@@ -189,7 +189,7 @@ type ExperimentsSettings struct {
 
 // NotificationsConfig configures the waiting session notification bar
 type NotificationsConfig struct {
-	// Enabled shows notification bar in tmux status (default: false)
+	// Enabled shows notification bar in tmux status (default: true)
 	Enabled bool `toml:"enabled"`
 
 	// MaxShown is the maximum number of sessions shown in the bar (default: 6)
@@ -766,7 +766,7 @@ func GetNotificationsSettings() NotificationsConfig {
 	config, err := LoadUserConfig()
 	if err != nil || config == nil {
 		return NotificationsConfig{
-			Enabled:  false,
+			Enabled:  true,
 			MaxShown: 6,
 		}
 	}
@@ -774,7 +774,12 @@ func GetNotificationsSettings() NotificationsConfig {
 	settings := config.Notifications
 
 	// Apply defaults for unset values
-	// Enabled defaults to false (Go zero value is correct)
+	// Enabled defaults to true for better UX (users expect to see waiting sessions)
+	// Users who have a config file but no [notifications] section get enabled=true
+	if !settings.Enabled && settings.MaxShown == 0 {
+		// Section not explicitly configured, apply default
+		settings.Enabled = true
+	}
 	if settings.MaxShown <= 0 {
 		settings.MaxShown = 6
 	}
