@@ -419,6 +419,65 @@ func TestRenameGroupWithSubgroups(t *testing.T) {
 	}
 }
 
+// TestRenameSubgroup verifies that renaming a subgroup keeps it under its parent.
+// This was a bug where renaming "parent/child" to "NewChild" would result in path "newchild"
+// instead of "parent/newchild", effectively moving the group to root level.
+func TestRenameSubgroup(t *testing.T) {
+	tree := NewGroupTree([]*Instance{})
+
+	// Create hierarchy: project-a -> task-b
+	tree.CreateGroup("Project A")
+	tree.CreateSubgroup("project-a", "Task B")
+
+	// Add a session to the subgroup
+	session := &Instance{ID: "1", Title: "my-session", GroupPath: "project-a/task-b"}
+	tree.Groups["project-a/task-b"].Sessions = []*Instance{session}
+
+	// Verify initial structure
+	if tree.Groups["project-a/task-b"] == nil {
+		t.Fatal("Subgroup project-a/task-b should exist")
+	}
+
+	// Rename the subgroup from "Task B" to "Task C"
+	tree.RenameGroup("project-a/task-b", "Task C")
+
+	// OLD path should NOT exist
+	if tree.Groups["project-a/task-b"] != nil {
+		t.Error("Old path project-a/task-b should not exist after rename")
+	}
+
+	// NEW path should be "project-a/task-c" (preserved parent), NOT "task-c" (root level)
+	if tree.Groups["task-c"] != nil {
+		t.Error("Bug: Renamed subgroup should NOT be at root level (task-c)")
+	}
+	renamedGroup := tree.Groups["project-a/task-c"]
+	if renamedGroup == nil {
+		t.Fatal("Renamed subgroup should be at project-a/task-c")
+	}
+
+	// Verify the group properties
+	if renamedGroup.Name != "Task C" {
+		t.Errorf("Expected name 'Task C', got '%s'", renamedGroup.Name)
+	}
+	if renamedGroup.Path != "project-a/task-c" {
+		t.Errorf("Expected path 'project-a/task-c', got '%s'", renamedGroup.Path)
+	}
+
+	// Verify session GroupPath was updated
+	if session.GroupPath != "project-a/task-c" {
+		t.Errorf("Session GroupPath should be 'project-a/task-c', got '%s'", session.GroupPath)
+	}
+
+	// Verify parent group still exists and is unaffected
+	parentGroup := tree.Groups["project-a"]
+	if parentGroup == nil {
+		t.Fatal("Parent group project-a should still exist")
+	}
+	if parentGroup.Name != "Project A" {
+		t.Errorf("Parent name should be 'Project A', got '%s'", parentGroup.Name)
+	}
+}
+
 func TestDeleteGroup(t *testing.T) {
 	instances := []*Instance{
 		{ID: "1", Title: "session-1", GroupPath: "to-delete"},

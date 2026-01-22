@@ -647,7 +647,17 @@ func (t *GroupTree) RenameGroup(oldPath, newName string) {
 
 	// Sanitize name to prevent path traversal and security issues
 	sanitizedName := sanitizeGroupName(newName)
-	newPath := strings.ToLower(strings.ReplaceAll(sanitizedName, " ", "-"))
+	newBasePath := strings.ToLower(strings.ReplaceAll(sanitizedName, " ", "-"))
+
+	// Preserve parent path for subgroups
+	parentPath := getParentPath(oldPath)
+	var newPath string
+	if parentPath != "" {
+		newPath = parentPath + "/" + newBasePath
+	} else {
+		newPath = newBasePath
+	}
+
 	if newPath == oldPath {
 		group.Name = sanitizedName
 		return
