@@ -1,11 +1,25 @@
 package session
 
 import (
+	"os"
+	"os/exec"
 	"testing"
 	"time"
 )
 
+// skipIfNoOpenCode skips the test if OpenCode CLI is not available
+func skipIfNoOpenCode(t *testing.T) {
+	t.Helper()
+	if os.Getenv("CI") != "" {
+		t.Skip("Skipping OpenCode E2E test in CI environment")
+	}
+	if _, err := exec.LookPath("opencode"); err != nil {
+		t.Skip("Skipping: OpenCode CLI not installed")
+	}
+}
+
 func TestOpenCodeDetectionE2E(t *testing.T) {
+	skipIfNoOpenCode(t)
 	projectPath := "/Users/ashesh/claude-deck"
 
 	t.Log("=== E2E OpenCode Detection Test ===")
@@ -49,6 +63,7 @@ func TestOpenCodeDetectionE2E(t *testing.T) {
 
 // TestQueryOpenCodeSessionDirect tests the query function directly without delays
 func TestQueryOpenCodeSessionDirect(t *testing.T) {
+	skipIfNoOpenCode(t)
 	projectPath := "/Users/ashesh/claude-deck"
 
 	inst := &Instance{

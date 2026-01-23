@@ -1,14 +1,28 @@
 package session
 
 import (
+	"os"
+	"os/exec"
 	"sync"
 	"testing"
 	"time"
 )
 
+// skipIfNoOpenCodeFullflow skips the test if OpenCode CLI is not available
+func skipIfNoOpenCodeFullflow(t *testing.T) {
+	t.Helper()
+	if os.Getenv("CI") != "" {
+		t.Skip("Skipping OpenCode E2E test in CI environment")
+	}
+	if _, err := exec.LookPath("opencode"); err != nil {
+		t.Skip("Skipping: OpenCode CLI not installed")
+	}
+}
+
 // TestOpenCodeFullFlowSimulation simulates what happens when agent-deck loads
 // sessions and triggers detection
 func TestOpenCodeFullFlowSimulation(t *testing.T) {
+	skipIfNoOpenCodeFullflow(t)
 	t.Log("=== Full Flow Simulation ===")
 
 	// Step 1: Simulate loading from storage (like loadSessionsMsg)
@@ -88,6 +102,7 @@ func TestOpenCodeFullFlowSimulation(t *testing.T) {
 // reload creates new instance pointers, breaking the async detection flow.
 // This is the exact scenario that was causing the "Detecting session..." bug.
 func TestOpenCodePointerReplacementScenario(t *testing.T) {
+	skipIfNoOpenCodeFullflow(t)
 	t.Log("=== Pointer Replacement Scenario (Bug Reproduction) ===")
 
 	instanceID := "test-opencode-002"
