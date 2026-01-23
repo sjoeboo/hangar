@@ -296,6 +296,13 @@ type statusUpdateMsg struct{} // Triggers immediate status update without reload
 // storageChangedMsg signals that sessions.json was modified externally
 type storageChangedMsg struct{}
 
+// openCodeDetectionCompleteMsg signals that OpenCode session detection finished
+// Used to trigger a save after async detection completes
+type openCodeDetectionCompleteMsg struct {
+	instanceID string
+	sessionID  string // The detected session ID (may be empty if detection failed)
+}
+
 type updateCheckMsg struct {
 	info *update.UpdateInfo
 }
@@ -1195,6 +1202,28 @@ func (h *Home) fetchPreviewDebounced(sessionID string) tea.Cmd {
 	}
 }
 
+// detectOpenCodeSessionCmd returns a command that asynchronously detects
+// the OpenCode session ID for a restored session and signals completion.
+// This follows the Bubble Tea pattern of returning a tea.Cmd for async work.
+func (h *Home) detectOpenCodeSessionCmd(inst *session.Instance) tea.Cmd {
+	if inst == nil {
+		return nil
+	}
+
+	instanceID := inst.ID
+
+	return func() tea.Msg {
+		// Run detection (this blocks until complete or timeout)
+		inst.DetectOpenCodeSession()
+
+		// Return message to trigger save
+		return openCodeDetectionCompleteMsg{
+			instanceID: instanceID,
+			sessionID:  inst.OpenCodeSessionID,
+		}
+	}
+}
+
 // getAnalyticsForSession returns cached analytics if still valid (within TTL)
 // Returns nil if cache miss or expired, triggering async fetch
 func (h *Home) getAnalyticsForSession(inst *session.Instance) *session.SessionAnalytics {
@@ -1678,10 +1707,12 @@ func (h *Home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Deduplicate Claude session IDs on load to fix any existing duplicates
 			// This ensures no two sessions share the same Claude session ID
 			session.UpdateClaudeSessionsWithDedup(h.instances)
-			// Trigger OpenCode session detection for restored sessions without IDs
+			// Collect OpenCode detection commands for restored sessions without IDs
+			// Using tea.Cmd pattern ensures save is triggered after detection completes
+			var detectionCmds []tea.Cmd
 			for _, inst := range h.instances {
 				if inst.Tool == "opencode" && inst.OpenCodeSessionID == "" {
-					go inst.DetectOpenCodeSession()
+					detectionCmds = append(detectionCmds, h.detectOpenCodeSessionCmd(inst))
 				}
 			}
 			h.instancesMu.Unlock()
@@ -1731,7 +1762,13 @@ func (h *Home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				h.previewCacheMu.Lock()
 				h.previewFetchingID = selected.ID
 				h.previewCacheMu.Unlock()
-				return h, h.fetchPreview(selected)
+				// Batch preview fetch with any OpenCode detection commands
+				allCmds := append(detectionCmds, h.fetchPreview(selected))
+				return h, tea.Batch(allCmds...)
+			}
+			// No selection, but still run detection commands if any
+			if len(detectionCmds) > 0 {
+				return h, tea.Batch(detectionCmds...)
 			}
 		}
 		return h, nil
@@ -1879,6 +1916,33 @@ func (h *Home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		h.search.SetItems(h.instances)
 		// Save both instances AND groups (critical fix: was losing groups!)
 		h.saveInstances()
+		return h, nil
+
+	case openCodeDetectionCompleteMsg:
+		// OpenCode session detection completed
+		// CRITICAL: Find the CURRENT instance by ID and update it
+		// The original pointer may have been replaced by storage watcher reload
+		if msg.sessionID != "" {
+			log.Printf("[OPENCODE] Detection complete for instance %s: session=%s",
+				msg.instanceID, msg.sessionID)
+			// Update the CURRENT instance (not the original pointer which may be stale)
+			if inst := h.getInstanceByID(msg.instanceID); inst != nil {
+				inst.OpenCodeSessionID = msg.sessionID
+				inst.OpenCodeDetectedAt = time.Now()
+				log.Printf("[OPENCODE] Updated current instance %s with session ID %s",
+					msg.instanceID, msg.sessionID)
+			} else {
+				log.Printf("[OPENCODE] Warning: instance %s not found in current instances",
+					msg.instanceID)
+			}
+		} else {
+			log.Printf("[OPENCODE] Detection complete for instance %s: no session found",
+				msg.instanceID)
+		}
+		// CRITICAL: Force save to persist the detected session ID to storage
+		// This uses forceSaveInstances() to bypass isReloading check, preventing
+		// the race condition where detection completes during a storage watcher reload
+		h.forceSaveInstances()
 		return h, nil
 
 	case sessionRestartedMsg:
@@ -3376,9 +3440,27 @@ func (h *Home) handleForkDialogKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 // saveInstances saves instances to storage
 func (h *Home) saveInstances() {
+	h.saveInstancesWithForce(false)
+}
+
+// forceSaveInstances saves instances regardless of isReloading flag.
+// Use this for critical updates that MUST persist (e.g., OpenCode detection results)
+// that would otherwise be lost due to race conditions with storage watcher reloads.
+func (h *Home) forceSaveInstances() {
+	h.saveInstancesWithForce(true)
+}
+
+// saveInstancesWithForce is the internal save implementation.
+// force=true bypasses the isReloading check for critical updates.
+func (h *Home) saveInstancesWithForce(force bool) {
 	// Skip saving during reload to avoid overwriting external changes (CLI)
-	if h.isReloading {
+	// Unless force=true for critical updates like detection results
+	if h.isReloading && !force {
+		log.Printf("[SAVE-DEBUG] Skipping save during reload (force=%v)", force)
 		return
+	}
+	if force && h.isReloading {
+		log.Printf("[SAVE-DEBUG] Force saving despite reload in progress")
 	}
 
 	if h.storage != nil {
@@ -3403,7 +3485,7 @@ func (h *Home) saveInstances() {
 		instanceCount := len(h.instances)
 		h.instancesMu.RUnlock()
 
-		log.Printf("[SAVE-DEBUG] Saving %d instances to profile %s (path=%s)", instanceCount, h.profile, h.storage.Path())
+		log.Printf("[SAVE-DEBUG] Saving %d instances to profile %s (path=%s, force=%v)", instanceCount, h.profile, h.storage.Path(), force)
 
 		// DEFENSIVE: Never save empty instances if storage file has data
 		// This prevents catastrophic data loss from transient load failures
@@ -5711,6 +5793,9 @@ func (h *Home) renderPreviewPane(width, height int) string {
 
 		labelStyle := lipgloss.NewStyle().Foreground(ColorText)
 		valueStyle := lipgloss.NewStyle().Foreground(ColorText)
+
+		// Debug: log what value we're seeing
+		log.Printf("[OPENCODE-UI] Rendering preview for %s: OpenCodeSessionID=%q", selected.Title, selected.OpenCodeSessionID)
 
 		if selected.OpenCodeSessionID != "" {
 			statusStyle := lipgloss.NewStyle().Foreground(ColorGreen).Bold(true)
