@@ -237,9 +237,11 @@ func extractGroupPath(projectPath string) string {
 // buildClaudeCommand builds the claude command with session capture
 // For new sessions: captures session ID via print mode, stores in tmux env, then resumes
 // This ensures we always know the session ID for fork/restart features
-// Respects: CLAUDE_CONFIG_DIR, dangerous_mode from user config
+// Respects: CLAUDE_CONFIG_DIR, dangerous_mode from user config, and [shell].env_files
 func (i *Instance) buildClaudeCommand(baseCommand string) string {
-	return i.buildClaudeCommandWithMessage(baseCommand, "")
+	envPrefix := i.buildEnvSourceCommand()
+	cmd := i.buildClaudeCommandWithMessage(baseCommand, "")
+	return envPrefix + cmd
 }
 
 // buildClaudeCommandWithMessage builds the command with optional initial message
@@ -392,10 +394,13 @@ func (i *Instance) buildClaudeExtraFlags(opts *ClaudeOptions) string {
 // For sessions with known ID: uses simple resume
 // This ensures we always know the session ID for restart features
 // VERIFIED: gemini --output-format stream-json provides immediate session ID in first message
+// Also sources .env files from [shell].env_files and [gemini].env_file
 func (i *Instance) buildGeminiCommand(baseCommand string) string {
 	if i.Tool != "gemini" {
 		return baseCommand
 	}
+
+	envPrefix := i.buildEnvSourceCommand()
 
 	// Determine if YOLO mode is enabled (per-session overrides global config)
 	yoloMode := false
@@ -420,17 +425,17 @@ func (i *Instance) buildGeminiCommand(baseCommand string) string {
 	if baseCommand == "gemini" {
 		// If we already have a session ID, use simple resume
 		if i.GeminiSessionID != "" {
-			return fmt.Sprintf("tmux set-environment GEMINI_YOLO_MODE %s; gemini --resume %s%s", yoloEnv, i.GeminiSessionID, yoloFlag)
+			return envPrefix + fmt.Sprintf("tmux set-environment GEMINI_YOLO_MODE %s; gemini --resume %s%s", yoloEnv, i.GeminiSessionID, yoloFlag)
 		}
 
 		// Start Gemini fresh - session ID will be captured when user interacts
 		// The previous capture-resume approach (gemini --output-format json ".") would hang
 		// because Gemini processes the "." prompt which takes too long
-		return fmt.Sprintf(`tmux set-environment GEMINI_YOLO_MODE %s; exec gemini%s`, yoloEnv, yoloFlag)
+		return envPrefix + fmt.Sprintf(`tmux set-environment GEMINI_YOLO_MODE %s; exec gemini%s`, yoloEnv, yoloFlag)
 	}
 
 	// For custom commands (e.g., resume commands), return as-is
-	return baseCommand
+	return envPrefix + baseCommand
 }
 
 // buildOpenCodeCommand builds the command for OpenCode CLI
@@ -438,25 +443,28 @@ func (i *Instance) buildGeminiCommand(baseCommand string) string {
 // Session IDs are in format: ses_XXXXX
 // Resume: opencode -s <session-id> or opencode --session <session-id>
 // Continue last: opencode -c or opencode --continue
+// Also sources .env files from [shell].env_files
 func (i *Instance) buildOpenCodeCommand(baseCommand string) string {
 	if i.Tool != "opencode" {
 		return baseCommand
 	}
 
+	envPrefix := i.buildEnvSourceCommand()
+
 	// If baseCommand is just "opencode", handle specially
 	if baseCommand == "opencode" {
 		// If we already have a session ID, use resume with -s flag
 		if i.OpenCodeSessionID != "" {
-			return fmt.Sprintf("tmux set-environment OPENCODE_SESSION_ID %s; exec opencode -s %s",
+			return envPrefix + fmt.Sprintf("tmux set-environment OPENCODE_SESSION_ID %s; exec opencode -s %s",
 				i.OpenCodeSessionID, i.OpenCodeSessionID)
 		}
 
 		// Start OpenCode fresh - session ID will be captured async after startup
-		return "exec opencode"
+		return envPrefix + "exec opencode"
 	}
 
 	// For custom commands (e.g., resume commands), return as-is
-	return baseCommand
+	return envPrefix + baseCommand
 }
 
 // DetectOpenCodeSession is the public wrapper for async OpenCode session detection
@@ -465,28 +473,31 @@ func (i *Instance) DetectOpenCodeSession() {
 	i.detectOpenCodeSessionAsync()
 }
 
-// buildCodexCommand builds the command for Codex CLI
+// buildCodexCommand builds the command for OpenAI Codex CLI
 // Codex stores sessions in ~/.codex/sessions/YYYY/MM/DD/*.jsonl
 // Resume: codex resume <session-id> or codex resume --last
+// Also sources .env files from [shell].env_files
 func (i *Instance) buildCodexCommand(baseCommand string) string {
 	if i.Tool != "codex" {
 		return baseCommand
 	}
 
+	envPrefix := i.buildEnvSourceCommand()
+
 	// If baseCommand is just "codex", handle specially
 	if baseCommand == "codex" {
 		// If we already have a session ID, use resume
 		if i.CodexSessionID != "" {
-			return fmt.Sprintf("tmux set-environment CODEX_SESSION_ID %s; exec codex resume %s",
+			return envPrefix + fmt.Sprintf("tmux set-environment CODEX_SESSION_ID %s; exec codex resume %s",
 				i.CodexSessionID, i.CodexSessionID)
 		}
 
 		// Start Codex fresh - session ID will be captured async after startup
-		return "exec codex"
+		return envPrefix + "exec codex"
 	}
 
 	// For custom commands (e.g., resume commands), return as-is
-	return baseCommand
+	return envPrefix + baseCommand
 }
 
 // detectOpenCodeSessionAsync detects the OpenCode session ID after startup
@@ -772,9 +783,10 @@ func (i *Instance) UpdateCodexSession(excludeIDs map[string]bool) {
 	}
 }
 
-// buildGenericCommand builds command for user-defined tools from config.toml
+// buildGenericCommand builds commands for custom tools defined in [tools.*]
 // If the tool has session resume config, builds capture-resume command similar to Claude/Gemini
 // Otherwise returns the base command as-is
+// Also sources .env files from [shell].env_files and [tools.X].env_file
 //
 // Config fields used:
 //   - resume_flag: CLI flag to resume (e.g., "--resume")
@@ -783,19 +795,22 @@ func (i *Instance) UpdateCodexSession(excludeIDs map[string]bool) {
 //   - output_format_flag: flag to get JSON output (e.g., "--output-format json")
 //   - dangerous_flag: flag to skip confirmations (e.g., "--auto-approve")
 //   - dangerous_mode: whether to enable dangerous flag by default
+//   - env_file: .env file to source for this tool
 func (i *Instance) buildGenericCommand(baseCommand string) string {
+	envPrefix := i.buildEnvSourceCommand()
+
 	toolDef := GetToolDef(i.Tool)
 	if toolDef == nil {
-		return baseCommand // No custom config, return as-is
+		return envPrefix + baseCommand // No custom config, return with env prefix
 	}
 
 	// Check if tool supports session resume (needs both resume_flag and session_id_env)
 	if toolDef.ResumeFlag == "" || toolDef.SessionIDEnv == "" {
 		// No session resume support, just add dangerous flag if configured
 		if toolDef.DangerousMode && toolDef.DangerousFlag != "" {
-			return fmt.Sprintf("%s %s", baseCommand, toolDef.DangerousFlag)
+			return envPrefix + fmt.Sprintf("%s %s", baseCommand, toolDef.DangerousFlag)
 		}
-		return baseCommand
+		return envPrefix + baseCommand
 	}
 
 	// Get existing session ID from tmux environment (for restart/resume)
@@ -814,7 +829,7 @@ func (i *Instance) buildGenericCommand(baseCommand string) string {
 
 	// If we have an existing session ID, just resume
 	if existingSessionID != "" {
-		return fmt.Sprintf("tmux set-environment %s %s && %s %s %s%s",
+		return envPrefix + fmt.Sprintf("tmux set-environment %s %s && %s %s %s%s",
 			toolDef.SessionIDEnv, existingSessionID,
 			baseCommand, toolDef.ResumeFlag, existingSessionID, dangerousFlag)
 	}
@@ -824,9 +839,9 @@ func (i *Instance) buildGenericCommand(baseCommand string) string {
 	if toolDef.OutputFormatFlag == "" || toolDef.SessionIDJsonPath == "" {
 		// Can't capture session ID, just start normally
 		if dangerousFlag != "" {
-			return baseCommand + dangerousFlag
+			return envPrefix + baseCommand + dangerousFlag
 		}
-		return baseCommand
+		return envPrefix + baseCommand
 	}
 
 	// Build capture-resume command similar to Claude/Gemini
@@ -836,7 +851,7 @@ func (i *Instance) buildGenericCommand(baseCommand string) string {
 	// 3. Store in tmux environment
 	// 4. Resume that session
 	// Fallback: If capture fails, start tool fresh
-	return fmt.Sprintf(
+	return envPrefix + fmt.Sprintf(
 		`session_id=$(%s %s "." 2>/dev/null | jq -r '%s' 2>/dev/null) || session_id=""; `+
 			`if [ -n "$session_id" ] && [ "$session_id" != "null" ]; then `+
 			`tmux set-environment %s "$session_id"; `+

@@ -65,6 +65,9 @@ type UserConfig struct {
 
 	// Instances defines multiple instance behavior settings
 	Instances InstanceSettings `toml:"instances"`
+
+	// Shell defines global shell environment settings for sessions
+	Shell ShellSettings `toml:"shell"`
 }
 
 // MCPPoolSettings defines HTTP MCP pool configuration
@@ -207,6 +210,32 @@ type InstanceSettings struct {
 	AllowMultiple bool `toml:"allow_multiple"`
 }
 
+// ShellSettings defines shell environment configuration for sessions
+type ShellSettings struct {
+	// EnvFiles is a list of .env files to source for ALL sessions
+	// Paths can be absolute, ~ for home, or relative to session working directory
+	// Files are sourced in order; later files override earlier ones
+	EnvFiles []string `toml:"env_files"`
+
+	// InitScript is an optional shell script or command to run before each session
+	// Useful for direnv, nvm, pyenv, etc.
+	// Can be a file path (e.g., "~/.agent-deck/init.sh") or inline command
+	// (e.g., 'eval "$(direnv hook bash)"')
+	InitScript string `toml:"init_script"`
+
+	// IgnoreMissingEnvFiles silently ignores missing .env files (default: true)
+	// When false, sessions will error if an env_file doesn't exist
+	IgnoreMissingEnvFiles *bool `toml:"ignore_missing_env_files"`
+}
+
+// GetIgnoreMissingEnvFiles returns whether to ignore missing env files, defaulting to true
+func (s *ShellSettings) GetIgnoreMissingEnvFiles() bool {
+	if s.IgnoreMissingEnvFiles == nil {
+		return true // Default: ignore missing files (fail-safe)
+	}
+	return *s.IgnoreMissingEnvFiles
+}
+
 // GetShowAnalytics returns whether to show analytics, defaulting to true
 func (p *PreviewSettings) GetShowAnalytics() bool {
 	if p.ShowAnalytics == nil {
@@ -293,6 +322,11 @@ type ClaudeSettings struct {
 	// Default: true (nil = use default true, explicitly set false to disable)
 	// Power users typically want this enabled for faster iteration
 	DangerousMode *bool `toml:"dangerous_mode"`
+
+	// EnvFile is a .env file specific to Claude sessions
+	// Sourced AFTER global [shell].env_files
+	// Path can be absolute, ~ for home, or relative to session working directory
+	EnvFile string `toml:"env_file"`
 }
 
 // GetDangerousMode returns whether dangerous mode is enabled, defaulting to true
@@ -309,6 +343,10 @@ type GeminiSettings struct {
 	// YoloMode enables --yolo flag for Gemini sessions (auto-approve all actions)
 	// Default: false
 	YoloMode bool `toml:"yolo_mode"`
+
+	// EnvFile is a .env file specific to Gemini sessions
+	// Sourced AFTER global [shell].env_files
+	EnvFile string `toml:"env_file"`
 }
 
 // WorktreeSettings contains git worktree preferences
@@ -378,6 +416,10 @@ type ToolDef struct {
 
 	// SessionIDJsonPath is the jq path to extract session ID from JSON output
 	SessionIDJsonPath string `toml:"session_id_json_path"`
+
+	// EnvFile is a .env file specific to this tool
+	// Sourced AFTER global [shell].env_files
+	EnvFile string `toml:"env_file"`
 }
 
 // MCPDef defines an MCP server configuration for the MCP Manager

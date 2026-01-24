@@ -837,6 +837,15 @@ dangerous_mode = true
 [gemini]
 # Enable --yolo (auto-approve all) by default
 yolo_mode = true
+
+# Shell environment settings (source .env files)
+[shell]
+# Source these .env files for ALL sessions
+env_files = [".env", "~/.secrets"]
+# Optional init script (for direnv, nvm, pyenv, etc.)
+init_script = "~/.agent-deck/init.sh"
+# Silently ignore missing .env files (default: true)
+ignore_missing_env_files = true
 ```
 
 **Available `default_tool` values:** `"claude"`, `"gemini"`, `"opencode"`, `"codex"`, or any custom tool name from `[tools.*]`.
