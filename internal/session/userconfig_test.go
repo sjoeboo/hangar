@@ -165,10 +165,11 @@ func TestSaveUserConfig(t *testing.T) {
 	_ = os.MkdirAll(agentDeckDir, 0700)
 
 	// Create config to save
+	dangerousModeBool := true
 	config := &UserConfig{
 		DefaultTool: "claude",
 		Claude: ClaudeSettings{
-			DangerousMode: true,
+			DangerousMode: &dangerousModeBool,
 			ConfigDir:     "~/.claude-work",
 		},
 		Logs: LogSettings{
@@ -195,7 +196,7 @@ func TestSaveUserConfig(t *testing.T) {
 	if loaded.DefaultTool != "claude" {
 		t.Errorf("DefaultTool: got %q, want %q", loaded.DefaultTool, "claude")
 	}
-	if !loaded.Claude.DangerousMode {
+	if !loaded.Claude.GetDangerousMode() {
 		t.Error("DangerousMode should be true")
 	}
 	if loaded.Claude.ConfigDir != "~/.claude-work" {

@@ -65,7 +65,7 @@ func TestSetupWizard_GetConfig(t *testing.T) {
 	if config.DefaultTool != "claude" {
 		t.Errorf("DefaultTool: got %q, want %q", config.DefaultTool, "claude")
 	}
-	if config.Claude.DangerousMode != false {
+	if config.Claude.GetDangerousMode() != false {
 		t.Error("DangerousMode should be false")
 	}
 }
@@ -207,7 +207,7 @@ func TestSetupWizard_GetConfigWithDangerousMode(t *testing.T) {
 
 	config := wizard.GetConfig()
 
-	if config.Claude.DangerousMode != true {
+	if config.Claude.GetDangerousMode() != true {
 		t.Error("DangerousMode should be true")
 	}
 }
@@ -226,7 +226,7 @@ func TestSetupWizard_NonClaudeToolConfig(t *testing.T) {
 	}
 
 	// Claude settings should use defaults (not overwritten)
-	if config.Claude.DangerousMode != false {
+	if config.Claude.GetDangerousMode() != false {
 		t.Error("DangerousMode should be false for non-Claude")
 	}
 }

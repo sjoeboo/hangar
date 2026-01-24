@@ -151,7 +151,7 @@ func (s *SettingsPanel) LoadConfig(config *session.UserConfig) {
 	}
 
 	// Claude settings
-	s.dangerousMode = config.Claude.DangerousMode
+	s.dangerousMode = config.Claude.GetDangerousMode()
 	s.claudeConfigDir = config.Claude.ConfigDir
 
 	// Gemini settings
@@ -210,7 +210,8 @@ func (s *SettingsPanel) GetConfig() *session.UserConfig {
 	}
 
 	// Claude settings
-	config.Claude.DangerousMode = s.dangerousMode
+	dangerousModeVal := s.dangerousMode
+	config.Claude.DangerousMode = &dangerousModeVal
 	config.Claude.ConfigDir = s.claudeConfigDir
 
 	// Gemini settings

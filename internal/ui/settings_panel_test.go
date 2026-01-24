@@ -39,10 +39,11 @@ func TestSettingsPanel_LoadConfig(t *testing.T) {
 	panel := NewSettingsPanel()
 
 	// Load a config with specific values
+	dangerousModeBool := true
 	config := &session.UserConfig{
 		DefaultTool: "gemini",
 		Claude: session.ClaudeSettings{
-			DangerousMode: true,
+			DangerousMode: &dangerousModeBool,
 			ConfigDir:     "~/.claude-work",
 		},
 		Updates: session.UpdateSettings{
@@ -179,7 +180,7 @@ func TestSettingsPanel_GetConfig(t *testing.T) {
 	if config.DefaultTool != "opencode" {
 		t.Errorf("DefaultTool: got %q, want %q", config.DefaultTool, "opencode")
 	}
-	if !config.Claude.DangerousMode {
+	if !config.Claude.GetDangerousMode() {
 		t.Error("DangerousMode should be true")
 	}
 	if config.Claude.ConfigDir != "~/.claude-custom" {

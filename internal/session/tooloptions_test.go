@@ -142,9 +142,10 @@ func TestClaudeOptions_ToArgsForFork(t *testing.T) {
 
 func TestNewClaudeOptions_WithConfig(t *testing.T) {
 	// Test with dangerous mode enabled in config
+	dangerousModeBool := true
 	config := &UserConfig{
 		Claude: ClaudeSettings{
-			DangerousMode: true,
+			DangerousMode: &dangerousModeBool,
 		},
 	}
 

@@ -2493,7 +2493,7 @@ func (h *Home) createSessionFromGlobalSearch(result *GlobalSearchResult) tea.Cmd
 		userConfig, _ := session.LoadUserConfig()
 		dangerousMode := false
 		if userConfig != nil {
-			dangerousMode = userConfig.Claude.DangerousMode
+			dangerousMode = userConfig.Claude.GetDangerousMode()
 		}
 
 		// Build command - only set CLAUDE_CONFIG_DIR if explicitly configured

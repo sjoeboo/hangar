@@ -78,7 +78,7 @@ func NewClaudeOptions(config *UserConfig) *ClaudeOptions {
 		SessionMode: "new",
 	}
 	if config != nil {
-		opts.SkipPermissions = config.Claude.DangerousMode
+		opts.SkipPermissions = config.Claude.GetDangerousMode()
 	}
 	return opts
 }

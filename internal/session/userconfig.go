@@ -290,8 +290,18 @@ type ClaudeSettings struct {
 	ConfigDir string `toml:"config_dir"`
 
 	// DangerousMode enables --dangerously-skip-permissions flag for Claude sessions
-	// Default: false
-	DangerousMode bool `toml:"dangerous_mode"`
+	// Default: true (nil = use default true, explicitly set false to disable)
+	// Power users typically want this enabled for faster iteration
+	DangerousMode *bool `toml:"dangerous_mode"`
+}
+
+// GetDangerousMode returns whether dangerous mode is enabled, defaulting to true
+// This provides a safe getter that handles the nil case (config not set)
+func (c *ClaudeSettings) GetDangerousMode() bool {
+	if c.DangerousMode == nil {
+		return true // Default: ON for power users
+	}
+	return *c.DangerousMode
 }
 
 // GeminiSettings defines Gemini CLI configuration

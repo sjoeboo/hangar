@@ -63,7 +63,7 @@ func NewClaudeOptionsPanelForFork() *ClaudeOptionsPanel {
 // SetDefaults applies default values from config
 func (p *ClaudeOptionsPanel) SetDefaults(config *session.UserConfig) {
 	if config != nil {
-		p.skipPermissions = config.Claude.DangerousMode
+		p.skipPermissions = config.Claude.GetDangerousMode()
 	}
 }
 
