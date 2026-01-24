@@ -7,6 +7,19 @@ import (
 	"testing"
 )
 
+// skipIfNoTmuxServer skips the test if tmux binary is missing or server isn't running.
+// This prevents test failures in CI environments where tmux is installed but no server runs.
+func skipIfNoTmuxServer(t *testing.T) {
+	t.Helper()
+	if _, err := exec.LookPath("tmux"); err != nil {
+		t.Skip("tmux not available")
+	}
+	// Check if tmux server is running by trying to list sessions
+	if err := exec.Command("tmux", "list-sessions").Run(); err != nil {
+		t.Skip("tmux server not running")
+	}
+}
+
 func TestMain(m *testing.M) {
 	// Force test profile to prevent production data corruption
 	// See CLAUDE.md: "2025-12-11 Incident: Tests with AGENTDECK_PROFILE=work overwrote ALL 36 production sessions"

@@ -12,9 +12,7 @@ import (
 // TestNewSessionStatusFlicker tests for green flicker on new session creation
 // This reproduces the issue where a session briefly shows green before first poll
 func TestNewSessionStatusFlicker(t *testing.T) {
-	if _, err := exec.LookPath("tmux"); err != nil {
-		t.Skip("tmux not available")
-	}
+	skipIfNoTmuxServer(t)
 
 	// Create a new session with a command (like user would do)
 	inst := NewInstance("test-flicker", "/tmp")
@@ -564,9 +562,7 @@ func TestWaitForClaudeSession(t *testing.T) {
 }
 
 func TestInstance_GetSessionIDFromTmux(t *testing.T) {
-	if _, err := exec.LookPath("tmux"); err != nil {
-		t.Skip("tmux not available")
-	}
+	skipIfNoTmuxServer(t)
 
 	// Create instance with tmux session
 	inst := NewInstanceWithTool("tmux-env-test", "/tmp", "claude")
@@ -602,9 +598,7 @@ func TestInstance_GetSessionIDFromTmux(t *testing.T) {
 }
 
 func TestInstance_UpdateClaudeSession_TmuxFirst(t *testing.T) {
-	if _, err := exec.LookPath("tmux"); err != nil {
-		t.Skip("tmux not available")
-	}
+	skipIfNoTmuxServer(t)
 
 	// Create and start instance
 	inst := NewInstanceWithTool("update-test", "/tmp", "claude")
@@ -688,9 +682,7 @@ func TestInstance_UpdateGeminiSession_PreservesExistingID(t *testing.T) {
 }
 
 func TestInstance_Restart_ResumesClaudeSession(t *testing.T) {
-	if _, err := exec.LookPath("tmux"); err != nil {
-		t.Skip("tmux not available")
-	}
+	skipIfNoTmuxServer(t)
 
 	// Create instance with known session ID (simulating previous session)
 	inst := NewInstanceWithTool("restart-test", "/tmp", "claude")
@@ -733,9 +725,7 @@ func TestInstance_Restart_ResumesClaudeSession(t *testing.T) {
 }
 
 func TestInstance_Restart_InterruptsAndResumes(t *testing.T) {
-	if _, err := exec.LookPath("tmux"); err != nil {
-		t.Skip("tmux not available")
-	}
+	skipIfNoTmuxServer(t)
 	// This test requires claude to be installed (restart generates claude --resume command)
 	if _, err := exec.LookPath("claude"); err != nil {
 		t.Skip("claude not available - test requires claude CLI for restart functionality")
@@ -1140,9 +1130,7 @@ func TestParseGeminiLastAssistantMessage_NoGeminiMessage(t *testing.T) {
 }
 
 func TestInstance_CanRestart_Gemini(t *testing.T) {
-	if _, err := exec.LookPath("tmux"); err != nil {
-		t.Skip("tmux not available")
-	}
+	skipIfNoTmuxServer(t)
 
 	// Create and start a Gemini session so tmux session exists
 	inst := NewInstanceWithTool("gemini-restart-test", "/tmp", "gemini")
