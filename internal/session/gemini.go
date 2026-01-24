@@ -132,6 +132,42 @@ func ListGeminiSessions(projectPath string) ([]GeminiSessionInfo, error) {
 	return sessions, nil
 }
 
+// findGeminiSessionInAllProjects searches all Gemini project directories for a session file
+// This handles path hash mismatches when agent-deck runs from a different directory
+// than where the Gemini session was originally created.
+// Returns the full path to the session file, or empty string if not found.
+func findGeminiSessionInAllProjects(sessionID string) string {
+	if sessionID == "" || len(sessionID) < 8 {
+		return ""
+	}
+
+	configDir := GetGeminiConfigDir()
+	tmpDir := filepath.Join(configDir, "tmp")
+
+	// List all project hash directories
+	entries, err := os.ReadDir(tmpDir)
+	if err != nil {
+		return ""
+	}
+
+	// Search pattern: session-*-<uuid8>.json
+	targetPattern := "session-*-" + sessionID[:8] + ".json"
+
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+
+		chatsDir := filepath.Join(tmpDir, entry.Name(), "chats")
+		pattern := filepath.Join(chatsDir, targetPattern)
+		if files, _ := filepath.Glob(pattern); len(files) > 0 {
+			return files[0]
+		}
+	}
+
+	return ""
+}
+
 // UpdateGeminiAnalyticsFromDisk updates the analytics struct from the session file on disk
 func UpdateGeminiAnalyticsFromDisk(projectPath, sessionID string, analytics *GeminiSessionAnalytics) error {
 	if sessionID == "" || len(sessionID) < 8 {
@@ -143,6 +179,15 @@ func UpdateGeminiAnalyticsFromDisk(projectPath, sessionID string, analytics *Gem
 	// Filename format: session-YYYY-MM-DDTHH-MM-<uuid8>.json
 	pattern := filepath.Join(sessionsDir, "session-*-"+sessionID[:8]+".json")
 	files, _ := filepath.Glob(pattern)
+
+	// Fallback: search across all projects if not found in expected location
+	// This handles path hash mismatches (e.g., session created from different directory)
+	if len(files) == 0 {
+		if fallbackPath := findGeminiSessionInAllProjects(sessionID); fallbackPath != "" {
+			files = []string{fallbackPath}
+		}
+	}
+
 	if len(files) == 0 {
 		return fmt.Errorf("session file not found")
 	}

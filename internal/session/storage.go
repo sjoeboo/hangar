@@ -88,6 +88,10 @@ type InstanceData struct {
 	OpenCodeSessionID  string    `json:"opencode_session_id,omitempty"`
 	OpenCodeDetectedAt time.Time `json:"opencode_detected_at,omitempty"`
 
+	// Codex session (persisted for resume after app restart)
+	CodexSessionID  string    `json:"codex_session_id,omitempty"`
+	CodexDetectedAt time.Time `json:"codex_detected_at,omitempty"`
+
 	// Latest user input for context
 	LatestPrompt string `json:"latest_prompt,omitempty"`
 
@@ -234,6 +238,8 @@ func (s *Storage) SaveWithGroups(instances []*Instance, groupTree *GroupTree) er
 			GeminiYoloMode:     inst.GeminiYoloMode,
 			OpenCodeSessionID:  inst.OpenCodeSessionID,
 			OpenCodeDetectedAt: inst.OpenCodeDetectedAt,
+			CodexSessionID:     inst.CodexSessionID,
+			CodexDetectedAt:    inst.CodexDetectedAt,
 			LatestPrompt:       inst.LatestPrompt,
 			LoadedMCPNames:     inst.LoadedMCPNames,
 		}
@@ -547,6 +553,8 @@ func (s *Storage) convertToInstances(data *StorageData) ([]*Instance, []*GroupDa
 			GeminiYoloMode:     instData.GeminiYoloMode,
 			OpenCodeSessionID:  instData.OpenCodeSessionID,
 			OpenCodeDetectedAt: instData.OpenCodeDetectedAt,
+			CodexSessionID:     instData.CodexSessionID,
+			CodexDetectedAt:    instData.CodexDetectedAt,
 			LatestPrompt:       instData.LatestPrompt,
 			LoadedMCPNames:     instData.LoadedMCPNames,
 			tmuxSession:        tmuxSess,
@@ -556,6 +564,34 @@ func (s *Storage) convertToInstances(data *StorageData) ([]*Instance, []*GroupDa
 		// Without this, UI renders saved status, then first tick changes it
 		if tmuxSess != nil {
 			_ = inst.UpdateStatus()
+		}
+
+		// ═══════════════════════════════════════════════════════════════════
+		// SYNC SESSION IDS TO TMUX ENVIRONMENT (Krudony's contribution)
+		// ═══════════════════════════════════════════════════════════════════
+		// When agent-deck restarts, tmux env vars are lost but sessions.json
+		// still has the session IDs. Sync them back to tmux so restart/resume
+		// (R key) works correctly.
+		if tmuxSess != nil && tmuxSess.Exists() {
+			// Sync ClaudeSessionID to tmux environment for resume functionality
+			if inst.ClaudeSessionID != "" {
+				_ = tmuxSess.SetEnvironment("CLAUDE_SESSION_ID", inst.ClaudeSessionID)
+			}
+
+			// Sync GeminiSessionID to tmux environment for resume functionality
+			if inst.GeminiSessionID != "" {
+				_ = tmuxSess.SetEnvironment("GEMINI_SESSION_ID", inst.GeminiSessionID)
+			}
+
+			// Sync OpenCodeSessionID to tmux environment for resume functionality
+			if inst.OpenCodeSessionID != "" {
+				_ = tmuxSess.SetEnvironment("OPENCODE_SESSION_ID", inst.OpenCodeSessionID)
+			}
+
+			// Sync CodexSessionID to tmux environment for resume functionality
+			if inst.CodexSessionID != "" {
+				_ = tmuxSess.SetEnvironment("CODEX_SESSION_ID", inst.CodexSessionID)
+			}
 		}
 
 		instances[i] = inst

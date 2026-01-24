@@ -65,6 +65,11 @@ type Instance struct {
 	OpenCodeDetectedAt time.Time `json:"opencode_detected_at,omitempty"`
 	OpenCodeStartedAt  int64     `json:"-"` // Unix millis when we started OpenCode (for session matching, not persisted)
 
+	// Codex CLI integration
+	CodexSessionID  string    `json:"codex_session_id,omitempty"`
+	CodexDetectedAt time.Time `json:"codex_detected_at,omitempty"`
+	CodexStartedAt  int64     `json:"-"` // Unix millis when we started Codex (for session matching, not persisted)
+
 	// Latest user input for context (extracted from session files)
 	LatestPrompt string `json:"latest_prompt,omitempty"`
 
@@ -460,6 +465,30 @@ func (i *Instance) DetectOpenCodeSession() {
 	i.detectOpenCodeSessionAsync()
 }
 
+// buildCodexCommand builds the command for Codex CLI
+// Codex stores sessions in ~/.codex/sessions/YYYY/MM/DD/*.jsonl
+// Resume: codex resume <session-id> or codex resume --last
+func (i *Instance) buildCodexCommand(baseCommand string) string {
+	if i.Tool != "codex" {
+		return baseCommand
+	}
+
+	// If baseCommand is just "codex", handle specially
+	if baseCommand == "codex" {
+		// If we already have a session ID, use resume
+		if i.CodexSessionID != "" {
+			return fmt.Sprintf("tmux set-environment CODEX_SESSION_ID %s; exec codex resume %s",
+				i.CodexSessionID, i.CodexSessionID)
+		}
+
+		// Start Codex fresh - session ID will be captured async after startup
+		return "exec codex"
+	}
+
+	// For custom commands (e.g., resume commands), return as-is
+	return baseCommand
+}
+
 // detectOpenCodeSessionAsync detects the OpenCode session ID after startup
 // OpenCode generates session IDs internally (format: ses_XXXXX)
 // We query "opencode session list --format json" and match by project directory,
@@ -598,6 +627,151 @@ func normalizePath(p string) string {
 	return p
 }
 
+// DetectCodexSession is the public wrapper for async Codex session detection
+// Call this for restored sessions that don't have a session ID yet
+func (i *Instance) DetectCodexSession() {
+	i.detectCodexSessionAsync()
+}
+
+// detectCodexSessionAsync detects the Codex session ID after startup
+// Codex stores sessions in ~/.codex/sessions/YYYY/MM/DD/*.jsonl
+// Session ID is a UUID that can be extracted from the filename
+// Since Codex has no "session list" command, we scan the filesystem
+func (i *Instance) detectCodexSessionAsync() {
+	// Brief wait for Codex to initialize
+	time.Sleep(1 * time.Second)
+
+	// Try up to 3 times with short delays
+	delays := []time.Duration{0, 1 * time.Second, 2 * time.Second}
+
+	for attempt, delay := range delays {
+		if delay > 0 {
+			time.Sleep(delay)
+		}
+
+		sessionID := i.queryCodexSession()
+		if sessionID != "" {
+			i.CodexSessionID = sessionID
+			i.CodexDetectedAt = time.Now()
+
+			// Store in tmux environment for restart
+			if i.tmuxSession != nil {
+				if err := i.tmuxSession.SetEnvironment("CODEX_SESSION_ID", sessionID); err != nil {
+					log.Printf("[CODEX] Warning: failed to set CODEX_SESSION_ID env: %v", err)
+				}
+			}
+
+			log.Printf("[CODEX] Detected session ID: %s (attempt %d)", sessionID, attempt+1)
+			return
+		}
+
+		log.Printf("[CODEX] Session ID not found yet (attempt %d/%d)", attempt+1, len(delays))
+	}
+
+	log.Printf("[CODEX] Warning: Could not detect session ID after %d attempts", len(delays))
+}
+
+// queryCodexSession scans the Codex sessions directory for the most recent session
+// Codex stores sessions in ~/.codex/sessions/YYYY/MM/DD/*.jsonl
+// The UUID is embedded in the filename: session_<UUID>.jsonl
+func (i *Instance) queryCodexSession() string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+
+	sessionsDir := filepath.Join(home, ".codex", "sessions")
+	if _, err := os.Stat(sessionsDir); os.IsNotExist(err) {
+		return ""
+	}
+
+	// UUID regex pattern
+	uuidPattern := regexp.MustCompile(`[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}`)
+
+	var bestMatch string
+	var bestMatchTime time.Time
+
+	// Walk through sessions directory (YYYY/MM/DD structure)
+	err = filepath.WalkDir(sessionsDir, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return nil // Skip errors
+		}
+
+		// Only process .jsonl files
+		if d.IsDir() || !strings.HasSuffix(d.Name(), ".jsonl") {
+			return nil
+		}
+
+		// Extract UUID from filename
+		matches := uuidPattern.FindString(d.Name())
+		if matches == "" {
+			return nil
+		}
+
+		// Get file info for modification time
+		info, err := d.Info()
+		if err != nil {
+			return nil
+		}
+
+		// Only consider sessions created after we started this instance
+		// This prevents picking up stale sessions from other projects
+		if i.CodexStartedAt > 0 {
+			startTime := time.UnixMilli(i.CodexStartedAt)
+			if info.ModTime().Before(startTime) {
+				return nil
+			}
+		}
+
+		// Pick the most recently modified session
+		if bestMatch == "" || info.ModTime().After(bestMatchTime) {
+			bestMatch = matches
+			bestMatchTime = info.ModTime()
+		}
+
+		return nil
+	})
+
+	if err != nil {
+		log.Printf("[CODEX] Error scanning sessions directory: %v", err)
+	}
+
+	return bestMatch
+}
+
+// UpdateCodexSession updates the Codex session ID from tmux environment
+// Fallback: filesystem scan for most recent session
+func (i *Instance) UpdateCodexSession(excludeIDs map[string]bool) {
+	if i.Tool != "codex" {
+		return
+	}
+
+	// 1. Try to read from tmux environment first (authoritative if set)
+	if i.tmuxSession != nil {
+		if sessionID, err := i.tmuxSession.GetEnvironment("CODEX_SESSION_ID"); err == nil && sessionID != "" {
+			if i.CodexSessionID != sessionID {
+				i.CodexSessionID = sessionID
+			}
+			i.CodexDetectedAt = time.Now()
+		}
+	}
+
+	// 2. Fallback: scan filesystem if no session ID from tmux env
+	if i.CodexSessionID == "" {
+		if sessionID := i.queryCodexSession(); sessionID != "" {
+			i.CodexSessionID = sessionID
+			i.CodexDetectedAt = time.Now()
+
+			// Sync back to tmux environment for future restarts
+			if i.tmuxSession != nil && i.tmuxSession.Exists() {
+				_ = i.tmuxSession.SetEnvironment("CODEX_SESSION_ID", i.CodexSessionID)
+			}
+
+			log.Printf("[CODEX] Detected session ID from filesystem: %s", i.CodexSessionID)
+		}
+	}
+}
+
 // buildGenericCommand builds command for user-defined tools from config.toml
 // If the tool has session resume config, builds capture-resume command similar to Claude/Gemini
 // Otherwise returns the base command as-is
@@ -733,7 +907,7 @@ func (i *Instance) Start() error {
 	}
 
 	// Build command based on tool type
-	// Priority: built-in tools (claude, gemini, opencode) → custom tools from config.toml → raw command
+	// Priority: built-in tools (claude, gemini, opencode, codex) → custom tools from config.toml → raw command
 	var command string
 	switch i.Tool {
 	case "claude":
@@ -744,6 +918,10 @@ func (i *Instance) Start() error {
 		command = i.buildOpenCodeCommand(i.Command)
 		// Record start time for session ID detection (Unix millis)
 		i.OpenCodeStartedAt = time.Now().UnixMilli()
+	case "codex":
+		command = i.buildCodexCommand(i.Command)
+		// Record start time for session ID detection (Unix millis)
+		i.CodexStartedAt = time.Now().UnixMilli()
 	default:
 		// Check if this is a custom tool with session resume config
 		if toolDef := GetToolDef(i.Tool); toolDef != nil {
@@ -783,6 +961,12 @@ func (i *Instance) Start() error {
 	// This runs in background and captures the session ID once OpenCode creates it
 	if i.Tool == "opencode" {
 		go i.detectOpenCodeSessionAsync()
+	}
+
+	// Start async session ID detection for Codex
+	// This runs in background and captures the session ID once Codex creates it
+	if i.Tool == "codex" {
+		go i.detectCodexSessionAsync()
 	}
 
 	return nil
@@ -1001,6 +1185,11 @@ func (i *Instance) UpdateStatus() error {
 		i.UpdateGeminiSession(nil)
 	}
 
+	// Update Codex session tracking (non-blocking, best-effort)
+	if i.Tool == "codex" {
+		i.UpdateCodexSession(nil)
+	}
+
 	return nil
 }
 
@@ -1055,19 +1244,17 @@ func (i *Instance) SetGeminiYoloMode(enabled bool) {
 	}
 }
 
-// UpdateGeminiSession updates the Gemini session ID and YOLO mode from tmux environment.
-// The capture-resume pattern (used in Start/Restart) sets GEMINI_SESSION_ID
-// in the tmux environment, making this the single authoritative source.
-//
-// No file scanning fallback - we rely on the consistent capture-resume pattern.
+// UpdateGeminiSession updates the Gemini session ID and YOLO mode.
+// Primary source: tmux environment (set by capture-resume pattern)
+// Fallback: filesystem scan for most recent session (handles agent-deck restarts)
+// Cross-project search: handles path hash mismatches
 func (i *Instance) UpdateGeminiSession(excludeIDs map[string]bool) {
 	if i.Tool != "gemini" {
 		return
 	}
 
-	// Read from tmux environment (set by capture-resume pattern)
+	// 1. Try to read from tmux environment first (authoritative if set)
 	if i.tmuxSession != nil {
-		// 1. Detect Session ID
 		if sessionID, err := i.tmuxSession.GetEnvironment("GEMINI_SESSION_ID"); err == nil && sessionID != "" {
 			if i.GeminiSessionID != sessionID {
 				i.GeminiSessionID = sessionID
@@ -1075,10 +1262,29 @@ func (i *Instance) UpdateGeminiSession(excludeIDs map[string]bool) {
 			i.GeminiDetectedAt = time.Now()
 		}
 
-		// 2. Detect YOLO Mode from environment (authoritative sync)
+		// Detect YOLO Mode from environment (authoritative sync)
 		if yoloEnv, err := i.tmuxSession.GetEnvironment("GEMINI_YOLO_MODE"); err == nil && yoloEnv != "" {
 			enabled := yoloEnv == "true"
 			i.GeminiYoloMode = &enabled
+		}
+	}
+
+	// 2. Fallback: scan filesystem if no session ID from tmux env
+	// This handles cases where agent-deck restarted and tmux env was lost
+	if i.GeminiSessionID == "" {
+		sessions, err := ListGeminiSessions(i.ProjectPath)
+		if err == nil && len(sessions) > 0 {
+			// Pick the most recent session (list is sorted by LastUpdated desc)
+			mostRecent := sessions[0]
+			i.GeminiSessionID = mostRecent.SessionID
+			i.GeminiDetectedAt = time.Now()
+
+			// Sync back to tmux environment for future restarts
+			if i.tmuxSession != nil && i.tmuxSession.Exists() {
+				_ = i.tmuxSession.SetEnvironment("GEMINI_SESSION_ID", i.GeminiSessionID)
+			}
+
+			log.Printf("[GEMINI] Detected session ID from filesystem: %s", i.GeminiSessionID)
 		}
 	}
 
@@ -1088,6 +1294,7 @@ func (i *Instance) UpdateGeminiSession(excludeIDs map[string]bool) {
 			i.GeminiAnalytics = &GeminiSessionAnalytics{}
 		}
 		// Non-blocking update (ignore errors, best effort)
+		// Note: UpdateGeminiAnalyticsFromDisk already has cross-project fallback
 		_ = UpdateGeminiAnalyticsFromDisk(i.ProjectPath, i.GeminiSessionID, i.GeminiAnalytics)
 	}
 
@@ -1095,7 +1302,16 @@ func (i *Instance) UpdateGeminiSession(excludeIDs map[string]bool) {
 	if i.GeminiSessionID != "" && len(i.GeminiSessionID) >= 8 {
 		sessionsDir := GetGeminiSessionsDir(i.ProjectPath)
 		pattern := filepath.Join(sessionsDir, "session-*-"+i.GeminiSessionID[:8]+".json")
-		if files, _ := filepath.Glob(pattern); len(files) > 0 {
+		files, _ := filepath.Glob(pattern)
+
+		// Fallback: cross-project search
+		if len(files) == 0 {
+			if fallbackPath := findGeminiSessionInAllProjects(i.GeminiSessionID); fallbackPath != "" {
+				files = []string{fallbackPath}
+			}
+		}
+
+		if len(files) > 0 {
 			if data, err := os.ReadFile(files[0]); err == nil {
 				if prompt, err := parseGeminiLatestUserPrompt(data); err == nil && prompt != "" {
 					i.LatestPrompt = prompt
@@ -1488,6 +1704,14 @@ func (i *Instance) getGeminiLastResponse() (*ResponseOutput, error) {
 	// Filename format is session-YYYY-MM-DDTHH-MM-<uuid8>.json
 	pattern := filepath.Join(sessionsDir, "session-*-"+i.GeminiSessionID[:8]+".json")
 	files, _ := filepath.Glob(pattern)
+
+	// Fallback: cross-project search if not found in expected location
+	if len(files) == 0 {
+		if fallbackPath := findGeminiSessionInAllProjects(i.GeminiSessionID); fallbackPath != "" {
+			files = []string{fallbackPath}
+		}
+	}
+
 	if len(files) == 0 {
 		return nil, fmt.Errorf("session file not found for ID: %s", i.GeminiSessionID)
 	}
@@ -1735,6 +1959,12 @@ func (i *Instance) Restart() error {
 		return nil
 	}
 
+	// For Gemini: ensure session ID is populated before checking resume logic
+	// This handles cases where tmux env was lost but filesystem still has session
+	if i.Tool == "gemini" && i.GeminiSessionID == "" {
+		i.UpdateGeminiSession(nil)
+	}
+
 	// If Gemini session with known ID AND tmux session exists, use respawn-pane
 	if i.Tool == "gemini" && i.GeminiSessionID != "" && i.tmuxSession != nil && i.tmuxSession.Exists() {
 		// Build Gemini resume command with tmux env update
@@ -1792,6 +2022,50 @@ func (i *Instance) Restart() error {
 		return nil
 	}
 
+	// For Codex: ensure session ID is populated before checking resume logic
+	if i.Tool == "codex" && i.CodexSessionID == "" {
+		i.UpdateCodexSession(nil)
+	}
+
+	// If Codex session AND tmux session exists, use respawn-pane
+	if i.Tool == "codex" && i.tmuxSession != nil && i.tmuxSession.Exists() {
+		// Try to get session ID from tmux environment if not already set
+		if i.CodexSessionID == "" {
+			if envID, err := i.tmuxSession.GetEnvironment("CODEX_SESSION_ID"); err == nil && envID != "" {
+				i.CodexSessionID = envID
+				i.CodexDetectedAt = time.Now()
+				log.Printf("[RESTART-DEBUG] Codex: recovered session ID from tmux env: %s", envID)
+			}
+		}
+
+		var resumeCmd string
+		if i.CodexSessionID != "" {
+			// Resume with known session ID
+			resumeCmd = fmt.Sprintf("tmux set-environment CODEX_SESSION_ID %s; exec codex resume %s",
+				i.CodexSessionID, i.CodexSessionID)
+		} else {
+			// No session ID yet, start fresh (will detect ID async)
+			resumeCmd = "exec codex"
+			// Re-record start time for async detection
+			i.CodexStartedAt = time.Now().UnixMilli()
+		}
+		log.Printf("[RESTART-DEBUG] Codex using respawn-pane with command: %s", resumeCmd)
+
+		if err := i.tmuxSession.RespawnPane(resumeCmd); err != nil {
+			log.Printf("[RESTART-DEBUG] Codex RespawnPane failed: %v", err)
+			return fmt.Errorf("failed to restart Codex session: %w", err)
+		}
+
+		// If no session ID, start async detection
+		if i.CodexSessionID == "" {
+			go i.detectCodexSessionAsync()
+		}
+
+		log.Printf("[RESTART-DEBUG] Codex RespawnPane succeeded")
+		i.Status = StatusWaiting
+		return nil
+	}
+
 	// If custom tool with session resume support AND tmux session exists, use respawn-pane
 	if i.CanRestartGeneric() && i.tmuxSession != nil && i.tmuxSession.Exists() {
 		toolDef := GetToolDef(i.Tool)
@@ -1839,6 +2113,10 @@ func (i *Instance) Restart() error {
 		// Set OPENCODE_SESSION_ID in tmux env so detection works after restart
 		command = fmt.Sprintf("tmux set-environment OPENCODE_SESSION_ID %s && opencode -s %s",
 			i.OpenCodeSessionID, i.OpenCodeSessionID)
+	} else if i.Tool == "codex" && i.CodexSessionID != "" {
+		// Set CODEX_SESSION_ID in tmux env so detection works after restart
+		command = fmt.Sprintf("tmux set-environment CODEX_SESSION_ID %s; exec codex resume %s",
+			i.CodexSessionID, i.CodexSessionID)
 	} else {
 		// Route to appropriate command builder based on tool
 		switch i.Tool {
@@ -1850,6 +2128,10 @@ func (i *Instance) Restart() error {
 			command = i.buildOpenCodeCommand(i.Command)
 			// Record start time for async session ID detection
 			i.OpenCodeStartedAt = time.Now().UnixMilli()
+		case "codex":
+			command = i.buildCodexCommand(i.Command)
+			// Record start time for async session ID detection
+			i.CodexStartedAt = time.Now().UnixMilli()
 		default:
 			// Check if this is a custom tool with session resume config
 			if toolDef := GetToolDef(i.Tool); toolDef != nil {
@@ -1887,6 +2169,11 @@ func (i *Instance) Restart() error {
 		go i.detectOpenCodeSessionAsync()
 	}
 
+	// Start async session ID detection for Codex (if no ID yet)
+	if i.Tool == "codex" && i.CodexSessionID == "" {
+		go i.detectCodexSessionAsync()
+	}
+
 	// Start as WAITING - will go GREEN on next tick if Claude shows busy indicator
 	if command != "" {
 		i.Status = StatusWaiting
@@ -1918,7 +2205,7 @@ func (i *Instance) buildClaudeResumeCommand() string {
 	// Check if dangerous mode is enabled in user config
 	dangerousMode := false
 	if userConfig, err := LoadUserConfig(); err == nil && userConfig != nil {
-		dangerousMode = userConfig.Claude.DangerousMode
+		dangerousMode = userConfig.Claude.GetDangerousMode()
 	}
 
 	// Check if session has actual conversation data
@@ -1949,6 +2236,7 @@ func (i *Instance) buildClaudeResumeCommand() string {
 // For Claude sessions with known ID: can always restart (interrupt and resume)
 // For Gemini sessions with known ID: can always restart (interrupt and resume)
 // For OpenCode sessions with known ID: can always restart (interrupt and resume)
+// For Codex sessions with known ID: can always restart (interrupt and resume)
 // For custom tools with session resume config: can restart if session ID available
 // For other sessions: only if dead/error state
 func (i *Instance) CanRestart() bool {
@@ -1970,6 +2258,17 @@ func (i *Instance) CanRestart() bool {
 	// OpenCode sessions without ID can still restart (will start fresh)
 	// This allows restart even before session ID is detected
 	if i.Tool == "opencode" {
+		return true
+	}
+
+	// Codex sessions with known session ID can always be restarted
+	if i.Tool == "codex" && i.CodexSessionID != "" {
+		return true
+	}
+
+	// Codex sessions without ID can still restart (will start fresh)
+	// This allows restart even before session ID is detected
+	if i.Tool == "codex" {
 		return true
 	}
 
@@ -2240,10 +2539,17 @@ func sessionHasConversationData(sessionID string, projectPath string) bool {
 
 	// Check if file exists
 	if _, err := os.Stat(sessionFile); os.IsNotExist(err) {
-		// File doesn't exist - use --session-id to create fresh session
-		// (there's nothing to resume if the file doesn't exist)
-		log.Printf("[SESSION-DATA] File does NOT exist → returning false (use --session-id)")
-		return false
+		// File doesn't exist at expected location - try cross-project search
+		// This handles path hash mismatches (e.g., session created from different directory)
+		if fallbackPath := findSessionFileInAllProjects(sessionID); fallbackPath != "" {
+			log.Printf("[SESSION-DATA] Found session file via cross-project search: %s", fallbackPath)
+			sessionFile = fallbackPath
+		} else {
+			// File doesn't exist anywhere - use --session-id to create fresh session
+			// (there's nothing to resume if the file doesn't exist)
+			log.Printf("[SESSION-DATA] File does NOT exist → returning false (use --session-id)")
+			return false
+		}
 	}
 
 	log.Printf("[SESSION-DATA] File EXISTS, scanning for sessionId...")
@@ -2281,6 +2587,45 @@ func sessionHasConversationData(sessionID string, projectPath string) bool {
 	// No sessionId found - session was never interacted with
 	log.Printf("[SESSION-DATA] No sessionId found in file → returning false (use --session-id)")
 	return false
+}
+
+// findSessionFileInAllProjects searches all Claude project directories for a session file
+// This handles path hash mismatches when agent-deck runs from a different directory
+// than where the Claude session was originally created.
+// Returns the full path to the session file, or empty string if not found.
+func findSessionFileInAllProjects(sessionID string) string {
+	if sessionID == "" {
+		return ""
+	}
+
+	configDir := GetClaudeConfigDir()
+	if configDir == "" {
+		configDir = filepath.Join(os.Getenv("HOME"), ".claude")
+	}
+
+	projectsDir := filepath.Join(configDir, "projects")
+
+	// List all project hash directories
+	entries, err := os.ReadDir(projectsDir)
+	if err != nil {
+		return ""
+	}
+
+	// Session filename format: {sessionID}.jsonl
+	sessionFile := sessionID + ".jsonl"
+
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+
+		filePath := filepath.Join(projectsDir, entry.Name(), sessionFile)
+		if _, err := os.Stat(filePath); err == nil {
+			return filePath
+		}
+	}
+
+	return ""
 }
 
 // generateID generates a unique session ID
