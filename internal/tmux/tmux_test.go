@@ -1982,6 +1982,8 @@ func TestSession_GetEnvironment_NotFound(t *testing.T) {
 }
 
 func TestSession_SendCtrlC(t *testing.T) {
+	skipIfNoTmuxServer(t)
+
 	sess := NewSession("ctrl-c-test", "/tmp")
 
 	// Start session with a long-running command
