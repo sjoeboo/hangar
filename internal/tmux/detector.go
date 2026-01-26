@@ -110,6 +110,14 @@ func (d *PromptDetector) hasClaudePrompt(content string) bool {
 		last3Lines = last3Lines[len(last3Lines)-3:]
 	}
 	for _, line := range last3Lines {
+		// Skip lines starting with box-drawing characters (UI borders)
+		trimmedLine := strings.TrimSpace(line)
+		if len(trimmedLine) > 0 {
+			r := []rune(trimmedLine)[0]
+			if r == '│' || r == '├' || r == '└' || r == '─' || r == '┌' || r == '┐' || r == '┘' || r == '┤' || r == '┬' || r == '┴' || r == '┼' || r == '╭' || r == '╰' || r == '╮' || r == '╯' {
+				continue
+			}
+		}
 		for _, spinner := range spinnerChars {
 			if strings.Contains(line, spinner) {
 				// Spinner present in recent output = actively working

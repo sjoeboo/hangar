@@ -1578,6 +1578,15 @@ func (s *Session) hasBusyIndicator(content string) bool {
 	}
 
 	for _, line := range last5 {
+		// Skip lines starting with box-drawing characters (e.g., │├└─┌┐┘┤┬┴┼)
+		// These are UI borders that can contain braille-like chars as rendering artifacts
+		trimmedLine := strings.TrimSpace(line)
+		if len(trimmedLine) > 0 {
+			r := []rune(trimmedLine)[0]
+			if r == '│' || r == '├' || r == '└' || r == '─' || r == '┌' || r == '┐' || r == '┘' || r == '┤' || r == '┬' || r == '┴' || r == '┼' || r == '╭' || r == '╰' || r == '╮' || r == '╯' {
+				continue
+			}
+		}
 		for _, spinner := range spinnerChars {
 			if strings.Contains(line, spinner) {
 				debugLog("%s: BUSY_REASON=spinner char=%q", shortName, spinner)
@@ -1633,9 +1642,10 @@ var (
 	// Matches Claude Code status line: "(45s · 1234 tokens · ctrl+c to interrupt)"
 	dynamicStatusPattern = regexp.MustCompile(`\([^)]*\d+s\s*·[^)]*tokens[^)]*\)`)
 
-	// Matches whimsical thinking words with timing info (e.g., "Flibbertigibbeting... (25s · 340 tokens)")
+	// Matches whimsical thinking words with timing info (e.g., "⠋ Flibbertigibbeting... (25s · 340 tokens)")
+	// Requires spinner prefix to avoid matching normal English words like "processing" or "computing"
 	// Updated to include all 90 Claude Code whimsical words
-	thinkingPattern = regexp.MustCompile(`(?i)(` + whimsicalWordsPattern + `)[^(]*\([^)]*\)`)
+	thinkingPattern = regexp.MustCompile(`[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]\s*(?i)(` + whimsicalWordsPattern + `)[^(]*\([^)]*\)`)
 
 	// Progress bar patterns for normalization (Fix 2.1)
 	// These cause hash changes when progress updates

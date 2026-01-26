@@ -467,3 +467,110 @@ func TestClaudeCodeBusyPatterns(t *testing.T) {
 		})
 	}
 }
+
+// =============================================================================
+// VALIDATION 5.0: thinkingPattern Requires Spinner Prefix
+// =============================================================================
+// Fix: thinkingPattern now requires a braille spinner character prefix
+// to avoid matching normal English words like "processing" or "computing"
+
+func TestThinkingPatternRequiresSpinner(t *testing.T) {
+	tests := []struct {
+		name    string
+		content string
+		want    bool
+	}{
+		{
+			name:    "spinner prefix matches",
+			content: "⠋ Thinking... (25s · 340 tokens)",
+			want:    true,
+		},
+		{
+			name:    "different spinner matches",
+			content: "⠸ Clauding... (10s · 100 tokens)",
+			want:    true,
+		},
+		{
+			name:    "spinner with extra space",
+			content: "⠹  Computing... (5s · 50 tokens)",
+			want:    true,
+		},
+		{
+			name:    "no spinner prefix - should NOT match",
+			content: "Processing... (25s · 340 tokens)",
+			want:    false,
+		},
+		{
+			name:    "bare word in normal text - should NOT match",
+			content: "We are computing the result (total: 42)",
+			want:    false,
+		},
+		{
+			name:    "whimsical word without spinner - should NOT match",
+			content: "Flibbertigibbeting... (25s · 340 tokens)",
+			want:    false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := thinkingPattern.MatchString(tt.content)
+			if got != tt.want {
+				t.Errorf("thinkingPattern.MatchString(%q) = %v, want %v", tt.content, got, tt.want)
+			}
+		})
+	}
+}
+
+// =============================================================================
+// VALIDATION 5.1: Spinner Check Skips Box-Drawing Lines
+// =============================================================================
+// Fix: Lines starting with box-drawing characters (│├└ etc.) are skipped
+// in the spinner char check to prevent false GREEN from UI borders
+
+func TestSpinnerCheckSkipsBoxDrawingLines(t *testing.T) {
+	sess := NewSession("box-drawing-test", "/tmp")
+	sess.Command = "claude"
+
+	tests := []struct {
+		name     string
+		content  string
+		wantBusy bool
+	}{
+		{
+			name: "spinner on normal line",
+			content: `Some output
+⠋ Processing request...`,
+			wantBusy: true,
+		},
+		{
+			name: "spinner-like char in box-drawing line",
+			content: `│ Some box content ⠋
+├ More content
+└ End`,
+			wantBusy: false, // Box-drawing lines should be skipped
+		},
+		{
+			name: "box-drawing only with no real spinner",
+			content: `╭─────────────────────────────╮
+│ ⠋ This is a box border      │
+╰─────────────────────────────╯`,
+			wantBusy: false,
+		},
+		{
+			name: "real spinner after box-drawing lines",
+			content: `│ Some box content
+⠙ Loading modules`,
+			wantBusy: true, // The real spinner is on a non-box line
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := sess.hasBusyIndicator(tt.content)
+			if got != tt.wantBusy {
+				t.Errorf("hasBusyIndicator() = %v, want %v\nContent:\n%s", got, tt.wantBusy, tt.content)
+			}
+		})
+	}
+}

@@ -72,7 +72,8 @@ type Instance struct {
 	CodexStartedAt  int64     `json:"-"` // Unix millis when we started Codex (for session matching, not persisted)
 
 	// Latest user input for context (extracted from session files)
-	LatestPrompt string `json:"latest_prompt,omitempty"`
+	LatestPrompt        string    `json:"latest_prompt,omitempty"`
+	lastPromptModTime   time.Time // mtime cache for updateGeminiLatestPrompt (not serialized)
 
 	// MCP tracking - which MCPs were loaded when session started/restarted
 	// Used to detect pending MCPs (added after session start) and stale MCPs (removed but still running)
@@ -1344,6 +1345,7 @@ func (i *Instance) updateGeminiAnalytics() {
 }
 
 // updateGeminiLatestPrompt extracts the latest user prompt from the session file.
+// Uses mtime caching to skip re-reading unchanged files (important for large session files).
 func (i *Instance) updateGeminiLatestPrompt() {
 	if i.GeminiSessionID == "" || len(i.GeminiSessionID) < 8 {
 		return
@@ -1351,14 +1353,24 @@ func (i *Instance) updateGeminiLatestPrompt() {
 
 	sessionsDir := GetGeminiSessionsDir(i.ProjectPath)
 	pattern := filepath.Join(sessionsDir, "session-*-"+i.GeminiSessionID[:8]+".json")
-	filePath, _ := findNewestFile(pattern)
+	filePath, fileMtime := findNewestFile(pattern)
 
 	// Fallback: cross-project search
 	if filePath == "" {
 		filePath = findGeminiSessionInAllProjects(i.GeminiSessionID)
+		if filePath != "" {
+			if info, err := os.Stat(filePath); err == nil {
+				fileMtime = info.ModTime()
+			}
+		}
 	}
 
 	if filePath == "" {
+		return
+	}
+
+	// mtime cache: skip re-read if file hasn't changed since last read
+	if !i.lastPromptModTime.IsZero() && !fileMtime.IsZero() && fileMtime.Equal(i.lastPromptModTime) {
 		return
 	}
 
@@ -1369,6 +1381,7 @@ func (i *Instance) updateGeminiLatestPrompt() {
 	if prompt, err := parseGeminiLatestUserPrompt(data); err == nil && prompt != "" {
 		i.LatestPrompt = prompt
 	}
+	i.lastPromptModTime = fileMtime
 }
 
 // WaitForClaudeSession waits for the tmux environment variable to be set.
