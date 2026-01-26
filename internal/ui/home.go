@@ -140,7 +140,8 @@ type Home struct {
 	setupWizard    *SetupWizard    // For first-run setup
 	settingsPanel  *SettingsPanel  // For editing settings
 	analyticsPanel    *AnalyticsPanel    // For displaying session analytics
-	geminiModelDialog *GeminiModelDialog // For selecting Gemini model
+	geminiModelDialog   *GeminiModelDialog   // For selecting Gemini model
+	sessionPickerDialog *SessionPickerDialog // For sending output to another session
 
 	// Analytics cache (async fetching with TTL)
 	currentAnalytics       *session.SessionAnalytics             // Current analytics for selected session (Claude)
@@ -353,6 +354,21 @@ type maintenanceCompleteMsg struct {
 // clearMaintenanceMsg signals auto-clear of maintenance banner
 type clearMaintenanceMsg struct{}
 
+// copyResultMsg is sent when async clipboard copy completes
+type copyResultMsg struct {
+	sessionTitle string
+	lineCount    int
+	err          error
+}
+
+// sendOutputResultMsg is sent when async inter-session send completes
+type sendOutputResultMsg struct {
+	sourceTitle string
+	targetTitle string
+	lineCount   int
+	err         error
+}
+
 // statusUpdateRequest is sent to the background worker with current viewport info
 type statusUpdateRequest struct {
 	viewOffset    int   // Current scroll position
@@ -407,7 +423,8 @@ func NewHomeWithProfileAndMode(profile string, isPrimary bool) *Home {
 		setupWizard:       NewSetupWizard(),
 		settingsPanel:     NewSettingsPanel(),
 		analyticsPanel:    NewAnalyticsPanel(),
-		geminiModelDialog: NewGeminiModelDialog(),
+		geminiModelDialog:   NewGeminiModelDialog(),
+		sessionPickerDialog: NewSessionPickerDialog(),
 		cursor:            0,
 		initialLoading:    true, // Show splash until sessions load
 		ctx:               ctx,
