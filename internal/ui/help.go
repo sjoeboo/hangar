@@ -121,6 +121,8 @@ func (h *HelpOverlay) View() string {
 				{"K / J", "Reorder up/down"},
 				{"f", "Quick fork (Claude only)"},
 				{"F", "Fork with options (Claude only)"},
+				{"c", "Copy output to clipboard"},
+				{"x", "Send output to session"},
 			},
 		},
 		{

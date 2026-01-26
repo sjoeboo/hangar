@@ -17,6 +17,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/mattn/go-runewidth"
 
+	"github.com/asheshgoplani/agent-deck/internal/clipboard"
 	"github.com/asheshgoplani/agent-deck/internal/git"
 	"github.com/asheshgoplani/agent-deck/internal/session"
 	"github.com/asheshgoplani/agent-deck/internal/tmux"
@@ -2293,6 +2294,22 @@ func (h *Home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return h, nil
 
+	case copyResultMsg:
+		if msg.err != nil {
+			h.setError(msg.err)
+		} else {
+			h.setError(fmt.Errorf("Copied %d lines to clipboard (%s)", msg.lineCount, msg.sessionTitle))
+		}
+		return h, nil
+
+	case sendOutputResultMsg:
+		if msg.err != nil {
+			h.setError(fmt.Errorf("failed to send to %s: %v", msg.targetTitle, msg.err))
+		} else {
+			h.setError(fmt.Errorf("Sent %d lines from '%s' to '%s'", msg.lineCount, msg.sourceTitle, msg.targetTitle))
+		}
+		return h, nil
+
 	case tickMsg:
 		// Auto-dismiss errors after 5 seconds
 		if h.err != nil && !h.errTime.IsZero() && time.Since(h.errTime) > 5*time.Second {
@@ -2460,6 +2477,9 @@ func (h *Home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			d, cmd := h.geminiModelDialog.Update(msg)
 			h.geminiModelDialog = d
 			return h, cmd
+		}
+		if h.sessionPickerDialog.IsVisible() {
+			return h.handleSessionPickerDialogKey(msg)
 		}
 
 		// Main view keys
@@ -3215,6 +3235,32 @@ func (h *Home) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 					h.resumingSessions[item.Session.ID] = time.Now()
 					return h, h.restartSession(item.Session)
 				}
+			}
+		}
+		return h, nil
+
+	case "c":
+		// Copy last AI response to system clipboard
+		if h.cursor < len(h.flatItems) {
+			item := h.flatItems[h.cursor]
+			if item.Type == session.ItemTypeSession && item.Session != nil {
+				return h, h.copySessionOutput(item.Session)
+			}
+		}
+		return h, nil
+
+	case "x":
+		// Send session output to another session
+		if h.cursor < len(h.flatItems) {
+			item := h.flatItems[h.cursor]
+			if item.Type == session.ItemTypeSession && item.Session != nil {
+				others := h.getOtherActiveSessions(item.Session.ID)
+				if len(others) == 0 {
+					h.setError(fmt.Errorf("no other sessions to send to"))
+					return h, nil
+				}
+				h.sessionPickerDialog.SetSize(h.width, h.height)
+				h.sessionPickerDialog.Show(item.Session, h.instances)
 			}
 		}
 		return h, nil
@@ -4184,6 +4230,9 @@ func (h *Home) View() string {
 	if h.geminiModelDialog.IsVisible() {
 		return h.geminiModelDialog.View()
 	}
+	if h.sessionPickerDialog.IsVisible() {
+		return h.sessionPickerDialog.View()
+	}
 
 	// Reuse viewBuilder to reduce allocations (reset and pre-allocate)
 	h.viewBuilder.Reset()
@@ -4932,6 +4981,8 @@ func (h *Home) renderHelpBarCompact() string {
 				contextHints = append(contextHints, h.helpKeyShort("M", "MCP"))
 				contextHints = append(contextHints, h.helpKeyShort("v", h.previewModeShort()))
 			}
+			contextHints = append(contextHints, h.helpKeyShort("c", "Copy"))
+			contextHints = append(contextHints, h.helpKeyShort("x", "Send"))
 		}
 	}
 
@@ -5024,6 +5075,8 @@ func (h *Home) renderHelpBarFull() string {
 				primaryHints = append(primaryHints, h.helpKey("M", "MCP"))
 				primaryHints = append(primaryHints, h.helpKey("v", h.previewModeShort()))
 			}
+			primaryHints = append(primaryHints, h.helpKey("c", "Copy"))
+			primaryHints = append(primaryHints, h.helpKey("x", "Send"))
 			secondaryHints = []string{
 				h.helpKey("r", "Rename"),
 				h.helpKey("m", "Move"),
@@ -6541,4 +6594,135 @@ func (h *Home) renderGroupPreview(group *session.Group, width, height int) strin
 	}
 
 	return strings.Join(truncatedLines, "\n")
+}
+
+// --- Copy & Send Output helpers ---
+
+const maxTransferSize = 500 * 1024 // 500KB max for inter-session transfer
+
+// copySessionOutput returns a tea.Cmd that copies the session's last response to clipboard.
+func (h *Home) copySessionOutput(inst *session.Instance) tea.Cmd {
+	return func() tea.Msg {
+		content, err := getSessionContent(inst)
+		if err != nil {
+			return copyResultMsg{err: err}
+		}
+
+		termInfo := tmux.GetTerminalInfo()
+		result, err := clipboard.Copy(content, termInfo.SupportsOSC52)
+		if err != nil {
+			return copyResultMsg{err: fmt.Errorf("clipboard: %w", err)}
+		}
+		return copyResultMsg{
+			sessionTitle: inst.Title,
+			lineCount:    result.LineCount,
+		}
+	}
+}
+
+// sendOutputToSession returns a tea.Cmd that sends the source session's output to the target.
+func (h *Home) sendOutputToSession(source, target *session.Instance) tea.Cmd {
+	return func() tea.Msg {
+		content, err := getSessionContent(source)
+		if err != nil {
+			return sendOutputResultMsg{
+				targetTitle: target.Title,
+				err:         err,
+			}
+		}
+
+		// Truncate if too large
+		if len(content) > maxTransferSize {
+			content = content[:maxTransferSize] + "\n[Truncated at 500KB]"
+		}
+
+		// Wrap with header/footer
+		wrapped := fmt.Sprintf("--- Output from [%s] ---\n%s\n--- End output from [%s] ---\n",
+			source.Title, content, source.Title)
+
+		tmuxSession := target.GetTmuxSession()
+		if tmuxSession == nil {
+			return sendOutputResultMsg{
+				targetTitle: target.Title,
+				err:         fmt.Errorf("target session has no tmux pane"),
+			}
+		}
+
+		if err := tmuxSession.SendKeysChunked(wrapped); err != nil {
+			return sendOutputResultMsg{
+				targetTitle: target.Title,
+				err:         fmt.Errorf("send failed: %w", err),
+			}
+		}
+
+		lineCount := strings.Count(content, "\n")
+		return sendOutputResultMsg{
+			sourceTitle: source.Title,
+			targetTitle: target.Title,
+			lineCount:   lineCount,
+		}
+	}
+}
+
+// handleSessionPickerDialogKey handles key events when the session picker is visible.
+func (h *Home) handleSessionPickerDialogKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "enter":
+		selected := h.sessionPickerDialog.GetSelected()
+		source := h.sessionPickerDialog.GetSource()
+		h.sessionPickerDialog.Hide()
+		if selected != nil && source != nil {
+			return h, h.sendOutputToSession(source, selected)
+		}
+		return h, nil
+	case "esc":
+		h.sessionPickerDialog.Hide()
+		return h, nil
+	default:
+		h.sessionPickerDialog.Update(msg)
+		return h, nil
+	}
+}
+
+// getOtherActiveSessions returns sessions excluding the given ID and error-status sessions.
+func (h *Home) getOtherActiveSessions(excludeID string) []*session.Instance {
+	var result []*session.Instance
+	for _, inst := range h.instances {
+		if inst.ID == excludeID {
+			continue
+		}
+		if inst.Status == session.StatusError {
+			continue
+		}
+		result = append(result, inst)
+	}
+	return result
+}
+
+// getSessionContent retrieves displayable content from a session.
+// Tries GetLastResponse first, falls back to CaptureFullHistory.
+func getSessionContent(inst *session.Instance) (string, error) {
+	// Try AI response first
+	resp, err := inst.GetLastResponse()
+	if err == nil && resp.Content != "" {
+		return resp.Content, nil
+	}
+
+	// Fall back to tmux pane capture
+	tmuxSession := inst.GetTmuxSession()
+	if tmuxSession == nil {
+		return "", fmt.Errorf("no output available for this session")
+	}
+
+	content, err := tmuxSession.CaptureFullHistory()
+	if err != nil {
+		return "", fmt.Errorf("failed to capture output: %w", err)
+	}
+
+	content = strings.TrimSpace(content)
+	if content == "" {
+		return "", fmt.Errorf("no output available for this session")
+	}
+
+	return content, nil
 }
