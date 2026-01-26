@@ -1535,6 +1535,15 @@ func (s *Session) hasBusyIndicator(content string) bool {
 	}
 
 	// ═══════════════════════════════════════════════════════════════════════
+	// CHECK 2b: "esc to cancel" - Gemini CLI busy indicator
+	// Gemini shows "esc to cancel" while actively processing
+	// ═══════════════════════════════════════════════════════════════════════
+	if strings.Contains(recentContent, "esc to cancel") {
+		debugLog("%s: BUSY_REASON=esc to cancel (Gemini)", shortName)
+		return true
+	}
+
+	// ═══════════════════════════════════════════════════════════════════════
 	// CHECK 3: OpenCode "esc interrupt" - PRIMARY indicator for OpenCode
 	// OpenCode shows "esc interrupt" at the bottom status bar when actively working
 	// This is equivalent to Claude's "ctrl+c to interrupt"
@@ -1633,6 +1642,10 @@ var (
 	progressBarPattern = regexp.MustCompile(`\[=*>?\s*\]\s*\d+%`)           // [====>   ] 45%
 	downloadPattern    = regexp.MustCompile(`\d+\.?\d*[KMGT]?B/\d+\.?\d*[KMGT]?B`) // 1.2MB/5.6MB
 	percentagePattern  = regexp.MustCompile(`\b\d{1,3}%`)                   // 45% (word boundary to avoid false matches)
+
+	// Time patterns like "12:34" or "12:34:56" that change every second
+	// Gemini and other tools show timestamps that cause hash changes
+	timePattern = regexp.MustCompile(`\b\d{1,2}:\d{2}(?::\d{2})?\b`)
 )
 
 // claudeWhimsicalWords contains all 90 whimsical "thinking" words used by Claude Code
@@ -1696,6 +1709,9 @@ func (s *Session) normalizeContent(content string) string {
 	result = progressBarPattern.ReplaceAllString(result, "[PROGRESS]")  // [====>   ] 45%
 	result = downloadPattern.ReplaceAllString(result, "X.XMB/Y.YMB")    // 1.2MB/5.6MB
 	result = percentagePattern.ReplaceAllString(result, "N%")           // 45%
+
+	// Normalize time patterns (12:34 or 12:34:56) that change every second
+	result = timePattern.ReplaceAllString(result, "HH:MM:SS")
 
 	// Normalize trailing whitespace per line (fixes resize false positives)
 	// tmux capture-pane -J can add trailing spaces when terminal is resized

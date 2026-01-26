@@ -5800,6 +5800,16 @@ func (h *Home) renderPreviewPane(width, height int) string {
 			b.WriteString(labelStyle.Render("Session: "))
 			b.WriteString(valueStyle.Render(selected.GeminiSessionID))
 			b.WriteString("\n")
+
+			// Display active model
+			modelDisplay := "auto"
+			if selected.GeminiModel != "" {
+				modelDisplay = selected.GeminiModel
+			}
+			accentStyle := lipgloss.NewStyle().Foreground(ColorAccent)
+			b.WriteString(labelStyle.Render("Model:   "))
+			b.WriteString(accentStyle.Render(modelDisplay))
+			b.WriteString("\n")
 		} else {
 			statusStyle := lipgloss.NewStyle().Foreground(ColorText)
 			b.WriteString(labelStyle.Render("Status:  "))

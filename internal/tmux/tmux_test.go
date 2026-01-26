@@ -148,6 +148,31 @@ func TestPromptDetector(t *testing.T) {
 			t.Errorf("opencode.HasPrompt(%q) = %v, want %v", tt.content, result, tt.expected)
 		}
 	}
+
+	// Test Gemini prompt detection
+	geminiDetector := NewPromptDetector("gemini")
+
+	geminiTests := []struct {
+		content  string
+		expected bool
+	}{
+		{"gemini>", true},
+		{"  gemini> ", true},
+		{"Yes, allow once", true},
+		{"Type your message", true},
+		{"some output\ngemini>", true},
+		// Busy indicator should NOT be a prompt
+		{"esc to cancel", false},
+		// Regular output
+		{"Processing your request", false},
+	}
+
+	for _, tt := range geminiTests {
+		result := geminiDetector.HasPrompt(tt.content)
+		if result != tt.expected {
+			t.Errorf("gemini.HasPrompt(%q) = %v, want %v", tt.content, result, tt.expected)
+		}
+	}
 }
 
 func TestBusyIndicatorDetection(t *testing.T) {
@@ -1606,6 +1631,20 @@ func TestNormalizeShouldStripTimeCounters(t *testing.T) {
 			content2:    "Loading ⠙",
 			shouldMatch: true,
 			description: "Braille spinners should be stripped (already implemented)",
+		},
+		{
+			name:        "Time pattern HH:MM:SS",
+			content1:    "Status at 12:34:56 is ready",
+			content2:    "Status at 12:35:01 is ready",
+			shouldMatch: true,
+			description: "Time patterns (HH:MM:SS) should be normalized",
+		},
+		{
+			name:        "Time pattern HH:MM",
+			content1:    "Updated 9:45 ago",
+			content2:    "Updated 9:46 ago",
+			shouldMatch: true,
+			description: "Time patterns (HH:MM) should be normalized",
 		},
 	}
 

@@ -287,8 +287,12 @@ func (p *AnalyticsPanel) renderGeminiCost() string {
 	b.WriteString(labelStyle.Render("Cost"))
 	b.WriteString("\n")
 
-	// Use default Gemini Flash pricing
-	cost := p.geminiAnalytics.CalculateCost("gemini-2.0-flash")
+	// Use detected model from session, fall back to default pricing
+	model := p.geminiAnalytics.Model
+	if model == "" {
+		model = "default"
+	}
+	cost := p.geminiAnalytics.CalculateCost(model)
 
 	if cost > 0 {
 		costStr := fmt.Sprintf("$%.4f", cost)

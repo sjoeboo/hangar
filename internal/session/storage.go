@@ -83,6 +83,7 @@ type InstanceData struct {
 	GeminiSessionID  string    `json:"gemini_session_id,omitempty"`
 	GeminiDetectedAt time.Time `json:"gemini_detected_at,omitempty"`
 	GeminiYoloMode   *bool     `json:"gemini_yolo_mode,omitempty"`
+	GeminiModel      string    `json:"gemini_model,omitempty"`
 
 	// OpenCode session (persisted for resume after app restart)
 	OpenCodeSessionID  string    `json:"opencode_session_id,omitempty"`
@@ -236,6 +237,7 @@ func (s *Storage) SaveWithGroups(instances []*Instance, groupTree *GroupTree) er
 			GeminiSessionID:    inst.GeminiSessionID,
 			GeminiDetectedAt:   inst.GeminiDetectedAt,
 			GeminiYoloMode:     inst.GeminiYoloMode,
+			GeminiModel:        inst.GeminiModel,
 			OpenCodeSessionID:  inst.OpenCodeSessionID,
 			OpenCodeDetectedAt: inst.OpenCodeDetectedAt,
 			CodexSessionID:     inst.CodexSessionID,
@@ -551,6 +553,7 @@ func (s *Storage) convertToInstances(data *StorageData) ([]*Instance, []*GroupDa
 			GeminiSessionID:    instData.GeminiSessionID,
 			GeminiDetectedAt:   instData.GeminiDetectedAt,
 			GeminiYoloMode:     instData.GeminiYoloMode,
+			GeminiModel:        instData.GeminiModel,
 			OpenCodeSessionID:  instData.OpenCodeSessionID,
 			OpenCodeDetectedAt: instData.OpenCodeDetectedAt,
 			CodexSessionID:     instData.CodexSessionID,

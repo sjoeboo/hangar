@@ -1,6 +1,7 @@
 package session
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -655,29 +656,63 @@ func TestInstance_UpdateClaudeSession_PreservesExistingID(t *testing.T) {
 	}
 }
 
-// TestInstance_UpdateGeminiSession_PreservesExistingID verifies that existing
-// Gemini session IDs from storage are preserved when tmux env is empty.
-// With the new tmux-only approach, we only update when tmux env has a value.
-func TestInstance_UpdateGeminiSession_PreservesExistingID(t *testing.T) {
+// TestInstance_UpdateGeminiSession_UsesLatestFromFilesystem verifies that
+// UpdateGeminiSession ALWAYS scans filesystem for the most recent session,
+// even if we already have a cached session ID.
+// This is the Krudony fix: prevents stale session resume when user starts a NEW session.
+func TestInstance_UpdateGeminiSession_UsesLatestFromFilesystem(t *testing.T) {
+	// Create temp directory and redirect Gemini config
+	tmpDir := t.TempDir()
+	geminiConfigDirOverride = tmpDir
+	defer func() { geminiConfigDirOverride = "" }()
+
+	// Use a stable project path
+	projectPath := "/Users/test/my-project"
+
 	// Create instance with known session ID (simulating loaded from storage)
-	inst := NewInstanceWithTool("preserve-gemini-test", "/tmp", "gemini")
-	existingID := "existing-gemini-id-xyz789"
+	inst := NewInstanceWithTool("latest-gemini-test", projectPath, "gemini")
+	existingID := "old-cached-session-id"
 	inst.GeminiSessionID = existingID
 	oldDetectedAt := time.Now().Add(-10 * time.Minute)
 	inst.GeminiDetectedAt = oldDetectedAt
 
-	// Call UpdateGeminiSession - without tmux session, nothing should change
+	// Call UpdateGeminiSession - no sessions on filesystem, should keep existing
 	inst.UpdateGeminiSession(nil)
 
-	// Existing session ID must be preserved (tmux env is empty, so no change)
+	// With no sessions on filesystem, existing ID is preserved as fallback
 	if inst.GeminiSessionID != existingID {
-		t.Errorf("GeminiSessionID was changed from %q to %q - should preserve stored ID when tmux env is empty",
-			existingID, inst.GeminiSessionID)
+		t.Errorf("GeminiSessionID should preserve cached ID when no sessions on filesystem, got %q", inst.GeminiSessionID)
 	}
 
-	// Timestamp should NOT change (no tmux env = no update)
-	if inst.GeminiDetectedAt != oldDetectedAt {
-		t.Error("GeminiDetectedAt should not change when tmux env is empty")
+	// Now create a "newer" session file on filesystem using correct directory structure
+	sessionsDir := GetGeminiSessionsDir(projectPath)
+	if err := os.MkdirAll(sessionsDir, 0755); err != nil {
+		t.Fatalf("Failed to create sessions dir: %v", err)
+	}
+
+	newSessionID := "new-sess-from-filesystem-abc123"
+	sessionFile := filepath.Join(sessionsDir, "session-2025-01-25T10-00-"+newSessionID[:8]+".json")
+	sessionContent := fmt.Sprintf(`{
+		"sessionId": %q,
+		"startTime": "2025-01-25T10:00:00.000Z",
+		"lastUpdated": "2025-01-25T10:30:00.000Z",
+		"messages": [{"id": "1", "type": "user", "content": "hello"}]
+	}`, newSessionID)
+	if err := os.WriteFile(sessionFile, []byte(sessionContent), 0644); err != nil {
+		t.Fatalf("Failed to write session file: %v", err)
+	}
+
+	// Call UpdateGeminiSession again - should pick up the new session
+	inst.UpdateGeminiSession(nil)
+
+	// Krudony fix: filesystem session should override cached ID
+	if inst.GeminiSessionID != newSessionID {
+		t.Errorf("GeminiSessionID should be updated to filesystem session %q, got %q", newSessionID, inst.GeminiSessionID)
+	}
+
+	// Timestamp should be updated
+	if !inst.GeminiDetectedAt.After(oldDetectedAt) {
+		t.Error("GeminiDetectedAt should be updated when new session found")
 	}
 }
 
@@ -859,12 +894,33 @@ func TestBuildGeminiCommand(t *testing.T) {
 	if !strings.Contains(cmd, "GEMINI_YOLO_MODE") {
 		t.Errorf("buildGeminiCommand('gemini') should set GEMINI_YOLO_MODE env, got %q", cmd)
 	}
+	// Resume should set GEMINI_SESSION_ID in tmux env
+	if !strings.Contains(cmd, "tmux set-environment GEMINI_SESSION_ID abc-123-def") {
+		t.Errorf("buildGeminiCommand('gemini') should set GEMINI_SESSION_ID in tmux env on resume, got %q", cmd)
+	}
+
+	// With explicit model set, should include --model flag
+	inst.GeminiModel = "gemini-2.5-pro"
+	cmd = inst.buildGeminiCommand("gemini")
+	if !strings.Contains(cmd, "--model gemini-2.5-pro") {
+		t.Errorf("buildGeminiCommand('gemini') should include --model flag, got %q", cmd)
+	}
+
+	// Without session ID but with model, should include --model flag
+	inst.GeminiSessionID = ""
+	cmd = inst.buildGeminiCommand("gemini")
+	if !strings.Contains(cmd, "--model gemini-2.5-pro") {
+		t.Errorf("buildGeminiCommand('gemini') with model should include --model flag, got %q", cmd)
+	}
+	if !strings.Contains(cmd, "exec gemini") {
+		t.Errorf("buildGeminiCommand('gemini') without session ID should start fresh, got %q", cmd)
+	}
 
 	// Custom commands should pass through (e.g., existing --resume commands)
 	customCmd := "gemini --some-flag"
 	cmd = inst.buildGeminiCommand(customCmd)
-	if cmd != customCmd {
-		t.Errorf("buildGeminiCommand(custom) = %q, want %q", cmd, customCmd)
+	if !strings.Contains(cmd, customCmd) {
+		t.Errorf("buildGeminiCommand(custom) should contain %q, got %q", customCmd, cmd)
 	}
 }
 

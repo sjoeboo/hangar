@@ -132,6 +132,29 @@ func ListGeminiSessions(projectPath string) ([]GeminiSessionInfo, error) {
 	return sessions, nil
 }
 
+// findNewestFile returns the newest file matching a glob pattern along with its modification time.
+// Returns empty string and zero time if no files match.
+func findNewestFile(pattern string) (string, time.Time) {
+	files, _ := filepath.Glob(pattern)
+	if len(files) == 0 {
+		return "", time.Time{}
+	}
+
+	var newestPath string
+	var newestTime time.Time
+	for _, f := range files {
+		info, err := os.Stat(f)
+		if err != nil {
+			continue
+		}
+		if info.ModTime().After(newestTime) {
+			newestTime = info.ModTime()
+			newestPath = f
+		}
+	}
+	return newestPath, newestTime
+}
+
 // findGeminiSessionInAllProjects searches all Gemini project directories for a session file
 // This handles path hash mismatches when agent-deck runs from a different directory
 // than where the Gemini session was originally created.
@@ -153,6 +176,8 @@ func findGeminiSessionInAllProjects(sessionID string) string {
 	// Search pattern: session-*-<uuid8>.json
 	targetPattern := "session-*-" + sessionID[:8] + ".json"
 
+	var bestPath string
+	var bestTime time.Time
 	for _, entry := range entries {
 		if !entry.IsDir() {
 			continue
@@ -160,15 +185,18 @@ func findGeminiSessionInAllProjects(sessionID string) string {
 
 		chatsDir := filepath.Join(tmpDir, entry.Name(), "chats")
 		pattern := filepath.Join(chatsDir, targetPattern)
-		if files, _ := filepath.Glob(pattern); len(files) > 0 {
-			return files[0]
+		path, mtime := findNewestFile(pattern)
+		if path != "" && mtime.After(bestTime) {
+			bestPath = path
+			bestTime = mtime
 		}
 	}
 
-	return ""
+	return bestPath
 }
 
-// UpdateGeminiAnalyticsFromDisk updates the analytics struct from the session file on disk
+// UpdateGeminiAnalyticsFromDisk updates the analytics struct from the session file on disk.
+// Uses mtime caching to skip re-parsing unchanged files (important for 40MB+ session files).
 func UpdateGeminiAnalyticsFromDisk(projectPath, sessionID string, analytics *GeminiSessionAnalytics) error {
 	if sessionID == "" || len(sessionID) < 8 {
 		return fmt.Errorf("invalid session ID")
@@ -178,21 +206,28 @@ func UpdateGeminiAnalyticsFromDisk(projectPath, sessionID string, analytics *Gem
 	// Find file matching session ID prefix (first 8 chars)
 	// Filename format: session-YYYY-MM-DDTHH-MM-<uuid8>.json
 	pattern := filepath.Join(sessionsDir, "session-*-"+sessionID[:8]+".json")
-	files, _ := filepath.Glob(pattern)
+	filePath, fileMtime := findNewestFile(pattern)
 
 	// Fallback: search across all projects if not found in expected location
-	// This handles path hash mismatches (e.g., session created from different directory)
-	if len(files) == 0 {
+	if filePath == "" {
 		if fallbackPath := findGeminiSessionInAllProjects(sessionID); fallbackPath != "" {
-			files = []string{fallbackPath}
+			filePath = fallbackPath
+			if info, err := os.Stat(fallbackPath); err == nil {
+				fileMtime = info.ModTime()
+			}
 		}
 	}
 
-	if len(files) == 0 {
+	if filePath == "" {
 		return fmt.Errorf("session file not found")
 	}
 
-	data, err := os.ReadFile(files[0])
+	// mtime cache: skip re-parse if file hasn't changed since last read
+	if !analytics.LastFileModTime.IsZero() && !fileMtime.IsZero() && fileMtime.Equal(analytics.LastFileModTime) {
+		return nil
+	}
+
+	data, err := os.ReadFile(filePath)
 	if err != nil {
 		return fmt.Errorf("failed to read session file: %w", err)
 	}
@@ -203,6 +238,7 @@ func UpdateGeminiAnalyticsFromDisk(projectPath, sessionID string, analytics *Gem
 		LastUpdated string `json:"lastUpdated"`
 		Messages    []struct {
 			Type   string `json:"type"`
+			Model  string `json:"model,omitempty"`
 			Tokens struct {
 				Input  int `json:"input"`
 				Output int `json:"output"`
@@ -234,6 +270,7 @@ func UpdateGeminiAnalyticsFromDisk(projectPath, sessionID string, analytics *Gem
 	analytics.InputTokens = 0
 	analytics.OutputTokens = 0
 	analytics.TotalTurns = 0
+	analytics.Model = ""
 	for _, msg := range session.Messages {
 		if msg.Type == "gemini" {
 			analytics.InputTokens += msg.Tokens.Input
@@ -243,8 +280,16 @@ func UpdateGeminiAnalyticsFromDisk(projectPath, sessionID string, analytics *Gem
 			// For Gemini, the input tokens of the last message represent the total context size
 			// including history and current prompt.
 			analytics.CurrentContextTokens = msg.Tokens.Input
+
+			// Extract model from the last gemini message that has one
+			if msg.Model != "" {
+				analytics.Model = msg.Model
+			}
 		}
 	}
+
+	// Record mtime for cache
+	analytics.LastFileModTime = fileMtime
 
 	return nil
 }

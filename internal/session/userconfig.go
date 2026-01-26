@@ -344,6 +344,10 @@ type GeminiSettings struct {
 	// Default: false
 	YoloMode bool `toml:"yolo_mode"`
 
+	// DefaultModel is the model to use for new Gemini sessions (e.g., "gemini-2.5-flash")
+	// If empty, Gemini CLI uses its own default
+	DefaultModel string `toml:"default_model"`
+
 	// EnvFile is a .env file specific to Gemini sessions
 	// Sourced AFTER global [shell].env_files
 	EnvFile string `toml:"env_file"`

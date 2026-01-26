@@ -21,6 +21,12 @@ type GeminiSessionAnalytics struct {
 
 	// Cost estimation
 	EstimatedCost float64 `json:"estimated_cost"`
+
+	// Model detected from session file messages
+	Model string `json:"model,omitempty"`
+
+	// In-memory cache: last file modification time (skip re-parse if unchanged)
+	LastFileModTime time.Time `json:"-"`
 }
 
 // TotalTokens returns the sum of input and output tokens
@@ -38,9 +44,11 @@ type GeminiModelPricing struct {
 var geminiPricing = map[string]GeminiModelPricing{
 	"gemini-1.5-flash": {Input: 0.075, Output: 0.30},
 	"gemini-1.5-pro":   {Input: 3.50, Output: 10.50},
-	"gemini-2.0-flash": {Input: 0.10, Output: 0.40}, // Estimated
+	"gemini-2.0-flash": {Input: 0.10, Output: 0.40},
+	"gemini-2.5-flash": {Input: 0.15, Output: 0.60},
+	"gemini-2.5-pro":   {Input: 1.25, Output: 10.00},
 	// Fallback
-	"default": {Input: 0.075, Output: 0.30},
+	"default": {Input: 0.15, Output: 0.60},
 }
 
 // CalculateCost estimates session cost based on token usage and model pricing

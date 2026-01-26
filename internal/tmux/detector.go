@@ -47,10 +47,7 @@ func (d *PromptDetector) HasPrompt(content string) bool {
 			d.hasLineEndingWith(content, ">")
 
 	case "gemini":
-		// From Claude Squad: session/tmux/tmux.go line 284
-		return strings.Contains(content, "Yes, allow once") ||
-			strings.Contains(content, "gemini>") ||
-			d.hasLineEndingWith(content, ">")
+		return d.hasGeminiPrompt(content)
 
 	case "codex":
 		// Codex/OpenAI CLI patterns
@@ -275,6 +272,38 @@ func (d *PromptDetector) hasClaudePrompt(content string) bool {
 			if cleanLine == ">" || cleanLine == "> " || cleanLine == "❯" || cleanLine == "❯ " {
 				return true
 			}
+		}
+	}
+
+	return false
+}
+
+// hasGeminiPrompt detects if Gemini CLI is waiting for input.
+// Checks last 10 non-blank lines for known Gemini prompt patterns.
+func (d *PromptDetector) hasGeminiPrompt(content string) bool {
+	lines := strings.Split(content, "\n")
+	var lastLines []string
+	for i := len(lines) - 1; i >= 0 && len(lastLines) < 10; i-- {
+		line := strings.TrimSpace(lines[i])
+		if line != "" {
+			lastLines = append([]string{line}, lastLines...)
+		}
+	}
+
+	for _, line := range lastLines {
+		// Direct prompt patterns
+		if line == "gemini>" || strings.Contains(line, "gemini>") {
+			return true
+		}
+		if strings.Contains(line, "Yes, allow once") {
+			return true
+		}
+		if strings.Contains(line, "Type your message") {
+			return true
+		}
+		// Generic trailing ">" prompt (common Gemini waiting state)
+		if strings.HasSuffix(line, ">") {
+			return true
 		}
 	}
 

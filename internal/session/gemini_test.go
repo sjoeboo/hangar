@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestGetGeminiConfigDir_Default(t *testing.T) {
@@ -211,3 +212,134 @@ func TestListGeminiSessions(t *testing.T) {
 
 // TestFindGeminiSessionForInstance was removed - file scanning is no longer used.
 // Session ID detection now uses tmux environment variables exclusively.
+
+func TestFindNewestFile(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Create 3 files with different mtimes
+	f1 := filepath.Join(tmpDir, "file-a.json")
+	f2 := filepath.Join(tmpDir, "file-b.json")
+	f3 := filepath.Join(tmpDir, "file-c.json")
+
+	_ = os.WriteFile(f1, []byte("a"), 0644)
+	_ = os.WriteFile(f2, []byte("b"), 0644)
+	_ = os.WriteFile(f3, []byte("c"), 0644)
+
+	// Make f2 the newest by touching it with a future mtime
+	futureTime := time.Now().Add(1 * time.Hour)
+	_ = os.Chtimes(f2, futureTime, futureTime)
+
+	pattern := filepath.Join(tmpDir, "file-*.json")
+	path, mtime := findNewestFile(pattern)
+	if path != f2 {
+		t.Errorf("findNewestFile() = %q, want %q", path, f2)
+	}
+	if mtime.IsZero() {
+		t.Error("findNewestFile() returned zero mtime")
+	}
+}
+
+func TestFindNewestFile_NoMatch(t *testing.T) {
+	tmpDir := t.TempDir()
+	pattern := filepath.Join(tmpDir, "nonexistent-*.json")
+	path, mtime := findNewestFile(pattern)
+	if path != "" {
+		t.Errorf("findNewestFile() with no matches = %q, want empty", path)
+	}
+	if !mtime.IsZero() {
+		t.Error("findNewestFile() with no matches should return zero mtime")
+	}
+}
+
+func TestUpdateGeminiAnalyticsFromDisk_MtimeCache(t *testing.T) {
+	tmpDir := t.TempDir()
+	geminiConfigDirOverride = tmpDir
+	defer func() { geminiConfigDirOverride = "" }()
+
+	projectPath := "/Users/ashesh/test-project"
+	sessionsDir := GetGeminiSessionsDir(projectPath)
+	_ = os.MkdirAll(sessionsDir, 0755)
+
+	sessionData := `{
+  "sessionId": "abc12345-1111-1111-1111-111111111111",
+  "startTime": "2025-12-23T00:24:00.000Z",
+  "lastUpdated": "2025-12-23T00:30:00.000Z",
+  "messages": [
+    {"type": "user", "content": "test", "tokens": {"input": 0, "output": 0}},
+    {"type": "gemini", "content": "response", "tokens": {"input": 100, "output": 200}}
+  ]
+}`
+	sessionFile := filepath.Join(sessionsDir, "session-2025-12-23T00-24-abc12345.json")
+	_ = os.WriteFile(sessionFile, []byte(sessionData), 0644)
+
+	analytics := &GeminiSessionAnalytics{}
+
+	// First call: parses file, records mtime
+	err := UpdateGeminiAnalyticsFromDisk(projectPath, "abc12345-1111-1111-1111-111111111111", analytics)
+	if err != nil {
+		t.Fatalf("First call failed: %v", err)
+	}
+	if analytics.InputTokens != 100 {
+		t.Errorf("InputTokens = %d, want 100", analytics.InputTokens)
+	}
+	if analytics.LastFileModTime.IsZero() {
+		t.Fatal("LastFileModTime should be set after first parse")
+	}
+
+	// Tamper with analytics to verify second call is a no-op (cache hit)
+	analytics.InputTokens = 999
+
+	err = UpdateGeminiAnalyticsFromDisk(projectPath, "abc12345-1111-1111-1111-111111111111", analytics)
+	if err != nil {
+		t.Fatalf("Second call failed: %v", err)
+	}
+	// InputTokens should still be 999 (cache hit, no re-parse)
+	if analytics.InputTokens != 999 {
+		t.Errorf("Second call re-parsed file (InputTokens = %d, want 999 from cache)", analytics.InputTokens)
+	}
+}
+
+func TestUpdateGeminiAnalyticsFromDisk_ExtractsModel(t *testing.T) {
+	tmpDir := t.TempDir()
+	geminiConfigDirOverride = tmpDir
+	defer func() { geminiConfigDirOverride = "" }()
+
+	projectPath := "/Users/ashesh/test-project"
+	sessionsDir := GetGeminiSessionsDir(projectPath)
+	_ = os.MkdirAll(sessionsDir, 0755)
+
+	sessionData := `{
+  "sessionId": "abc12345-2222-2222-2222-222222222222",
+  "startTime": "2025-12-23T00:24:00.000Z",
+  "lastUpdated": "2025-12-23T00:30:00.000Z",
+  "messages": [
+    {"type": "user", "content": "test", "tokens": {"input": 0, "output": 0}},
+    {"type": "gemini", "content": "response 1", "model": "gemini-2.0-flash", "tokens": {"input": 100, "output": 200}},
+    {"type": "user", "content": "test 2", "tokens": {"input": 0, "output": 0}},
+    {"type": "gemini", "content": "response 2", "model": "gemini-2.5-pro", "tokens": {"input": 300, "output": 400}}
+  ]
+}`
+	sessionFile := filepath.Join(sessionsDir, "session-2025-12-23T00-24-abc12345.json")
+	_ = os.WriteFile(sessionFile, []byte(sessionData), 0644)
+
+	analytics := &GeminiSessionAnalytics{}
+	err := UpdateGeminiAnalyticsFromDisk(projectPath, "abc12345-2222-2222-2222-222222222222", analytics)
+	if err != nil {
+		t.Fatalf("Failed: %v", err)
+	}
+
+	// Model should be from the last gemini message
+	if analytics.Model != "gemini-2.5-pro" {
+		t.Errorf("Model = %q, want %q", analytics.Model, "gemini-2.5-pro")
+	}
+	// Token counts should be accumulated
+	if analytics.InputTokens != 400 {
+		t.Errorf("InputTokens = %d, want 400", analytics.InputTokens)
+	}
+	if analytics.OutputTokens != 600 {
+		t.Errorf("OutputTokens = %d, want 600", analytics.OutputTokens)
+	}
+	if analytics.TotalTurns != 2 {
+		t.Errorf("TotalTurns = %d, want 2", analytics.TotalTurns)
+	}
+}

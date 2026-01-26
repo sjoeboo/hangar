@@ -58,6 +58,7 @@ type Instance struct {
 	GeminiSessionID  string                  `json:"gemini_session_id,omitempty"`
 	GeminiDetectedAt time.Time               `json:"gemini_detected_at,omitempty"`
 	GeminiYoloMode   *bool                   `json:"gemini_yolo_mode,omitempty"`   // Per-session override (nil = use global config)
+	GeminiModel      string                  `json:"gemini_model,omitempty"`       // Active model for this session
 	GeminiAnalytics  *GeminiSessionAnalytics `json:"gemini_analytics,omitempty"`   // Per-session analytics
 
 	// OpenCode CLI integration
@@ -421,17 +422,29 @@ func (i *Instance) buildGeminiCommand(baseCommand string) string {
 		yoloEnv = "true"
 	}
 
+	// Determine model flag
+	modelFlag := ""
+	if i.GeminiModel != "" {
+		modelFlag = " --model " + i.GeminiModel
+	} else if i.GeminiSessionID == "" {
+		// Only apply default model for NEW sessions (not resumes)
+		userConfig, _ := LoadUserConfig()
+		if userConfig != nil && userConfig.Gemini.DefaultModel != "" {
+			modelFlag = " --model " + userConfig.Gemini.DefaultModel
+		}
+	}
+
 	// If baseCommand is just "gemini", handle specially
 	if baseCommand == "gemini" {
 		// If we already have a session ID, use simple resume
 		if i.GeminiSessionID != "" {
-			return envPrefix + fmt.Sprintf("tmux set-environment GEMINI_YOLO_MODE %s; gemini --resume %s%s", yoloEnv, i.GeminiSessionID, yoloFlag)
+			return envPrefix + fmt.Sprintf("tmux set-environment GEMINI_YOLO_MODE %s; tmux set-environment GEMINI_SESSION_ID %s; gemini --resume %s%s%s", yoloEnv, i.GeminiSessionID, i.GeminiSessionID, yoloFlag, modelFlag)
 		}
 
 		// Start Gemini fresh - session ID will be captured when user interacts
 		// The previous capture-resume approach (gemini --output-format json ".") would hang
 		// because Gemini processes the "." prompt which takes too long
-		return envPrefix + fmt.Sprintf(`tmux set-environment GEMINI_YOLO_MODE %s; exec gemini%s`, yoloEnv, yoloFlag)
+		return envPrefix + fmt.Sprintf(`tmux set-environment GEMINI_YOLO_MODE %s; exec gemini%s%s`, yoloEnv, yoloFlag, modelFlag)
 	}
 
 	// For custom commands (e.g., resume commands), return as-is
@@ -767,18 +780,18 @@ func (i *Instance) UpdateCodexSession(excludeIDs map[string]bool) {
 		}
 	}
 
-	// 2. Fallback: scan filesystem if no session ID from tmux env
-	if i.CodexSessionID == "" {
-		if sessionID := i.queryCodexSession(); sessionID != "" {
-			i.CodexSessionID = sessionID
-			i.CodexDetectedAt = time.Now()
+	// 2. ALWAYS scan filesystem for most recent session
+	// Krudony fix: user may have started a NEW session - don't use stale cached ID
+	if sessionID := i.queryCodexSession(); sessionID != "" {
+		if sessionID != i.CodexSessionID {
+			log.Printf("[CODEX] Updating session ID: %s -> %s", i.CodexSessionID, sessionID)
+		}
+		i.CodexSessionID = sessionID
+		i.CodexDetectedAt = time.Now()
 
-			// Sync back to tmux environment for future restarts
-			if i.tmuxSession != nil && i.tmuxSession.Exists() {
-				_ = i.tmuxSession.SetEnvironment("CODEX_SESSION_ID", i.CodexSessionID)
-			}
-
-			log.Printf("[CODEX] Detected session ID from filesystem: %s", i.CodexSessionID)
+		// Sync back to tmux environment for future restarts
+		if i.tmuxSession != nil && i.tmuxSession.Exists() {
+			_ = i.tmuxSession.SetEnvironment("CODEX_SESSION_ID", i.CodexSessionID)
 		}
 	}
 }
@@ -1259,80 +1272,102 @@ func (i *Instance) SetGeminiYoloMode(enabled bool) {
 	}
 }
 
-// UpdateGeminiSession updates the Gemini session ID and YOLO mode.
-// Primary source: tmux environment (set by capture-resume pattern)
-// Fallback: filesystem scan for most recent session (handles agent-deck restarts)
-// Cross-project search: handles path hash mismatches
+// UpdateGeminiSession updates the Gemini session ID, YOLO mode, analytics, and latest prompt.
+// Delegates to focused helpers for each concern.
 func (i *Instance) UpdateGeminiSession(excludeIDs map[string]bool) {
 	if i.Tool != "gemini" {
 		return
 	}
+	i.syncGeminiSessionFromTmux()
+	i.syncGeminiSessionFromDisk()
+	i.updateGeminiAnalytics()
+	i.updateGeminiLatestPrompt()
+}
 
-	// 1. Try to read from tmux environment first (authoritative if set)
-	if i.tmuxSession != nil {
-		if sessionID, err := i.tmuxSession.GetEnvironment("GEMINI_SESSION_ID"); err == nil && sessionID != "" {
-			if i.GeminiSessionID != sessionID {
-				i.GeminiSessionID = sessionID
-			}
-			i.GeminiDetectedAt = time.Now()
+// syncGeminiSessionFromTmux reads session ID and YOLO mode from tmux environment (authoritative source).
+func (i *Instance) syncGeminiSessionFromTmux() {
+	if i.tmuxSession == nil {
+		return
+	}
+	if sessionID, err := i.tmuxSession.GetEnvironment("GEMINI_SESSION_ID"); err == nil && sessionID != "" {
+		if i.GeminiSessionID != sessionID {
+			i.GeminiSessionID = sessionID
 		}
-
-		// Detect YOLO Mode from environment (authoritative sync)
-		if yoloEnv, err := i.tmuxSession.GetEnvironment("GEMINI_YOLO_MODE"); err == nil && yoloEnv != "" {
-			enabled := yoloEnv == "true"
-			i.GeminiYoloMode = &enabled
-		}
+		i.GeminiDetectedAt = time.Now()
 	}
 
-	// 2. Fallback: scan filesystem if no session ID from tmux env
-	// This handles cases where agent-deck restarted and tmux env was lost
+	// Detect YOLO Mode from environment (authoritative sync)
+	if yoloEnv, err := i.tmuxSession.GetEnvironment("GEMINI_YOLO_MODE"); err == nil && yoloEnv != "" {
+		enabled := yoloEnv == "true"
+		i.GeminiYoloMode = &enabled
+	}
+}
+
+// syncGeminiSessionFromDisk scans the filesystem for the most recent session.
+// Krudony fix: user may have started a NEW session, so always scan rather than using stale cached ID.
+func (i *Instance) syncGeminiSessionFromDisk() {
+	sessions, err := ListGeminiSessions(i.ProjectPath)
+	if err != nil || len(sessions) == 0 {
+		return
+	}
+
+	// Pick the most recent session (list is sorted by LastUpdated desc)
+	mostRecent := sessions[0]
+	if mostRecent.SessionID != i.GeminiSessionID {
+		log.Printf("[GEMINI] Updating session ID: %s -> %s", i.GeminiSessionID, mostRecent.SessionID)
+	}
+	i.GeminiSessionID = mostRecent.SessionID
+	i.GeminiDetectedAt = time.Now()
+
+	// Sync back to tmux environment for future restarts
+	if i.tmuxSession != nil && i.tmuxSession.Exists() {
+		_ = i.tmuxSession.SetEnvironment("GEMINI_SESSION_ID", i.GeminiSessionID)
+	}
+}
+
+// updateGeminiAnalytics refreshes token counts, cost, and model from the session file.
+// Syncs the detected model back to the instance's GeminiModel field.
+func (i *Instance) updateGeminiAnalytics() {
 	if i.GeminiSessionID == "" {
-		sessions, err := ListGeminiSessions(i.ProjectPath)
-		if err == nil && len(sessions) > 0 {
-			// Pick the most recent session (list is sorted by LastUpdated desc)
-			mostRecent := sessions[0]
-			i.GeminiSessionID = mostRecent.SessionID
-			i.GeminiDetectedAt = time.Now()
+		return
+	}
+	if i.GeminiAnalytics == nil {
+		i.GeminiAnalytics = &GeminiSessionAnalytics{}
+	}
+	// Non-blocking update (ignore errors, best effort)
+	_ = UpdateGeminiAnalyticsFromDisk(i.ProjectPath, i.GeminiSessionID, i.GeminiAnalytics)
 
-			// Sync back to tmux environment for future restarts
-			if i.tmuxSession != nil && i.tmuxSession.Exists() {
-				_ = i.tmuxSession.SetEnvironment("GEMINI_SESSION_ID", i.GeminiSessionID)
-			}
+	// Sync detected model from analytics to instance (if not explicitly set by user)
+	if i.GeminiModel == "" && i.GeminiAnalytics.Model != "" {
+		i.GeminiModel = i.GeminiAnalytics.Model
+	}
+}
 
-			log.Printf("[GEMINI] Detected session ID from filesystem: %s", i.GeminiSessionID)
-		}
+// updateGeminiLatestPrompt extracts the latest user prompt from the session file.
+func (i *Instance) updateGeminiLatestPrompt() {
+	if i.GeminiSessionID == "" || len(i.GeminiSessionID) < 8 {
+		return
 	}
 
-	// Update analytics if we have a session ID
-	if i.GeminiSessionID != "" {
-		if i.GeminiAnalytics == nil {
-			i.GeminiAnalytics = &GeminiSessionAnalytics{}
-		}
-		// Non-blocking update (ignore errors, best effort)
-		// Note: UpdateGeminiAnalyticsFromDisk already has cross-project fallback
-		_ = UpdateGeminiAnalyticsFromDisk(i.ProjectPath, i.GeminiSessionID, i.GeminiAnalytics)
+	sessionsDir := GetGeminiSessionsDir(i.ProjectPath)
+	pattern := filepath.Join(sessionsDir, "session-*-"+i.GeminiSessionID[:8]+".json")
+	filePath, _ := findNewestFile(pattern)
+
+	// Fallback: cross-project search
+	if filePath == "" {
+		filePath = findGeminiSessionInAllProjects(i.GeminiSessionID)
 	}
 
-	// Update latest prompt from session file
-	if i.GeminiSessionID != "" && len(i.GeminiSessionID) >= 8 {
-		sessionsDir := GetGeminiSessionsDir(i.ProjectPath)
-		pattern := filepath.Join(sessionsDir, "session-*-"+i.GeminiSessionID[:8]+".json")
-		files, _ := filepath.Glob(pattern)
+	if filePath == "" {
+		return
+	}
 
-		// Fallback: cross-project search
-		if len(files) == 0 {
-			if fallbackPath := findGeminiSessionInAllProjects(i.GeminiSessionID); fallbackPath != "" {
-				files = []string{fallbackPath}
-			}
-		}
-
-		if len(files) > 0 {
-			if data, err := os.ReadFile(files[0]); err == nil {
-				if prompt, err := parseGeminiLatestUserPrompt(data); err == nil && prompt != "" {
-					i.LatestPrompt = prompt
-				}
-			}
-		}
+	data, err := os.ReadFile(filePath)
+	if err != nil {
+		return
+	}
+	if prompt, err := parseGeminiLatestUserPrompt(data); err == nil && prompt != "" {
+		i.LatestPrompt = prompt
 	}
 }
 
@@ -1974,17 +2009,15 @@ func (i *Instance) Restart() error {
 		return nil
 	}
 
-	// For Gemini: ensure session ID is populated before checking resume logic
-	// This handles cases where tmux env was lost but filesystem still has session
-	if i.Tool == "gemini" && i.GeminiSessionID == "" {
+	// For Gemini: ALWAYS update session to get the most recent one
+	// Krudony fix: don't skip when we already have an ID - the user may have started a NEW session
+	if i.Tool == "gemini" {
 		i.UpdateGeminiSession(nil)
 	}
 
 	// If Gemini session with known ID AND tmux session exists, use respawn-pane
 	if i.Tool == "gemini" && i.GeminiSessionID != "" && i.tmuxSession != nil && i.tmuxSession.Exists() {
-		// Build Gemini resume command with tmux env update
-		resumeCmd := fmt.Sprintf("tmux set-environment GEMINI_SESSION_ID %s && gemini --resume %s",
-			i.GeminiSessionID, i.GeminiSessionID)
+		resumeCmd := i.buildGeminiCommand("gemini")
 		log.Printf("[RESTART-DEBUG] Gemini using respawn-pane with command: %s", resumeCmd)
 
 		if err := i.tmuxSession.RespawnPane(resumeCmd); err != nil {
@@ -2037,8 +2070,9 @@ func (i *Instance) Restart() error {
 		return nil
 	}
 
-	// For Codex: ensure session ID is populated before checking resume logic
-	if i.Tool == "codex" && i.CodexSessionID == "" {
+	// For Codex: ALWAYS update session to get the most recent one
+	// Krudony fix: don't skip when we already have an ID - the user may have started a NEW session
+	if i.Tool == "codex" {
 		i.UpdateCodexSession(nil)
 	}
 
@@ -2121,9 +2155,7 @@ func (i *Instance) Restart() error {
 	if i.Tool == "claude" && i.ClaudeSessionID != "" {
 		command = i.buildClaudeResumeCommand()
 	} else if i.Tool == "gemini" && i.GeminiSessionID != "" {
-		// Set GEMINI_SESSION_ID in tmux env so detection works after restart
-		command = fmt.Sprintf("tmux set-environment GEMINI_SESSION_ID %s && gemini --resume %s",
-			i.GeminiSessionID, i.GeminiSessionID)
+		command = i.buildGeminiCommand("gemini")
 	} else if i.Tool == "opencode" && i.OpenCodeSessionID != "" {
 		// Set OPENCODE_SESSION_ID in tmux env so detection works after restart
 		command = fmt.Sprintf("tmux set-environment OPENCODE_SESSION_ID %s && opencode -s %s",
