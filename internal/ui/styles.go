@@ -186,6 +186,10 @@ const (
 	IconShell    = "🐚"
 )
 
+// MaxNameLength is the maximum allowed length for session and group names.
+// Used by dialog CharLimits and Validate() methods to ensure consistency.
+const MaxNameLength = 50
+
 // List Item Styles (used by legacy list.go component in tests)
 var (
 	ListItemStyle       lipgloss.Style

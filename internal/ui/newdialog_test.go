@@ -657,3 +657,81 @@ func TestNewDialog_View_HidesBranchInputWhenDisabled(t *testing.T) {
 		t.Error("View should show unchecked checkbox [ ] when worktree disabled")
 	}
 }
+
+// ===== CharLimit & Inline Error Tests (Issue #93) =====
+
+func TestNewDialog_CharLimitMatchesMaxNameLength(t *testing.T) {
+	d := NewNewDialog()
+	if d.nameInput.CharLimit != MaxNameLength {
+		t.Errorf("nameInput.CharLimit = %d, want %d (MaxNameLength)", d.nameInput.CharLimit, MaxNameLength)
+	}
+}
+
+func TestNewDialog_CharLimitTruncatesLongNames(t *testing.T) {
+	d := NewNewDialog()
+	d.pathInput.SetValue("/tmp/project")
+	// Try to set a name longer than MaxNameLength via textinput
+	longName := strings.Repeat("a", MaxNameLength+10)
+	d.nameInput.SetValue(longName)
+
+	// CharLimit should truncate the value to MaxNameLength
+	actual := d.nameInput.Value()
+	if len(actual) > MaxNameLength {
+		t.Errorf("nameInput should truncate to MaxNameLength (%d), but got length %d", MaxNameLength, len(actual))
+	}
+
+	// Validation should pass since the textinput truncated
+	err := d.Validate()
+	if err != "" {
+		t.Errorf("Validate() should pass after CharLimit truncation, got: %q", err)
+	}
+}
+
+func TestNewDialog_Validate_NameAtMaxLength(t *testing.T) {
+	d := NewNewDialog()
+	d.pathInput.SetValue("/tmp/project")
+	exactName := strings.Repeat("a", MaxNameLength)
+	d.nameInput.SetValue(exactName)
+
+	err := d.Validate()
+	if err != "" {
+		t.Errorf("Validate() should accept name at exactly MaxNameLength, got: %q", err)
+	}
+}
+
+func TestNewDialog_SetError_ShowsInView(t *testing.T) {
+	d := NewNewDialog()
+	d.SetSize(80, 40)
+	d.Show()
+
+	d.SetError("Something went wrong")
+	view := d.View()
+
+	if !strings.Contains(view, "Something went wrong") {
+		t.Error("View should display the inline error message")
+	}
+}
+
+func TestNewDialog_ClearError_HidesFromView(t *testing.T) {
+	d := NewNewDialog()
+	d.SetSize(80, 40)
+	d.Show()
+
+	d.SetError("Something went wrong")
+	d.ClearError()
+	view := d.View()
+
+	if strings.Contains(view, "Something went wrong") {
+		t.Error("View should not display the error after ClearError()")
+	}
+}
+
+func TestNewDialog_ShowInGroup_ClearsError(t *testing.T) {
+	d := NewNewDialog()
+	d.SetError("Previous error")
+	d.ShowInGroup("group", "Group", "")
+
+	if d.validationErr != "" {
+		t.Error("ShowInGroup should clear validationErr")
+	}
+}

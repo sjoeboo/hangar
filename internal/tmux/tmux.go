@@ -1782,6 +1782,65 @@ func (s *Session) SendEnter() error {
 	return cmd.Run()
 }
 
+// SendKeysChunked sends large content to the tmux session in chunks to avoid
+// tmux/OS buffer limits. Content ≤4KB is sent directly via SendKeys.
+// Larger content is split at newline boundaries with a short delay between chunks.
+func (s *Session) SendKeysChunked(content string) error {
+	const chunkSize = 4096
+	const chunkDelay = 50 * time.Millisecond
+
+	if len(content) <= chunkSize {
+		return s.SendKeys(content)
+	}
+
+	chunks := splitIntoChunks(content, chunkSize)
+	for i, chunk := range chunks {
+		if err := s.SendKeys(chunk); err != nil {
+			return fmt.Errorf("failed to send chunk %d/%d: %w", i+1, len(chunks), err)
+		}
+		if i < len(chunks)-1 {
+			time.Sleep(chunkDelay)
+		}
+	}
+	return nil
+}
+
+// splitIntoChunks splits content into chunks of at most maxSize bytes,
+// preferring to split at newline boundaries. If a single line exceeds maxSize,
+// it is split at the byte boundary as a fallback.
+func splitIntoChunks(content string, maxSize int) []string {
+	if content == "" {
+		return nil
+	}
+	if len(content) <= maxSize {
+		return []string{content}
+	}
+
+	var chunks []string
+	remaining := content
+
+	for len(remaining) > 0 {
+		if len(remaining) <= maxSize {
+			chunks = append(chunks, remaining)
+			break
+		}
+
+		// Find the last newline within the chunk boundary
+		cutPoint := strings.LastIndex(remaining[:maxSize], "\n")
+		if cutPoint > 0 {
+			// Include the newline in this chunk
+			chunks = append(chunks, remaining[:cutPoint+1])
+			remaining = remaining[cutPoint+1:]
+		} else {
+			// No newline found: hard split at maxSize
+			chunks = append(chunks, remaining[:maxSize])
+			remaining = remaining[maxSize:]
+		}
+	}
+
+	return chunks
+}
+
 // SendCtrlC sends Ctrl+C (interrupt signal) to the tmux session
 func (s *Session) SendCtrlC() error {
 	cmd := exec.Command("tmux", "send-keys", "-t", s.Name, "C-c")

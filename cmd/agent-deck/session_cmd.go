@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/asheshgoplani/agent-deck/internal/clipboard"
 	"github.com/asheshgoplani/agent-deck/internal/profile"
 	"github.com/asheshgoplani/agent-deck/internal/session"
 	"github.com/asheshgoplani/agent-deck/internal/tmux"
@@ -755,6 +756,7 @@ func handleSessionSet(profile string, args []string) {
 	case "title":
 		oldValue = inst.Title
 		inst.Title = value
+		inst.SyncTmuxDisplayName()
 	case "path":
 		oldValue = inst.ProjectPath
 		inst.ProjectPath = value
@@ -1266,6 +1268,7 @@ func handleSessionOutput(profile string, args []string) {
 	jsonOutput := fs.Bool("json", false, "Output as JSON")
 	quiet := fs.Bool("quiet", false, "Minimal output")
 	quietShort := fs.Bool("q", false, "Minimal output (short)")
+	copyFlag := fs.Bool("copy", false, "Copy output to system clipboard")
 
 	fs.Usage = func() {
 		fmt.Println("Usage: agent-deck session output [id|title] [options]")
@@ -1306,6 +1309,26 @@ func handleSessionOutput(profile string, args []string) {
 	if err != nil {
 		out.Error(fmt.Sprintf("failed to get response: %v", err), ErrCodeInvalidOperation)
 		os.Exit(1)
+	}
+
+	// Copy to clipboard mode
+	if *copyFlag {
+		termInfo := tmux.GetTerminalInfo()
+		result, err := clipboard.Copy(response.Content, termInfo.SupportsOSC52)
+		if err != nil {
+			out.Error(fmt.Sprintf("clipboard: %v", err), ErrCodeInvalidOperation)
+			os.Exit(1)
+		}
+		jsonData := map[string]interface{}{
+			"success":       true,
+			"session_id":    inst.ID,
+			"session_title": inst.Title,
+			"lines_copied":  result.LineCount,
+			"bytes_copied":  result.ByteSize,
+			"method":        result.Method,
+		}
+		out.Print(fmt.Sprintf("Copied %d lines to clipboard via %s (%s)", result.LineCount, result.Method, inst.Title), jsonData)
+		return
 	}
 
 	// Quiet mode: just print raw content

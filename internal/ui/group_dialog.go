@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/textinput"
@@ -20,16 +21,17 @@ const (
 
 // GroupDialog handles group creation, renaming, and moving sessions
 type GroupDialog struct {
-	visible    bool
-	mode       GroupDialogMode
-	nameInput  textinput.Model
-	width      int
-	height     int
-	groupPath  string   // Current group being edited (for rename) or parent path (for create subgroup)
-	parentName string   // Display name of parent group (for subgroup creation)
-	groupNames []string // Available groups (for move)
-	selected   int      // Selected group index (for move)
-	sessionID  string   // Session ID being renamed (for rename session)
+	visible       bool
+	mode          GroupDialogMode
+	nameInput     textinput.Model
+	width         int
+	height        int
+	groupPath     string   // Current group being edited (for rename) or parent path (for create subgroup)
+	parentName    string   // Display name of parent group (for subgroup creation)
+	groupNames    []string // Available groups (for move)
+	selected      int      // Selected group index (for move)
+	sessionID     string   // Session ID being renamed (for rename session)
+	validationErr string   // Inline validation error displayed inside the dialog
 }
 
 // NewGroupDialog creates a new group dialog
@@ -51,6 +53,7 @@ func (g *GroupDialog) Show() {
 	g.mode = GroupDialogCreate
 	g.groupPath = "" // No parent = root level
 	g.parentName = ""
+	g.validationErr = ""
 	g.nameInput.SetValue("")
 	g.nameInput.Focus()
 }
@@ -61,6 +64,7 @@ func (g *GroupDialog) ShowCreateSubgroup(parentPath, parentName string) {
 	g.mode = GroupDialogCreate
 	g.groupPath = parentPath // Parent path for the new subgroup
 	g.parentName = parentName
+	g.validationErr = ""
 	g.nameInput.SetValue("")
 	g.nameInput.Focus()
 }
@@ -70,6 +74,7 @@ func (g *GroupDialog) ShowRename(currentPath, currentName string) {
 	g.visible = true
 	g.mode = GroupDialogRename
 	g.groupPath = currentPath
+	g.validationErr = ""
 	g.nameInput.SetValue(currentName)
 	g.nameInput.Focus()
 }
@@ -78,6 +83,7 @@ func (g *GroupDialog) ShowRename(currentPath, currentName string) {
 func (g *GroupDialog) ShowMove(groups []string) {
 	g.visible = true
 	g.mode = GroupDialogMove
+	g.validationErr = ""
 	g.groupNames = groups
 	g.selected = 0
 }
@@ -87,6 +93,7 @@ func (g *GroupDialog) ShowRenameSession(sessionID, currentName string) {
 	g.visible = true
 	g.mode = GroupDialogRenameSession
 	g.sessionID = sessionID
+	g.validationErr = ""
 	g.nameInput.SetValue(currentName)
 	g.nameInput.Focus()
 }
@@ -134,8 +141,8 @@ func (g *GroupDialog) Validate() string {
 	}
 
 	// Check name length
-	if len(name) > 50 {
-		return "Name too long (max 50 characters)"
+	if len(name) > MaxNameLength {
+		return fmt.Sprintf("Name too long (max %d characters)", MaxNameLength)
 	}
 
 	// Check for "/" in group names (would break path hierarchy)
@@ -146,6 +153,16 @@ func (g *GroupDialog) Validate() string {
 	}
 
 	return "" // Valid
+}
+
+// SetError sets an inline validation error displayed inside the dialog
+func (g *GroupDialog) SetError(msg string) {
+	g.validationErr = msg
+}
+
+// ClearError clears the inline validation error
+func (g *GroupDialog) ClearError() {
+	g.validationErr = ""
 }
 
 // GetGroupPath returns the group path being edited (or parent path for subgroup creation)
@@ -260,11 +277,18 @@ func (g *GroupDialog) View() string {
 	hintStyle := lipgloss.NewStyle().Foreground(ColorComment)
 	hint := hintStyle.Render("Enter confirm │ Esc cancel")
 
+	errContent := ""
+	if g.validationErr != "" {
+		errStyle := lipgloss.NewStyle().Foreground(ColorRed).Bold(true)
+		errContent = errStyle.Render("⚠ " + g.validationErr)
+	}
+
 	dialogContent := lipgloss.JoinVertical(
 		lipgloss.Center,
 		titleStyle.Render(title),
 		"",
 		content,
+		errContent,
 		"",
 		hint,
 	)

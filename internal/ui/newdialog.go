@@ -35,6 +35,8 @@ type NewDialog struct {
 	branchInput     textinput.Model
 	// Gemini YOLO mode
 	geminiYoloMode bool
+	// Inline validation error displayed inside the dialog
+	validationErr string
 }
 
 // NewNewDialog creates a new NewDialog instance
@@ -43,7 +45,7 @@ func NewNewDialog() *NewDialog {
 	nameInput := textinput.New()
 	nameInput.Placeholder = "session-name"
 	nameInput.Focus()
-	nameInput.CharLimit = 100
+	nameInput.CharLimit = MaxNameLength
 	nameInput.Width = 40
 
 	// Create path input
@@ -97,6 +99,7 @@ func (d *NewDialog) ShowInGroup(groupPath, groupName, defaultPath string) {
 	d.parentGroupName = groupName
 	d.visible = true
 	d.focusIndex = 0
+	d.validationErr = ""
 	d.nameInput.SetValue("")
 	d.nameInput.Focus()
 	d.suggestionNavigated = false // reset on show
@@ -276,8 +279,8 @@ func (d *NewDialog) Validate() string {
 	}
 
 	// Check name length
-	if len(name) > 50 {
-		return "Session name too long (max 50 characters)"
+	if len(name) > MaxNameLength {
+		return fmt.Sprintf("Session name too long (max %d characters)", MaxNameLength)
 	}
 
 	// Check for empty path
@@ -297,6 +300,16 @@ func (d *NewDialog) Validate() string {
 	}
 
 	return "" // Valid
+}
+
+// SetError sets an inline validation error displayed inside the dialog
+func (d *NewDialog) SetError(msg string) {
+	d.validationErr = msg
+}
+
+// ClearError clears the inline validation error
+func (d *NewDialog) ClearError() {
+	d.validationErr = ""
 }
 
 // updateFocus updates which input has focus
@@ -750,6 +763,13 @@ func (d *NewDialog) View() string {
 	if d.isClaudeSelected() {
 		content.WriteString("\n")
 		content.WriteString(d.claudeOptions.View())
+	}
+
+	// Inline validation error
+	if d.validationErr != "" {
+		errStyle := lipgloss.NewStyle().Foreground(ColorRed).Bold(true)
+		content.WriteString("\n")
+		content.WriteString(errStyle.Render("  ⚠ " + d.validationErr))
 	}
 
 	content.WriteString("\n")

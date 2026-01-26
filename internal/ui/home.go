@@ -2628,7 +2628,7 @@ func (h *Home) handleNewDialogKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "enter":
 		// Validate before creating session
 		if validationErr := h.newDialog.Validate(); validationErr != "" {
-			h.setError(fmt.Errorf("validation error: %s", validationErr))
+			h.newDialog.SetError(validationErr)
 			return h, nil
 		}
 
@@ -2642,13 +2642,13 @@ func (h *Home) handleNewDialogKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if worktreeEnabled && branchName != "" {
 			// Validate path is a git repo
 			if !git.IsGitRepo(path) {
-				h.setError(fmt.Errorf("path is not a git repository"))
+				h.newDialog.SetError("Path is not a git repository")
 				return h, nil
 			}
 
 			repoRoot, err := git.GetRepoRoot(path)
 			if err != nil {
-				h.setError(fmt.Errorf("failed to get repo root: %w", err))
+				h.newDialog.SetError(fmt.Sprintf("Failed to get repo root: %v", err))
 				return h, nil
 			}
 
@@ -2657,7 +2657,7 @@ func (h *Home) handleNewDialogKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 			// Create worktree
 			if err := git.CreateWorktree(repoRoot, worktreePath, branchName); err != nil {
-				h.setError(fmt.Errorf("failed to create worktree: %w", err))
+				h.newDialog.SetError(fmt.Sprintf("Failed to create worktree: %v", err))
 				return h, nil
 			}
 
@@ -3450,7 +3450,7 @@ func (h *Home) handleGroupDialogKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "enter":
 		// Validate before proceeding
 		if validationErr := h.groupDialog.Validate(); validationErr != "" {
-			h.setError(fmt.Errorf("validation error: %s", validationErr))
+			h.groupDialog.SetError(validationErr)
 			return h, nil
 		}
 		h.clearError() // Clear any previous validation error
@@ -3506,6 +3506,7 @@ func (h *Home) handleGroupDialogKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				// Find and rename the session (O(1) lookup)
 				if inst := h.getInstanceByID(sessionID); inst != nil {
 					inst.Title = newName
+					inst.SyncTmuxDisplayName()
 				}
 				// Invalidate preview cache since title changed
 				h.invalidatePreviewCache(sessionID)
@@ -3530,13 +3531,15 @@ func (h *Home) handleGroupDialogKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 func (h *Home) handleForkDialogKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "enter":
+		// Validate before proceeding
+		if validationErr := h.forkDialog.Validate(); validationErr != "" {
+			h.forkDialog.SetError(validationErr)
+			return h, nil
+		}
+
 		// Get fork parameters from dialog
 		title, groupPath := h.forkDialog.GetValues()
 		opts := h.forkDialog.GetOptions()
-		if title == "" {
-			h.setError(fmt.Errorf("session name cannot be empty"))
-			return h, nil
-		}
 		h.clearError() // Clear any previous error
 
 		// Find the currently selected session

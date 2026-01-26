@@ -1,6 +1,9 @@
 package ui
 
 import (
+	"fmt"
+	"strings"
+
 	"github.com/asheshgoplani/agent-deck/internal/session"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
@@ -9,21 +12,22 @@ import (
 
 // ForkDialog handles the fork session dialog
 type ForkDialog struct {
-	visible      bool
-	nameInput    textinput.Model
-	groupInput   textinput.Model
-	optionsPanel *ClaudeOptionsPanel
-	focusIndex   int // 0=name, 1=group, 2+=options
-	width        int
-	height       int
-	projectPath  string
+	visible       bool
+	nameInput     textinput.Model
+	groupInput    textinput.Model
+	optionsPanel  *ClaudeOptionsPanel
+	focusIndex    int // 0=name, 1=group, 2+=options
+	width         int
+	height        int
+	projectPath   string
+	validationErr string // Inline validation error displayed inside the dialog
 }
 
 // NewForkDialog creates a new fork dialog
 func NewForkDialog() *ForkDialog {
 	nameInput := textinput.New()
 	nameInput.Placeholder = "Session name"
-	nameInput.CharLimit = 64
+	nameInput.CharLimit = MaxNameLength
 	nameInput.Width = 40
 
 	groupInput := textinput.New()
@@ -41,6 +45,7 @@ func NewForkDialog() *ForkDialog {
 // Show displays the dialog with pre-filled values
 func (d *ForkDialog) Show(originalName, projectPath, groupPath string) {
 	d.visible = true
+	d.validationErr = ""
 	d.projectPath = projectPath
 	d.nameInput.SetValue(originalName + " (fork)")
 	d.groupInput.SetValue(groupPath)
@@ -82,6 +87,28 @@ func (d *ForkDialog) GetOptions() *session.ClaudeOptions {
 func (d *ForkDialog) SetSize(width, height int) {
 	d.width = width
 	d.height = height
+}
+
+// Validate checks if the dialog values are valid and returns an error message if not
+func (d *ForkDialog) Validate() string {
+	name := strings.TrimSpace(d.nameInput.Value())
+	if name == "" {
+		return "Session name cannot be empty"
+	}
+	if len(name) > MaxNameLength {
+		return fmt.Sprintf("Session name too long (max %d characters)", MaxNameLength)
+	}
+	return ""
+}
+
+// SetError sets an inline validation error displayed inside the dialog
+func (d *ForkDialog) SetError(msg string) {
+	d.validationErr = msg
+}
+
+// ClearError clears the inline validation error
+func (d *ForkDialog) ClearError() {
+	d.validationErr = ""
 }
 
 // Update handles input events
@@ -219,12 +246,19 @@ func (d *ForkDialog) View() string {
 		groupLabel = labelStyle.Render("  Group:")
 	}
 
+	errLine := ""
+	if d.validationErr != "" {
+		errStyle := lipgloss.NewStyle().Foreground(ColorRed).Bold(true)
+		errLine = "\n" + errStyle.Render("  ⚠ "+d.validationErr) + "\n"
+	}
+
 	content := titleStyle.Render("Fork Session") + "\n\n" +
 		nameLabel + "\n" +
 		"  " + d.nameInput.View() + "\n\n" +
 		groupLabel + "\n" +
 		"  " + d.groupInput.View() + "\n\n" +
-		d.optionsPanel.View() + "\n" +
+		d.optionsPanel.View() +
+		errLine + "\n" +
 		lipgloss.NewStyle().Foreground(ColorComment).
 			Render("Enter create │ Esc cancel │ Tab next │ Space toggle")
 

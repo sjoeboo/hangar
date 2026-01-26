@@ -1,7 +1,7 @@
 name: PR Notification
 
 on:
-  pull_request:
+  pull_request_target:
     types: [opened, ready_for_review]
 
 jobs:
@@ -10,11 +10,6 @@ jobs:
     # Skip draft PRs unless they become ready
     if: github.event.pull_request.draft == false
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0  # Full history for better diff context
-
       - name: Gather PR context
         id: context
         uses: actions/github-script@v7

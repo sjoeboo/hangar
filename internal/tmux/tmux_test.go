@@ -2182,3 +2182,85 @@ func TestGetActiveSession(t *testing.T) {
 		t.Logf("Active session: %s", session)
 	}
 }
+
+// --- splitIntoChunks tests ---
+
+func TestSplitIntoChunks_SmallContent(t *testing.T) {
+	chunks := splitIntoChunks("hello", 4096)
+	assert.Equal(t, []string{"hello"}, chunks)
+}
+
+func TestSplitIntoChunks_ExactBoundary(t *testing.T) {
+	content := strings.Repeat("x", 4096)
+	chunks := splitIntoChunks(content, 4096)
+	assert.Len(t, chunks, 1)
+	assert.Equal(t, content, chunks[0])
+}
+
+func TestSplitIntoChunks_MultipleChunks(t *testing.T) {
+	// Build content > 4096 bytes with newlines
+	var sb strings.Builder
+	for i := 0; i < 200; i++ {
+		sb.WriteString(fmt.Sprintf("line %d: %s\n", i, strings.Repeat("a", 40)))
+	}
+	content := sb.String()
+	require.Greater(t, len(content), 4096)
+
+	chunks := splitIntoChunks(content, 4096)
+	require.Greater(t, len(chunks), 1)
+
+	// Verify each chunk is ≤ maxSize
+	for i, chunk := range chunks {
+		assert.LessOrEqual(t, len(chunk), 4096, "chunk %d exceeds max size", i)
+	}
+
+	// Verify reassembly
+	reassembled := strings.Join(chunks, "")
+	assert.Equal(t, content, reassembled)
+}
+
+func TestSplitIntoChunks_NoNewlines(t *testing.T) {
+	content := strings.Repeat("x", 10000)
+	chunks := splitIntoChunks(content, 4096)
+
+	require.Equal(t, 3, len(chunks))
+	assert.Equal(t, 4096, len(chunks[0]))
+	assert.Equal(t, 4096, len(chunks[1]))
+	assert.Equal(t, 1808, len(chunks[2]))
+
+	// Verify reassembly
+	assert.Equal(t, content, strings.Join(chunks, ""))
+}
+
+func TestSplitIntoChunks_EmptyContent(t *testing.T) {
+	chunks := splitIntoChunks("", 4096)
+	assert.Nil(t, chunks)
+}
+
+func TestSplitIntoChunks_OnlyNewlines(t *testing.T) {
+	content := strings.Repeat("\n", 5000)
+	chunks := splitIntoChunks(content, 4096)
+
+	require.Greater(t, len(chunks), 1)
+
+	// Each chunk should be ≤ maxSize
+	for i, chunk := range chunks {
+		assert.LessOrEqual(t, len(chunk), 4096, "chunk %d exceeds max size", i)
+	}
+
+	// Verify reassembly
+	assert.Equal(t, content, strings.Join(chunks, ""))
+}
+
+func TestSplitIntoChunks_SplitsAtNewlineBoundary(t *testing.T) {
+	// Create content where a newline falls within the chunk boundary
+	line := strings.Repeat("a", 2000) + "\n"
+	content := line + line + line // 6003 bytes total, each line is 2001 bytes
+
+	chunks := splitIntoChunks(content, 4096)
+	require.Equal(t, 2, len(chunks))
+
+	// First chunk should contain exactly 2 lines (4002 bytes), split at newline
+	assert.Equal(t, line+line, chunks[0])
+	assert.Equal(t, line, chunks[1])
+}

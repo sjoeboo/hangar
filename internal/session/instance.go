@@ -2480,6 +2480,14 @@ func (i *Instance) GetTmuxSession() *tmux.Session {
 	return i.tmuxSession
 }
 
+// SyncTmuxDisplayName updates the tmux status bar to reflect the current title.
+func (i *Instance) SyncTmuxDisplayName() {
+	if tmuxSess := i.GetTmuxSession(); tmuxSess != nil && tmuxSess.Exists() {
+		tmuxSess.DisplayName = i.Title
+		tmuxSess.ConfigureStatusBar()
+	}
+}
+
 // GetClaudeOptions returns Claude-specific options, or nil if not set
 func (i *Instance) GetClaudeOptions() *ClaudeOptions {
 	if len(i.ToolOptionsJSON) == 0 {
