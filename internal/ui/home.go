@@ -247,6 +247,10 @@ type Home struct {
 	lastBarText          string            // Cache to avoid updating all sessions every tick
 	lastBarTextMu        sync.Mutex        // Protects lastBarText for background worker access
 
+	// Maintenance banner (shown after background maintenance completes)
+	maintenanceMsg     string
+	maintenanceMsgTime time.Time
+
 	// Multi-instance support
 	// When AllowMultiple is enabled, only the primary instance (first to start) manages
 	// the notification bar and key bindings. Secondary instances are read-only for those.
@@ -334,6 +338,19 @@ type analyticsFetchedMsg struct {
 	geminiAnalytics *session.GeminiSessionAnalytics
 	err             error
 }
+
+// MaintenanceCompleteMsg is the exported type for sending from main.go via p.Send()
+type MaintenanceCompleteMsg struct {
+	Result session.MaintenanceResult
+}
+
+// maintenanceCompleteMsg is the internal message handled in Update()
+type maintenanceCompleteMsg struct {
+	result session.MaintenanceResult
+}
+
+// clearMaintenanceMsg signals auto-clear of maintenance banner
+type clearMaintenanceMsg struct{}
 
 // statusUpdateRequest is sent to the background worker with current viewport info
 type statusUpdateRequest struct {
@@ -681,6 +698,7 @@ func (h *Home) syncViewport() {
 	// - Header: 1 line
 	// - Filter bar: 1 line (always shown)
 	// - Update banner: 0 or 1 line (when update available)
+	// - Maintenance banner: 0 or 1 line (when maintenance completed)
 	// - Main content: contentHeight lines
 	// - Help bar: 2 lines (border + content)
 	// Panel title within content: 2 lines (title + underline)
@@ -694,10 +712,14 @@ func (h *Home) syncViewport() {
 	if h.updateInfo != nil && h.updateInfo.Available {
 		updateBannerHeight = 1
 	}
+	maintenanceBannerHeight := 0
+	if h.maintenanceMsg != "" {
+		maintenanceBannerHeight = 1
+	}
 
 	// contentHeight = total height for main content area
-	// -1 for header line, -helpBarHeight for help bar, -updateBannerHeight, -filterBarHeight
-	contentHeight := h.height - 1 - helpBarHeight - updateBannerHeight - filterBarHeight
+	// -1 for header line, -helpBarHeight for help bar, -updateBannerHeight, -maintenanceBannerHeight, -filterBarHeight
+	contentHeight := h.height - 1 - helpBarHeight - updateBannerHeight - maintenanceBannerHeight - filterBarHeight
 
 	// CRITICAL: Calculate panelContentHeight based on current layout mode
 	// This MUST match the calculations in renderStackedLayout/renderDualColumnLayout/renderSingleColumnLayout
@@ -913,8 +935,12 @@ func (h *Home) getVisibleHeight() int {
 	if h.updateInfo != nil && h.updateInfo.Available {
 		updateBannerHeight = 1
 	}
+	maintenanceBannerHeight := 0
+	if h.maintenanceMsg != "" {
+		maintenanceBannerHeight = 1
+	}
 
-	contentHeight := h.height - 1 - helpBarHeight - updateBannerHeight - filterBarHeight
+	contentHeight := h.height - 1 - helpBarHeight - updateBannerHeight - maintenanceBannerHeight - filterBarHeight
 
 	var panelContentHeight int
 	layoutMode := h.getLayoutMode()
@@ -2004,6 +2030,38 @@ func (h *Home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		h.updateInfo = msg.info
 		return h, nil
 
+	case MaintenanceCompleteMsg:
+		return h, func() tea.Msg {
+			return maintenanceCompleteMsg{result: msg.Result}
+		}
+
+	case maintenanceCompleteMsg:
+		r := msg.result
+		// Build a summary string
+		var parts []string
+		if r.PrunedLogs > 0 {
+			parts = append(parts, fmt.Sprintf("%d logs pruned", r.PrunedLogs))
+		}
+		if r.PrunedBackups > 0 {
+			parts = append(parts, fmt.Sprintf("%d backups cleaned", r.PrunedBackups))
+		}
+		if r.ArchivedSessions > 0 {
+			parts = append(parts, fmt.Sprintf("%d sessions archived", r.ArchivedSessions))
+		}
+		if len(parts) > 0 {
+			h.maintenanceMsg = "Maintenance: " + strings.Join(parts, ", ") + fmt.Sprintf(" (%s)", r.Duration.Round(time.Millisecond))
+			h.maintenanceMsgTime = time.Now()
+			// Auto-clear after 30 seconds
+			return h, tea.Tick(30*time.Second, func(_ time.Time) tea.Msg {
+				return clearMaintenanceMsg{}
+			})
+		}
+		return h, nil
+
+	case clearMaintenanceMsg:
+		h.maintenanceMsg = ""
+		return h, nil
+
 	case refreshMsg:
 		return h, h.loadSessions
 
@@ -2607,6 +2665,11 @@ func (h *Home) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return h.tryQuit()
 
 	case "esc":
+		// Dismiss maintenance banner if visible
+		if h.maintenanceMsg != "" {
+			h.maintenanceMsg = ""
+			return h, nil
+		}
 		// Double ESC to quit (#28) - for non-English keyboard users
 		// If ESC pressed twice within 500ms, quit the application
 		if time.Since(h.lastEscTime) < 500*time.Millisecond {
@@ -4163,11 +4226,27 @@ func (h *Home) View() string {
 	}
 
 	// ═══════════════════════════════════════════════════════════════════
+	// MAINTENANCE BANNER (if maintenance completed recently)
+	// ═══════════════════════════════════════════════════════════════════
+	maintenanceBannerHeight := 0
+	if h.maintenanceMsg != "" {
+		maintenanceBannerHeight = 1
+		maintStyle := lipgloss.NewStyle().
+			Foreground(ColorBg).
+			Background(ColorCyan).
+			Bold(true).
+			Width(h.width).
+			Align(lipgloss.Center)
+		b.WriteString(maintStyle.Render(" " + h.maintenanceMsg + " "))
+		b.WriteString("\n")
+	}
+
+	// ═══════════════════════════════════════════════════════════════════
 	// MAIN CONTENT AREA - Responsive layout based on terminal width
 	// ═══════════════════════════════════════════════════════════════════
 	helpBarHeight := 2 // Help bar takes 2 lines (border + content)
-	// Height breakdown: -1 header, -filterBarHeight filter, -updateBannerHeight banner, -helpBarHeight help
-	contentHeight := h.height - 1 - helpBarHeight - updateBannerHeight - filterBarHeight
+	// Height breakdown: -1 header, -filterBarHeight filter, -updateBannerHeight banner, -maintenanceBannerHeight maintenance, -helpBarHeight help
+	contentHeight := h.height - 1 - helpBarHeight - updateBannerHeight - maintenanceBannerHeight - filterBarHeight
 
 	// Route to appropriate layout based on terminal width
 	layoutMode := h.getLayoutMode()

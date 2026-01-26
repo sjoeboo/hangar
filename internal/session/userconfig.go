@@ -68,6 +68,9 @@ type UserConfig struct {
 
 	// Shell defines global shell environment settings for sessions
 	Shell ShellSettings `toml:"shell"`
+
+	// Maintenance defines automatic maintenance worker settings
+	Maintenance MaintenanceSettings `toml:"maintenance"`
 }
 
 // MCPPoolSettings defines HTTP MCP pool configuration
@@ -452,6 +455,13 @@ type MCPDef struct {
 	// Headers is optional HTTP headers for HTTP/SSE MCPs (e.g., for authentication)
 	// Example: { Authorization = "Bearer token123" }
 	Headers map[string]string `toml:"headers"`
+}
+
+// MaintenanceSettings controls the automatic maintenance worker
+type MaintenanceSettings struct {
+	// Enabled enables the maintenance worker (default: false)
+	// Prunes Gemini logs, cleans old backups, archives bloated sessions
+	Enabled bool `toml:"enabled"`
 }
 
 // Default user config (empty maps)
@@ -852,6 +862,15 @@ func GetNotificationsSettings() NotificationsConfig {
 	}
 
 	return settings
+}
+
+// GetMaintenanceSettings returns maintenance settings from config
+func GetMaintenanceSettings() MaintenanceSettings {
+	config, err := LoadUserConfig()
+	if err != nil || config == nil {
+		return MaintenanceSettings{Enabled: false}
+	}
+	return config.Maintenance
 }
 
 // GetInstanceSettings returns instance behavior settings with defaults applied

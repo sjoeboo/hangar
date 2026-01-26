@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -306,11 +307,19 @@ func main() {
 
 	// Start TUI with the specified profile
 	// Pass isPrimaryInstance to control notification bar management
+	homeModel := ui.NewHomeWithProfileAndMode(profile, isPrimaryInstance)
 	p := tea.NewProgram(
-		ui.NewHomeWithProfileAndMode(profile, isPrimaryInstance),
+		homeModel,
 		tea.WithAltScreen(),
 		tea.WithMouseCellMotion(),
 	)
+
+	// Start maintenance worker (background goroutine, respects config toggle)
+	maintenanceCtx, maintenanceCancel := context.WithCancel(context.Background())
+	defer maintenanceCancel()
+	session.StartMaintenanceWorker(maintenanceCtx, func(result session.MaintenanceResult) {
+		p.Send(ui.MaintenanceCompleteMsg{Result: result})
+	})
 
 	if _, err := p.Run(); err != nil {
 		fmt.Printf("Error: %v\n", err)
