@@ -1326,6 +1326,9 @@ func handleUpdate(args []string) {
 	fmt.Printf("\n⬆ Update available: v%s → v%s\n", info.CurrentVersion, info.LatestVersion)
 	fmt.Printf("  Release: %s\n", info.ReleaseURL)
 
+	// Fetch and display changelog
+	displayChangelog(info.CurrentVersion, info.LatestVersion)
+
 	if *checkOnly {
 		fmt.Println("\nRun 'agent-deck update' to install.")
 		return
@@ -1349,6 +1352,22 @@ func handleUpdate(args []string) {
 
 	fmt.Printf("\n✓ Updated to v%s\n", info.LatestVersion)
 	fmt.Println("  Restart agent-deck to use the new version.")
+}
+
+// displayChangelog fetches and displays changelog between versions
+func displayChangelog(currentVersion, latestVersion string) {
+	changelog, err := update.FetchChangelog()
+	if err != nil {
+		// Silently skip changelog on error - not critical
+		return
+	}
+
+	entries := update.ParseChangelog(changelog)
+	changes := update.GetChangesBetweenVersions(entries, currentVersion, latestVersion)
+
+	if len(changes) > 0 {
+		fmt.Print(update.FormatChangelogForDisplay(changes))
+	}
 }
 
 func printHelp() {

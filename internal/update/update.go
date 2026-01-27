@@ -344,6 +344,147 @@ func PerformUpdate(downloadURL string) error {
 	return nil
 }
 
+// ChangelogEntry represents a single version's changelog
+type ChangelogEntry struct {
+	Version string
+	Date    string
+	Content string
+}
+
+// FetchChangelog fetches the CHANGELOG.md from GitHub
+func FetchChangelog() (string, error) {
+	url := fmt.Sprintf("https://raw.githubusercontent.com/%s/main/CHANGELOG.md", GitHubRepo)
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Get(url)
+	if err != nil {
+		return "", fmt.Errorf("failed to fetch changelog: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("failed to fetch changelog: status %d", resp.StatusCode)
+	}
+
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("failed to read changelog: %w", err)
+	}
+
+	return string(data), nil
+}
+
+// ParseChangelog parses CHANGELOG.md and returns entries for versions
+func ParseChangelog(content string) []ChangelogEntry {
+	var entries []ChangelogEntry
+	lines := strings.Split(content, "\n")
+
+	var currentEntry *ChangelogEntry
+	var contentBuilder strings.Builder
+
+	for _, line := range lines {
+		// Match version headers: ## [0.6.1] - 2025-12-24
+		if strings.HasPrefix(line, "## [") {
+			// Save previous entry
+			if currentEntry != nil {
+				currentEntry.Content = strings.TrimSpace(contentBuilder.String())
+				entries = append(entries, *currentEntry)
+			}
+
+			// Parse new entry
+			// Extract version and date from "## [0.6.1] - 2025-12-24"
+			rest := strings.TrimPrefix(line, "## [")
+			parts := strings.SplitN(rest, "]", 2)
+			if len(parts) >= 1 {
+				version := parts[0]
+				date := ""
+				if len(parts) >= 2 && strings.Contains(parts[1], " - ") {
+					dateParts := strings.SplitN(parts[1], " - ", 2)
+					if len(dateParts) >= 2 {
+						date = strings.TrimSpace(dateParts[1])
+					}
+				}
+				currentEntry = &ChangelogEntry{
+					Version: version,
+					Date:    date,
+				}
+				contentBuilder.Reset()
+			}
+		} else if currentEntry != nil {
+			contentBuilder.WriteString(line)
+			contentBuilder.WriteString("\n")
+		}
+	}
+
+	// Save last entry
+	if currentEntry != nil {
+		currentEntry.Content = strings.TrimSpace(contentBuilder.String())
+		entries = append(entries, *currentEntry)
+	}
+
+	return entries
+}
+
+// GetChangesBetweenVersions returns changelog entries between two versions (exclusive of current, inclusive of latest)
+func GetChangesBetweenVersions(entries []ChangelogEntry, currentVersion, latestVersion string) []ChangelogEntry {
+	var result []ChangelogEntry
+
+	currentVersion = strings.TrimPrefix(currentVersion, "v")
+	latestVersion = strings.TrimPrefix(latestVersion, "v")
+
+	for _, entry := range entries {
+		entryVersion := strings.TrimPrefix(entry.Version, "v")
+
+		// Include if version is greater than current and less than or equal to latest
+		if CompareVersions(entryVersion, currentVersion) > 0 &&
+			CompareVersions(entryVersion, latestVersion) <= 0 {
+			result = append(result, entry)
+		}
+	}
+
+	return result
+}
+
+// FormatChangelogForDisplay formats changelog entries for terminal display
+func FormatChangelogForDisplay(entries []ChangelogEntry) string {
+	if len(entries) == 0 {
+		return ""
+	}
+
+	var sb strings.Builder
+	sb.WriteString("\n━━━ What's New ━━━\n")
+
+	for _, entry := range entries {
+		header := fmt.Sprintf("\n📦 v%s", entry.Version)
+		if entry.Date != "" {
+			header += fmt.Sprintf(" (%s)", entry.Date)
+		}
+		sb.WriteString(header)
+		sb.WriteString("\n")
+
+		// Process content - indent and clean up
+		lines := strings.Split(entry.Content, "\n")
+		for _, line := range lines {
+			if strings.TrimSpace(line) == "" {
+				continue
+			}
+			// Skip section headers that are just category names, but keep content
+			if strings.HasPrefix(line, "### ") {
+				section := strings.TrimPrefix(line, "### ")
+				sb.WriteString(fmt.Sprintf("\n  [%s]\n", section))
+			} else if strings.HasPrefix(line, "- ") {
+				sb.WriteString(fmt.Sprintf("  %s\n", line))
+			} else if strings.HasPrefix(line, "  ") {
+				// Nested content
+				sb.WriteString(fmt.Sprintf("  %s\n", line))
+			}
+		}
+	}
+
+	sb.WriteString("\n━━━━━━━━━━━━━━━━━━\n")
+	return sb.String()
+}
+
 // extractBinaryFromTarGz extracts the agent-deck binary from a .tar.gz file
 func extractBinaryFromTarGz(tarPath string) ([]byte, error) {
 	file, err := os.Open(tarPath)
