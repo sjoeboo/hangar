@@ -2564,6 +2564,7 @@ func (i *Instance) CaptureLoadedMCPs() {
 // Otherwise, MCPs will use stdio configs (npx ...)
 // Returns error if .mcp.json write fails
 func (i *Instance) regenerateMCPConfig() error {
+	ClearMCPCache(i.ProjectPath) // Force fresh read from disk (not stale 30s cache)
 	mcpInfo := GetMCPInfo(i.ProjectPath)
 	if mcpInfo == nil {
 		return nil // No MCP info, nothing to regenerate

@@ -1555,3 +1555,71 @@ func TestSessionHasConversationData(t *testing.T) {
 		}
 	})
 }
+
+// TestRegenerate_MCPConfig_InvalidatesCache verifies that regenerateMCPConfig()
+// clears the MCP cache before reading, so externally-modified .mcp.json files
+// are picked up instead of stale cached data (fixes #97).
+func TestRegenerate_MCPConfig_InvalidatesCache(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "agentdeck-test-*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+	defer ClearMCPCache(tmpDir) // Clean up cache after test
+
+	mcpPath := filepath.Join(tmpDir, ".mcp.json")
+
+	// Step 1: Write initial .mcp.json with one MCP
+	initialJSON := `{"mcpServers":{"mcp-a":{"command":"echo","args":["a"]}}}`
+	if err := os.WriteFile(mcpPath, []byte(initialJSON), 0644); err != nil {
+		t.Fatalf("failed to write initial .mcp.json: %v", err)
+	}
+
+	// Step 2: Prime the cache by calling GetMCPInfo
+	info1 := GetMCPInfo(tmpDir)
+	if info1 == nil {
+		t.Fatal("expected non-nil MCPInfo after priming cache")
+	}
+	localNames1 := info1.Local()
+	if len(localNames1) != 1 || localNames1[0] != "mcp-a" {
+		t.Fatalf("expected cache to contain [mcp-a], got %v", localNames1)
+	}
+
+	// Step 3: Externally modify .mcp.json to add a second MCP (within 30s cache window)
+	updatedJSON := `{"mcpServers":{"mcp-a":{"command":"echo","args":["a"]},"mcp-b":{"command":"echo","args":["b"]}}}`
+	if err := os.WriteFile(mcpPath, []byte(updatedJSON), 0644); err != nil {
+		t.Fatalf("failed to write updated .mcp.json: %v", err)
+	}
+
+	// Step 4: Call regenerateMCPConfig (should clear cache before GetMCPInfo)
+	inst := &Instance{
+		ID:          "test-cache-invalidation",
+		Title:       "Cache Test",
+		ProjectPath: tmpDir,
+		Tool:        "claude",
+	}
+	_ = inst.regenerateMCPConfig()
+
+	// Step 5: Verify the cache was refreshed with disk data during regeneration.
+	// GetMCPInfo returns the cache populated inside regenerateMCPConfig,
+	// which read fresh data after clearing the cache.
+	info2 := GetMCPInfo(tmpDir)
+	if info2 == nil {
+		t.Fatal("expected non-nil MCPInfo after regeneration")
+	}
+	localNames2 := info2.Local()
+
+	// With the fix: cache was cleared, so regenerateMCPConfig read both mcp-a and mcp-b
+	// Without the fix: cache still has stale data with only mcp-a
+	foundB := false
+	for _, name := range localNames2 {
+		if name == "mcp-b" {
+			foundB = true
+			break
+		}
+	}
+	if !foundB {
+		t.Errorf("expected cache to contain 'mcp-b' after regeneration "+
+			"(cache should have been invalidated), got: %v", localNames2)
+	}
+}
