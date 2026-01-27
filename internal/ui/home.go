@@ -1757,6 +1757,24 @@ func (h *Home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.err != nil {
 			h.setError(msg.err)
 		} else {
+			// Fix cursor jump: re-capture current cursor position.
+			// Between storageChangedMsg (which saved restoreState) and now,
+			// the user may have navigated. Read CURRENT cursor from OLD flatItems.
+			if msg.restoreState != nil && h.cursor >= 0 && h.cursor < len(h.flatItems) {
+				currentItem := h.flatItems[h.cursor]
+				switch currentItem.Type {
+				case session.ItemTypeSession:
+					if currentItem.Session != nil {
+						msg.restoreState.cursorSessionID = currentItem.Session.ID
+						msg.restoreState.cursorGroupPath = ""
+					}
+				case session.ItemTypeGroup:
+					msg.restoreState.cursorGroupPath = currentItem.Path
+					msg.restoreState.cursorSessionID = ""
+				}
+				msg.restoreState.viewOffset = h.viewOffset
+			}
+
 			h.instancesMu.Lock()
 			oldCount := len(h.instances)
 			h.instances = msg.instances
@@ -2877,8 +2895,15 @@ func (h *Home) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				}
 			} else if item.Type == session.ItemTypeGroup {
 				// Toggle group on enter
-				h.groupTree.ToggleGroup(item.Path)
+				groupPath := item.Path
+				h.groupTree.ToggleGroup(groupPath)
 				h.rebuildFlatItems()
+				for i, fi := range h.flatItems {
+					if fi.Type == session.ItemTypeGroup && fi.Path == groupPath {
+						h.cursor = i
+						break
+					}
+				}
 			}
 		}
 		return h, nil
@@ -2888,8 +2913,15 @@ func (h *Home) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if h.cursor < len(h.flatItems) {
 			item := h.flatItems[h.cursor]
 			if item.Type == session.ItemTypeGroup {
-				h.groupTree.ToggleGroup(item.Path)
+				groupPath := item.Path
+				h.groupTree.ToggleGroup(groupPath)
 				h.rebuildFlatItems()
+				for i, fi := range h.flatItems {
+					if fi.Type == session.ItemTypeGroup && fi.Path == groupPath {
+						h.cursor = i
+						break
+					}
+				}
 			}
 		}
 		return h, nil
@@ -2899,8 +2931,15 @@ func (h *Home) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if h.cursor < len(h.flatItems) {
 			item := h.flatItems[h.cursor]
 			if item.Type == session.ItemTypeGroup {
-				h.groupTree.CollapseGroup(item.Path)
+				groupPath := item.Path
+				h.groupTree.CollapseGroup(groupPath)
 				h.rebuildFlatItems()
+				for i, fi := range h.flatItems {
+					if fi.Type == session.ItemTypeGroup && fi.Path == groupPath {
+						h.cursor = i
+						break
+					}
+				}
 			} else if item.Type == session.ItemTypeSession {
 				// Move cursor to parent group
 				h.groupTree.CollapseGroup(item.Path)
@@ -3979,7 +4018,8 @@ func (h *Home) importSessions() tea.Msg {
 	}
 	// Save both instances AND groups (critical fix: was losing groups!)
 	h.saveInstances()
-	return loadSessionsMsg{instances: instancesCopy}
+	state := h.preserveState()
+	return loadSessionsMsg{instances: instancesCopy, restoreState: &state}
 }
 
 // countSessionStatuses counts sessions by status for the logo display
@@ -4391,9 +4431,16 @@ func (h *Home) View() string {
 	// regardless of component content, ANSI codes, or terminal differences
 	result := ensureExactHeight(b.String(), h.height)
 
-	// Apply width constraint via lipgloss (width handling is reliable)
+	// Apply width+height constraint via lipgloss.
+	// CRITICAL: Use MaxWidth (truncate) instead of Width (word-wrap).
+	// Width wraps long lines, which INCREASES the total line count beyond h.height.
+	// When View() returns more lines than the terminal height, Bubble Tea's renderer
+	// loses cursor position tracking, causing all subsequent frames to stack on top of
+	// each other — making the entire view appear duplicated 2-4x.
+	// MaxWidth truncates without adding lines. MaxHeight is a safety net.
 	return lipgloss.NewStyle().
-		Width(h.width).
+		MaxWidth(h.width).
+		MaxHeight(h.height).
 		Render(result)
 }
 
