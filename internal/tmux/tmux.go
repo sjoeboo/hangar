@@ -2432,15 +2432,17 @@ func ReadAndClearAckSignal() string {
 }
 
 // UnbindKey removes a key binding and restores default behavior.
-// After unbinding, restores the default behavior where number keys select windows.
+// After unbinding, attempts to restore the default behavior where number keys
+// select windows. The restore is best-effort since it may fail in environments
+// without windows (e.g., CI) and agent-deck rebinds keys every 2s anyway.
 func UnbindKey(key string) error {
 	// First unbind our custom binding
 	_ = exec.Command("tmux", "unbind-key", key).Run()
 
-	// Restore default: number keys select windows
+	// Best-effort restore default: number keys select windows
 	// bind-key 1 select-window -t :1
-	cmd := exec.Command("tmux", "bind-key", key, "select-window", "-t", ":"+key)
-	return cmd.Run()
+	_ = exec.Command("tmux", "bind-key", key, "select-window", "-t", ":"+key).Run()
+	return nil
 }
 
 // GetActiveSession returns the session name the user is currently attached to.
