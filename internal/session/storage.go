@@ -396,6 +396,28 @@ func (s *Storage) Load() ([]*Instance, error) {
 	return instances, err
 }
 
+// LoadLite reads session data from JSON without tmux reconnection
+// This is a fast path for operations that only need to read session metadata
+// (e.g., finding current session by tmux name) without initializing full Instance objects.
+// Returns raw InstanceData and GroupData without any subprocess calls.
+func (s *Storage) LoadLite() ([]*InstanceData, []*GroupData, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	// Check if file exists
+	if _, err := os.Stat(s.path); os.IsNotExist(err) {
+		return []*InstanceData{}, nil, nil
+	}
+
+	// Load from file (no backup recovery in lite mode - that's for full load)
+	data, err := s.loadFromFile(s.path)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to load storage file: %w", err)
+	}
+
+	return data.Instances, data.Groups, nil
+}
+
 // LoadWithGroups reads instances and groups from JSON file
 // Automatically recovers from backup if main file is corrupted
 func (s *Storage) LoadWithGroups() ([]*Instance, []*GroupData, error) {

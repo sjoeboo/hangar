@@ -1383,6 +1383,7 @@ func handleSessionOutput(profile string, args []string) {
 }
 
 // handleSessionCurrent shows current session and profile (auto-detected)
+// Uses a fast path that reads session data without tmux initialization (LoadLite).
 func handleSessionCurrent(profileArg string, args []string) {
 	fs := flag.NewFlagSet("session current", flag.ExitOnError)
 	jsonOutput := fs.Bool("json", false, "Output as JSON")
@@ -1411,68 +1412,127 @@ func handleSessionCurrent(profileArg string, args []string) {
 		os.Exit(1)
 	}
 
+	// ═══════════════════════════════════════════════════════════════════
+	// FAST PATH: Get current tmux session name (1 subprocess call)
+	// Then match against session data without full tmux initialization
+	// ═══════════════════════════════════════════════════════════════════
+	tmuxSessionName, err := getCurrentTmuxSessionName()
+	if err != nil {
+		out.Error(fmt.Sprintf("failed to get current tmux session: %v", err), ErrCodeNotFound)
+		os.Exit(1)
+	}
+
 	// Detect profile: use explicit arg if provided, otherwise auto-detect
 	detectedProfile := profileArg
 	if detectedProfile == "" || detectedProfile == session.DefaultProfile {
 		detectedProfile = profile.DetectCurrentProfile()
 	}
 
-	// Load sessions for detected profile first
-	_, instances, _, err := loadSessionData(detectedProfile)
-	if err != nil {
-		out.Error(err.Error(), ErrCodeNotFound)
-		os.Exit(1)
-	}
+	// Try fast path: LoadLite + match by tmux session name
+	instData, foundProfile := findInstanceDataByTmuxFast(tmuxSessionName, detectedProfile)
 
-	// Try to find session in detected profile
-	inst := findSessionByTmux(instances)
-
-	// If not found in detected profile, search all profiles
-	if inst == nil {
-		var foundProfile string
-		inst, foundProfile = findSessionByTmuxAcrossProfiles()
-		if inst != nil && foundProfile != "" {
-			detectedProfile = foundProfile
-		}
-	}
-
-	if inst == nil {
+	if instData == nil {
 		out.Error("current tmux session is not an agent-deck session\nHint: Run 'agent-deck list' to see available sessions", ErrCodeNotFound)
 		os.Exit(1)
 	}
 
-	// Update status
-	_ = inst.UpdateStatus()
+	if foundProfile != "" {
+		detectedProfile = foundProfile
+	}
 
 	// Quiet mode: just print session name
 	if quietMode {
-		fmt.Println(inst.Title)
+		fmt.Println(instData.Title)
 		return
 	}
 
+	// Determine status from saved data (no live tmux check in fast path)
+	status := StatusString(instData.Status)
+
 	// Prepare JSON output
 	jsonData := map[string]interface{}{
-		"session": inst.Title,
+		"session": instData.Title,
 		"profile": detectedProfile,
-		"id":      inst.ID,
-		"path":    inst.ProjectPath,
-		"status":  StatusString(inst.Status),
+		"id":      instData.ID,
+		"path":    instData.ProjectPath,
+		"status":  status,
 	}
 
-	if inst.GroupPath != "" {
-		jsonData["group"] = inst.GroupPath
+	if instData.GroupPath != "" {
+		jsonData["group"] = instData.GroupPath
 	}
 
 	// Build human-readable output
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("Session: %s\n", inst.Title))
+	sb.WriteString(fmt.Sprintf("Session: %s\n", instData.Title))
 	sb.WriteString(fmt.Sprintf("Profile: %s\n", detectedProfile))
-	sb.WriteString(fmt.Sprintf("ID:      %s\n", inst.ID))
-	sb.WriteString(fmt.Sprintf("Status:  %s %s\n", StatusSymbol(inst.Status), StatusString(inst.Status)))
-	sb.WriteString(fmt.Sprintf("Path:    %s\n", FormatPath(inst.ProjectPath)))
-	if inst.GroupPath != "" {
-		sb.WriteString(fmt.Sprintf("Group:   %s\n", inst.GroupPath))
+	sb.WriteString(fmt.Sprintf("ID:      %s\n", instData.ID))
+	sb.WriteString(fmt.Sprintf("Status:  %s %s\n", StatusSymbol(instData.Status), status))
+	sb.WriteString(fmt.Sprintf("Path:    %s\n", FormatPath(instData.ProjectPath)))
+	if instData.GroupPath != "" {
+		sb.WriteString(fmt.Sprintf("Group:   %s\n", instData.GroupPath))
 	}
 
 	out.Print(sb.String(), jsonData)
+}
+
+// getCurrentTmuxSessionName gets the current tmux session name (single subprocess call)
+func getCurrentTmuxSessionName() (string, error) {
+	cmd := exec.Command("tmux", "display-message", "-p", "#{session_name}")
+	output, err := cmd.Output()
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(string(output)), nil
+}
+
+// findInstanceDataByTmuxFast finds a session by tmux name using LoadLite (no tmux initialization)
+// First tries the specified profile, then searches all profiles if not found.
+// Returns the InstanceData and the profile it was found in.
+func findInstanceDataByTmuxFast(tmuxSessionName, preferredProfile string) (*session.InstanceData, string) {
+	// Try preferred profile first
+	storage, err := session.NewStorageWithProfile(preferredProfile)
+	if err == nil {
+		instances, _, err := storage.LoadLite()
+		if err == nil {
+			if inst := matchInstanceDataByTmuxName(instances, tmuxSessionName); inst != nil {
+				return inst, preferredProfile
+			}
+		}
+	}
+
+	// Search all profiles
+	profiles, err := session.ListProfiles()
+	if err != nil {
+		return nil, ""
+	}
+
+	for _, p := range profiles {
+		if p == preferredProfile {
+			continue // Already checked
+		}
+		storage, err := session.NewStorageWithProfile(p)
+		if err != nil {
+			continue
+		}
+		instances, _, err := storage.LoadLite()
+		if err != nil {
+			continue
+		}
+		if inst := matchInstanceDataByTmuxName(instances, tmuxSessionName); inst != nil {
+			return inst, p
+		}
+	}
+
+	return nil, ""
+}
+
+// matchInstanceDataByTmuxName finds an InstanceData by exact tmux session name match
+func matchInstanceDataByTmuxName(instances []*session.InstanceData, tmuxSessionName string) *session.InstanceData {
+	for _, inst := range instances {
+		if inst.TmuxSession == tmuxSessionName {
+			return inst
+		}
+	}
+	return nil
 }
