@@ -25,7 +25,7 @@ import (
 	"github.com/muesli/termenv"
 )
 
-const Version = "0.8.86"
+const Version = "0.8.87"
 
 // Table column widths for list command output
 const (
@@ -379,6 +379,7 @@ func reorderArgsForFlagParsing(args []string) []string {
 		"-p": true, "--parent": true,
 		"--mcp": true,
 		"-w": true, "--worktree": true,
+		"--location": true,
 	}
 
 	var flags []string
@@ -477,6 +478,7 @@ func handleAdd(profile string, args []string) {
 	worktreeBranchLong := fs.String("worktree", "", "Create session in git worktree for branch")
 	newBranch := fs.Bool("b", false, "Create new branch (use with --worktree)")
 	newBranchLong := fs.Bool("new-branch", false, "Create new branch")
+	worktreeLocation := fs.String("location", "", "Worktree location: sibling, subdirectory")
 
 	// MCP flag - can be specified multiple times
 	var mcpFlags []string
@@ -587,8 +589,21 @@ func handleAdd(profile string, args []string) {
 			os.Exit(1)
 		}
 
+		// Determine worktree location: CLI flag overrides config
+		wtSettings := session.GetWorktreeSettings()
+		location := wtSettings.DefaultLocation
+		if *worktreeLocation != "" {
+			location = *worktreeLocation
+		}
+
 		// Generate worktree path
-		worktreePath = git.GenerateWorktreePath(repoRoot, wtBranch)
+		worktreePath = git.GenerateWorktreePath(repoRoot, wtBranch, location)
+
+		// Ensure parent directory exists (needed for subdirectory mode)
+		if err := os.MkdirAll(filepath.Dir(worktreePath), 0755); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: failed to create parent directory: %v\n", err)
+			os.Exit(1)
+		}
 
 		// Check if worktree already exists
 		if _, err := os.Stat(worktreePath); err == nil {
