@@ -2819,7 +2819,6 @@ func (h *Home) handleNewDialogKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 func (h *Home) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "q", "ctrl+c":
-		h.isQuitting = true
 		return h.tryQuit()
 
 	case "esc":
@@ -3462,6 +3461,7 @@ func (h *Home) handleConfirmDialogKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case "esc":
 			// Cancel - don't quit
 			h.confirmDialog.Hide()
+			h.isQuitting = false
 			return h, nil
 		}
 		return h, nil
@@ -3533,10 +3533,23 @@ func (h *Home) performFinalShutdown(shutdownPool bool) tea.Cmd {
 		h.cancel()
 		// Wait for background worker to finish (prevents race on shutdown)
 		if h.statusWorkerDone != nil {
-			<-h.statusWorkerDone
+			select {
+			case <-h.statusWorkerDone:
+			case <-time.After(5 * time.Second):
+				log.Printf("Warning: status worker did not stop within 5s, continuing shutdown")
+			}
 		}
 		// Wait for log workers to drain before closing the watcher they depend on
-		h.logWorkerWg.Wait()
+		logDone := make(chan struct{})
+		go func() {
+			h.logWorkerWg.Wait()
+			close(logDone)
+		}()
+		select {
+		case <-logDone:
+		case <-time.After(5 * time.Second):
+			log.Printf("Warning: log workers did not stop within 5s, continuing shutdown")
+		}
 
 		if h.logWatcher != nil {
 			h.logWatcher.Close()

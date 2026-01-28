@@ -5,6 +5,14 @@ All notable changes to Agent Deck will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.90] - 2026-01-28
+
+### Fixed
+
+- Fix quit dialog ("Keep running" / "Shut down") hidden behind splash screen, causing infinite hang on quit with MCP pool
+- Fix `isQuitting` flag not reset when canceling quit dialog with Esc
+- Add 5s safety timeouts to status worker and log worker waits during shutdown
+
 ## [0.8.89] - 2026-01-28
 
 ### Fixed
