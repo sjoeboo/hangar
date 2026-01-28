@@ -1521,6 +1521,19 @@ func (h *Home) backgroundStatusUpdate() {
 	copy(instances, h.instances)
 	h.instancesMu.RUnlock()
 
+	// PERFORMANCE: Gradually configure unconfigured sessions in background
+	// Configure one session per tick to avoid blocking the status update
+	// This ensures all sessions get configured within ~1 minute even without user interaction
+	for _, inst := range instances {
+		if tmuxSess := inst.GetTmuxSession(); tmuxSess != nil {
+			if !tmuxSess.IsConfigured() && tmuxSess.Exists() {
+				tmuxSess.EnsureConfigured()
+				inst.SyncSessionIDsToTmux()
+				break // Only one per tick to avoid blocking
+			}
+		}
+	}
+
 	// Update status for all instances (background can be more thorough)
 	statusChanged := false
 	for _, inst := range instances {
@@ -4166,6 +4179,15 @@ func (h *Home) attachSession(inst *session.Instance) tea.Cmd {
 	if tmuxSess == nil {
 		return nil
 	}
+
+	// PERFORMANCE: Ensure tmux session is configured on first attach
+	// This runs deferred EnablePipePane, ConfigureStatusBar, EnableMouseMode
+	// which were skipped during lazy loading for TUI startup performance
+	tmuxSess.EnsureConfigured()
+
+	// Sync session IDs to tmux environment for resume functionality
+	// (Deferred from load time for performance)
+	inst.SyncSessionIDsToTmux()
 
 	// Mark session as accessed (for recency-sorted path suggestions)
 	inst.MarkAccessed()

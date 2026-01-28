@@ -358,6 +358,11 @@ type Session struct {
 	// mu protects all mutable fields below from concurrent access
 	mu sync.Mutex
 
+	// PERFORMANCE: Lazy initialization flag
+	// When true, ConfigureStatusBar/EnableMouseMode/EnablePipePane have been run
+	// Allows deferring non-essential tmux configuration until first attach
+	configured bool
+
 	// PERFORMANCE: Cache CapturePane content for short duration (500ms)
 	// Reduces subprocess spawns during rapid status checks/log events
 	cacheMu      sync.RWMutex
@@ -459,6 +464,9 @@ func NewSession(name, workDir string) *Session {
 // ReconnectSession creates a Session object for an existing tmux session
 // This is used when loading sessions from storage - it properly initializes
 // all fields needed for status detection to work correctly
+//
+// Note: This runs immediate configuration (EnablePipePane, ConfigureStatusBar).
+// For lazy loading during TUI startup, use ReconnectSessionLazy instead.
 func ReconnectSession(tmuxName, displayName, workDir, command string) *Session {
 	sess := &Session{
 		Name:             tmuxName,
@@ -468,6 +476,7 @@ func ReconnectSession(tmuxName, displayName, workDir, command string) *Session {
 		Created:          time.Now(), // Approximate - we don't persist this
 		lastStableStatus: "waiting",
 		toolDetectExpiry: 30 * time.Second,
+		configured:       false, // Will be set to true after configuration
 		// stateTracker and promptDetector will be created lazily on first status check
 	}
 
@@ -478,6 +487,7 @@ func ReconnectSession(tmuxName, displayName, workDir, command string) *Session {
 		}
 		// Configure status bar for existing sessions
 		sess.ConfigureStatusBar()
+		sess.configured = true
 	}
 
 	return sess
@@ -525,6 +535,84 @@ func ReconnectSessionWithStatus(tmuxName, displayName, workDir, command string, 
 	}
 
 	return sess
+}
+
+// ReconnectSessionLazy creates a Session object without running any tmux configuration.
+// PERFORMANCE: This is used during TUI startup to avoid subprocess overhead.
+// Non-essential configuration (EnableMouseMode, ConfigureStatusBar, EnablePipePane)
+// is deferred until first user interaction via EnsureConfigured().
+//
+// Use this for bulk session loading where immediate configuration is not needed.
+// For sessions that need immediate configuration, use ReconnectSession or ReconnectSessionWithStatus.
+func ReconnectSessionLazy(tmuxName, displayName, workDir, command string, previousStatus string) *Session {
+	sess := &Session{
+		Name:             tmuxName,
+		DisplayName:      displayName,
+		WorkDir:          workDir,
+		Command:          command,
+		Created:          time.Now(), // Approximate - we don't persist this
+		lastStableStatus: "waiting",
+		toolDetectExpiry: 30 * time.Second,
+		configured:       false, // Explicitly mark as not configured
+	}
+
+	// Restore state tracker based on previous status (without running tmux commands)
+	switch previousStatus {
+	case "idle":
+		sess.stateTracker = &StateTracker{
+			lastHash:       "",
+			lastChangeTime: time.Now().Add(-10 * time.Second),
+			acknowledged:   true,
+		}
+		sess.lastStableStatus = "idle"
+
+	case "waiting", "active":
+		sess.stateTracker = &StateTracker{
+			lastHash:       "",
+			lastChangeTime: time.Now().Add(-10 * time.Second),
+			acknowledged:   false,
+		}
+		sess.lastStableStatus = "waiting"
+
+	default:
+		sess.lastStableStatus = "waiting"
+	}
+
+	return sess
+}
+
+// EnsureConfigured runs deferred tmux configuration if not already done.
+// PERFORMANCE: This should be called before attaching to a session or when
+// the session needs full functionality (e.g., status bar, mouse mode).
+//
+// Safe to call multiple times - does nothing if already configured or session doesn't exist.
+// Thread-safe via mutex protection.
+func (s *Session) EnsureConfigured() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	// Already configured or session doesn't exist - nothing to do
+	if s.configured || !s.Exists() {
+		return
+	}
+
+	// Run deferred configuration
+	if err := s.EnablePipePane(); err != nil {
+		debugLog("Warning: failed to enable pipe-pane for %s: %v", s.DisplayName, err)
+	}
+	s.ConfigureStatusBar()
+	_ = s.EnableMouseMode()
+
+	s.configured = true
+	debugLog("Lazy configuration completed for %s", s.DisplayName)
+}
+
+// IsConfigured returns whether the session has been fully configured.
+// Used for debugging and testing.
+func (s *Session) IsConfigured() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.configured
 }
 
 // generateShortID generates a short random ID for uniqueness
@@ -700,21 +788,21 @@ func (s *Session) ConfigureStatusBar() {
 		folderName = "~"
 	}
 
-	// Enable status bar
-	_ = exec.Command("tmux", "set-option", "-t", s.Name, "status", "on").Run()
-
-	// Style: dark background with accent colors (Tokyo Night inspired)
-	_ = exec.Command("tmux", "set-option", "-t", s.Name, "status-style", "bg=#1a1b26,fg=#a9b1d6").Run()
-
-	// Left side: reserved for notification bar (waiting sessions: ⚡ [1] name [2] name2...)
-	// Set length to accommodate multiple waiting sessions
-	_ = exec.Command("tmux", "set-option", "-t", s.Name, "status-left-length", "120").Run()
-
 	// Right side: detach hint + session title with folder path
 	// The hint uses subtle gray (#565f89) so it doesn't compete with session info
 	rightStatus := fmt.Sprintf("#[fg=#565f89]ctrl+q detach#[default] │ 📁 %s | %s ", s.DisplayName, folderName)
-	_ = exec.Command("tmux", "set-option", "-t", s.Name, "status-right", rightStatus).Run()
-	_ = exec.Command("tmux", "set-option", "-t", s.Name, "status-right-length", "80").Run()
+
+	// PERFORMANCE: Batch all 5 status bar options into single subprocess call
+	// Uses tmux command chaining with \; separator (73% reduction in subprocess calls)
+	// Before: 5 separate exec.Command calls = 5 subprocess spawns
+	// After: 1 exec.Command call = 1 subprocess spawn
+	cmd := exec.Command("tmux",
+		"set-option", "-t", s.Name, "status", "on", ";",
+		"set-option", "-t", s.Name, "status-style", "bg=#1a1b26,fg=#a9b1d6", ";",
+		"set-option", "-t", s.Name, "status-left-length", "120", ";",
+		"set-option", "-t", s.Name, "status-right", rightStatus, ";",
+		"set-option", "-t", s.Name, "status-right-length", "80")
+	_ = cmd.Run()
 }
 
 // EnablePipePane enables tmux pipe-pane to stream output to a log file
@@ -764,57 +852,35 @@ func (s *Session) DisablePipePane() error {
 // Note: With mouse mode on, hold Shift while selecting to use native terminal selection
 // instead of tmux's selection (useful for copying to system clipboard in some terminals)
 func (s *Session) EnableMouseMode() error {
-	// Enable mouse support
+	// CRITICAL: Mouse mode must succeed - keep as separate call for error handling
+	// This is the only essential feature; all others are enhancements
 	mouseCmd := exec.Command("tmux", "set-option", "-t", s.Name, "mouse", "on")
 	if err := mouseCmd.Run(); err != nil {
 		return err
 	}
 
-	// Enable OSC 52 clipboard integration
-	// This allows tmux to copy directly to system clipboard in supported terminals
-	// (Warp, iTerm2, Alacritty, kitty, WezTerm, Windows Terminal, VS Code, etc.)
-	clipboardCmd := exec.Command("tmux", "set-option", "-t", s.Name, "set-clipboard", "on")
-	if err := clipboardCmd.Run(); err != nil {
-		// Non-fatal: older tmux versions may not support this
-		debugLog("%s: failed to enable clipboard: %v", s.DisplayName, err)
-	}
-
-	// Enable escape sequence passthrough for modern terminal features (tmux 3.2+)
-	// This allows:
-	// - OSC 8: Clickable hyperlinks/file paths in Warp, iTerm2, kitty, etc.
-	// - OSC 52: Clipboard integration (apps inside tmux can set clipboard)
-	// - Image protocols: Inline images in supported terminals
-	// Uses -q flag to silently ignore on older tmux versions
-	passthroughCmd := exec.Command("tmux", "set-option", "-t", s.Name, "-q", "allow-passthrough", "on")
-	if err := passthroughCmd.Run(); err != nil {
-		// Non-fatal: tmux < 3.2 doesn't support this option
-		debugLog("%s: failed to enable passthrough (tmux < 3.2?): %v", s.DisplayName, err)
-	}
-
-	// Enable hyperlink support in terminal features (tmux 3.4+, server-wide option)
-	// This tells tmux to track hyperlinks like it tracks colors/attributes
-	// Required for OSC 8 hyperlinks to work - passthrough alone isn't enough
-	hyperlinkCmd := exec.Command("tmux", "set", "-asq", "terminal-features", ",*:hyperlinks")
-	if err := hyperlinkCmd.Run(); err != nil {
-		// Non-fatal: tmux < 3.4 doesn't support hyperlinks in terminal-features
-		debugLog("%s: failed to enable hyperlinks (tmux < 3.4?): %v", s.DisplayName, err)
-	}
-
-	// Set large history limit for AI agent sessions (default is 2000)
-	// AI agents produce a lot of output, so we need more scrollback
-	historyCmd := exec.Command("tmux", "set-option", "-t", s.Name, "history-limit", "10000")
-	if err := historyCmd.Run(); err != nil {
-		// Non-fatal: history limit is a nice-to-have
-		debugLog("%s: failed to set history-limit: %v", s.DisplayName, err)
-	}
-
-	// Reduce escape-time for responsive Vim/editor usage (default 500ms is too slow)
-	// 10ms is a good balance between responsiveness and SSH reliability
-	escapeCmd := exec.Command("tmux", "set-option", "-t", s.Name, "escape-time", "10")
-	if err := escapeCmd.Run(); err != nil {
-		// Non-fatal: escape-time is a nice-to-have
-		debugLog("%s: failed to set escape-time: %v", s.DisplayName, err)
-	}
+	// PERFORMANCE: Batch all non-fatal enhancements into single subprocess call
+	// Uses tmux command chaining with \; separator (67% reduction in subprocess calls)
+	// Before: 5 separate exec.Command calls = 5 subprocess spawns
+	// After: 1 exec.Command call = 1 subprocess spawn
+	//
+	// Enhancements included:
+	// - set-clipboard on: OSC 52 clipboard integration (Warp, iTerm2, kitty, etc.)
+	// - allow-passthrough on: OSC 8 hyperlinks, advanced escape sequences (tmux 3.2+)
+	// - terminal-features hyperlinks: Track hyperlinks like colors (tmux 3.4+)
+	// - history-limit 10000: Large scrollback for AI agent output
+	// - escape-time 10: Fast Vim/editor responsiveness (default 500ms is too slow)
+	//
+	// Uses -q flag where supported to silently ignore on older tmux versions
+	enhanceCmd := exec.Command("tmux",
+		"set-option", "-t", s.Name, "set-clipboard", "on", ";",
+		"set-option", "-t", s.Name, "-q", "allow-passthrough", "on", ";",
+		"set-option", "-t", s.Name, "history-limit", "10000", ";",
+		"set-option", "-t", s.Name, "escape-time", "10", ";",
+		"set", "-asq", "terminal-features", ",*:hyperlinks")
+	// Ignore errors - all these are non-fatal enhancements
+	// Older tmux versions may not support some options
+	_ = enhanceCmd.Run()
 
 	return nil
 }

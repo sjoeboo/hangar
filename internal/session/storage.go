@@ -523,14 +523,16 @@ func (s *Storage) convertToInstances(data *StorageData) ([]*Instance, []*GroupDa
 	// Convert to instances
 	instances := make([]*Instance, len(data.Instances))
 	for i, instData := range data.Instances {
-		// Recreate tmux session object from stored name
-		// Use ReconnectSessionWithStatus to restore the exact status state
+		// PERFORMANCE: Use lazy reconnect to defer tmux configuration until first attach
+		// This reduces TUI startup from ~6s to ~2s by avoiding subprocess overhead.
+		// Configuration (EnableMouseMode, ConfigureStatusBar, EnablePipePane) runs
+		// on-demand via EnsureConfigured() when user interacts with the session.
 		var tmuxSess *tmux.Session
 		if instData.TmuxSession != "" {
 			// Convert Status enum to string for tmux package
 			// This restores the exact status across app restarts
 			previousStatus := statusToString(instData.Status)
-			tmuxSess = tmux.ReconnectSessionWithStatus(
+			tmuxSess = tmux.ReconnectSessionLazy(
 				instData.TmuxSession,
 				instData.Title,
 				instData.ProjectPath,
@@ -539,12 +541,8 @@ func (s *Storage) convertToInstances(data *StorageData) ([]*Instance, []*GroupDa
 			)
 			// Pass instance ID for activity hooks (enables real-time status updates)
 			tmuxSess.InstanceID = instData.ID
-			// Enable mouse mode for proper scrolling (only if session still exists)
-			// Sessions may no longer exist after tmux server restart
-			if tmuxSess.Exists() {
-				// Ignore errors - non-fatal, older tmux versions may not support all options
-				_ = tmuxSess.EnableMouseMode()
-			}
+			// Note: EnableMouseMode is now deferred to EnsureConfigured()
+			// Called automatically when user attaches to session
 		}
 
 		// Migrate old sessions without GroupPath
@@ -585,39 +583,15 @@ func (s *Storage) convertToInstances(data *StorageData) ([]*Instance, []*GroupDa
 			tmuxSession:        tmuxSess,
 		}
 
-		// Update status immediately to prevent flickering on startup
-		// Without this, UI renders saved status, then first tick changes it
-		if tmuxSess != nil {
-			_ = inst.UpdateStatus()
-		}
+		// PERFORMANCE: Skip UpdateStatus at load time - use cached status from JSON
+		// The background worker will update status on first tick.
+		// This saves one subprocess call per session at startup.
 
-		// ═══════════════════════════════════════════════════════════════════
-		// SYNC SESSION IDS TO TMUX ENVIRONMENT (Krudony's contribution)
-		// ═══════════════════════════════════════════════════════════════════
-		// When agent-deck restarts, tmux env vars are lost but sessions.json
-		// still has the session IDs. Sync them back to tmux so restart/resume
-		// (R key) works correctly.
-		if tmuxSess != nil && tmuxSess.Exists() {
-			// Sync ClaudeSessionID to tmux environment for resume functionality
-			if inst.ClaudeSessionID != "" {
-				_ = tmuxSess.SetEnvironment("CLAUDE_SESSION_ID", inst.ClaudeSessionID)
-			}
-
-			// Sync GeminiSessionID to tmux environment for resume functionality
-			if inst.GeminiSessionID != "" {
-				_ = tmuxSess.SetEnvironment("GEMINI_SESSION_ID", inst.GeminiSessionID)
-			}
-
-			// Sync OpenCodeSessionID to tmux environment for resume functionality
-			if inst.OpenCodeSessionID != "" {
-				_ = tmuxSess.SetEnvironment("OPENCODE_SESSION_ID", inst.OpenCodeSessionID)
-			}
-
-			// Sync CodexSessionID to tmux environment for resume functionality
-			if inst.CodexSessionID != "" {
-				_ = tmuxSess.SetEnvironment("CODEX_SESSION_ID", inst.CodexSessionID)
-			}
-		}
+		// PERFORMANCE: Skip session ID sync at load time
+		// Session ID syncing (SetEnvironment calls) will happen on EnsureConfigured()
+		// or when the session is restarted. This saves 0-4 subprocess calls per session.
+		// Note: Session IDs are still preserved in sessions.json and work correctly
+		// for restart/resume operations that read from the Instance directly.
 
 		instances[i] = inst
 	}

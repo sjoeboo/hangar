@@ -1460,6 +1460,38 @@ func (i *Instance) HasUpdated() bool {
 	return updated
 }
 
+// SyncSessionIDsToTmux syncs session IDs from Instance to tmux environment.
+// PERFORMANCE: This is called on-demand (e.g., first attach) rather than at load time
+// to reduce subprocess overhead during TUI startup.
+//
+// Session IDs are needed in tmux environment for restart/resume operations that
+// spawn new processes. Without this sync, R key wouldn't resume the correct session.
+func (i *Instance) SyncSessionIDsToTmux() {
+	if i.tmuxSession == nil || !i.tmuxSession.Exists() {
+		return
+	}
+
+	// Sync ClaudeSessionID
+	if i.ClaudeSessionID != "" {
+		_ = i.tmuxSession.SetEnvironment("CLAUDE_SESSION_ID", i.ClaudeSessionID)
+	}
+
+	// Sync GeminiSessionID
+	if i.GeminiSessionID != "" {
+		_ = i.tmuxSession.SetEnvironment("GEMINI_SESSION_ID", i.GeminiSessionID)
+	}
+
+	// Sync OpenCodeSessionID
+	if i.OpenCodeSessionID != "" {
+		_ = i.tmuxSession.SetEnvironment("OPENCODE_SESSION_ID", i.OpenCodeSessionID)
+	}
+
+	// Sync CodexSessionID
+	if i.CodexSessionID != "" {
+		_ = i.tmuxSession.SetEnvironment("CODEX_SESSION_ID", i.CodexSessionID)
+	}
+}
+
 // ResponseOutput represents a parsed response from an agent session
 type ResponseOutput struct {
 	Tool      string `json:"tool"`                 // Tool type (claude, gemini, etc.)

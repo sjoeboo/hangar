@@ -1136,6 +1136,72 @@ func TestConcurrentStateUpdates(t *testing.T) {
 }
 
 // =============================================================================
+// ReconnectSessionLazy Tests (PERFORMANCE: Phase 3 lazy loading)
+// =============================================================================
+
+// TestReconnectSessionLazyDoesNotConfigure verifies lazy reconnect skips tmux calls
+func TestReconnectSessionLazyDoesNotConfigure(t *testing.T) {
+	// Create a lazy session - should NOT call any tmux commands
+	sess := ReconnectSessionLazy("agentdeck_test_lazy", "lazy-project", "/tmp", "claude", "idle")
+
+	// Should NOT be configured
+	if sess.IsConfigured() {
+		t.Error("Lazy session should NOT be configured initially")
+	}
+
+	// Should have correct fields
+	if sess.Name != "agentdeck_test_lazy" {
+		t.Errorf("Expected name agentdeck_test_lazy, got %s", sess.Name)
+	}
+	if sess.DisplayName != "lazy-project" {
+		t.Errorf("Expected display name lazy-project, got %s", sess.DisplayName)
+	}
+}
+
+// TestReconnectSessionLazyRestoresState verifies state tracker is initialized
+func TestReconnectSessionLazyRestoresState(t *testing.T) {
+	// Test idle status
+	idleSess := ReconnectSessionLazy("test_idle", "idle", "/tmp", "claude", "idle")
+	if idleSess.stateTracker == nil {
+		t.Fatal("stateTracker should be initialized for idle status")
+	}
+	if !idleSess.stateTracker.acknowledged {
+		t.Error("idle session should be acknowledged")
+	}
+
+	// Test waiting status
+	waitingSess := ReconnectSessionLazy("test_waiting", "waiting", "/tmp", "claude", "waiting")
+	if waitingSess.stateTracker == nil {
+		t.Fatal("stateTracker should be initialized for waiting status")
+	}
+	if waitingSess.stateTracker.acknowledged {
+		t.Error("waiting session should NOT be acknowledged")
+	}
+
+	// Test active status (treated like waiting)
+	activeSess := ReconnectSessionLazy("test_active", "active", "/tmp", "claude", "active")
+	if activeSess.stateTracker == nil {
+		t.Fatal("stateTracker should be initialized for active status")
+	}
+	if activeSess.stateTracker.acknowledged {
+		t.Error("active session should NOT be acknowledged initially")
+	}
+}
+
+// TestEnsureConfiguredIdempotent verifies EnsureConfigured is safe to call multiple times
+func TestEnsureConfiguredIdempotent(t *testing.T) {
+	sess := ReconnectSessionLazy("agentdeck_test_idempotent", "test", "/tmp", "claude", "idle")
+
+	// Session doesn't exist (no real tmux), so EnsureConfigured should be a no-op
+	sess.EnsureConfigured()
+	sess.EnsureConfigured()
+	sess.EnsureConfigured()
+
+	// Should still not be configured (session doesn't exist in tmux)
+	// The test is that it doesn't panic or error
+}
+
+// =============================================================================
 // ReconnectSessionWithStatus Tests
 // =============================================================================
 

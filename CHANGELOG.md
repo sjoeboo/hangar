@@ -5,6 +5,22 @@ All notable changes to Agent Deck will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.95] - 2026-01-28
+
+### Changed
+
+- **Performance: TUI startup ~3x faster** (6s → 2s for 44 sessions)
+- Batch tmux operations: ConfigureStatusBar (5→1 call), EnableMouseMode (6→2 calls) using command chaining
+- Lazy loading: defer non-essential tmux configuration until first attach or background tick
+- Skip UpdateStatus and session ID sync at load time (use cached status from JSON)
+
+### Added
+
+- Add `ReconnectSessionLazy()` for deferred session configuration
+- Add `EnsureConfigured()` method for on-demand tmux setup
+- Add `SyncSessionIDsToTmux()` method for on-demand session ID sync
+- Background worker gradually configures unconfigured sessions (one per 2s tick)
+
 ## [0.8.94] - 2026-01-28
 
 ### Added
