@@ -92,9 +92,9 @@ const (
 type PreviewMode int
 
 const (
-	PreviewModeBoth     PreviewMode = iota // Show both analytics and output (default)
-	PreviewModeOutput                      // Show output only (content preview)
-	PreviewModeAnalytics                   // Show analytics only
+	PreviewModeBoth      PreviewMode = iota // Show both analytics and output (default)
+	PreviewModeOutput                       // Show output only (content preview)
+	PreviewModeAnalytics                    // Show analytics only
 )
 
 // Responsive breakpoints for empty state content tiers
@@ -129,48 +129,49 @@ type Home struct {
 	flatItems    []session.Item // Flattened view for cursor navigation
 
 	// Components
-	search        *Search
-	globalSearch  *GlobalSearch              // Global session search across all Claude conversations
-	globalSearchIndex *session.GlobalSearchIndex // Search index (nil if disabled)
-	newDialog     *NewDialog
-	groupDialog   *GroupDialog   // For creating/renaming groups
-	forkDialog    *ForkDialog    // For forking sessions
-	confirmDialog *ConfirmDialog // For confirming destructive actions
-	helpOverlay   *HelpOverlay   // For showing keyboard shortcuts
-	mcpDialog      *MCPDialog      // For managing MCPs
-	setupWizard    *SetupWizard    // For first-run setup
-	settingsPanel  *SettingsPanel  // For editing settings
-	analyticsPanel    *AnalyticsPanel    // For displaying session analytics
+	search              *Search
+	globalSearch        *GlobalSearch              // Global session search across all Claude conversations
+	globalSearchIndex   *session.GlobalSearchIndex // Search index (nil if disabled)
+	newDialog           *NewDialog
+	groupDialog         *GroupDialog         // For creating/renaming groups
+	forkDialog          *ForkDialog          // For forking sessions
+	confirmDialog       *ConfirmDialog       // For confirming destructive actions
+	helpOverlay         *HelpOverlay         // For showing keyboard shortcuts
+	mcpDialog           *MCPDialog           // For managing MCPs
+	setupWizard         *SetupWizard         // For first-run setup
+	settingsPanel       *SettingsPanel       // For editing settings
+	analyticsPanel      *AnalyticsPanel      // For displaying session analytics
 	geminiModelDialog   *GeminiModelDialog   // For selecting Gemini model
 	sessionPickerDialog *SessionPickerDialog // For sending output to another session
 
 	// Analytics cache (async fetching with TTL)
-	currentAnalytics       *session.SessionAnalytics             // Current analytics for selected session (Claude)
-	currentGeminiAnalytics *session.GeminiSessionAnalytics       // Current analytics for selected session (Gemini)
-	analyticsSessionID     string                                // Session ID for current analytics
-	analyticsFetchingID    string                                // ID currently being fetched (prevents duplicates)
-	analyticsCache         map[string]*session.SessionAnalytics  // TTL cache: sessionID -> analytics (Claude)
+	currentAnalytics       *session.SessionAnalytics                  // Current analytics for selected session (Claude)
+	currentGeminiAnalytics *session.GeminiSessionAnalytics            // Current analytics for selected session (Gemini)
+	analyticsSessionID     string                                     // Session ID for current analytics
+	analyticsFetchingID    string                                     // ID currently being fetched (prevents duplicates)
+	analyticsCache         map[string]*session.SessionAnalytics       // TTL cache: sessionID -> analytics (Claude)
 	geminiAnalyticsCache   map[string]*session.GeminiSessionAnalytics // TTL cache: sessionID -> analytics (Gemini)
-	analyticsCacheTime     map[string]time.Time                  // TTL cache: sessionID -> cache timestamp
+	analyticsCacheTime     map[string]time.Time                       // TTL cache: sessionID -> cache timestamp
 
 	// State
-	cursor        int            // Selected item index in flatItems
-	viewOffset    int            // First visible item index (for scrolling)
-	isAttaching   atomic.Bool   // Prevents View() output during attach (fixes Bubble Tea Issue #431) - atomic for thread safety
-	statusFilter  session.Status // Filter sessions by status ("" = all, or specific status)
-	previewMode   PreviewMode    // What to show in preview pane (both, output-only, analytics-only)
-	err           error
-	errTime       time.Time // When error occurred (for auto-dismiss)
-	isReloading    bool      // Visual feedback during auto-reload
-	initialLoading bool      // True until first loadSessionsMsg received (shows splash screen)
-	reloadVersion  uint64    // Incremented on each reload to prevent stale background saves
+	cursor         int            // Selected item index in flatItems
+	viewOffset     int            // First visible item index (for scrolling)
+	isAttaching    atomic.Bool    // Prevents View() output during attach (fixes Bubble Tea Issue #431) - atomic for thread safety
+	statusFilter   session.Status // Filter sessions by status ("" = all, or specific status)
+	previewMode    PreviewMode    // What to show in preview pane (both, output-only, analytics-only)
+	err            error
+	errTime        time.Time  // When error occurred (for auto-dismiss)
+	isReloading    bool       // Visual feedback during auto-reload
+	initialLoading bool       // True until first loadSessionsMsg received (shows splash screen)
+	isQuitting     bool       // True when user pressed q, shows quitting splash
+	reloadVersion  uint64     // Incremented on each reload to prevent stale background saves
 	reloadMu       sync.Mutex // Protects reloadVersion and isReloading for thread-safe access
 
 	// Preview cache (async fetching - View() must be pure, no blocking I/O)
-	previewCache       map[string]string    // sessionID -> cached preview content
-	previewCacheTime   map[string]time.Time // sessionID -> when cached (for expiration)
-	previewCacheMu     sync.RWMutex         // Protects previewCache for thread-safety
-	previewFetchingID  string               // ID currently being fetched (prevents duplicate fetches)
+	previewCache      map[string]string    // sessionID -> cached preview content
+	previewCacheTime  map[string]time.Time // sessionID -> when cached (for expiration)
+	previewCacheMu    sync.RWMutex         // Protects previewCache for thread-safety
+	previewFetchingID string               // ID currently being fetched (prevents duplicate fetches)
 
 	// Preview debouncing (PERFORMANCE: prevents subprocess spawn on every keystroke)
 	// During rapid navigation, we delay preview fetch by 150ms to let navigation settle
@@ -186,6 +187,11 @@ type Home struct {
 	// Moves status updates to a separate goroutine, completely decoupling from UI
 	statusTrigger    chan statusUpdateRequest // Triggers background status update
 	statusWorkerDone chan struct{}            // Signals worker has stopped
+
+	// PERFORMANCE: Worker pool for log-driven status updates (Priority 2)
+	// Caps the number of goroutines spawned for log file changes
+	logUpdateChan chan *session.Instance // Buffers status update requests from LogWatcher
+	logWorkerDone chan struct{}          // Signals log worker pool has stopped
 
 	// Event-driven status detection (Priority 2)
 	logWatcher *tmux.LogWatcher
@@ -320,6 +326,7 @@ type updateCheckMsg struct {
 }
 
 type tickMsg time.Time
+type quitMsg bool
 
 // previewFetchedMsg is sent when async preview content is ready
 type previewFetchedMsg struct {
@@ -372,8 +379,8 @@ type sendOutputResultMsg struct {
 
 // statusUpdateRequest is sent to the background worker with current viewport info
 type statusUpdateRequest struct {
-	viewOffset    int   // Current scroll position
-	visibleHeight int   // How many items fit on screen
+	viewOffset    int      // Current scroll position
+	visibleHeight int      // How many items fit on screen
 	flatItemIDs   []string // IDs of sessions in current flatItems order (for visible detection)
 }
 
@@ -411,43 +418,45 @@ func NewHomeWithProfileAndMode(profile string, isPrimary bool) *Home {
 	}
 
 	h := &Home{
-		profile:           actualProfile,
-		storage:           storage,
-		storageWarning:    storageWarning,
-		search:            NewSearch(),
-		newDialog:         NewNewDialog(),
-		groupDialog:       NewGroupDialog(),
-		forkDialog:        NewForkDialog(),
-		confirmDialog:     NewConfirmDialog(),
-		helpOverlay:       NewHelpOverlay(),
-		mcpDialog:         NewMCPDialog(),
-		setupWizard:       NewSetupWizard(),
-		settingsPanel:     NewSettingsPanel(),
-		analyticsPanel:    NewAnalyticsPanel(),
-		geminiModelDialog:   NewGeminiModelDialog(),
-		sessionPickerDialog: NewSessionPickerDialog(),
-		cursor:            0,
-		initialLoading:    true, // Show splash until sessions load
-		ctx:               ctx,
-		cancel:            cancel,
-		instances:         []*session.Instance{},
-		instanceByID:      make(map[string]*session.Instance),
-		groupTree:         session.NewGroupTree([]*session.Instance{}),
-		flatItems:         []session.Item{},
+		profile:              actualProfile,
+		storage:              storage,
+		storageWarning:       storageWarning,
+		search:               NewSearch(),
+		newDialog:            NewNewDialog(),
+		groupDialog:          NewGroupDialog(),
+		forkDialog:           NewForkDialog(),
+		confirmDialog:        NewConfirmDialog(),
+		helpOverlay:          NewHelpOverlay(),
+		mcpDialog:            NewMCPDialog(),
+		setupWizard:          NewSetupWizard(),
+		settingsPanel:        NewSettingsPanel(),
+		analyticsPanel:       NewAnalyticsPanel(),
+		geminiModelDialog:    NewGeminiModelDialog(),
+		sessionPickerDialog:  NewSessionPickerDialog(),
+		cursor:               0,
+		initialLoading:       true, // Show splash until sessions load
+		ctx:                  ctx,
+		cancel:               cancel,
+		instances:            []*session.Instance{},
+		instanceByID:         make(map[string]*session.Instance),
+		groupTree:            session.NewGroupTree([]*session.Instance{}),
+		flatItems:            []session.Item{},
 		previewCache:         make(map[string]string),
 		previewCacheTime:     make(map[string]time.Time),
 		analyticsCache:       make(map[string]*session.SessionAnalytics),
 		geminiAnalyticsCache: make(map[string]*session.GeminiSessionAnalytics),
 		analyticsCacheTime:   make(map[string]time.Time),
 		launchingSessions:    make(map[string]time.Time),
-		resumingSessions:   make(map[string]time.Time),
-		mcpLoadingSessions: make(map[string]time.Time),
-		forkingSessions:    make(map[string]time.Time),
-		lastLogActivity:    make(map[string]time.Time),
-		statusTrigger:     make(chan statusUpdateRequest, 1), // Buffered to avoid blocking
-		statusWorkerDone:  make(chan struct{}),
-		boundKeys:         make(map[string]string),
-		isPrimaryInstance: isPrimary,
+		resumingSessions:     make(map[string]time.Time),
+		mcpLoadingSessions:   make(map[string]time.Time),
+		forkingSessions:      make(map[string]time.Time),
+		lastLogActivity:      make(map[string]time.Time),
+		statusTrigger:        make(chan statusUpdateRequest, 1), // Buffered to avoid blocking
+		statusWorkerDone:     make(chan struct{}),
+		logUpdateChan:        make(chan *session.Instance, 100), // Buffered to absorb bursts
+		logWorkerDone:        make(chan struct{}),
+		boundKeys:            make(map[string]string),
+		isPrimaryInstance:    isPrimary,
 	}
 
 	// Initialize notification manager if enabled in config
@@ -479,12 +488,13 @@ func NewHomeWithProfileAndMode(profile string, isPrimary bool) *Home {
 				h.lastLogActivity[inst.ID] = time.Now()
 				h.logActivityMu.Unlock()
 
-				// Log file changed - trigger status update (will check busy indicator)
-				// NOTE: We do NOT call SignalFileActivity() here anymore because
-				// it bypasses the busy indicator check and causes false GREENs
-				go func(i *session.Instance) {
-					_ = i.UpdateStatus()
-				}(inst)
+				// Log file changed - queue status update (will check busy indicator)
+				// Uses buffered channel and worker pool to prevent goroutine leak
+				select {
+				case h.logUpdateChan <- inst:
+				default:
+					// Channel full, skip this update (another is likely already queued)
+				}
 				break
 			}
 		}
@@ -499,6 +509,9 @@ func NewHomeWithProfileAndMode(profile string, isPrimary bool) *Home {
 
 	// Start background status worker (Priority 1C)
 	go h.statusWorker()
+
+	// Start log worker pool (Priority 2)
+	h.startLogWorkers()
 
 	// Initialize global search
 	h.globalSearch = NewGlobalSearch()
@@ -1030,7 +1043,6 @@ func (h *Home) Init() tea.Cmd {
 	return tea.Batch(cmds...)
 }
 
-
 // checkForUpdate checks for updates asynchronously
 func (h *Home) checkForUpdate() tea.Cmd {
 	return func() tea.Msg {
@@ -1422,6 +1434,38 @@ func (h *Home) statusWorker() {
 	}
 }
 
+// startLogWorkers initializes the log worker pool
+func (h *Home) startLogWorkers() {
+	// Start 2 workers to handle log-triggered status updates concurrently
+	// This is enough to handle bursts without overwhelming the system
+	for i := 0; i < 2; i++ {
+		go h.logWorker()
+	}
+}
+
+// logWorker processes per-session status updates triggered by LogWatcher
+func (h *Home) logWorker() {
+	for {
+		select {
+		case <-h.ctx.Done():
+			return
+		case inst := <-h.logUpdateChan:
+			if inst == nil {
+				continue
+			}
+			// Panic recovery for worker stability
+			func() {
+				defer func() {
+					if r := recover(); r != nil {
+						log.Printf("LOG WORKER PANIC (recovered): %v", r)
+					}
+				}()
+				_ = inst.UpdateStatus()
+			}()
+		}
+	}
+}
+
 // backgroundStatusUpdate runs independently of the TUI
 // Updates session statuses and syncs notification bar directly to tmux
 // This is called by the internal ticker even when TUI is paused (tea.Exec)
@@ -1737,6 +1781,10 @@ func (h *Home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmds []tea.Cmd
 
 	switch msg := msg.(type) {
+	case quitMsg:
+		// Execute final shutdown logic after splash delay
+		return h, h.performFinalShutdown(bool(msg))
+
 	case tea.WindowSizeMsg:
 		h.width = msg.Width
 		h.height = msg.Height
@@ -2746,6 +2794,7 @@ func (h *Home) handleNewDialogKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 func (h *Home) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "q", "ctrl+c":
+		h.isQuitting = true
 		return h.tryQuit()
 
 	case "esc":
@@ -3378,10 +3427,12 @@ func (h *Home) handleConfirmDialogKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case "k", "K":
 			// Keep pool running - quit without shutting down
 			h.confirmDialog.Hide()
+			h.isQuitting = true
 			return h, h.performQuit(false) // false = don't shutdown pool
 		case "s", "S":
 			// Shut down pool - quit and shutdown
 			h.confirmDialog.Hide()
+			h.isQuitting = true
 			return h, h.performQuit(true) // true = shutdown pool
 		case "esc":
 			// Cancel - don't quit
@@ -3437,17 +3488,28 @@ func (h *Home) tryQuit() (tea.Model, tea.Cmd) {
 		}
 	}
 	// No pool running, quit directly (shutdown = true by default for clean exit)
+	h.isQuitting = true
 	return h, h.performQuit(true)
 }
 
-// performQuit performs the actual quit logic
+// performQuit triggers the quitting splash screen and schedules final shutdown
 // shutdownPool: true = shutdown MCP pool, false = leave running in background
 func (h *Home) performQuit(shutdownPool bool) tea.Cmd {
+	return tea.Tick(100*time.Millisecond, func(_ time.Time) tea.Msg {
+		return quitMsg(shutdownPool)
+	})
+}
+
+// performFinalShutdown performs the actual cleanup logic before exiting
+// This is called via quitMsg after the splash screen has had time to render
+func (h *Home) performFinalShutdown(shutdownPool bool) tea.Cmd {
 	return func() tea.Msg {
 		// Signal background worker to stop
 		h.cancel()
 		// Wait for background worker to finish (prevents race on shutdown)
-		<-h.statusWorkerDone
+		if h.statusWorkerDone != nil {
+			<-h.statusWorkerDone
+		}
 
 		if h.logWatcher != nil {
 			h.logWatcher.Close()
@@ -4217,6 +4279,11 @@ func (h *Home) View() string {
 		return renderLoadingSplash(h.width, h.height, h.animationFrame)
 	}
 
+	// Show quitting splash during shutdown
+	if h.isQuitting {
+		return renderQuittingSplash(h.width, h.height, h.animationFrame)
+	}
+
 	// Setup wizard takes over entire screen
 	if h.setupWizard.IsVisible() {
 		return h.setupWizard.View()
@@ -4560,6 +4627,67 @@ func renderLoadingSplash(width, height int, frame int) string {
 	)
 
 	return rendered
+}
+
+// renderQuittingSplash renders a splash screen during application shutdown
+func renderQuittingSplash(width, height int, frame int) string {
+	// Status indicator cycle (matches loading splash for consistency)
+	phase := (frame / 2) % 4
+
+	// Active status colors
+	greenStyle := lipgloss.NewStyle().Foreground(ColorGreen).Bold(true)
+	yellowStyle := lipgloss.NewStyle().Foreground(ColorYellow).Bold(true)
+	grayStyle := lipgloss.NewStyle().Foreground(ColorTextDim)
+	dimStyle := lipgloss.NewStyle().Foreground(ColorComment)
+
+	// Text styles
+	titleStyle := lipgloss.NewStyle().Foreground(ColorText).Bold(true)
+	subtitleStyle := lipgloss.NewStyle().Foreground(ColorYellow)
+
+	var content strings.Builder
+
+	if width >= 40 && height >= 10 {
+		var running, waiting, idle string
+		switch phase {
+		case 0:
+			running = greenStyle.Render("●")
+			waiting = dimStyle.Render("◐")
+			idle = dimStyle.Render("○")
+		case 1:
+			running = dimStyle.Render("●")
+			waiting = yellowStyle.Render("◐")
+			idle = dimStyle.Render("○")
+		case 2:
+			running = dimStyle.Render("●")
+			waiting = dimStyle.Render("◐")
+			idle = grayStyle.Render("○")
+		case 3:
+			running = greenStyle.Render("●")
+			waiting = yellowStyle.Render("◐")
+			idle = grayStyle.Render("○")
+		}
+
+		content.WriteString("\n")
+		content.WriteString("      " + running + "   " + waiting + "   " + idle + "      \n")
+		content.WriteString("\n")
+		content.WriteString(titleStyle.Render("Agent Deck") + "\n")
+		content.WriteString("\n")
+		content.WriteString(subtitleStyle.Render("Shutting down..."))
+	} else {
+		// Compact/Minimal
+		content.WriteString(titleStyle.Render("Agent Deck") + "\n")
+		content.WriteString(subtitleStyle.Render("Shutting down..."))
+	}
+
+	contentStyle := lipgloss.NewStyle().
+		Align(lipgloss.Center).
+		Width(width)
+
+	return lipgloss.Place(
+		width, height,
+		lipgloss.Center, lipgloss.Center,
+		contentStyle.Render(content.String()),
+	)
 }
 
 // EmptyStateConfig holds content for responsive empty state rendering
@@ -6159,7 +6287,7 @@ func (h *Home) renderPreviewPane(width, height int) string {
 	case PreviewModeAnalytics:
 		// showAnalytics keeps its default value (only available for Claude/Gemini)
 		showOutput = false
-	// PreviewModeBoth: use config settings (default)
+		// PreviewModeBoth: use config settings (default)
 	}
 
 	// Check if session is launching/resuming (for animation priority)

@@ -21,11 +21,11 @@ type Pool struct {
 }
 
 type PoolConfig struct {
-	Enabled        bool
-	PoolAll        bool
-	ExcludeMCPs    []string
-	PoolMCPs       []string
-	FallbackStdio  bool
+	Enabled       bool
+	PoolAll       bool
+	ExcludeMCPs   []string
+	PoolMCPs      []string
+	FallbackStdio bool
 }
 
 func NewPool(ctx context.Context, config *PoolConfig) (*Pool, error) {
@@ -165,10 +165,16 @@ func (p *Pool) Shutdown() error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
+	var wg sync.WaitGroup
 	for name, proxy := range p.proxies {
-		log.Printf("Stopping socket proxy: %s", name)
-		_ = proxy.Stop()
+		wg.Add(1)
+		go func(n string, sp *SocketProxy) {
+			defer wg.Done()
+			log.Printf("Stopping socket proxy: %s", n)
+			_ = sp.Stop()
+		}(name, proxy)
 	}
+	wg.Wait()
 
 	return nil
 }
@@ -271,10 +277,10 @@ func (p *Pool) ListServers() []ProxyInfo {
 	list := []ProxyInfo{}
 	for _, proxy := range p.proxies {
 		list = append(list, ProxyInfo{
-			Name:        proxy.name,
-			SocketPath:  proxy.socketPath,
-			Status:      proxy.GetStatus().String(),
-			Clients:     proxy.GetClientCount(),
+			Name:       proxy.name,
+			SocketPath: proxy.socketPath,
+			Status:     proxy.GetStatus().String(),
+			Clients:    proxy.GetClientCount(),
 		})
 	}
 	return list
