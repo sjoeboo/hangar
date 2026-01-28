@@ -216,6 +216,29 @@ agent-deck profile create fresh
 agent-deck profile default fresh
 ```
 
+## Uninstalling
+
+Remove agent-deck from your system:
+
+```bash
+agent-deck uninstall              # Interactive uninstall
+agent-deck uninstall --dry-run    # Preview what would be removed
+agent-deck uninstall --keep-data  # Remove binary only, keep sessions
+```
+
+Or use the standalone script:
+```bash
+curl -fsSL https://raw.githubusercontent.com/asheshgoplani/agent-deck/main/uninstall.sh | bash
+```
+
+**What gets removed:**
+- **Binary:** `~/.local/bin/agent-deck` or `/usr/local/bin/agent-deck`
+- **Homebrew:** `agent-deck` package (if installed via brew)
+- **tmux config:** The `# agent-deck configuration` block in `~/.tmux.conf`
+- **Data directory:** `~/.agent-deck/` (sessions, logs, config)
+
+Use `--keep-data` to preserve your sessions and configuration.
+
 ## Critical Warnings
 
 **NEVER run these commands - they destroy ALL agent-deck sessions:**
