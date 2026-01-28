@@ -145,8 +145,50 @@ description = "Web search via Exa AI"
 [mcps.remote]
 url = "https://api.example.com/mcp"
 transport = "http"   # or "sse"
+headers = { Authorization = "Bearer token" }  # Optional auth headers
 description = "Remote MCP server"
 ```
+
+| Key | Type | Required | Description |
+|-----|------|----------|-------------|
+| `url` | string | Yes | HTTP/SSE endpoint URL. |
+| `transport` | string | No | "http" (default) or "sse". |
+| `headers` | map | No | HTTP headers (e.g., Authorization). |
+| `description` | string | No | Help text in MCP Manager. |
+
+### HTTP MCPs with Auto-Start Server
+
+For MCPs that require a local server process (e.g., `piekstra/slack-mcp-server`), add a `[mcps.NAME.server]` block:
+
+```toml
+[mcps.slack]
+url = "http://localhost:30000/mcp/"
+transport = "http"
+description = "Slack 23+ tools"
+[mcps.slack.headers]
+  Authorization = "Bearer xoxb-token"
+[mcps.slack.server]
+  command = "uvx"
+  args = ["--python", "3.12", "slack-mcp-server", "--port", "30000"]
+  startup_timeout = 5000
+  health_check = "http://localhost:30000/health"
+  [mcps.slack.server.env]
+    SLACK_API_TOKEN = "xoxb-token"
+```
+
+| Key | Type | Required | Description |
+|-----|------|----------|-------------|
+| `command` | string | Yes | Server executable. |
+| `args` | array | No | Command arguments. |
+| `env` | map | No | Server environment variables. |
+| `startup_timeout` | int | No | Timeout in ms (default: 5000). |
+| `health_check` | string | No | Health endpoint URL (defaults to main URL). |
+
+**How it works:**
+- Agent-deck starts the server automatically when the MCP is attached
+- If the URL is already reachable (external server), uses it without spawning
+- Health monitor restarts failed servers automatically
+- CLI: `agent-deck mcp server status/start/stop`
 
 ### Common MCP Examples
 

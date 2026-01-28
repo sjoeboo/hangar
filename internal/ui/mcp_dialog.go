@@ -27,10 +27,13 @@ const (
 
 // MCPItem represents an MCP in the dialog list
 type MCPItem struct {
-	Name        string
-	Description string
-	IsOrphan    bool // True if MCP is attached but not in config.toml pool
-	IsPooled    bool // True if this MCP uses socket pool
+	Name           string
+	Description    string
+	IsOrphan       bool   // True if MCP is attached but not in config.toml pool
+	IsPooled       bool   // True if this MCP uses socket pool
+	Transport      string // "stdio", "http", or "sse"
+	HTTPStatus     string // For HTTP MCPs: "running", "stopped", "external", etc.
+	HasServerCfg   bool   // True if HTTP MCP has [mcps.X.server] config
 }
 
 // MCPDialog handles MCP management for Claude and Gemini sessions
@@ -93,16 +96,53 @@ func (m *MCPDialog) Show(projectPath string, sessionID string, tool string) erro
 	availableMCPs := session.GetAvailableMCPs()
 	allNames := session.GetAvailableMCPNames()
 
-	// Build items lookup for descriptions and pool status
+	// Build items lookup for descriptions, transport, and pool status
 	pool := session.GetGlobalPool()
+	httpPool := session.GetGlobalHTTPPool()
 	itemsMap := make(map[string]MCPItem)
 	for _, name := range allNames {
+		def, ok := availableMCPs[name]
 		desc := ""
-		if def, ok := availableMCPs[name]; ok {
+		if ok {
 			desc = def.Description
 		}
-		isPooled := pool != nil && pool.ShouldPool(name) && pool.IsRunning(name)
-		itemsMap[name] = MCPItem{Name: name, Description: desc, IsPooled: isPooled}
+
+		// Determine transport type and status
+		transport := "stdio"
+		httpStatus := ""
+		hasServerCfg := false
+		isPooled := false
+
+		if ok && def.IsHTTP() {
+			transport = def.GetTransport()
+			hasServerCfg = def.HasAutoStartServer()
+
+			// Check HTTP server status
+			if httpPool != nil && httpPool.IsRunning(name) {
+				server := httpPool.GetServer(name)
+				if server != nil && server.StartedByUs() {
+					httpStatus = "running"
+				} else {
+					httpStatus = "external"
+				}
+			} else if hasServerCfg {
+				httpStatus = "stopped"
+			} else {
+				httpStatus = "external"
+			}
+		} else {
+			// stdio MCP - check socket pool
+			isPooled = pool != nil && pool.ShouldPool(name) && pool.IsRunning(name)
+		}
+
+		itemsMap[name] = MCPItem{
+			Name:         name,
+			Description:  desc,
+			IsPooled:     isPooled,
+			Transport:    transport,
+			HTTPStatus:   httpStatus,
+			HasServerCfg: hasServerCfg,
+		}
 	}
 
 	// Track which MCPs are in the config.toml pool
@@ -647,6 +687,10 @@ func (m *MCPDialog) View() string {
 		orphanLegend = lipgloss.NewStyle().Foreground(ColorYellow).Render("⚠ = not in config.toml (add to manage)")
 	}
 
+	// Transport legend
+	transportLegend := lipgloss.NewStyle().Foreground(ColorTextDim).Render(
+		"[S]=stdio  [H]=http  [E]=sse  ●=running  ○=external  ✗=stopped")
+
 	// Responsive dialog width
 	dialogWidth := 64
 	if m.width > 0 && m.width < dialogWidth+10 {
@@ -693,6 +737,7 @@ func (m *MCPDialog) View() string {
 	if orphanLegend != "" {
 		parts = append(parts, orphanLegend)
 	}
+	parts = append(parts, transportLegend)
 	parts = append(parts, "", hint)
 
 	dialogContent := lipgloss.JoinVertical(lipgloss.Left, parts...)
@@ -742,7 +787,7 @@ func (m *MCPDialog) renderColumn(title string, items []MCPItem, selectedIdx int,
 	header := headerStyle.Render("- " + title + " ")
 
 	// Pad header to column width
-	colWidth := 26
+	colWidth := 28
 	headerLen := len("- " + title + " ")
 	headerPad := colWidth - headerLen
 	if headerPad > 0 {
@@ -758,17 +803,40 @@ func (m *MCPDialog) renderColumn(title string, items []MCPItem, selectedIdx int,
 		lines = append(lines, emptyStyle.Render("  (empty)"))
 	} else {
 		for i, item := range items {
-			name := item.Name
-			// Add pool indicator for MCPs in socket pool
-			if item.IsPooled {
-				name = name + " 🔌"
+			// Build transport/status prefix
+			prefix := "[S]" // Default: stdio
+			if item.Transport == "http" {
+				prefix = "[H]"
+				// Add server status indicator for HTTP MCPs
+				switch item.HTTPStatus {
+				case "running":
+					prefix += "●" // Green dot for running
+				case "external":
+					prefix += "○" // Hollow dot for external
+				case "stopped":
+					prefix += "✗" // X for stopped
+				default:
+					prefix += " "
+				}
+			} else if item.Transport == "sse" {
+				prefix = "[E]"
+			} else {
+				// stdio - add pool indicator
+				if item.IsPooled {
+					prefix += "●" // Green dot for pooled
+				} else {
+					prefix += " "
+				}
 			}
+
+			name := prefix + " " + item.Name
+
 			// Add orphan indicator for MCPs not in config.toml
 			if item.IsOrphan {
 				name = name + " ⚠"
 			}
-			if len(name) > 20 {
-				name = name[:17] + "..."
+			if len(name) > 24 {
+				name = name[:21] + "..."
 			}
 
 			var line string
@@ -783,6 +851,12 @@ func (m *MCPDialog) renderColumn(title string, items []MCPItem, selectedIdx int,
 				// Orphan MCPs shown in yellow/warning color
 				line = lipgloss.NewStyle().
 					Foreground(ColorYellow).
+					Width(colWidth).
+					Render("   " + name)
+			} else if item.Transport == "http" || item.Transport == "sse" {
+				// HTTP/SSE MCPs get a subtle highlight
+				line = lipgloss.NewStyle().
+					Foreground(ColorPurple).
 					Width(colWidth).
 					Render("   " + name)
 			} else {

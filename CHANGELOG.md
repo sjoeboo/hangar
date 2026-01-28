@@ -5,6 +5,23 @@ All notable changes to Agent Deck will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.96] - 2026-01-28
+
+### Added
+
+- **HTTP Transport Support for MCP Servers**: Native support for HTTP/SSE MCP servers with auto-start capability
+- Add `[mcps.X.server]` config block for auto-starting HTTP MCP servers (command, args, env, startup_timeout, health_check)
+- Add `mcp server` CLI commands: `start`, `stop`, `status` for managing HTTP MCP servers
+- Add transport type indicators in `mcp list`: `[S]`=stdio, `[H]`=http, `[E]`=sse
+- Add TUI MCP dialog transport indicators with status: `●`=running, `○`=external, `✗`=stopped
+- Add HTTP server pool with health monitoring and automatic restart of failed servers
+- External server detection: if URL is already reachable, use it without spawning a new process
+
+### Changed
+
+- MCP dialog now shows transport type and server status for each MCP
+- `mcp list` output now includes transport type column
+
 ## [0.8.95] - 2026-01-28
 
 ### Changed

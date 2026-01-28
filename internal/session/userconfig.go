@@ -434,6 +434,25 @@ type ToolDef struct {
 	Env map[string]string `toml:"env"`
 }
 
+// HTTPServerConfig defines how to auto-start an HTTP MCP server
+type HTTPServerConfig struct {
+	// Command is the executable to run (e.g., "uvx", "python", "node")
+	Command string `toml:"command"`
+
+	// Args are command-line arguments for the server
+	Args []string `toml:"args"`
+
+	// Env is environment variables for the server process
+	Env map[string]string `toml:"env"`
+
+	// StartupTimeout is milliseconds to wait for server to become ready (default: 5000)
+	StartupTimeout int `toml:"startup_timeout"`
+
+	// HealthCheck is an optional health endpoint URL to poll (e.g., "http://localhost:30000/health")
+	// If not set, the main URL is used for health checking
+	HealthCheck string `toml:"health_check"`
+}
+
 // MCPDef defines an MCP server configuration for the MCP Manager
 type MCPDef struct {
 	// Command is the executable to run (e.g., "npx", "docker", "node")
@@ -460,6 +479,40 @@ type MCPDef struct {
 	// Headers is optional HTTP headers for HTTP/SSE MCPs (e.g., for authentication)
 	// Example: { Authorization = "Bearer token123" }
 	Headers map[string]string `toml:"headers"`
+
+	// Server defines how to auto-start an HTTP MCP server process
+	// When set, agent-deck will start the server before connecting via HTTP
+	// This is optional - you can also connect to externally managed servers
+	Server *HTTPServerConfig `toml:"server"`
+}
+
+// GetStartupTimeout returns the startup timeout in milliseconds, defaulting to 5000ms
+func (c *HTTPServerConfig) GetStartupTimeout() int {
+	if c.StartupTimeout <= 0 {
+		return 5000 // Default: 5 seconds
+	}
+	return c.StartupTimeout
+}
+
+// IsHTTP returns true if this MCP uses HTTP or SSE transport
+func (m *MCPDef) IsHTTP() bool {
+	return m.URL != ""
+}
+
+// GetTransport returns the transport type, defaulting to "http" if URL is set
+func (m *MCPDef) GetTransport() string {
+	if m.URL == "" {
+		return "stdio"
+	}
+	if m.Transport == "" {
+		return "http"
+	}
+	return m.Transport
+}
+
+// HasAutoStartServer returns true if this HTTP MCP has server auto-start configured
+func (m *MCPDef) HasAutoStartServer() bool {
+	return m.IsHTTP() && m.Server != nil && m.Server.Command != ""
 }
 
 // MaintenanceSettings controls the automatic maintenance worker
@@ -1102,6 +1155,25 @@ default_tool = "claude"
 # url = "https://api.example.com/mcp/sse"
 # transport = "sse"
 # description = "Remote SSE-based MCP"
+
+# ---------- HTTP MCP with Auto-Start Server ----------
+# For MCPs that need a local server process (e.g., piekstra/slack-mcp-server),
+# add a [mcps.NAME.server] block to have agent-deck auto-start the server.
+
+# Example: Slack MCP with auto-start server
+# [mcps.slack]
+# url = "http://localhost:30000/mcp/"
+# transport = "http"
+# description = "Slack 23+ tools (piekstra)"
+# [mcps.slack.headers]
+#   Authorization = "Bearer xoxb-your-token"
+# [mcps.slack.server]
+#   command = "uvx"
+#   args = ["--python", "3.12", "slack-mcp-server", "--port", "30000"]
+#   startup_timeout = 5000
+#   health_check = "http://localhost:30000/health"
+#   [mcps.slack.server.env]
+#     SLACK_API_TOKEN = "xoxb-your-token"
 
 # ============================================================================
 # Custom Tool Definitions

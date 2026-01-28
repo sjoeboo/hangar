@@ -59,6 +59,14 @@ func WriteMCPJsonFromConfig(projectPath string, enabledNames []string) error {
 		if def, ok := availableMCPs[name]; ok {
 			// Check if this is an HTTP/SSE MCP (has URL configured)
 			if def.URL != "" {
+				// Start HTTP server if configured
+				if def.HasAutoStartServer() {
+					if err := StartHTTPServer(name, &def); err != nil {
+						log.Printf("[MCP] ⚠️ %s: failed to start HTTP server: %v", name, err)
+						// Continue anyway - server might be external or user will troubleshoot
+					}
+				}
+
 				transport := def.Transport
 				if transport == "" {
 					transport = "http" // default to http if URL is set
@@ -188,6 +196,13 @@ func WriteGlobalMCP(enabledNames []string) error {
 		if def, ok := availableMCPs[name]; ok {
 			// Check if this is an HTTP/SSE MCP (has URL configured)
 			if def.URL != "" {
+				// Start HTTP server if configured
+				if def.HasAutoStartServer() {
+					if err := StartHTTPServer(name, &def); err != nil {
+						log.Printf("[MCP] ⚠️ Global %s: failed to start HTTP server: %v", name, err)
+					}
+				}
+
 				transport := def.Transport
 				if transport == "" {
 					transport = "http" // default to http if URL is set
@@ -440,6 +455,13 @@ func WriteUserMCP(enabledNames []string) error {
 		if def, ok := availableMCPs[name]; ok {
 			// Check if this is an HTTP/SSE MCP (has URL configured)
 			if def.URL != "" {
+				// Start HTTP server if configured
+				if def.HasAutoStartServer() {
+					if err := StartHTTPServer(name, &def); err != nil {
+						log.Printf("[MCP] ⚠️ User %s: failed to start HTTP server: %v", name, err)
+					}
+				}
+
 				transport := def.Transport
 				if transport == "" {
 					transport = "http" // default to http if URL is set
