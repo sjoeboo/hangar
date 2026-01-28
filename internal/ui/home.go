@@ -5338,6 +5338,11 @@ func (h *Home) renderHelpBarCompact() string {
 		}
 	}
 
+	// Show undo hint when undo stack is non-empty
+	if len(h.undoStack) > 0 {
+		contextHints = append(contextHints, h.helpKeyShort("^Z", "Undo"))
+	}
+
 	// Global hints (abbreviated)
 	globalStyle := lipgloss.NewStyle().Foreground(ColorComment)
 	globalHints := globalStyle.Render("↑↓ Nav") + " " +
@@ -5435,6 +5440,11 @@ func (h *Home) renderHelpBarFull() string {
 				h.helpKey("d", "Delete"),
 			}
 		}
+	}
+
+	// Show undo hint when undo stack is non-empty
+	if len(h.undoStack) > 0 {
+		secondaryHints = append(secondaryHints, h.helpKey("^Z", "Undo"))
 	}
 
 	// Top border

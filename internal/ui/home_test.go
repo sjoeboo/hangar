@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -631,6 +632,104 @@ func TestHomeViewSingleColumnLayout(t *testing.T) {
 	}
 	if strings.Contains(view, "Terminal too small") {
 		t.Error("45-col terminal should not show 'too small' error")
+	}
+}
+
+func TestPushUndoStackLIFO(t *testing.T) {
+	home := NewHome()
+
+	// Push 3 sessions
+	for i := 0; i < 3; i++ {
+		inst := session.NewInstance(fmt.Sprintf("session-%d", i), "/tmp")
+		home.pushUndoStack(inst)
+	}
+
+	if len(home.undoStack) != 3 {
+		t.Fatalf("undoStack length = %d, want 3", len(home.undoStack))
+	}
+
+	// Verify LIFO order: last pushed should be at the end
+	if home.undoStack[2].instance.Title != "session-2" {
+		t.Errorf("top of stack = %s, want session-2", home.undoStack[2].instance.Title)
+	}
+	if home.undoStack[0].instance.Title != "session-0" {
+		t.Errorf("bottom of stack = %s, want session-0", home.undoStack[0].instance.Title)
+	}
+}
+
+func TestPushUndoStackCap(t *testing.T) {
+	home := NewHome()
+
+	// Push 12 sessions (exceeds cap of 10)
+	for i := 0; i < 12; i++ {
+		inst := session.NewInstance(fmt.Sprintf("session-%d", i), "/tmp")
+		home.pushUndoStack(inst)
+	}
+
+	if len(home.undoStack) != 10 {
+		t.Fatalf("undoStack length = %d, want 10 (capped)", len(home.undoStack))
+	}
+
+	// Oldest 2 should be dropped, so first entry should be session-2
+	if home.undoStack[0].instance.Title != "session-2" {
+		t.Errorf("bottom of stack = %s, want session-2 (oldest dropped)", home.undoStack[0].instance.Title)
+	}
+	// Most recent should be session-11
+	if home.undoStack[9].instance.Title != "session-11" {
+		t.Errorf("top of stack = %s, want session-11", home.undoStack[9].instance.Title)
+	}
+}
+
+func TestCtrlZEmptyStack(t *testing.T) {
+	home := NewHome()
+	home.width = 100
+	home.height = 30
+
+	// Press Ctrl+Z with empty stack
+	msg := tea.KeyMsg{Type: tea.KeyCtrlZ}
+	model, cmd := home.Update(msg)
+
+	h, ok := model.(*Home)
+	if !ok {
+		t.Fatal("Update should return *Home")
+	}
+
+	// Should show "nothing to undo" error
+	if h.err == nil {
+		t.Error("Expected error message for empty undo stack")
+	} else if !strings.Contains(h.err.Error(), "nothing to undo") {
+		t.Errorf("Error = %q, want 'nothing to undo'", h.err.Error())
+	}
+
+	// Should not return a command
+	if cmd != nil {
+		t.Error("Expected nil command for empty undo stack")
+	}
+}
+
+func TestUndoHintInHelpBar(t *testing.T) {
+	home := NewHome()
+	home.width = 120 // Full help bar mode
+	home.height = 30
+
+	// Add a session to have context
+	inst := &session.Instance{ID: "test-1", Title: "Test", Tool: "claude"}
+	home.flatItems = []session.Item{
+		{Type: session.ItemTypeSession, Session: inst},
+	}
+	home.cursor = 0
+
+	// No undo stack: should NOT show ^Z
+	result := home.renderHelpBar()
+	if strings.Contains(result, "Undo") {
+		t.Error("Help bar should NOT show Undo when undo stack is empty")
+	}
+
+	// Push to undo stack: should show ^Z
+	home.pushUndoStack(session.NewInstance("deleted", "/tmp"))
+	result = home.renderHelpBar()
+	if !strings.Contains(result, "Undo") {
+		t.Error("Help bar should show Undo when undo stack is non-empty")
 	}
 }
 

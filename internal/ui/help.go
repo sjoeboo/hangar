@@ -114,6 +114,7 @@ func (h *HelpOverlay) View() string {
 				{"r", "Rename session"},
 				{"Shift+R", "Restart session"},
 				{"d", "Delete session"},
+				{"Ctrl+Z", "Undo delete"},
 				{"m", "Move to group"},
 				{"Shift+M", "MCP Manager (Claude)"},
 				{"v", "Toggle preview mode (output/stats/both)"},

@@ -5,6 +5,18 @@ All notable changes to Agent Deck will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.94] - 2026-01-28
+
+### Added
+
+- Add undo delete (Ctrl+Z) for sessions: press Ctrl+Z after deleting a session to restore it including AI conversation resume. Supports multiple undos in reverse order (stack of up to 10)
+- Show ^Z Undo hint in help bar (compact and full modes) when undo stack is non-empty
+- Add Ctrl+Z entry to help overlay (? screen)
+
+### Changed
+
+- Update delete confirmation dialog: "This cannot be undone" → "Press Ctrl+Z after deletion to undo"
+
 ## [0.8.93] - 2026-01-28
 
 ### Fixed

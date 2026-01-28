@@ -112,7 +112,7 @@ func (c *ConfirmDialog) View() string {
 	case ConfirmDeleteSession:
 		title = "⚠️  Delete Session?"
 		warning = fmt.Sprintf("This will PERMANENTLY KILL the tmux session:\n\n  \"%s\"", c.targetName)
-		details = "• The tmux session will be terminated\n• Any running processes will be killed\n• Terminal history will be lost\n• This cannot be undone"
+		details = "• The tmux session will be terminated\n• Any running processes will be killed\n• Terminal history will be lost\n• Press Ctrl+Z after deletion to undo"
 		borderColor = ColorRed
 
 		buttonYes := lipgloss.NewStyle().
