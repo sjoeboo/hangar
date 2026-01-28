@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"strings"
 )
@@ -99,15 +100,22 @@ func ValidateBranchName(name string) error {
 	return nil
 }
 
-// GenerateWorktreePath generates a sibling directory path for a worktree
-// based on the repository directory and branch name
-func GenerateWorktreePath(repoDir, branchName string) string {
+// GenerateWorktreePath generates a worktree directory path based on the
+// repository directory, branch name, and location strategy.
+// Location "subdirectory" places worktrees under <repo>/.worktrees/<branch>.
+// Location "sibling" (or empty) places worktrees as <repo>-<branch> alongside the repo.
+func GenerateWorktreePath(repoDir, branchName, location string) string {
 	// Sanitize branch name for filesystem
 	sanitized := branchName
 	sanitized = strings.ReplaceAll(sanitized, "/", "-")
 	sanitized = strings.ReplaceAll(sanitized, " ", "-")
 
-	return repoDir + "-" + sanitized
+	switch location {
+	case "subdirectory":
+		return filepath.Join(repoDir, ".worktrees", sanitized)
+	default: // "sibling" or empty
+		return repoDir + "-" + sanitized
+	}
 }
 
 // CreateWorktree creates a new git worktree at worktreePath for the given branch

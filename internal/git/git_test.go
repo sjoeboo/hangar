@@ -277,7 +277,7 @@ func TestGenerateWorktreePath(t *testing.T) {
 		repoDir := "/path/to/my-project"
 		branchName := "feature-branch"
 
-		path := GenerateWorktreePath(repoDir, branchName)
+		path := GenerateWorktreePath(repoDir, branchName, "sibling")
 
 		expected := "/path/to/my-project-feature-branch"
 		if path != expected {
@@ -289,7 +289,7 @@ func TestGenerateWorktreePath(t *testing.T) {
 		repoDir := "/path/to/my-project"
 		branchName := "feature/new-thing"
 
-		path := GenerateWorktreePath(repoDir, branchName)
+		path := GenerateWorktreePath(repoDir, branchName, "sibling")
 
 		expected := "/path/to/my-project-feature-new-thing"
 		if path != expected {
@@ -301,11 +301,59 @@ func TestGenerateWorktreePath(t *testing.T) {
 		repoDir := "/path/to/my-project"
 		branchName := "feature with spaces"
 
-		path := GenerateWorktreePath(repoDir, branchName)
+		path := GenerateWorktreePath(repoDir, branchName, "sibling")
 
 		expected := "/path/to/my-project-feature-with-spaces"
 		if path != expected {
 			t.Errorf("expected %s, got %s", expected, path)
+		}
+	})
+
+	t.Run("subdirectory places worktree under .worktrees", func(t *testing.T) {
+		repoDir := "/path/to/my-project"
+		branchName := "feature-branch"
+
+		path := GenerateWorktreePath(repoDir, branchName, "subdirectory")
+
+		expected := "/path/to/my-project/.worktrees/feature-branch"
+		if path != expected {
+			t.Errorf("expected %s, got %s", expected, path)
+		}
+	})
+
+	t.Run("subdirectory sanitizes slashes in branch name", func(t *testing.T) {
+		repoDir := "/path/to/my-project"
+		branchName := "feature/new-thing"
+
+		path := GenerateWorktreePath(repoDir, branchName, "subdirectory")
+
+		expected := "/path/to/my-project/.worktrees/feature-new-thing"
+		if path != expected {
+			t.Errorf("expected %s, got %s", expected, path)
+		}
+	})
+
+	t.Run("empty location defaults to sibling", func(t *testing.T) {
+		repoDir := "/path/to/my-project"
+		branchName := "feature-branch"
+
+		path := GenerateWorktreePath(repoDir, branchName, "")
+
+		expected := "/path/to/my-project-feature-branch"
+		if path != expected {
+			t.Errorf("expected %s, got %s", expected, path)
+		}
+	})
+
+	t.Run("explicit sibling matches empty default", func(t *testing.T) {
+		repoDir := "/path/to/my-project"
+		branchName := "feature-branch"
+
+		pathEmpty := GenerateWorktreePath(repoDir, branchName, "")
+		pathSibling := GenerateWorktreePath(repoDir, branchName, "sibling")
+
+		if pathEmpty != pathSibling {
+			t.Errorf("empty and sibling should produce same path: %s vs %s", pathEmpty, pathSibling)
 		}
 	})
 }
@@ -543,7 +591,7 @@ func TestIntegration_WorktreeLifecycle(t *testing.T) {
 	t.Logf("Initial branch: %s", branch)
 
 	// Create worktree
-	worktreePath := GenerateWorktreePath(root, "feature-test")
+	worktreePath := GenerateWorktreePath(root, "feature-test", "sibling")
 	t.Logf("Creating worktree at: %s", worktreePath)
 
 	if err := CreateWorktree(root, worktreePath, "feature-test"); err != nil {
@@ -586,14 +634,14 @@ func TestIntegration_WorktreeLifecycle(t *testing.T) {
 
 func TestGenerateWorktreePath_EdgeCases(t *testing.T) {
 	t.Run("handles multiple slashes", func(t *testing.T) {
-		path := GenerateWorktreePath("/repo", "user/feature/sub")
+		path := GenerateWorktreePath("/repo", "user/feature/sub", "sibling")
 		if !strings.Contains(path, "user-feature-sub") {
 			t.Errorf("expected sanitized path, got %s", path)
 		}
 	})
 
 	t.Run("handles mixed separators", func(t *testing.T) {
-		path := GenerateWorktreePath("/repo", "feature/name with spaces")
+		path := GenerateWorktreePath("/repo", "feature/name with spaces", "sibling")
 		if strings.Contains(path, "/") && strings.Contains(path, " ") {
 			t.Errorf("path should not contain slashes or spaces in branch part: %s", path)
 		}

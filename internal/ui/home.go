@@ -2756,8 +2756,15 @@ func (h *Home) handleNewDialogKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				return h, nil
 			}
 
-			// Generate worktree path
-			worktreePath = git.GenerateWorktreePath(repoRoot, branchName)
+			// Generate worktree path using configured location
+			wtSettings := session.GetWorktreeSettings()
+			worktreePath = git.GenerateWorktreePath(repoRoot, branchName, wtSettings.DefaultLocation)
+
+			// Ensure parent directory exists (needed for subdirectory mode)
+			if err := os.MkdirAll(filepath.Dir(worktreePath), 0755); err != nil {
+				h.newDialog.SetError(fmt.Sprintf("Failed to create parent directory: %v", err))
+				return h, nil
+			}
 
 			// Create worktree
 			if err := git.CreateWorktree(repoRoot, worktreePath, branchName); err != nil {
