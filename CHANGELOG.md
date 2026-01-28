@@ -5,6 +5,78 @@ All notable changes to Agent Deck will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.85] - 2026-01-27
+
+### Fixed
+
+- Clear MCP cache before regeneration to prevent stale reads
+- Cursor jump during navigation and view duplication bugs
+
+## [0.8.83] - 2026-01-26
+
+### Fixed
+
+- Resume with empty session ID opens picker instead of random UUID
+- Subgroup creation under selected group
+
+### Added
+
+- Fast text copy (`c`) and inter-session transfer (`x`)
+
+## [0.8.79] - 2026-01-26
+
+### Added
+
+- Gemini model selection dialog (`Ctrl+G`)
+- Configurable maintenance system with TUI feedback
+- Improved status detection accuracy and Gemini prompt caching
+- `.env` file sourcing support for sessions (`[shell] env_files`)
+- Default dangerous mode for power users
+
+### Fixed
+
+- Sync session IDs to tmux env for cross-project search
+- Write headers to Claude config for HTTP MCPs
+- OpenCode session detection persistence and "Detecting session..." bug
+- Preserve parent path when renaming subgroups
+
+## [0.8.69] - 2026-01-20
+
+### Added
+
+- MCP Manager user scope: attach MCPs to `~/.claude.json` (affects all sessions)
+- Three-scope MCP system: LOCAL, GLOBAL, USER
+- Session sharing skill (export/import sessions between developers)
+- Scrolling support for help overlay on small screens
+
+### Fixed
+
+- Prevent orphaned test sessions
+- MCP pool quit confirmation
+
+## [0.8.67] - 2026-01-20
+
+### Added
+
+- Notification bar enabled by default
+- Thread-safe key bindings for background sync
+- Background worker self-ticking for status updates during `tea.Exec`
+- `ctrl+c to interrupt` as primary busy indicator detection
+- Debug logging for status transitions
+
+### Changed
+
+- Reduced grace period from 5s to 1.5s for faster startup detection
+- Removed 6-second animation minimum; uses status-based detection
+- Hook-based polling replaces frequent tick-based detection
+
+## [0.8.65] - 2026-01-19
+
+### Improved
+
+- Notification bar performance and active session detection
+- Increased busy indicator check depth from 10 to 20 lines
+
 ## [0.6.1] - 2025-12-24
 
 ### Changed

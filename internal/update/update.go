@@ -366,7 +366,7 @@ func FetchChangelog() (string, error) {
 		return "", fmt.Errorf("failed to fetch changelog: status %d", resp.StatusCode)
 	}
 
-	data, err := io.ReadAll(resp.Body)
+	data, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20)) // 1 MB max
 	if err != nil {
 		return "", fmt.Errorf("failed to read changelog: %w", err)
 	}

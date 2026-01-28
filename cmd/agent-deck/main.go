@@ -1358,7 +1358,7 @@ func handleUpdate(args []string) {
 func displayChangelog(currentVersion, latestVersion string) {
 	changelog, err := update.FetchChangelog()
 	if err != nil {
-		// Silently skip changelog on error - not critical
+		fmt.Println("\n  (Could not fetch changelog. See release notes at the URL above.)")
 		return
 	}
 
