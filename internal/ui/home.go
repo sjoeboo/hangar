@@ -596,10 +596,13 @@ func (h *Home) preserveState() reloadState {
 
 // restoreState applies preserved UI state after reload
 func (h *Home) restoreState(state reloadState) {
-	// Restore expanded groups
+	// Restore expanded groups (only for groups present in the map;
+	// new groups keep their default expanded state from storage)
 	if h.groupTree != nil {
 		for _, group := range h.groupTree.GroupList {
-			group.Expanded = state.expandedGroups[group.Path]
+			if expanded, exists := state.expandedGroups[group.Path]; exists {
+				group.Expanded = expanded
+			}
 		}
 	}
 
@@ -1806,22 +1809,36 @@ func (h *Home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.err != nil {
 			h.setError(msg.err)
 		} else {
-			// Fix cursor jump: re-capture current cursor position.
+			// Fix stale state: re-capture current cursor AND expanded groups.
 			// Between storageChangedMsg (which saved restoreState) and now,
-			// the user may have navigated. Read CURRENT cursor from OLD flatItems.
-			if msg.restoreState != nil && h.cursor >= 0 && h.cursor < len(h.flatItems) {
-				currentItem := h.flatItems[h.cursor]
-				switch currentItem.Type {
-				case session.ItemTypeSession:
-					if currentItem.Session != nil {
-						msg.restoreState.cursorSessionID = currentItem.Session.ID
-						msg.restoreState.cursorGroupPath = ""
+			// the user may have navigated or toggled groups.
+			if msg.restoreState != nil {
+				// Re-capture cursor position from OLD flatItems
+				if h.cursor >= 0 && h.cursor < len(h.flatItems) {
+					currentItem := h.flatItems[h.cursor]
+					switch currentItem.Type {
+					case session.ItemTypeSession:
+						if currentItem.Session != nil {
+							msg.restoreState.cursorSessionID = currentItem.Session.ID
+							msg.restoreState.cursorGroupPath = ""
+						}
+					case session.ItemTypeGroup:
+						msg.restoreState.cursorGroupPath = currentItem.Path
+						msg.restoreState.cursorSessionID = ""
 					}
-				case session.ItemTypeGroup:
-					msg.restoreState.cursorGroupPath = currentItem.Path
-					msg.restoreState.cursorSessionID = ""
 				}
 				msg.restoreState.viewOffset = h.viewOffset
+
+				// Re-capture expanded groups (user may have toggled between
+				// storageChangedMsg and now)
+				if h.groupTree != nil {
+					msg.restoreState.expandedGroups = make(map[string]bool)
+					for _, group := range h.groupTree.GroupList {
+						if group.Expanded {
+							msg.restoreState.expandedGroups[group.Path] = true
+						}
+					}
+				}
 			}
 
 			h.instancesMu.Lock()
@@ -1876,7 +1893,6 @@ func (h *Home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					}
 				}
 			}
-			h.rebuildFlatItems()
 			h.search.SetItems(h.instances)
 
 			// Restore state if provided (from auto-reload)
@@ -1884,6 +1900,7 @@ func (h *Home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				h.restoreState(*msg.restoreState)
 				h.syncViewport()
 			} else {
+				h.rebuildFlatItems()
 				// Save after dedup to persist any ID changes (initial load only)
 				h.saveInstances()
 			}

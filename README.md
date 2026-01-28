@@ -116,7 +116,17 @@ Waiting sessions appear right in your tmux status bar. Press `Ctrl+b 1-6` to jum
 Multiple agents can work on the same repo without conflicts. Each worktree is an isolated working directory with its own branch.
 
 - `agent-deck add . -c claude --worktree feature/a --new-branch` creates a session in a new worktree
+- `agent-deck add . --worktree feature/b -b --location subdirectory` places the worktree under `.worktrees/` inside the repo
 - `agent-deck worktree cleanup` finds and removes orphaned worktrees
+
+Configure the default worktree location in `~/.agent-deck/config.toml`:
+
+```toml
+[worktree]
+default_location = "subdirectory"  # "sibling" (default) or "subdirectory"
+```
+
+`sibling` creates worktrees next to the repo (`repo-branch`). `subdirectory` creates them inside it (`repo/.worktrees/branch`). The `--location` flag overrides the config per session.
 
 ### Multi-Tool Support
 
