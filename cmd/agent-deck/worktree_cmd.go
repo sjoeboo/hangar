@@ -228,6 +228,7 @@ func handleWorktreeInfo(profile string, args []string) {
 	if inst == nil {
 		out.Error(errMsg, errCode)
 		os.Exit(1)
+		return // unreachable, satisfies staticcheck SA5011
 	}
 
 	// Check if session has worktree info

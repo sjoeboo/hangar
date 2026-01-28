@@ -367,6 +367,7 @@ func handleMCPAttach(profile string, args []string) {
 	if inst == nil {
 		out.Error(errMsg, errCode)
 		os.Exit(2)
+		return // unreachable, satisfies staticcheck SA5011
 	}
 
 	// Verify MCP exists in config.toml
@@ -523,6 +524,7 @@ func handleMCPDetach(profile string, args []string) {
 	if inst == nil {
 		out.Error(errMsg, errCode)
 		os.Exit(2)
+		return // unreachable, satisfies staticcheck SA5011
 	}
 
 	scope := "local"

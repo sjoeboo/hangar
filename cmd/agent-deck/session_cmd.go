@@ -157,6 +157,7 @@ func handleSessionStart(profile string, args []string) {
 			os.Exit(2)
 		}
 		os.Exit(1)
+		return // unreachable, satisfies staticcheck SA5011
 	}
 
 	// Check if already running
@@ -241,6 +242,7 @@ func handleSessionStop(profile string, args []string) {
 			os.Exit(2)
 		}
 		os.Exit(1)
+		return // unreachable, satisfies staticcheck SA5011
 	}
 
 	// Check if not running
@@ -308,6 +310,7 @@ func handleSessionRestart(profile string, args []string) {
 			os.Exit(2)
 		}
 		os.Exit(1)
+		return // unreachable, satisfies staticcheck SA5011
 	}
 
 	// Restart the session
@@ -382,6 +385,7 @@ func handleSessionFork(profile string, args []string) {
 			os.Exit(2)
 		}
 		os.Exit(1)
+		return // unreachable, satisfies staticcheck SA5011
 	}
 
 	// Verify it's a Claude session
@@ -475,6 +479,7 @@ func handleSessionAttach(profile string, args []string) {
 			os.Exit(2)
 		}
 		os.Exit(1)
+		return // unreachable, satisfies staticcheck SA5011
 	}
 
 	// Check if session exists
@@ -746,6 +751,7 @@ func handleSessionSet(profile string, args []string) {
 			os.Exit(2)
 		}
 		os.Exit(1)
+		return // unreachable, satisfies staticcheck SA5011
 	}
 
 	// Store old value for output
@@ -1011,6 +1017,7 @@ func handleSessionSetParent(profile string, args []string) {
 	if inst == nil {
 		out.Error(errMsg, errCode)
 		os.Exit(2)
+		return // unreachable, satisfies staticcheck SA5011
 	}
 
 	// Resolve the parent session
@@ -1018,6 +1025,7 @@ func handleSessionSetParent(profile string, args []string) {
 	if parentInst == nil {
 		out.Error(errMsg, errCode)
 		os.Exit(2)
+		return // unreachable, satisfies staticcheck SA5011
 	}
 
 	// Validate: can't set self as parent
@@ -1103,6 +1111,7 @@ func handleSessionUnsetParent(profile string, args []string) {
 	if inst == nil {
 		out.Error(errMsg, errCode)
 		os.Exit(2)
+		return // unreachable, satisfies staticcheck SA5011
 	}
 
 	// Check if it's actually a sub-session
@@ -1175,6 +1184,7 @@ func handleSessionSend(profile string, args []string) {
 			os.Exit(2)
 		}
 		os.Exit(1)
+		return // unreachable, satisfies staticcheck SA5011
 	}
 
 	// Check if session is running
@@ -1302,6 +1312,7 @@ func handleSessionOutput(profile string, args []string) {
 			os.Exit(2)
 		}
 		os.Exit(1)
+		return // unreachable, satisfies staticcheck SA5011
 	}
 
 	// Get the last response
