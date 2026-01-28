@@ -149,10 +149,10 @@ func IsTmuxAvailable() error {
 
 // TerminalInfo contains detected terminal information
 type TerminalInfo struct {
-	Name           string // Terminal name (warp, iterm2, kitty, alacritty, etc.)
-	SupportsOSC8   bool   // Supports OSC 8 hyperlinks
-	SupportsOSC52  bool   // Supports OSC 52 clipboard
-	SupportsTrueColor bool // Supports 24-bit color
+	Name              string // Terminal name (warp, iterm2, kitty, alacritty, etc.)
+	SupportsOSC8      bool   // Supports OSC 8 hyperlinks
+	SupportsOSC52     bool   // Supports OSC 52 clipboard
+	SupportsTrueColor bool   // Supports 24-bit color
 }
 
 // DetectTerminal identifies the current terminal emulator from environment variables
@@ -218,9 +218,9 @@ func GetTerminalInfo() TerminalInfo {
 	terminal := DetectTerminal()
 
 	info := TerminalInfo{
-		Name:           terminal,
-		SupportsOSC8:   false,
-		SupportsOSC52:  false,
+		Name:              terminal,
+		SupportsOSC8:      false,
+		SupportsOSC52:     false,
 		SupportsTrueColor: false,
 	}
 
@@ -235,8 +235,8 @@ func GetTerminalInfo() TerminalInfo {
 	switch terminal {
 	case "warp":
 		// Warp: Full modern terminal support
-		info.SupportsOSC8 = true   // Native clickable paths
-		info.SupportsOSC52 = true  // Clipboard integration
+		info.SupportsOSC8 = true  // Native clickable paths
+		info.SupportsOSC52 = true // Clipboard integration
 		info.SupportsTrueColor = true
 
 	case "iterm2":
@@ -290,7 +290,7 @@ func GetTerminalInfo() TerminalInfo {
 	default:
 		// Unknown terminal - assume basic support
 		// Most modern terminals support these features
-		info.SupportsOSC8 = true  // Optimistic default
+		info.SupportsOSC8 = true // Optimistic default
 		info.SupportsOSC52 = true
 	}
 
@@ -356,10 +356,11 @@ type Session struct {
 	// mu protects all mutable fields below from concurrent access
 	mu sync.Mutex
 
-	// PERFORMANCE: Cache CapturePane content for short duration (100ms)
+	// PERFORMANCE: Cache CapturePane content for short duration (500ms)
 	// Reduces subprocess spawns during rapid status checks/log events
-	lastCaptureContent string
-	lastCaptureTime    time.Time
+	cacheMu      sync.RWMutex
+	cacheContent string
+	cacheTime    time.Time
 
 	// Content tracking for HasUpdated (separate from StateTracker)
 	lastHash    string
@@ -381,6 +382,15 @@ type Session struct {
 	customBusyPatterns   []string
 	customPromptPatterns []string
 	customDetectPatterns []string
+}
+
+// invalidateCache clears the CapturePane cache.
+// MUST be called after any action that might change terminal content.
+func (s *Session) invalidateCache() {
+	s.cacheMu.Lock()
+	defer s.cacheMu.Unlock()
+	s.cacheContent = ""
+	s.cacheTime = time.Time{}
 }
 
 // ensureStateTrackerLocked lazily allocates the tracker so callers can safely
@@ -557,6 +567,7 @@ func sanitizeName(name string) string {
 // Start creates and starts a tmux session
 func (s *Session) Start(command string) error {
 	s.Command = command
+	s.invalidateCache()
 
 	// Check if session already exists (shouldn't happen with unique IDs, but handle gracefully)
 	if s.Exists() {
@@ -826,12 +837,13 @@ func (s *Session) RespawnPane(command string) error {
 	if !s.Exists() {
 		return fmt.Errorf("session does not exist: %s", s.Name)
 	}
+	s.invalidateCache()
 
 	// Build respawn-pane command
 	// -k: Kill current process
 	// -t: Target pane (session:window.pane format, use session: for active pane)
 	// command: New command to run
-	target := s.Name + ":"  // Append colon to target the active pane
+	target := s.Name + ":" // Append colon to target the active pane
 	args := []string{"respawn-pane", "-k", "-t", target}
 	if command != "" {
 		// Wrap command in interactive shell to ensure aliases and shell configs are available
@@ -892,20 +904,18 @@ func (s *Session) GetWindowActivity() (int64, error) {
 
 // CapturePane captures the visible pane content
 func (s *Session) CapturePane() (string, error) {
-	s.mu.Lock()
-	// Return cached content if it's less than 100ms old
-	if s.lastCaptureContent != "" && time.Since(s.lastCaptureTime) < 100*time.Millisecond {
-		content := s.lastCaptureContent
-		s.mu.Unlock()
+	s.cacheMu.RLock()
+	// Return cached content if it's less than 500ms old
+	if s.cacheContent != "" && time.Since(s.cacheTime) < 500*time.Millisecond {
+		content := s.cacheContent
+		s.cacheMu.RUnlock()
 		return content, nil
 	}
-	s.mu.Unlock()
+	s.cacheMu.RUnlock()
 
 	// -J joins wrapped lines and trims trailing spaces so hashes don't change on resize
 	cmd := exec.Command("tmux", "capture-pane", "-t", s.Name, "-p", "-J")
-	startTime := time.Now()
 	output, err := cmd.Output()
-	elapsed := time.Since(startTime)
 
 	if err != nil {
 		return "", fmt.Errorf("failed to capture pane: %w", err)
@@ -913,18 +923,10 @@ func (s *Session) CapturePane() (string, error) {
 
 	content := string(output)
 
-	s.mu.Lock()
-	s.lastCaptureContent = content
-	s.lastCaptureTime = time.Now()
-	s.mu.Unlock()
-
-	if elapsed > 100*time.Millisecond {
-		shortName := s.DisplayName
-		if len(shortName) > 12 {
-			shortName = shortName[:12]
-		}
-		debugLog("SLOW CapturePane for %s: %v (>%v sessions may cause lag)", shortName, elapsed, elapsed)
-	}
+	s.cacheMu.Lock()
+	s.cacheContent = content
+	s.cacheTime = time.Now()
+	s.cacheMu.Unlock()
 
 	return content, nil
 }
@@ -1099,6 +1101,7 @@ func (s *Session) AcknowledgeWithSnapshot() {
 // 3. If timestamp changed → check if sustained or spike
 //   - Sustained (1+ more changes in 1s) → GREEN
 //   - Spike (no more changes) → filtered (no state change)
+//
 // 4. Check cooldown → GREEN if within
 // 5. Cooldown expired → YELLOW or GRAY based on acknowledged
 func (s *Session) GetStatus() (string, error) {
@@ -1649,9 +1652,9 @@ var (
 
 	// Progress bar patterns for normalization (Fix 2.1)
 	// These cause hash changes when progress updates
-	progressBarPattern = regexp.MustCompile(`\[=*>?\s*\]\s*\d+%`)           // [====>   ] 45%
+	progressBarPattern = regexp.MustCompile(`\[=*>?\s*\]\s*\d+%`)                  // [====>   ] 45%
 	downloadPattern    = regexp.MustCompile(`\d+\.?\d*[KMGT]?B/\d+\.?\d*[KMGT]?B`) // 1.2MB/5.6MB
-	percentagePattern  = regexp.MustCompile(`\b\d{1,3}%`)                   // 45% (word boundary to avoid false matches)
+	percentagePattern  = regexp.MustCompile(`\b\d{1,3}%`)                          // 45% (word boundary to avoid false matches)
 
 	// Time patterns like "12:34" or "12:34:56" that change every second
 	// Gemini and other tools show timestamps that cause hash changes
@@ -1716,9 +1719,9 @@ func (s *Session) normalizeContent(content string) string {
 
 	// Strip progress indicators that change frequently (Fix 2.1)
 	// These cause hash changes during downloads, builds, etc.
-	result = progressBarPattern.ReplaceAllString(result, "[PROGRESS]")  // [====>   ] 45%
-	result = downloadPattern.ReplaceAllString(result, "X.XMB/Y.YMB")    // 1.2MB/5.6MB
-	result = percentagePattern.ReplaceAllString(result, "N%")           // 45%
+	result = progressBarPattern.ReplaceAllString(result, "[PROGRESS]") // [====>   ] 45%
+	result = downloadPattern.ReplaceAllString(result, "X.XMB/Y.YMB")   // 1.2MB/5.6MB
+	result = percentagePattern.ReplaceAllString(result, "N%")          // 45%
 
 	// Normalize time patterns (12:34 or 12:34:56) that change every second
 	result = timePattern.ReplaceAllString(result, "HH:MM:SS")
@@ -1769,6 +1772,7 @@ func (s *Session) hashContent(content string) string {
 // SendKeys sends keys to the tmux session
 // Uses -l flag to treat keys as literal text, preventing tmux special key interpretation
 func (s *Session) SendKeys(keys string) error {
+	s.invalidateCache()
 	// The -l flag makes tmux treat the string as literal text, not key names
 	// This prevents issues like "Enter" being interpreted as the Enter key
 	// and provides a layer of safety against tmux special sequences
@@ -1778,6 +1782,7 @@ func (s *Session) SendKeys(keys string) error {
 
 // SendEnter sends an Enter key to the tmux session
 func (s *Session) SendEnter() error {
+	s.invalidateCache()
 	cmd := exec.Command("tmux", "send-keys", "-t", s.Name, "Enter")
 	return cmd.Run()
 }
@@ -1843,12 +1848,14 @@ func splitIntoChunks(content string, maxSize int) []string {
 
 // SendCtrlC sends Ctrl+C (interrupt signal) to the tmux session
 func (s *Session) SendCtrlC() error {
+	s.invalidateCache()
 	cmd := exec.Command("tmux", "send-keys", "-t", s.Name, "C-c")
 	return cmd.Run()
 }
 
 // SendCtrlU sends Ctrl+U (clear line) to the tmux session
 func (s *Session) SendCtrlU() error {
+	s.invalidateCache()
 	cmd := exec.Command("tmux", "send-keys", "-t", s.Name, "C-u")
 	return cmd.Run()
 }
