@@ -264,6 +264,12 @@ type Home struct {
 	// When AllowMultiple is enabled, only the primary instance (first to start) manages
 	// the notification bar and key bindings. Secondary instances are read-only for those.
 	isPrimaryInstance bool
+
+	// Cursor sync: track last notification bar switch during attach
+	// When user switches sessions via Ctrl+b N while attached (tea.Exec),
+	// we record the target session ID so cursor can follow after detach
+	lastNotifSwitchID string
+	lastNotifSwitchMu sync.Mutex
 }
 
 // reloadState preserves UI state during storage reload
@@ -1538,6 +1544,16 @@ func (h *Home) syncNotificationsBackground() {
 		if debug {
 			log.Printf("[NOTIF-BG] Signal file found: %s", signalSessionID)
 		}
+
+		// Track notification switch during attach for cursor sync on detach
+		if h.isAttaching.Load() {
+			h.lastNotifSwitchMu.Lock()
+			h.lastNotifSwitchID = signalSessionID
+			h.lastNotifSwitchMu.Unlock()
+			if debug {
+				log.Printf("[NOTIF-BG] Recorded attach-switch to %s for cursor sync", signalSessionID)
+			}
+		}
 	}
 
 	// Get current instances (copy to avoid race with main goroutine)
@@ -2226,6 +2242,42 @@ func (h *Home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Acknowledgment was already done on attach (if session was waiting),
 		// so this just refreshes the display with current busy indicator state.
 		h.triggerStatusUpdate()
+
+		// Cursor sync: if user switched sessions via notification bar during attach,
+		// move cursor to the session they were last viewing
+		h.lastNotifSwitchMu.Lock()
+		switchedID := h.lastNotifSwitchID
+		h.lastNotifSwitchID = ""
+		h.lastNotifSwitchMu.Unlock()
+
+		if switchedID != "" {
+			found := false
+			for i, item := range h.flatItems {
+				if item.Type == session.ItemTypeSession && item.Session != nil && item.Session.ID == switchedID {
+					h.cursor = i
+					h.syncViewport()
+					found = true
+					break
+				}
+			}
+			// If session is in a collapsed group, expand it first
+			if !found {
+				h.instancesMu.RLock()
+				inst, ok := h.instanceByID[switchedID]
+				h.instancesMu.RUnlock()
+				if ok && inst.GroupPath != "" && h.groupTree != nil {
+					h.groupTree.ExpandGroupWithParents(inst.GroupPath)
+					h.rebuildFlatItems()
+					for i, item := range h.flatItems {
+						if item.Type == session.ItemTypeSession && item.Session != nil && item.Session.ID == switchedID {
+							h.cursor = i
+							h.syncViewport()
+							break
+						}
+					}
+				}
+			}
+		}
 
 		// Skip save during reload to avoid overwriting external changes (CLI)
 		h.reloadMu.Lock()

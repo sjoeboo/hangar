@@ -5,6 +5,12 @@ All notable changes to Agent Deck will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.91] - 2026-01-28
+
+### Fixed
+
+- Fix TUI cursor not following notification bar session switch after detach (Ctrl+b N during attach now moves cursor to the switched-to session on Ctrl+Q)
+
 ## [0.8.90] - 2026-01-28
 
 ### Fixed
