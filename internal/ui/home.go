@@ -270,6 +270,9 @@ type Home struct {
 	// we record the target session ID so cursor can follow after detach
 	lastNotifSwitchID string
 	lastNotifSwitchMu sync.Mutex
+
+	// Undo delete stack (Chrome-style: Ctrl+Z restores in reverse order)
+	undoStack []deletedSessionEntry
 }
 
 // reloadState preserves UI state during storage reload
@@ -278,6 +281,12 @@ type reloadState struct {
 	cursorGroupPath string          // Path of group at cursor (if cursor on group)
 	expandedGroups  map[string]bool // Expanded group paths
 	viewOffset      int             // Scroll position
+}
+
+// deletedSessionEntry holds a deleted session for undo restore
+type deletedSessionEntry struct {
+	instance  *session.Instance
+	deletedAt time.Time
 }
 
 // getLayoutMode returns the current layout mode based on terminal width
@@ -462,6 +471,7 @@ func NewHomeWithProfileAndMode(profile string, isPrimary bool) *Home {
 		logUpdateChan:        make(chan *session.Instance, 100), // Buffered to absorb bursts
 		boundKeys:            make(map[string]string),
 		isPrimaryInstance:    isPrimary,
+		undoStack:            make([]deletedSessionEntry, 0, 10),
 	}
 
 	// Initialize notification manager if enabled in config
@@ -1395,6 +1405,18 @@ func (h *Home) getInstanceByID(id string) *session.Instance {
 	return h.instanceByID[id]
 }
 
+// pushUndoStack adds a deleted session to the undo stack (LIFO, capped at 10)
+func (h *Home) pushUndoStack(inst *session.Instance) {
+	entry := deletedSessionEntry{
+		instance:  inst,
+		deletedAt: time.Now(),
+	}
+	h.undoStack = append(h.undoStack, entry)
+	if len(h.undoStack) > 10 {
+		h.undoStack = h.undoStack[len(h.undoStack)-10:]
+	}
+}
+
 // getDefaultPathForGroup returns the default path for a group
 // Returns empty string if group not found or no default path set
 func (h *Home) getDefaultPathForGroup(groupPath string) string {
@@ -2066,6 +2088,12 @@ func (h *Home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		delete(h.instanceByID, msg.deletedID)
 		h.instancesMu.Unlock()
+
+		// Push to undo stack before removing from group tree
+		if deletedInstance != nil {
+			h.pushUndoStack(deletedInstance)
+		}
+
 		// Invalidate status counts cache
 		h.cachedStatusCounts.valid.Store(false)
 		// Invalidate preview cache for deleted session
@@ -2079,7 +2107,56 @@ func (h *Home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		h.search.SetItems(h.instances)
 		// Save both instances AND groups (critical fix: was losing groups!)
 		h.saveInstances()
+
+		// Show undo hint (using setError as a transient message)
+		if deletedInstance != nil {
+			h.setError(fmt.Errorf("deleted '%s'. Ctrl+Z to undo", deletedInstance.Title))
+		}
 		return h, nil
+
+	case sessionRestoredMsg:
+		if h.isReloading {
+			log.Printf("[RELOAD-DEBUG] sessionRestoredMsg: skipping during reload")
+			return h, nil
+		}
+		if msg.err != nil {
+			h.setError(fmt.Errorf("failed to restore session: %w", msg.err))
+			return h, nil
+		}
+
+		// Re-add to instances (mirrors sessionCreatedMsg pattern)
+		h.instancesMu.Lock()
+		h.instances = append(h.instances, msg.instance)
+		h.instanceByID[msg.instance.ID] = msg.instance
+		session.UpdateClaudeSessionsWithDedup(h.instances)
+		h.instancesMu.Unlock()
+		h.cachedStatusCounts.valid.Store(false)
+
+		// Track as launching for animation
+		h.launchingSessions[msg.instance.ID] = time.Now()
+
+		// Expand the group so the restored session is visible
+		if msg.instance.GroupPath != "" {
+			h.groupTree.ExpandGroupWithParents(msg.instance.GroupPath)
+		}
+
+		// Add to group tree and rebuild
+		h.groupTree.AddSession(msg.instance)
+		h.rebuildFlatItems()
+		h.search.SetItems(h.instances)
+
+		// Move cursor to restored session
+		for i, item := range h.flatItems {
+			if item.Type == session.ItemTypeSession && item.Session != nil && item.Session.ID == msg.instance.ID {
+				h.cursor = i
+				h.syncViewport()
+				break
+			}
+		}
+
+		h.saveInstances()
+		h.setError(fmt.Errorf("restored '%s'", msg.instance.Title))
+		return h, h.fetchPreview(msg.instance)
 
 	case openCodeDetectionCompleteMsg:
 		// OpenCode session detection completed
@@ -3178,29 +3255,25 @@ func (h *Home) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// Record time for potential gg detection
 		h.lastGTime = time.Now()
 
-		// Create new group based on context:
-		// - Group selected → create subgroup under the selected group
-		// - Session in a group → create subgroup in session's group
-		// - Root level → create root-level group
+		// Create new group with context-aware Tab toggle (Issue #111):
+		// Defaults to subgroup when on a group/grouped session, root otherwise.
+		// Tab toggle in the dialog lets users switch between Root and Subgroup.
+		parentPath := ""
+		parentName := ""
 		if h.cursor < len(h.flatItems) {
 			item := h.flatItems[h.cursor]
 			if item.Type == session.ItemTypeGroup {
-				// Create subgroup under selected group
-				h.groupDialog.ShowCreateSubgroup(item.Group.Path, item.Group.Name)
-				return h, nil
+				parentPath = item.Group.Path
+				parentName = item.Group.Name
 			} else if item.Type == session.ItemTypeSession && item.Session != nil && item.Session.GroupPath != "" {
-				// Session in a group: create subgroup in session's group
-				groupPath := item.Session.GroupPath
-				groupName := groupPath
-				if idx := strings.LastIndex(groupPath, "/"); idx >= 0 {
-					groupName = groupPath[idx+1:]
+				parentPath = item.Session.GroupPath
+				parentName = parentPath
+				if idx := strings.LastIndex(parentPath, "/"); idx >= 0 {
+					parentName = parentPath[idx+1:]
 				}
-				h.groupDialog.ShowCreateSubgroup(groupPath, groupName)
-				return h, nil
 			}
 		}
-		// Create root-level group (no selection or session at root)
-		h.groupDialog.Show()
+		h.groupDialog.ShowCreateWithContext(parentPath, parentName)
 		return h, nil
 
 	case "r":
@@ -3290,7 +3363,7 @@ func (h *Home) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		h.newDialog.SetDefaultTool(session.GetDefaultTool())
 
 		// Auto-select parent group from current cursor position
-		groupPath := session.DefaultGroupName
+		groupPath := session.DefaultGroupPath
 		groupName := session.DefaultGroupName
 		if h.cursor < len(h.flatItems) {
 			item := h.flatItems[h.cursor]
@@ -3421,6 +3494,20 @@ func (h *Home) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return h, cmd
 		}
 		return h, nil
+
+	case "ctrl+z":
+		// Undo last session delete (Chrome-style: restores in reverse order)
+		if len(h.undoStack) == 0 {
+			h.setError(fmt.Errorf("nothing to undo"))
+			return h, nil
+		}
+		entry := h.undoStack[len(h.undoStack)-1]
+		h.undoStack = h.undoStack[:len(h.undoStack)-1]
+		inst := entry.instance
+		return h, func() tea.Msg {
+			err := inst.Restart()
+			return sessionRestoredMsg{instance: inst, err: err}
+		}
 
 	case "ctrl+r":
 		// Manual refresh (useful if watcher fails or for user preference)
@@ -4032,6 +4119,12 @@ func (h *Home) forkSessionCmdWithOptions(source *session.Instance, title, groupP
 type sessionDeletedMsg struct {
 	deletedID string
 	killErr   error // Error from Kill() if any
+}
+
+// sessionRestoredMsg signals that an undo-delete restore completed
+type sessionRestoredMsg struct {
+	instance *session.Instance
+	err      error
 }
 
 // deleteSession deletes a session
@@ -5311,7 +5404,7 @@ func (h *Home) renderHelpBarFull() string {
 			primaryHints = []string{
 				h.helpKey("Tab", "Toggle"),
 				h.helpKey("n", "New"),
-				h.helpKey("g", "Subgroup"),
+				h.helpKey("g", "Group"),
 			}
 			secondaryHints = []string{
 				h.helpKey("r", "Rename"),

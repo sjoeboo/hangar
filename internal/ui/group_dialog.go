@@ -32,6 +32,10 @@ type GroupDialog struct {
 	selected      int      // Selected group index (for move)
 	sessionID     string   // Session ID being renamed (for rename session)
 	validationErr string   // Inline validation error displayed inside the dialog
+
+	// Tab toggle between Root and Subgroup modes (Issue #111)
+	contextParentPath string // Original cursor context parent path (for toggling back)
+	contextParentName string // Original cursor context parent name (for toggling back)
 }
 
 // NewGroupDialog creates a new group dialog
@@ -67,6 +71,52 @@ func (g *GroupDialog) ShowCreateSubgroup(parentPath, parentName string) {
 	g.validationErr = ""
 	g.nameInput.SetValue("")
 	g.nameInput.Focus()
+}
+
+// ShowCreateWithContext opens the create dialog with cursor context for Tab toggling.
+// If parentPath is non-empty, defaults to subgroup mode with Tab toggle available.
+// If parentPath is empty, opens as root-level group with no toggle.
+func (g *GroupDialog) ShowCreateWithContext(parentPath, parentName string) {
+	g.visible = true
+	g.mode = GroupDialogCreate
+	g.contextParentPath = parentPath
+	g.contextParentName = parentName
+	g.validationErr = ""
+	g.nameInput.SetValue("")
+	g.nameInput.Focus()
+
+	if parentPath != "" {
+		// Default to subgroup mode
+		g.groupPath = parentPath
+		g.parentName = parentName
+	} else {
+		// Root mode, no toggle
+		g.groupPath = ""
+		g.parentName = ""
+	}
+}
+
+// CanToggle returns true when the Tab toggle between Root and Subgroup is available.
+// Only applies in Create mode when the cursor was on a group context.
+func (g *GroupDialog) CanToggle() bool {
+	return g.mode == GroupDialogCreate && g.contextParentPath != ""
+}
+
+// ToggleRootSubgroup swaps between root-level and subgroup creation modes.
+func (g *GroupDialog) ToggleRootSubgroup() {
+	if !g.CanToggle() {
+		return
+	}
+	if g.groupPath == "" {
+		// Currently root → switch to subgroup
+		g.groupPath = g.contextParentPath
+		g.parentName = g.contextParentName
+	} else {
+		// Currently subgroup → switch to root
+		g.groupPath = ""
+		g.parentName = ""
+	}
+	g.validationErr = ""
 }
 
 // ShowRename shows the dialog in rename mode
@@ -210,6 +260,12 @@ func (g *GroupDialog) Update(msg tea.KeyMsg) (*GroupDialog, tea.Cmd) {
 		return g, nil
 	}
 
+	// Tab toggles between Root and Subgroup modes
+	if msg.String() == "tab" && g.CanToggle() {
+		g.ToggleRootSubgroup()
+		return g, nil
+	}
+
 	var cmd tea.Cmd
 	g.nameInput, cmd = g.nameInput.Update(msg)
 	return g, cmd
@@ -235,6 +291,24 @@ func (g *GroupDialog) View() string {
 		} else {
 			title = "Create New Group"
 			content = g.nameInput.View()
+		}
+
+		// Add Root/Subgroup toggle indicator when Tab toggle is available
+		if g.CanToggle() {
+			activeStyle := lipgloss.NewStyle().Bold(true).Foreground(ColorAccent)
+			dimStyle := lipgloss.NewStyle().Foreground(ColorTextDim)
+
+			rootTab := "Root"
+			subTab := "Subgroup"
+			var tabs string
+			if g.groupPath == "" {
+				// Root mode active
+				tabs = activeStyle.Render("["+rootTab+"]") + " ─── " + dimStyle.Render(subTab)
+			} else {
+				// Subgroup mode active
+				tabs = dimStyle.Render(rootTab) + " ─── " + activeStyle.Render("["+subTab+"]")
+			}
+			content = tabs + "\n\n" + content
 		}
 	case GroupDialogRename:
 		title = "Rename Group"
@@ -275,7 +349,12 @@ func (g *GroupDialog) View() string {
 
 	titleStyle := DialogTitleStyle.Width(titleWidth)
 	hintStyle := lipgloss.NewStyle().Foreground(ColorComment)
-	hint := hintStyle.Render("Enter confirm │ Esc cancel")
+	var hint string
+	if g.CanToggle() {
+		hint = hintStyle.Render("Tab toggle │ Enter confirm │ Esc cancel")
+	} else {
+		hint = hintStyle.Render("Enter confirm │ Esc cancel")
+	}
 
 	errContent := ""
 	if g.validationErr != "" {

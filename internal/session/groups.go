@@ -834,6 +834,7 @@ func (t *GroupTree) AddSession(inst *Instance) {
 		t.rebuildGroupList()
 	}
 	group.Sessions = append(group.Sessions, inst)
+	t.updateGroupDefaultPath(groupPath)
 }
 
 // RemoveSession removes a session from its group
@@ -908,6 +909,11 @@ func (t *GroupTree) SyncWithInstances(instances []*Instance) {
 	// could be empty while instances has data (filter bar shows counts
 	// but main panel shows "No Sessions Yet").
 	t.rebuildGroupList()
+
+	// Update default paths for all groups after syncing
+	for groupPath := range t.Groups {
+		t.updateGroupDefaultPath(groupPath)
+	}
 }
 
 // ShallowCopyForSave creates a copy of the GroupTree that's safe to use

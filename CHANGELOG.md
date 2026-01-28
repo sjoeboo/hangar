@@ -5,6 +5,17 @@ All notable changes to Agent Deck will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.93] - 2026-01-28
+
+### Fixed
+
+- Fix `g` key unable to create root-level groups when any group exists (#111). Add Tab toggle in the create-group dialog to switch between Root and Subgroup modes
+- Fix `n` key handler using display name constant instead of path constant for default group
+
+### Added
+
+- Group DefaultPath tracking: groups now track the most recently accessed session's project path via `updateGroupDefaultPath`
+
 ## [0.8.92] - 2026-01-28
 
 ### Fixed

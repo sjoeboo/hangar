@@ -1085,3 +1085,78 @@ func TestNewGroupTreeAutoCreatesParents(t *testing.T) {
 		t.Errorf("Expected name 'api', got '%s'", tree.Groups["projects/backend/api"].Name)
 	}
 }
+
+func TestAddSessionUpdatesDefaultPath(t *testing.T) {
+	tree := NewGroupTree([]*Instance{})
+
+	// Empty group should have no DefaultPath
+	tree.AddSession(&Instance{
+		ID:          "1",
+		Title:       "first",
+		GroupPath:   "dev",
+		ProjectPath: "",
+	})
+	group := tree.Groups["dev"]
+	if group == nil {
+		t.Fatal("dev group not found after AddSession")
+	}
+	if group.DefaultPath != "" {
+		t.Errorf("Expected empty DefaultPath for session with no ProjectPath, got %q", group.DefaultPath)
+	}
+
+	// After adding a session with a ProjectPath, DefaultPath should be set
+	now := time.Now()
+	tree.AddSession(&Instance{
+		ID:             "2",
+		Title:          "second",
+		GroupPath:      "dev",
+		ProjectPath:    "/home/user/project-a",
+		LastAccessedAt: now,
+	})
+	if group.DefaultPath != "/home/user/project-a" {
+		t.Errorf("Expected DefaultPath '/home/user/project-a', got %q", group.DefaultPath)
+	}
+
+	// After adding a more recently accessed session, DefaultPath should update
+	tree.AddSession(&Instance{
+		ID:             "3",
+		Title:          "third",
+		GroupPath:      "dev",
+		ProjectPath:    "/home/user/project-b",
+		LastAccessedAt: now.Add(time.Minute),
+	})
+	if group.DefaultPath != "/home/user/project-b" {
+		t.Errorf("Expected DefaultPath '/home/user/project-b', got %q", group.DefaultPath)
+	}
+}
+
+func TestSyncWithInstancesUpdatesDefaultPath(t *testing.T) {
+	now := time.Now()
+	instances := []*Instance{
+		{
+			ID:             "1",
+			Title:          "older",
+			GroupPath:      "work",
+			ProjectPath:    "/old/path",
+			LastAccessedAt: now,
+		},
+		{
+			ID:             "2",
+			Title:          "newer",
+			GroupPath:      "work",
+			ProjectPath:    "/new/path",
+			LastAccessedAt: now.Add(time.Hour),
+		},
+	}
+
+	tree := NewGroupTree([]*Instance{})
+	tree.SyncWithInstances(instances)
+
+	group := tree.Groups["work"]
+	if group == nil {
+		t.Fatal("work group not found after SyncWithInstances")
+	}
+	if group.DefaultPath != "/new/path" {
+		t.Errorf("Expected DefaultPath '/new/path' after sync, got %q", group.DefaultPath)
+	}
+}
