@@ -37,6 +37,7 @@ type NewDialog struct {
 	geminiYoloMode bool
 	// Inline validation error displayed inside the dialog
 	validationErr string
+	pathCycler    session.CompletionCycler // Path autocomplete state
 }
 
 // NewNewDialog creates a new NewDialog instance
@@ -369,10 +370,39 @@ func (d *NewDialog) Update(msg tea.Msg) (*NewDialog, tea.Cmd) {
 	case tea.KeyMsg:
 		switch msg.String() {
 		case "tab":
-			// On path field: apply selected suggestion ONLY if user explicitly navigated to one
+			// On path field: trigger autocomplete or cycle through matches
+			if d.focusIndex == 1 {
+				// Determine if we should trigger autocomplete
+				path := d.pathInput.Value()
+				info, err := os.Stat(path)
+				isDir := err == nil && info.IsDir()
+				isPartial := !isDir || strings.HasSuffix(path, string(os.PathSeparator))
+
+				if d.pathCycler.IsActive() || isPartial {
+					if d.pathCycler.IsActive() {
+						// Cycle to next match
+						d.pathInput.SetValue(d.pathCycler.Next())
+						d.pathInput.SetCursor(len(d.pathInput.Value()))
+						return d, nil
+					}
+
+					// First Tab press on partial path - look for completions
+					matches, err := session.GetDirectoryCompletions(path)
+					if err == nil && len(matches) > 0 {
+						d.pathCycler.SetMatches(matches)
+						d.pathInput.SetValue(d.pathCycler.Next())
+						d.pathInput.SetCursor(len(d.pathInput.Value()))
+						return d, nil
+					}
+				}
+				// If path is complete or no matches found - fall through to normal navigation
+			}
+
+			// On path field: apply selected suggestion ONLY if user explicitly navigated to one (fallback for Ctrl+N/P)
 			if d.focusIndex == 1 && d.suggestionNavigated && len(d.pathSuggestions) > 0 {
 				if d.pathSuggestionCursor < len(d.pathSuggestions) {
 					d.pathInput.SetValue(d.pathSuggestions[d.pathSuggestionCursor])
+					d.pathInput.SetCursor(len(d.pathInput.Value()))
 				}
 			}
 			// Move to next field (with worktree and claude options support)
@@ -513,6 +543,7 @@ func (d *NewDialog) Update(msg tea.Msg) (*NewDialog, tea.Cmd) {
 		if d.pathInput.Value() != oldValue {
 			d.suggestionNavigated = false
 			d.pathSuggestionCursor = 0
+			d.pathCycler.Reset()
 		}
 	case 2:
 		// Update custom command input when shell is selected
@@ -632,7 +663,7 @@ func (d *NewDialog) View() string {
 		}
 
 		content.WriteString("  ")
-		content.WriteString(lipgloss.NewStyle().Foreground(ColorComment).Render("─ recent paths (Tab: accept, Ctrl+N/P: cycle) ─"))
+		content.WriteString(lipgloss.NewStyle().Foreground(ColorComment).Render("─ recent paths (Ctrl+N/P: cycle, Tab: accept) ─"))
 		content.WriteString("\n")
 
 		// Show "more above" indicator
@@ -779,7 +810,9 @@ func (d *NewDialog) View() string {
 		Foreground(ColorComment). // Use consistent theme color
 		MarginTop(1)
 	helpText := "Tab next/accept │ ↑↓ navigate │ Enter create │ Esc cancel"
-	if d.focusIndex == 2 {
+	if d.focusIndex == 1 {
+		helpText = "Tab autocomplete │ ^N/^P recent │ ↑↓ navigate │ Enter create │ Esc cancel"
+	} else if d.focusIndex == 2 {
 		helpText = "←→ command │ w worktree │ Tab next │ Enter create │ Esc cancel"
 	} else if d.isClaudeSelected() && d.focusIndex >= 3 {
 		helpText = "Tab next │ ↑↓ navigate │ Space toggle │ Enter create │ Esc cancel"
