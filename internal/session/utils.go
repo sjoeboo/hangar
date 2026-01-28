@@ -47,20 +47,20 @@ func GetDirectoryCompletions(input string) ([]string, error) {
 		input = filepath.Join(home, input[1:])
 	}
 
-	// Determine the directory to scan and the prefix to match
+	// Determine the directory to scan and the prefix to match.
+	// Trailing-slash check MUST come first: when input ends with '/', the user
+	// wants to list directory contents, not echo the directory back. os.Stat
+	// would match the directory and return early, making this branch unreachable.
 	var dir, prefix string
-	if info, err := os.Stat(input); err == nil && info.IsDir() {
-		// Exact directory match - return itself
-		return []string{originalInput}, nil
-	}
-
-	dir = filepath.Dir(input)
-	prefix = filepath.Base(input)
-
-	// Special case: if input ends with a separator, we want to scan THAT directory
 	if strings.HasSuffix(originalInput, string(os.PathSeparator)) {
 		dir = input
 		prefix = ""
+	} else if info, err := os.Stat(input); err == nil && info.IsDir() {
+		// Exact directory match without trailing slash - return itself
+		return []string{originalInput}, nil
+	} else {
+		dir = filepath.Dir(input)
+		prefix = filepath.Base(input)
 	}
 
 	entries, err := os.ReadDir(dir)

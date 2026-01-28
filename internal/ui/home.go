@@ -191,7 +191,7 @@ type Home struct {
 	// PERFORMANCE: Worker pool for log-driven status updates (Priority 2)
 	// Caps the number of goroutines spawned for log file changes
 	logUpdateChan chan *session.Instance // Buffers status update requests from LogWatcher
-	logWorkerDone chan struct{}          // Signals log worker pool has stopped
+	logWorkerWg   sync.WaitGroup       // Tracks log worker goroutines for clean shutdown
 
 	// Event-driven status detection (Priority 2)
 	logWatcher *tmux.LogWatcher
@@ -454,7 +454,6 @@ func NewHomeWithProfileAndMode(profile string, isPrimary bool) *Home {
 		statusTrigger:        make(chan statusUpdateRequest, 1), // Buffered to avoid blocking
 		statusWorkerDone:     make(chan struct{}),
 		logUpdateChan:        make(chan *session.Instance, 100), // Buffered to absorb bursts
-		logWorkerDone:        make(chan struct{}),
 		boundKeys:            make(map[string]string),
 		isPrimaryInstance:    isPrimary,
 	}
@@ -1439,12 +1438,14 @@ func (h *Home) startLogWorkers() {
 	// Start 2 workers to handle log-triggered status updates concurrently
 	// This is enough to handle bursts without overwhelming the system
 	for i := 0; i < 2; i++ {
+		h.logWorkerWg.Add(1)
 		go h.logWorker()
 	}
 }
 
 // logWorker processes per-session status updates triggered by LogWatcher
 func (h *Home) logWorker() {
+	defer h.logWorkerWg.Done()
 	for {
 		select {
 		case <-h.ctx.Done():
@@ -3510,6 +3511,8 @@ func (h *Home) performFinalShutdown(shutdownPool bool) tea.Cmd {
 		if h.statusWorkerDone != nil {
 			<-h.statusWorkerDone
 		}
+		// Wait for log workers to drain before closing the watcher they depend on
+		h.logWorkerWg.Wait()
 
 		if h.logWatcher != nil {
 			h.logWatcher.Close()

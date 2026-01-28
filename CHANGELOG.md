@@ -5,6 +5,21 @@ All notable changes to Agent Deck will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.86] - 2026-01-28
+
+### Fixed
+
+- Fix changelog display dropping unrecognized lines (plain text paragraphs now preserved)
+- Fix trailing-slash path completion returning directory name instead of listing contents
+- Reset path autocomplete state when reopening new session dialog
+- Fix double-close on LogWatcher and StorageWatcher (move watcher.Close inside sync.Once)
+- Fix log worker shutdown race (replace unused channel with sync.WaitGroup)
+- Fix CapturePane TOCTOU race with singleflight deduplication
+
+### Added
+
+- Comprehensive test suite for update package (CompareVersions, ParseChangelog, GetChangesBetweenVersions, FormatChangelogForDisplay)
+
 ## [0.8.85] - 2026-01-27
 
 ### Fixed

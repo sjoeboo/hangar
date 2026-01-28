@@ -199,10 +199,12 @@ func (sw *StorageWatcher) NotifySave() {
 	sw.saveMu.Unlock()
 }
 
-// Close stops the watcher and releases resources
+// Close stops the watcher and releases resources. Safe to call multiple times.
 func (sw *StorageWatcher) Close() error {
+	var err error
 	sw.closeOnce.Do(func() {
 		close(sw.closeCh)
+		err = sw.watcher.Close()
 	})
-	return sw.watcher.Close()
+	return err
 }

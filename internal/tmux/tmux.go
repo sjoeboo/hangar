@@ -13,6 +13,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"golang.org/x/sync/singleflight"
 )
 
 // Debug flag - set via environment variable AGENTDECK_DEBUG=1
@@ -361,6 +363,7 @@ type Session struct {
 	cacheMu      sync.RWMutex
 	cacheContent string
 	cacheTime    time.Time
+	captureSf    singleflight.Group // Deduplicates concurrent CapturePane subprocess calls
 
 	// Content tracking for HasUpdated (separate from StateTracker)
 	lastHash    string
@@ -902,10 +905,11 @@ func (s *Session) GetWindowActivity() (int64, error) {
 	return ts, nil
 }
 
-// CapturePane captures the visible pane content
+// CapturePane captures the visible pane content.
+// Uses singleflight to deduplicate concurrent subprocess calls (TOCTOU fix).
 func (s *Session) CapturePane() (string, error) {
+	// Fast path: return cached content if fresh
 	s.cacheMu.RLock()
-	// Return cached content if it's less than 500ms old
 	if s.cacheContent != "" && time.Since(s.cacheTime) < 500*time.Millisecond {
 		content := s.cacheContent
 		s.cacheMu.RUnlock()
@@ -913,22 +917,38 @@ func (s *Session) CapturePane() (string, error) {
 	}
 	s.cacheMu.RUnlock()
 
-	// -J joins wrapped lines and trims trailing spaces so hashes don't change on resize
-	cmd := exec.Command("tmux", "capture-pane", "-t", s.Name, "-p", "-J")
-	output, err := cmd.Output()
+	// Slow path: deduplicate concurrent subprocess calls via singleflight.
+	// Multiple goroutines hitting this point concurrently will share one subprocess.
+	v, err, _ := s.captureSf.Do("capture", func() (interface{}, error) {
+		// Double-check cache inside singleflight (another caller may have just populated it)
+		s.cacheMu.RLock()
+		if s.cacheContent != "" && time.Since(s.cacheTime) < 500*time.Millisecond {
+			content := s.cacheContent
+			s.cacheMu.RUnlock()
+			return content, nil
+		}
+		s.cacheMu.RUnlock()
 
+		// -J joins wrapped lines and trims trailing spaces so hashes don't change on resize
+		cmd := exec.Command("tmux", "capture-pane", "-t", s.Name, "-p", "-J")
+		output, err := cmd.Output()
+		if err != nil {
+			return "", fmt.Errorf("failed to capture pane: %w", err)
+		}
+
+		content := string(output)
+
+		s.cacheMu.Lock()
+		s.cacheContent = content
+		s.cacheTime = time.Now()
+		s.cacheMu.Unlock()
+
+		return content, nil
+	})
 	if err != nil {
-		return "", fmt.Errorf("failed to capture pane: %w", err)
+		return "", err
 	}
-
-	content := string(output)
-
-	s.cacheMu.Lock()
-	s.cacheContent = content
-	s.cacheTime = time.Now()
-	s.cacheMu.Unlock()
-
-	return content, nil
+	return v.(string), nil
 }
 
 // CaptureFullHistory captures the scrollback history (limited to last 2000 lines for performance)

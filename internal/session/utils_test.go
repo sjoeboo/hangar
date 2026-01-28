@@ -62,6 +62,11 @@ func TestGetDirectoryCompletions(t *testing.T) {
 			input:    filepath.Join(tmpDir, "projects"),
 			expected: []string{filepath.Join(tmpDir, "projects")},
 		},
+		{
+			name:     "Trailing slash lists directory contents",
+			input:    filepath.Join(tmpDir, "work") + string(os.PathSeparator),
+			expected: []string{filepath.Join(tmpDir, "work/agent-deck"), filepath.Join(tmpDir, "work/other")},
+		},
 	}
 
 	for _, tt := range tests {

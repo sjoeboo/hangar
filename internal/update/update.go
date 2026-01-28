@@ -477,6 +477,9 @@ func FormatChangelogForDisplay(entries []ChangelogEntry) string {
 			} else if strings.HasPrefix(line, "  ") {
 				// Nested content
 				sb.WriteString(fmt.Sprintf("  %s\n", line))
+			} else {
+				// Preserve unrecognized non-empty lines (e.g. plain text paragraphs)
+				sb.WriteString(fmt.Sprintf("  %s\n", line))
 			}
 		}
 	}

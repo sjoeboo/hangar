@@ -96,12 +96,14 @@ func (lw *LogWatcher) Start() {
 	}
 }
 
-// Close stops the watcher
+// Close stops the watcher. Safe to call multiple times.
 func (lw *LogWatcher) Close() error {
+	var err error
 	lw.closeOnce.Do(func() {
 		close(lw.done)
+		err = lw.watcher.Close()
 	})
-	return lw.watcher.Close()
+	return err
 }
 
 // RotateLog truncates a session's log file if it exceeds maxSize

@@ -105,6 +105,7 @@ func (d *NewDialog) ShowInGroup(groupPath, groupName, defaultPath string) {
 	d.nameInput.Focus()
 	d.suggestionNavigated = false // reset on show
 	d.pathSuggestionCursor = 0    // reset cursor too
+	d.pathCycler.Reset()          // clear stale autocomplete matches from previous show
 	d.pathInput.Blur()
 	d.claudeOptions.Blur()
 	// Keep commandCursor at previously set default (don't reset to 0)
