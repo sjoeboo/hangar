@@ -680,9 +680,13 @@ func handleAdd(profile string, args []string) {
 
 	// Set command if provided
 	if sessionCommand != "" {
-		newInstance.Command = sessionCommand
-		// Detect tool from command
 		newInstance.Tool = detectTool(sessionCommand)
+		// For custom tools, resolve the actual shell command (e.g. "glm" → "claude")
+		if toolDef := session.GetToolDef(newInstance.Tool); toolDef != nil {
+			newInstance.Command = toolDef.Command
+		} else {
+			newInstance.Command = sessionCommand
+		}
 	}
 
 	// Set worktree fields if created
@@ -1475,6 +1479,11 @@ func truncate(s string, max int) string {
 
 // detectTool determines the tool type from command
 func detectTool(cmd string) string {
+	// Check custom tools first (exact match on original case)
+	if session.GetToolDef(cmd) != nil {
+		return cmd
+	}
+
 	cmd = strings.ToLower(cmd)
 	switch {
 	case strings.Contains(cmd, "claude"):

@@ -40,6 +40,16 @@ type NewDialog struct {
 	pathCycler    session.CompletionCycler // Path autocomplete state
 }
 
+// buildPresetCommands returns the list of commands for the picker,
+// including any custom tools from config.toml.
+func buildPresetCommands() []string {
+	presets := []string{"", "claude", "gemini", "opencode", "codex"}
+	if customTools := session.GetCustomToolNames(); len(customTools) > 0 {
+		presets = append(presets, customTools...)
+	}
+	return presets
+}
+
 // NewNewDialog creates a new NewDialog instance
 func NewNewDialog() *NewDialog {
 	// Create name input
@@ -82,7 +92,7 @@ func NewNewDialog() *NewDialog {
 		claudeOptions:   NewClaudeOptionsPanel(),
 		focusIndex:      0,
 		visible:         false,
-		presetCommands:  []string{"", "claude", "gemini", "opencode", "codex"},
+		presetCommands:  buildPresetCommands(),
 		commandCursor:   0,
 		parentGroupPath: "default",
 		parentGroupName: "default",
@@ -706,6 +716,13 @@ func (d *NewDialog) View() string {
 		displayName := cmd
 		if displayName == "" {
 			displayName = "shell"
+		}
+		// Prepend icon for custom tools
+		if icon := session.GetToolIcon(cmd); cmd != "" && icon != "" {
+			// Only prepend for custom tools (not built-ins which are recognizable by name)
+			if toolDef := session.GetToolDef(cmd); toolDef != nil && toolDef.Icon != "" {
+				displayName = icon + " " + displayName
+			}
 		}
 
 		var btnStyle lipgloss.Style

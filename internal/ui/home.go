@@ -3826,6 +3826,13 @@ func (h *Home) createSessionInGroupWithWorktreeAndOptions(name, path, command, g
 			tool = "aider"
 		case "codex":
 			tool = "codex"
+		default:
+			// Check custom tools: tool identity stays as the custom name (e.g. "glm")
+			// so config lookup works, but command resolves to the actual binary (e.g. "claude")
+			if toolDef := session.GetToolDef(command); toolDef != nil {
+				tool = command
+				command = toolDef.Command
+			}
 		}
 
 		var inst *session.Instance

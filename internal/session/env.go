@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 )
 
@@ -13,6 +14,7 @@ import (
 //  1. Global [shell].env_files (in order)
 //  2. [shell].init_script (for direnv, nvm, etc.)
 //  3. Tool-specific env_file ([claude].env_file, [gemini].env_file, [tools.X].env_file)
+//  4. Inline env vars from [tools.X].env (highest priority)
 func (i *Instance) buildEnvSourceCommand() string {
 	var sources []string
 	config, _ := LoadUserConfig()
@@ -45,6 +47,11 @@ func (i *Instance) buildEnvSourceCommand() string {
 	if toolEnvFile != "" {
 		resolved := resolveEnvFilePath(toolEnvFile, i.ProjectPath)
 		sources = append(sources, buildSourceCmd(resolved, ignoreMissing))
+	}
+
+	// 4. Inline env vars from [tools.X].env (highest priority)
+	if inlineEnv := i.getToolInlineEnv(); inlineEnv != "" {
+		sources = append(sources, inlineEnv)
 	}
 
 	if len(sources) == 0 {
@@ -103,6 +110,34 @@ func isFilePath(s string) bool {
 		strings.HasPrefix(s, "./") ||
 		strings.HasPrefix(s, "../") ||
 		strings.HasPrefix(s, "~")
+}
+
+// getToolInlineEnv returns shell export commands for inline env vars from [tools.X].env.
+// Returns empty string if the tool has no inline env vars defined.
+// Keys are sorted for deterministic output. Single quotes in values are escaped.
+func (i *Instance) getToolInlineEnv() string {
+	def := GetToolDef(i.Tool)
+	if def == nil || len(def.Env) == 0 {
+		return ""
+	}
+
+	// Sort keys for deterministic ordering
+	keys := make([]string, 0, len(def.Env))
+	for k := range def.Env {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+
+	// Build export statements with single-quote escaping
+	exports := make([]string, 0, len(keys))
+	for _, k := range keys {
+		v := def.Env[k]
+		// Escape single quotes: replace ' with '\'' (end quote, escaped quote, start quote)
+		escaped := strings.ReplaceAll(v, "'", "'\\''")
+		exports = append(exports, fmt.Sprintf("export %s='%s'", k, escaped))
+	}
+
+	return strings.Join(exports, " && ")
 }
 
 // getToolEnvFile returns the env_file setting for the current tool.

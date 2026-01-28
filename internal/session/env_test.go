@@ -123,6 +123,99 @@ func TestBuildSourceCmd(t *testing.T) {
 	}
 }
 
+func TestGetToolInlineEnv(t *testing.T) {
+	// Save and restore the original config cache
+	userConfigCacheMu.Lock()
+	origCache := userConfigCache
+	userConfigCacheMu.Unlock()
+	defer func() {
+		userConfigCacheMu.Lock()
+		userConfigCache = origCache
+		userConfigCacheMu.Unlock()
+	}()
+
+	tests := []struct {
+		name     string
+		tool     string
+		env      map[string]string
+		expected string
+	}{
+		{
+			name:     "nil tool def returns empty",
+			tool:     "nonexistent",
+			env:      nil,
+			expected: "",
+		},
+		{
+			name:     "empty env map returns empty",
+			tool:     "testtool",
+			env:      map[string]string{},
+			expected: "",
+		},
+		{
+			name: "single var",
+			tool: "testtool",
+			env:  map[string]string{"API_KEY": "secret123"},
+			expected: "export API_KEY='secret123'",
+		},
+		{
+			name: "multiple vars sorted alphabetically",
+			tool: "testtool",
+			env: map[string]string{
+				"ZEBRA":   "last",
+				"ALPHA":   "first",
+				"MIDDLE":  "mid",
+			},
+			expected: "export ALPHA='first' && export MIDDLE='mid' && export ZEBRA='last'",
+		},
+		{
+			name: "value with single quotes escaped",
+			tool: "testtool",
+			env:  map[string]string{"MSG": "it's a test"},
+			expected: "export MSG='it'\\''s a test'",
+		},
+		{
+			name: "value with dollar sign not expanded",
+			tool: "testtool",
+			env:  map[string]string{"VAR": "$HOME/path"},
+			expected: "export VAR='$HOME/path'",
+		},
+		{
+			name: "value with backticks not expanded",
+			tool: "testtool",
+			env:  map[string]string{"CMD": "`whoami`"},
+			expected: "export CMD='`whoami`'",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Set up config cache with test tool
+			userConfigCacheMu.Lock()
+			if tt.env != nil || tt.tool == "testtool" {
+				userConfigCache = &UserConfig{
+					Tools: map[string]ToolDef{
+						"testtool": {Env: tt.env},
+					},
+					MCPs: make(map[string]MCPDef),
+				}
+			} else {
+				userConfigCache = &UserConfig{
+					Tools: make(map[string]ToolDef),
+					MCPs:  make(map[string]MCPDef),
+				}
+			}
+			userConfigCacheMu.Unlock()
+
+			inst := &Instance{Tool: tt.tool}
+			result := inst.getToolInlineEnv()
+			if result != tt.expected {
+				t.Errorf("getToolInlineEnv() = %q, want %q", result, tt.expected)
+			}
+		})
+	}
+}
+
 func TestShellSettings_GetIgnoreMissingEnvFiles(t *testing.T) {
 	trueBool := true
 	falseBool := false

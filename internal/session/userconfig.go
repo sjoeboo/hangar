@@ -427,6 +427,11 @@ type ToolDef struct {
 	// EnvFile is a .env file specific to this tool
 	// Sourced AFTER global [shell].env_files
 	EnvFile string `toml:"env_file"`
+
+	// Env is inline environment variables for this tool
+	// These are exported AFTER env_file (highest priority)
+	// Example: env = { ANTHROPIC_BASE_URL = "https://...", API_KEY = "token" }
+	Env map[string]string `toml:"env"`
 }
 
 // MCPDef defines an MCP server configuration for the MCP Manager
@@ -640,6 +645,33 @@ func GetToolDef(toolName string) *ToolDef {
 		return &def
 	}
 	return nil
+}
+
+// GetCustomToolNames returns sorted custom tool names from config.toml,
+// excluding names that shadow built-in tools (claude, gemini, opencode, codex, shell, cursor, aider).
+// Returns nil if no custom tools are configured.
+func GetCustomToolNames() []string {
+	config, err := LoadUserConfig()
+	if err != nil || config == nil || len(config.Tools) == 0 {
+		return nil
+	}
+
+	builtins := map[string]bool{
+		"claude": true, "gemini": true, "opencode": true,
+		"codex": true, "shell": true, "cursor": true, "aider": true,
+	}
+
+	var names []string
+	for name := range config.Tools {
+		if !builtins[name] {
+			names = append(names, name)
+		}
+	}
+	if len(names) == 0 {
+		return nil
+	}
+	sort.Strings(names)
+	return names
 }
 
 // GetToolIcon returns the icon for a tool (custom or built-in)
@@ -1090,6 +1122,14 @@ default_tool = "claude"
 # command = "gh copilot"
 # icon = "🤖"
 # busy_patterns = ["Generating..."]
+
+# Example: Custom tool with inline env vars (appears in command picker)
+# [tools.glm]
+# command = "claude"
+# icon = "🧠"
+# dangerous_mode = true
+# dangerous_flag = "--dangerously-skip-permissions"
+# env = { ANTHROPIC_BASE_URL = "https://api.example.com/v4", API_KEY = "your-key" }
 `
 
 	// Add platform-aware MCP pool section
