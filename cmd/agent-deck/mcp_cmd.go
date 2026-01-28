@@ -223,6 +223,7 @@ func handleMCPAttached(profile string, args []string) {
 	if inst == nil {
 		out.Error(errMsg, errCode)
 		os.Exit(2)
+		return // unreachable, satisfies staticcheck SA5011
 	}
 
 	// Get MCP info for this session

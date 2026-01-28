@@ -580,6 +580,7 @@ func handleGroupMove(profile string, args []string) {
 			os.Exit(2)
 		}
 		os.Exit(1)
+		return // unreachable, satisfies staticcheck SA5011
 	}
 
 	// Normalize target group

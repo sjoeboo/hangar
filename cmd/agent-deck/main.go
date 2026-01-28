@@ -656,6 +656,7 @@ func handleAdd(profile string, args []string) {
 		if parentInstance == nil {
 			fmt.Printf("Error: %s\n", errMsg)
 			os.Exit(1)
+			return // unreachable, satisfies staticcheck SA5011
 		}
 		// Sub-sessions cannot have sub-sessions (single level only)
 		if parentInstance.IsSubSession() {
