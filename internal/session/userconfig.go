@@ -210,7 +210,15 @@ type InstanceSettings struct {
 	// AllowMultiple allows running multiple agent-deck TUI instances for the same profile
 	// When true (default), multiple instances can run, but only the first (primary) manages the notification bar
 	// When false, only one instance can run per profile
-	AllowMultiple bool `toml:"allow_multiple"`
+	AllowMultiple *bool `toml:"allow_multiple"`
+}
+
+// GetAllowMultiple returns whether multiple instances are allowed, defaulting to true
+func (i *InstanceSettings) GetAllowMultiple() bool {
+	if i.AllowMultiple == nil {
+		return true // Default: allow multiple instances (better UX for multi-pane workflows)
+	}
+	return *i.AllowMultiple
 }
 
 // ShellSettings defines shell environment configuration for sessions
@@ -958,17 +966,12 @@ func GetMaintenanceSettings() MaintenanceSettings {
 	return config.Maintenance
 }
 
-// GetInstanceSettings returns instance behavior settings with defaults applied
+// GetInstanceSettings returns instance behavior settings
 func GetInstanceSettings() InstanceSettings {
 	config, err := LoadUserConfig()
 	if err != nil || config == nil {
-		return InstanceSettings{
-			AllowMultiple: true, // Default: allow multiple instances (better UX for multi-pane workflows)
-		}
+		return InstanceSettings{} // Defaults applied via GetAllowMultiple()
 	}
-
-	// Apply default for allow_multiple (true) when config exists but section is empty
-	// Go's zero value for bool is false, so we need to detect if section was not explicitly set
 	return config.Instances
 }
 

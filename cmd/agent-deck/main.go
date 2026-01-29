@@ -253,7 +253,7 @@ func main() {
 	instanceSettings := session.GetInstanceSettings()
 	isPrimaryInstance := true // Assume we're primary until we know otherwise
 
-	if !instanceSettings.AllowMultiple {
+	if !instanceSettings.GetAllowMultiple() {
 		// Acquire lock to prevent duplicate instances (user opted for single instance)
 		if err := acquireLock(profile); err != nil {
 			fmt.Printf("Error: %v\n", err)
