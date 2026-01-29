@@ -1418,6 +1418,23 @@ func (i *Instance) WaitForClaudeSessionWithExclude(maxWait time.Duration, exclud
 	return i.WaitForClaudeSession(maxWait)
 }
 
+// PostStartSync captures session IDs from tmux environment after Start() or Restart().
+// Designed for CLI commands that exit after starting. The TUI doesn't need this
+// because its background worker handles detection.
+//
+// For Claude: polls tmux env for CLAUDE_SESSION_ID (set by bash uuidgen before exec).
+// For Gemini: reads session ID from filesystem.
+// For OpenCode/Codex: no-op (async goroutine detection, too slow for sync CLI).
+func (i *Instance) PostStartSync(maxWait time.Duration) {
+	switch i.Tool {
+	case "claude":
+		i.WaitForClaudeSession(maxWait)
+	case "gemini":
+		i.UpdateGeminiSession(nil)
+	}
+	// OpenCode/Codex: async detection already started by Start(), skip here
+}
+
 // Preview returns the last 3 lines of terminal output
 func (i *Instance) Preview() (string, error) {
 	if i.tmuxSession == nil {

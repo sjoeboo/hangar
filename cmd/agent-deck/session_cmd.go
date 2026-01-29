@@ -179,6 +179,10 @@ func handleSessionStart(profile string, args []string) {
 		}
 	}
 
+	// Capture session ID from tmux env before saving to JSON
+	// Claude: UUID is set by bash capture-resume pattern before exec
+	inst.PostStartSync(3 * time.Second)
+
 	// Save updated state
 	if err := saveSessionData(storage, instances); err != nil {
 		out.Error(fmt.Sprintf("failed to save session state: %v", err), ErrCodeInvalidOperation)
@@ -193,6 +197,9 @@ func handleSessionStart(profile string, args []string) {
 	}
 	if tmuxSess := inst.GetTmuxSession(); tmuxSess != nil {
 		jsonData["tmux"] = tmuxSess.Name
+	}
+	if inst.ClaudeSessionID != "" {
+		jsonData["claude_session_id"] = inst.ClaudeSessionID
 	}
 	if initialMessage != "" {
 		jsonData["message"] = initialMessage
@@ -319,6 +326,11 @@ func handleSessionRestart(profile string, args []string) {
 		os.Exit(1)
 	}
 
+	// If restart created a fresh session (no prior ID), capture the new ID
+	if inst.Tool == "claude" && inst.ClaudeSessionID == "" {
+		inst.PostStartSync(3 * time.Second)
+	}
+
 	// Save updated state
 	if err := saveSessionData(storage, instances); err != nil {
 		out.Error(fmt.Sprintf("failed to save session state: %v", err), ErrCodeInvalidOperation)
@@ -394,6 +406,11 @@ func handleSessionFork(profile string, args []string) {
 		os.Exit(1)
 	}
 
+	// Try to capture session ID from tmux if missing (handles pre-fix sessions)
+	if inst.ClaudeSessionID == "" && inst.Exists() {
+		inst.PostStartSync(2 * time.Second)
+	}
+
 	// Verify it can be forked
 	if !inst.CanFork() {
 		out.Error(fmt.Sprintf("session '%s' cannot be forked: no active Claude session ID", inst.Title), ErrCodeInvalidOperation)
@@ -422,6 +439,9 @@ func handleSessionFork(profile string, args []string) {
 		out.Error(fmt.Sprintf("failed to start forked session: %v", err), ErrCodeInvalidOperation)
 		os.Exit(1)
 	}
+
+	// Capture forked session's new session ID
+	forkedInst.PostStartSync(3 * time.Second)
 
 	// Add to instances
 	instances = append(instances, forkedInst)
@@ -821,7 +841,8 @@ func loadSessionData(profile string) (*session.Storage, []*session.Instance, []*
 		return nil, nil, nil, fmt.Errorf("failed to load sessions: %w", err)
 	}
 
-	// LoadWithGroups already reconnects tmux sessions and updates status
+	// LoadWithGroups reconnects tmux sessions with lazy loading.
+	// Status uses cached values from JSON; session IDs are not synced at load time.
 
 	return storage, instances, groupsData, nil
 }

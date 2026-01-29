@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/asheshgoplani/agent-deck/internal/experiments"
 	"github.com/asheshgoplani/agent-deck/internal/session"
@@ -123,6 +124,9 @@ func handleTry(profile string, args []string) {
 					out.Error(fmt.Sprintf("starting session: %v", err), ErrCodeInvalidOperation)
 					os.Exit(1)
 				}
+				inst.PostStartSync(3 * time.Second)
+				// Save updated state with session ID
+				_ = saveSessionData(storage, instances)
 			}
 			out.Print(
 				fmt.Sprintf("Session: %s (%s)\nPath: %s\n", inst.Title, inst.ID[:8], exp.Path),
@@ -156,6 +160,10 @@ func handleTry(profile string, args []string) {
 		out.Error(fmt.Sprintf("starting session: %v", err), ErrCodeInvalidOperation)
 		os.Exit(1)
 	}
+
+	// Capture session ID and re-save (first save at line above was before Start)
+	newInst.PostStartSync(3 * time.Second)
+	_ = saveSessionData(storage, instances)
 
 	action := "Created"
 	if !created {
