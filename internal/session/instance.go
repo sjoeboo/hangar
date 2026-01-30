@@ -2459,13 +2459,7 @@ func (i *Instance) CanFork() bool {
 
 // CanForkOpenCode returns true if this OpenCode session can be forked
 func (i *Instance) CanForkOpenCode() bool {
-	if i.Tool != "opencode" {
-		return false
-	}
-	if i.OpenCodeSessionID == "" {
-		return false
-	}
-	return time.Since(i.OpenCodeDetectedAt) < 5*time.Minute
+	return i.Tool == "opencode" && i.OpenCodeSessionID != ""
 }
 
 // Fork returns the command to create a forked Claude session
