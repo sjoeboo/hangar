@@ -523,8 +523,10 @@ func (i *Instance) detectOpenCodeSessionAsync() {
 	// Brief wait for OpenCode to initialize
 	time.Sleep(1 * time.Second)
 
-	// Try up to 3 times with short delays (detection should be quick now)
-	delays := []time.Duration{0, 1 * time.Second, 2 * time.Second}
+	// For NEW sessions, OpenCode doesn't persist the session until the user interacts.
+	// We use a longer retry window (total ~15s) to handle this case.
+	// Existing sessions are detected immediately on first attempt.
+	delays := []time.Duration{0, 2 * time.Second, 3 * time.Second, 4 * time.Second, 5 * time.Second}
 
 	for attempt, delay := range delays {
 		if delay > 0 {
