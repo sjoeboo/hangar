@@ -673,7 +673,7 @@ func TestSettingsPanel_PreviewSettings_LoadConfig(t *testing.T) {
 		t.Error("showAnalytics should be false after loading config")
 	}
 
-	// Test loading with nil ShowAnalytics (should default to true)
+	// Test loading with nil ShowAnalytics (should default to false)
 	showOutputFalse := false
 	config2 := &session.UserConfig{
 		Preview: session.PreviewSettings{
@@ -686,8 +686,8 @@ func TestSettingsPanel_PreviewSettings_LoadConfig(t *testing.T) {
 	if panel.showOutput {
 		t.Error("showOutput should be false after loading config2")
 	}
-	if !panel.showAnalytics {
-		t.Error("showAnalytics should default to true when nil")
+	if panel.showAnalytics {
+		t.Error("showAnalytics should default to false when nil")
 	}
 }
 

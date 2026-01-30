@@ -5,6 +5,23 @@ All notable changes to Agent Deck will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.98] - 2026-01-30
+
+### Fixed
+
+- **Claude Code 2.1.25+ busy detection**: Claude Code 2.1.25 removed `"ctrl+c to interrupt"` from the status line, causing all sessions to appear YELLOW/GRAY instead of GREEN while working. Detection now uses the unicode ellipsis (`…`) pattern: active state shows `"✳ Gusting… (35s · ↑ 673 tokens)"`, done state shows `"✻ Worked for 54s"` (no ellipsis)
+- Status line token format detection updated to match new `↑`/`↓` arrow format (`(35s · ↑ 673 tokens)`)
+- Content normalization updated for asterisk spinner characters (`·✳✽✶✻✢`) to prevent false hash changes
+
+### Changed
+
+- Analytics preview panel now defaults to OFF (opt-in via `show_analytics = true` in config.toml)
+
+### Added
+
+- 6 new whimsical thinking words: `billowing`, `gusting`, `metamorphosing`, `sublimating`, `recombobulating`, `sautéing`
+- Word-list-independent spinner detection regex for future-proofing against new Claude Code words
+
 ## [0.8.97] - 2026-01-29
 
 ### Fixed

@@ -91,8 +91,8 @@ func NewSettingsPanel() *SettingsPanel {
 		checkForUpdates:     true,
 		globalSearchEnabled: true,
 		recentDays:          90,
-		showOutput:          true, // Default: output ON (shows launch animation)
-		showAnalytics:       true, // Default: analytics ON
+		showOutput:          true,  // Default: output ON (shows launch animation)
+		showAnalytics:       false, // Default: analytics OFF (opt-in)
 	}
 }
 

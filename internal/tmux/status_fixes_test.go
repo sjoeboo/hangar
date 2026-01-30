@@ -574,3 +574,174 @@ func TestSpinnerCheckSkipsBoxDrawingLines(t *testing.T) {
 		})
 	}
 }
+
+// =============================================================================
+// VALIDATION 6.0: Claude Code 2.1.25+ Active Spinner Detection
+// =============================================================================
+// Claude Code 2.1.25 removed "ctrl+c to interrupt" from the status line.
+// Active state: spinner symbol + word + unicode ellipsis (…)
+// Done state: "✻ Worked for 54s" (no ellipsis)
+
+func TestClaudeCode2125_ActiveDetection(t *testing.T) {
+	sess := NewSession("claude-2125-test", "/tmp")
+	sess.Command = "claude"
+
+	tests := []struct {
+		name     string
+		content  string
+		wantBusy bool
+	}{
+		// Active states (should be GREEN)
+		{
+			name:     "active - ✳ spinner with ellipsis",
+			content:  "✳ Gusting… (35s · ↑ 673 tokens)",
+			wantBusy: true,
+		},
+		{
+			name:     "active - ✽ spinner with ellipsis and thinking",
+			content:  "✽ Metamorphosing… (33s · ↑ 144 tokens · thinking)",
+			wantBusy: true,
+		},
+		{
+			name:     "active - · spinner with ellipsis",
+			content:  "· Sublimating… (39s · ↓ 1.8k tokens)",
+			wantBusy: true,
+		},
+		{
+			name:     "active - ✶ spinner with ellipsis",
+			content:  "✶ Billowing… (41s · ↓ 720 tokens)",
+			wantBusy: true,
+		},
+		{
+			name:     "active - ✻ spinner with ellipsis",
+			content:  "✻ Gusting… (43s · ↓ 914 tokens)",
+			wantBusy: true,
+		},
+		{
+			name:     "active - ✢ spinner with ellipsis",
+			content:  "✢ Channelling… (ctrl+c to interrupt · ctrl+t to hide todos · 2m 54s · ↓ 2.5k tokens · thinking)",
+			wantBusy: true,
+		},
+		{
+			name: "active - with surrounding content",
+			content: `Some previous output here
+
+✳ Cooking… (12s · ↑ 200 tokens)
+──────────────────────────────────────────────────────────────
+❯
+──────────────────────────────────────────────────────────────`,
+			wantBusy: true,
+		},
+		{
+			name:     "active - unknown future word with ellipsis",
+			content:  "✳ Discombobulating… (5s · ↑ 50 tokens)",
+			wantBusy: true,
+		},
+		// Done states (should NOT be GREEN)
+		{
+			name:     "done - Worked for N seconds",
+			content:  "✻ Worked for 54s",
+			wantBusy: false,
+		},
+		{
+			name:     "done - Churned for N seconds",
+			content:  "✻ Churned for 47s",
+			wantBusy: false,
+		},
+		{
+			name: "done - Sautéed with prompt",
+			content: `✻ Sautéed for 32s
+
+──────────────────────────────────────────────────────────────
+❯
+──────────────────────────────────────────────────────────────`,
+			wantBusy: false,
+		},
+		// Backward compat: old-style ctrl+c still works
+		{
+			name:     "backward compat - ctrl+c to interrupt",
+			content:  "⠙ Thinking... (25s · 340 tokens · ctrl+c to interrupt)",
+			wantBusy: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := sess.hasBusyIndicator(tt.content)
+			if got != tt.wantBusy {
+				t.Errorf("hasBusyIndicator() = %v, want %v\nContent:\n%s", got, tt.wantBusy, tt.content)
+			}
+		})
+	}
+}
+
+func TestClaudeCode2125_NormalizeContent(t *testing.T) {
+	sess := NewSession("claude-2125-normalize", "/tmp")
+
+	// Different spinner states of the same content should normalize to the same hash
+	contents := []string{
+		"· Sublimating… (39s · ↓ 1.8k tokens)",
+		"✳ Sublimating… (39s · ↓ 1.8k tokens)",
+		"✽ Sublimating… (39s · ↓ 1.8k tokens)",
+		"✶ Sublimating… (39s · ↓ 1.8k tokens)",
+		"✻ Sublimating… (39s · ↓ 1.8k tokens)",
+	}
+
+	hashes := make([]string, len(contents))
+	for i, c := range contents {
+		hashes[i] = sess.hashContent(sess.normalizeContent(c))
+	}
+
+	// All should produce the same hash (spinner chars stripped, dynamic status normalized)
+	for i := 1; i < len(hashes); i++ {
+		if hashes[i] != hashes[0] {
+			t.Errorf("Hash mismatch: content[0] hash=%s, content[%d] hash=%s\n  content[0]: %q\n  content[%d]: %q",
+				hashes[0], i, hashes[i], contents[0], i, contents[i])
+		}
+	}
+}
+
+func TestClaudeCode2125_SpinnerActiveRegex(t *testing.T) {
+	tests := []struct {
+		input string
+		want  bool
+	}{
+		{"✳ gusting…", true},
+		{"· sublimating…", true},
+		{"✻ cooking…", true},
+		{"✢ channelling…", true},
+		{"✻ worked for 54s", false},  // done state, no ellipsis
+		{"✻ churned for 47s", false}, // done state, no ellipsis
+		{"some random text…", false}, // no spinner symbol
+		{"✻ ", false},                // no word
+	}
+
+	for _, tt := range tests {
+		got := claudeSpinnerActivePattern.MatchString(tt.input)
+		if got != tt.want {
+			t.Errorf("claudeSpinnerActivePattern.MatchString(%q) = %v, want %v", tt.input, got, tt.want)
+		}
+	}
+}
+
+func TestClaudeCode2125_DynamicStatusPattern(t *testing.T) {
+	// Verify the updated dynamicStatusPattern matches new token format with arrows
+	tests := []struct {
+		input string
+		want  bool
+	}{
+		{"(45s · 1234 tokens · ctrl+c to interrupt)", true}, // old format
+		{"(35s · ↑ 673 tokens)", true},                      // new format with up arrow
+		{"(39s · ↓ 1.8k tokens)", true},                     // new format with down arrow
+		{"(33s · ↑ 144 tokens · thinking)", true},            // new with thinking
+		{"(41s · ↓ 720 tokens)", true},                       // simple new format
+		{"(some text)", false},                               // not a status
+	}
+
+	for _, tt := range tests {
+		got := dynamicStatusPattern.MatchString(tt.input)
+		if got != tt.want {
+			t.Errorf("dynamicStatusPattern.MatchString(%q) = %v, want %v", tt.input, got, tt.want)
+		}
+	}
+}
