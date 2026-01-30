@@ -4003,8 +4003,6 @@ func (h *Home) createSessionInGroupWithWorktreeAndOptions(name, path, command, g
 			return sessionCreatedMsg{err: fmt.Errorf("cannot create session: %w", err)}
 		}
 
-		// Determine tool from command for proper session initialization
-		// When tool is "claude", session ID will be detected from files after start
 		tool := "shell"
 		switch command {
 		case "claude":
@@ -4015,6 +4013,8 @@ func (h *Home) createSessionInGroupWithWorktreeAndOptions(name, path, command, g
 			tool = "aider"
 		case "codex":
 			tool = "codex"
+		case "opencode":
+			tool = "opencode"
 		default:
 			// Check custom tools: tool identity stays as the custom name (e.g. "glm")
 			// so config lookup works, but command resolves to the actual binary (e.g. "claude")
@@ -5861,6 +5861,13 @@ func (h *Home) renderLaunchingState(inst *session.Instance, width int, startTime
 			toolDesc = "Resuming Codex session..."
 		} else {
 			toolDesc = "Starting Codex..."
+		}
+	case "opencode":
+		toolName = "OpenCode"
+		if isResuming {
+			toolDesc = "Resuming OpenCode session..."
+		} else {
+			toolDesc = "Starting OpenCode..."
 		}
 	default:
 		toolName = "Shell"
