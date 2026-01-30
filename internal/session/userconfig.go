@@ -831,16 +831,15 @@ func GetWorktreeSettings() WorktreeSettings {
 	config, err := LoadUserConfig()
 	if err != nil || config == nil {
 		return WorktreeSettings{
-			DefaultLocation: "sibling",
+			DefaultLocation: "subdirectory",
 			AutoCleanup:     true,
 		}
 	}
 
 	settings := config.Worktree
 
-	// Apply defaults for unset values
 	if settings.DefaultLocation == "" {
-		settings.DefaultLocation = "sibling"
+		settings.DefaultLocation = "subdirectory"
 	}
 	// AutoCleanup defaults to true (Go zero value is false)
 	// We detect if section was not present by checking if DefaultLocation is empty

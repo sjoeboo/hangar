@@ -15,6 +15,7 @@ const (
 	ConfirmDeleteSession ConfirmType = iota
 	ConfirmDeleteGroup
 	ConfirmQuitWithPool
+	ConfirmCreateDirectory
 )
 
 // ConfirmDialog handles confirmation for destructive actions
@@ -26,6 +27,12 @@ type ConfirmDialog struct {
 	width       int
 	height      int
 	mcpCount    int // Number of running MCPs (for quit confirmation)
+
+	// Pending session creation data (for ConfirmCreateDirectory)
+	pendingSessionName      string
+	pendingSessionPath      string
+	pendingSessionCommand   string
+	pendingSessionGroupPath string
 }
 
 // NewConfirmDialog creates a new confirmation dialog
@@ -56,6 +63,23 @@ func (c *ConfirmDialog) ShowQuitWithPool(mcpCount int) {
 	c.mcpCount = mcpCount
 	c.targetID = ""
 	c.targetName = ""
+}
+
+// ShowCreateDirectory shows confirmation for creating a missing directory
+func (c *ConfirmDialog) ShowCreateDirectory(path, sessionName, command, groupPath string) {
+	c.visible = true
+	c.confirmType = ConfirmCreateDirectory
+	c.targetID = path
+	c.targetName = path
+	c.pendingSessionName = sessionName
+	c.pendingSessionPath = path
+	c.pendingSessionCommand = command
+	c.pendingSessionGroupPath = groupPath
+}
+
+// GetPendingSession returns the pending session creation data
+func (c *ConfirmDialog) GetPendingSession() (name, path, command, groupPath string) {
+	return c.pendingSessionName, c.pendingSessionPath, c.pendingSessionCommand, c.pendingSessionGroupPath
 }
 
 // Hide hides the dialog
@@ -178,6 +202,29 @@ func (c *ConfirmDialog) View() string {
 			Foreground(ColorTextDim).
 			Render("(Esc to cancel)")
 		buttons = lipgloss.JoinHorizontal(lipgloss.Center, buttonKeep, "  ", buttonShutdown, "  ", escHint)
+
+	case ConfirmCreateDirectory:
+		title = "📁  Directory Not Found"
+		warning = fmt.Sprintf("The path does not exist:\n\n  %s", c.targetName)
+		details = "Create this directory and start the session?"
+		borderColor = ColorAccent
+
+		buttonYes := lipgloss.NewStyle().
+			Foreground(ColorBg).
+			Background(ColorGreen).
+			Padding(0, 2).
+			Bold(true).
+			Render("y Create")
+		buttonNo := lipgloss.NewStyle().
+			Foreground(ColorBg).
+			Background(ColorRed).
+			Padding(0, 2).
+			Bold(true).
+			Render("n Cancel")
+		escHint := lipgloss.NewStyle().
+			Foreground(ColorTextDim).
+			Render("(Esc to cancel)")
+		buttons = lipgloss.JoinHorizontal(lipgloss.Center, buttonYes, "  ", buttonNo, "  ", escHint)
 	}
 
 	// Title style

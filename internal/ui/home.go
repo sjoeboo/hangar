@@ -2937,13 +2937,17 @@ func (h *Home) handleNewDialogKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			path = worktreePath
 		}
 
-		h.newDialog.Hide()
-		h.clearError() // Clear any previous validation error
+		if _, err := os.Stat(path); os.IsNotExist(err) {
+			h.newDialog.Hide()
+			h.confirmDialog.ShowCreateDirectory(path, name, command, groupPath)
+			return h, nil
+		}
 
-		// Get Gemini YOLO mode from dialog
+		h.newDialog.Hide()
+		h.clearError()
+
 		geminiYoloMode := h.newDialog.IsGeminiYoloMode()
 
-		// Create session with worktree info and options (claudeOpts already obtained above)
 		return h, h.createSessionInGroupWithWorktreeAndOptions(name, path, command, groupPath, worktreePath, worktreeRepoRoot, branchName, geminiYoloMode, claudeOpts)
 
 	case "esc":
@@ -3598,22 +3602,34 @@ func (h *Home) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 func (h *Home) handleConfirmDialogKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch h.confirmDialog.GetConfirmType() {
 	case ConfirmQuitWithPool:
-		// Special handling for quit with pool dialog
 		switch msg.String() {
 		case "k", "K":
-			// Keep pool running - quit without shutting down
 			h.confirmDialog.Hide()
 			h.isQuitting = true
-			return h, h.performQuit(false) // false = don't shutdown pool
+			return h, h.performQuit(false)
 		case "s", "S":
-			// Shut down pool - quit and shutdown
 			h.confirmDialog.Hide()
 			h.isQuitting = true
-			return h, h.performQuit(true) // true = shutdown pool
+			return h, h.performQuit(true)
 		case "esc":
-			// Cancel - don't quit
 			h.confirmDialog.Hide()
 			h.isQuitting = false
+			return h, nil
+		}
+		return h, nil
+
+	case ConfirmCreateDirectory:
+		switch msg.String() {
+		case "y", "Y":
+			name, path, command, groupPath := h.confirmDialog.GetPendingSession()
+			h.confirmDialog.Hide()
+			if err := os.MkdirAll(path, 0755); err != nil {
+				h.setError(fmt.Errorf("failed to create directory: %w", err))
+				return h, nil
+			}
+			return h, h.createSessionInGroupWithWorktreeAndOptions(name, path, command, groupPath, "", "", "", false, nil)
+		case "n", "N", "esc":
+			h.confirmDialog.Hide()
 			return h, nil
 		}
 		return h, nil

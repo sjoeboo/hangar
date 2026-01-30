@@ -302,10 +302,9 @@ func TestGetWorktreeSettings(t *testing.T) {
 	defer os.Setenv("HOME", originalHome)
 	ClearUserConfigCache()
 
-	// With no config, should return defaults
 	settings := GetWorktreeSettings()
-	if settings.DefaultLocation != "sibling" {
-		t.Errorf("GetWorktreeSettings DefaultLocation: got %q, want %q", settings.DefaultLocation, "sibling")
+	if settings.DefaultLocation != "subdirectory" {
+		t.Errorf("GetWorktreeSettings DefaultLocation: got %q, want %q", settings.DefaultLocation, "subdirectory")
 	}
 	if !settings.AutoCleanup {
 		t.Error("GetWorktreeSettings AutoCleanup: should default to true")

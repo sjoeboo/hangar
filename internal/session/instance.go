@@ -520,39 +520,72 @@ func (i *Instance) buildCodexCommand(baseCommand string) string {
 // We query "opencode session list --format json" and match by project directory,
 // picking the most recently updated session (since OpenCode auto-resumes the last session)
 func (i *Instance) detectOpenCodeSessionAsync() {
-	// Brief wait for OpenCode to initialize
 	time.Sleep(1 * time.Second)
 
-	// For NEW sessions, OpenCode doesn't persist the session until the user interacts.
-	// We use a longer retry window (total ~15s) to handle this case.
-	// Existing sessions are detected immediately on first attempt.
-	delays := []time.Duration{0, 2 * time.Second, 3 * time.Second, 4 * time.Second, 5 * time.Second}
+	// Phase 1: Quick detection for existing sessions (5 attempts over ~15s)
+	quickDelays := []time.Duration{0, 2 * time.Second, 3 * time.Second, 4 * time.Second, 5 * time.Second}
 
-	for attempt, delay := range delays {
+	for attempt, delay := range quickDelays {
 		if delay > 0 {
 			time.Sleep(delay)
 		}
 
-		sessionID := i.queryOpenCodeSession()
-		if sessionID != "" {
-			i.OpenCodeSessionID = sessionID
-			i.OpenCodeDetectedAt = time.Now()
-
-			// Store in tmux environment for restart
-			if i.tmuxSession != nil {
-				if err := i.tmuxSession.SetEnvironment("OPENCODE_SESSION_ID", sessionID); err != nil {
-					log.Printf("[OPENCODE] Warning: failed to set OPENCODE_SESSION_ID env: %v", err)
-				}
-			}
-
-			log.Printf("[OPENCODE] Detected session ID: %s (attempt %d)", sessionID, attempt+1)
+		if sessionID := i.queryOpenCodeSession(); sessionID != "" {
+			i.setOpenCodeSession(sessionID)
+			log.Printf("[OPENCODE] Detected session ID: %s (quick phase, attempt %d)", sessionID, attempt+1)
 			return
 		}
 
-		log.Printf("[OPENCODE] Session ID not found yet (attempt %d/%d)", attempt+1, len(delays))
+		log.Printf("[OPENCODE] Session ID not found yet (attempt %d/%d)", attempt+1, len(quickDelays))
 	}
 
-	log.Printf("[OPENCODE] Warning: Could not detect session ID after %d attempts", len(delays))
+	// Phase 2: Long-running background watcher for new sessions
+	// OpenCode only persists new sessions after significant user activity
+	go i.watchForOpenCodeSession()
+}
+
+// watchForOpenCodeSession polls for session creation over an extended period.
+// New sessions may take minutes to be persisted by OpenCode.
+func (i *Instance) watchForOpenCodeSession() {
+	const (
+		pollInterval = 10 * time.Second
+		maxDuration  = 5 * time.Minute
+	)
+
+	deadline := time.Now().Add(maxDuration)
+	attempt := 0
+
+	for time.Now().Before(deadline) {
+		time.Sleep(pollInterval)
+		attempt++
+
+		if i.OpenCodeSessionID != "" {
+			log.Printf("[OPENCODE] Background watcher: session already set, stopping")
+			return
+		}
+
+		if sessionID := i.queryOpenCodeSession(); sessionID != "" {
+			i.setOpenCodeSession(sessionID)
+			log.Printf("[OPENCODE] Background watcher detected session ID: %s (attempt %d)", sessionID, attempt)
+			return
+		}
+
+		log.Printf("[OPENCODE] Background watcher: session not found (attempt %d)", attempt)
+	}
+
+	log.Printf("[OPENCODE] Background watcher: gave up after %v", maxDuration)
+}
+
+// setOpenCodeSession sets the session ID and stores it in tmux environment.
+func (i *Instance) setOpenCodeSession(sessionID string) {
+	i.OpenCodeSessionID = sessionID
+	i.OpenCodeDetectedAt = time.Now()
+
+	if i.tmuxSession != nil {
+		if err := i.tmuxSession.SetEnvironment("OPENCODE_SESSION_ID", sessionID); err != nil {
+			log.Printf("[OPENCODE] Warning: failed to set OPENCODE_SESSION_ID env: %v", err)
+		}
+	}
 }
 
 // queryOpenCodeSession queries OpenCode CLI for session matching our project directory
@@ -2545,11 +2578,11 @@ func (i *Instance) ForkOpenCode(newTitle, newGroupPath string) (string, error) {
 	envPrefix := i.buildEnvSourceCommand()
 
 	cmd := fmt.Sprintf(
-		`cd '%s' && `+
+		`cd "%s" && `+
 			`tmpfile=$(mktemp /tmp/opencode-fork-XXXXX.json) && `+
 			`opencode export %s 2>/dev/null > "$tmpfile" && `+
-			`new_id="ses_$(date +%%s | md5 | head -c12)ffe$(openssl rand -base64 15 | tr -dc 'a-zA-Z0-9' | head -c14)" && `+
-			`sed -i '' "s/%s/$new_id/g" "$tmpfile" && `+
+			`new_id="ses_$(date +%%s | md5 | head -c12)ffe$(openssl rand -base64 15 | tr -dc a-zA-Z0-9 | head -c14)" && `+
+			`sed -i "" "s/%s/$new_id/g" "$tmpfile" && `+
 			`opencode import "$tmpfile" >/dev/null 2>&1 && `+
 			`rm -f "$tmpfile" && `+
 			`tmux set-environment OPENCODE_SESSION_ID "$new_id"; `+
