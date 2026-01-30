@@ -191,7 +191,7 @@ type Home struct {
 	// PERFORMANCE: Worker pool for log-driven status updates (Priority 2)
 	// Caps the number of goroutines spawned for log file changes
 	logUpdateChan chan *session.Instance // Buffers status update requests from LogWatcher
-	logWorkerWg   sync.WaitGroup       // Tracks log worker goroutines for clean shutdown
+	logWorkerWg   sync.WaitGroup         // Tracks log worker goroutines for clean shutdown
 
 	// Event-driven status detection (Priority 2)
 	logWatcher *tmux.LogWatcher
@@ -4106,22 +4106,28 @@ func (h *Home) forkSessionCmdWithOptions(source *session.Instance, title, groupP
 			return sessionForkedMsg{err: fmt.Errorf("cannot fork session: %w", err), sourceID: sourceID}
 		}
 
-		// Use CreateForkedInstanceWithOptions to get the proper fork command with options
-		inst, _, err := source.CreateForkedInstanceWithOptions(title, groupPath, opts)
+		var inst *session.Instance
+		var err error
+
+		switch source.Tool {
+		case "opencode":
+			inst, _, err = source.CreateForkedOpenCodeInstance(title, groupPath)
+		default:
+			inst, _, err = source.CreateForkedInstanceWithOptions(title, groupPath, opts)
+		}
 		if err != nil {
 			return sessionForkedMsg{err: fmt.Errorf("cannot create forked instance: %w", err), sourceID: sourceID}
 		}
 
-		// Start the forked session
 		if err := inst.Start(); err != nil {
 			return sessionForkedMsg{err: err, sourceID: sourceID}
 		}
 
-		// Wait for Claude to create the new session file (fork creates new UUID)
-		// Give Claude up to 5 seconds to initialize and write the session file
-		// Pass usedIDs to prevent detecting an already-claimed session
-		if inst.Tool == "claude" {
+		switch inst.Tool {
+		case "claude":
 			_ = inst.WaitForClaudeSessionWithExclude(5*time.Second, usedIDs)
+		case "opencode":
+			go inst.DetectOpenCodeSession()
 		}
 
 		return sessionForkedMsg{instance: inst, sourceID: sourceID}

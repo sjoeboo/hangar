@@ -32,11 +32,11 @@ const (
 
 // Instance represents a single agent/shell session
 type Instance struct {
-	ID             string    `json:"id"`
-	Title          string    `json:"title"`
-	ProjectPath    string    `json:"project_path"`
-	GroupPath      string    `json:"group_path"` // e.g., "projects/devops"
-	ParentSessionID   string `json:"parent_session_id,omitempty"`    // Links to parent session (makes this a sub-session)
+	ID                string `json:"id"`
+	Title             string `json:"title"`
+	ProjectPath       string `json:"project_path"`
+	GroupPath         string `json:"group_path"`                    // e.g., "projects/devops"
+	ParentSessionID   string `json:"parent_session_id,omitempty"`   // Links to parent session (makes this a sub-session)
 	ParentProjectPath string `json:"parent_project_path,omitempty"` // Parent's project path (for --add-dir access)
 
 	// Git worktree support
@@ -57,9 +57,9 @@ type Instance struct {
 	// Gemini CLI integration
 	GeminiSessionID  string                  `json:"gemini_session_id,omitempty"`
 	GeminiDetectedAt time.Time               `json:"gemini_detected_at,omitempty"`
-	GeminiYoloMode   *bool                   `json:"gemini_yolo_mode,omitempty"`   // Per-session override (nil = use global config)
-	GeminiModel      string                  `json:"gemini_model,omitempty"`       // Active model for this session
-	GeminiAnalytics  *GeminiSessionAnalytics `json:"gemini_analytics,omitempty"`   // Per-session analytics
+	GeminiYoloMode   *bool                   `json:"gemini_yolo_mode,omitempty"` // Per-session override (nil = use global config)
+	GeminiModel      string                  `json:"gemini_model,omitempty"`     // Active model for this session
+	GeminiAnalytics  *GeminiSessionAnalytics `json:"gemini_analytics,omitempty"` // Per-session analytics
 
 	// OpenCode CLI integration
 	OpenCodeSessionID  string    `json:"opencode_session_id,omitempty"`
@@ -72,8 +72,8 @@ type Instance struct {
 	CodexStartedAt  int64     `json:"-"` // Unix millis when we started Codex (for session matching, not persisted)
 
 	// Latest user input for context (extracted from session files)
-	LatestPrompt        string    `json:"latest_prompt,omitempty"`
-	lastPromptModTime   time.Time // mtime cache for updateGeminiLatestPrompt (not serialized)
+	LatestPrompt      string    `json:"latest_prompt,omitempty"`
+	lastPromptModTime time.Time // mtime cache for updateGeminiLatestPrompt (not serialized)
 
 	// MCP tracking - which MCPs were loaded when session started/restarted
 	// Used to detect pending MCPs (added after session start) and stale MCPs (removed but still running)
@@ -1080,7 +1080,7 @@ func (i *Instance) sendMessageWhenReady(message string) error {
 	// Track state transitions: we need to see "active" before accepting "waiting"
 	// This ensures we don't send the message during initial startup (false "waiting")
 	sawActive := false
-	waitingCount := 0 // Track consecutive "waiting" states to detect already-ready sessions
+	waitingCount := 0  // Track consecutive "waiting" states to detect already-ready sessions
 	maxAttempts := 300 // 60 seconds max (300 * 200ms) - Claude with MCPs can take 40-60s
 
 	for attempt := 0; attempt < maxAttempts; attempt++ {
@@ -1845,14 +1845,14 @@ func parseGeminiLastAssistantMessage(data []byte) (*ResponseOutput, error) {
 	var session struct {
 		SessionID string `json:"sessionId"` // VERIFIED: camelCase
 		Messages  []struct {
-			ID        string          `json:"id"`
-			Timestamp string          `json:"timestamp"`
-			Type      string          `json:"type"` // VERIFIED: "user" or "gemini"
-			Content   string          `json:"content"`
+			ID        string            `json:"id"`
+			Timestamp string            `json:"timestamp"`
+			Type      string            `json:"type"` // VERIFIED: "user" or "gemini"
+			Content   string            `json:"content"`
 			ToolCalls []json.RawMessage `json:"toolCalls,omitempty"`
 			Thoughts  []json.RawMessage `json:"thoughts,omitempty"`
-			Model     string          `json:"model,omitempty"`
-			Tokens    json.RawMessage `json:"tokens,omitempty"`
+			Model     string            `json:"model,omitempty"`
+			Tokens    json.RawMessage   `json:"tokens,omitempty"`
 		} `json:"messages"`
 	}
 
@@ -2410,11 +2410,27 @@ func (i *Instance) CanFork() bool {
 		return false
 	}
 
+	// OpenCode sessions can fork if session ID is recent
+	if i.Tool == "opencode" {
+		return i.CanForkOpenCode()
+	}
+
 	// Claude sessions can fork if session ID is recent
 	if i.ClaudeSessionID == "" {
 		return false
 	}
 	return time.Since(i.ClaudeDetectedAt) < 5*time.Minute
+}
+
+// CanForkOpenCode returns true if this OpenCode session can be forked
+func (i *Instance) CanForkOpenCode() bool {
+	if i.Tool != "opencode" {
+		return false
+	}
+	if i.OpenCodeSessionID == "" {
+		return false
+	}
+	return time.Since(i.OpenCodeDetectedAt) < 5*time.Minute
 }
 
 // Fork returns the command to create a forked Claude session
@@ -2513,6 +2529,52 @@ func (i *Instance) CreateForkedInstanceWithOptions(newTitle, newGroupPath string
 			log.Printf("Warning: failed to set Claude options on forked session: %v", err)
 		}
 	}
+
+	return forked, cmd, nil
+}
+
+// ForkOpenCode returns the command to create a forked OpenCode session
+func (i *Instance) ForkOpenCode(newTitle, newGroupPath string) (string, error) {
+	if !i.CanForkOpenCode() {
+		return "", fmt.Errorf("cannot fork: no active OpenCode session")
+	}
+
+	workDir := i.ProjectPath
+	envPrefix := i.buildEnvSourceCommand()
+
+	cmd := fmt.Sprintf(
+		`cd '%s' && `+
+			`tmpfile=$(mktemp /tmp/opencode-fork-XXXXX.json) && `+
+			`opencode export %s 2>/dev/null > "$tmpfile" && `+
+			`new_id="ses_$(date +%%s | md5 | head -c12)ffe$(openssl rand -base64 15 | tr -dc 'a-zA-Z0-9' | head -c14)" && `+
+			`sed -i '' "s/%s/$new_id/g" "$tmpfile" && `+
+			`opencode import "$tmpfile" >/dev/null 2>&1 && `+
+			`rm -f "$tmpfile" && `+
+			`tmux set-environment OPENCODE_SESSION_ID "$new_id"; `+
+			`%sexec opencode -s "$new_id"`,
+		workDir,
+		i.OpenCodeSessionID,
+		i.OpenCodeSessionID,
+		envPrefix)
+
+	return cmd, nil
+}
+
+// CreateForkedOpenCodeInstance creates a new Instance configured for forking an OpenCode session
+func (i *Instance) CreateForkedOpenCodeInstance(newTitle, newGroupPath string) (*Instance, string, error) {
+	cmd, err := i.ForkOpenCode(newTitle, newGroupPath)
+	if err != nil {
+		return nil, "", err
+	}
+
+	forked := NewInstance(newTitle, i.ProjectPath)
+	if newGroupPath != "" {
+		forked.GroupPath = newGroupPath
+	} else {
+		forked.GroupPath = i.GroupPath
+	}
+	forked.Command = cmd
+	forked.Tool = "opencode"
 
 	return forked, cmd, nil
 }
