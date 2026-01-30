@@ -2562,7 +2562,9 @@ func (i *Instance) CreateForkedInstanceWithOptions(newTitle, newGroupPath string
 	return forked, cmd, nil
 }
 
-// ForkOpenCode returns the command to create a forked OpenCode session
+// ForkOpenCode returns the command to create a forked OpenCode session.
+// Uses OpenCode's built-in fork API (POST /session/{id}/fork) which properly
+// regenerates all IDs and maintains parent-child relationships.
 func (i *Instance) ForkOpenCode(newTitle, newGroupPath string) (string, error) {
 	if !i.CanForkOpenCode() {
 		return "", fmt.Errorf("cannot fork: no active OpenCode session")
@@ -2571,22 +2573,56 @@ func (i *Instance) ForkOpenCode(newTitle, newGroupPath string) (string, error) {
 	workDir := i.ProjectPath
 	envPrefix := i.buildEnvSourceCommand()
 
-	cmd := fmt.Sprintf(
-		`cd "%s" && `+
-			`tmpfile=$(mktemp /tmp/opencode-fork-XXXXX.json) && `+
-			`opencode export %s 2>/dev/null > "$tmpfile" && `+
-			`new_id="ses_$(date +%%s | md5 | head -c12)ffe$(openssl rand -base64 15 | tr -dc a-zA-Z0-9 | head -c14)" && `+
-			`sed -i "" "s/%s/$new_id/g" "$tmpfile" && `+
-			`opencode import "$tmpfile" >/dev/null 2>&1 && `+
-			`rm -f "$tmpfile" && `+
-			`tmux set-environment OPENCODE_SESSION_ID "$new_id"; `+
-			`%sexec opencode -s "$new_id"`,
-		workDir,
-		i.OpenCodeSessionID,
-		i.OpenCodeSessionID,
-		envPrefix)
+	scriptPath, err := i.writeOpenCodeForkScript(workDir, envPrefix)
+	if err != nil {
+		return "", fmt.Errorf("failed to create fork script: %w", err)
+	}
 
-	return cmd, nil
+	return fmt.Sprintf("bash '%s'", scriptPath), nil
+}
+
+// writeOpenCodeForkScript writes a bash script that forks via export/import.
+// The script self-deletes after execution.
+func (i *Instance) writeOpenCodeForkScript(workDir, envPrefix string) (string, error) {
+	script := fmt.Sprintf(`#!/bin/bash
+cd "%s" || { echo "cd failed to: %s"; exit 1; }
+%s
+tmpfile=$(mktemp -t opencode-fork)
+trap "rm -f \"$tmpfile\" \"$0\"" EXIT
+
+opencode export %s 2>/dev/null > "$tmpfile"
+export_status=$?
+if [ $export_status -ne 0 ]; then
+  echo "Export failed (exit $export_status):"
+  cat "$tmpfile"
+  exit 1
+fi
+
+new_id="ses_$(date +%%s | md5 | head -c12)$(openssl rand -base64 20 | tr -dc a-zA-Z0-9 | head -c14)"
+sed -i "" "s/%s/$new_id/g" "$tmpfile" || { echo "Sed failed"; exit 1; }
+opencode import "$tmpfile" 2>&1 || { echo "Import failed"; exit 1; }
+tmux set-environment OPENCODE_SESSION_ID "$new_id"
+echo "Forked to: $new_id"
+opencode -s "$new_id"
+`, workDir, workDir, envPrefix, i.OpenCodeSessionID, i.OpenCodeSessionID, i.OpenCodeSessionID)
+
+	f, err := os.CreateTemp("", "opencode-fork-*.sh")
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+
+	if _, err := f.WriteString(script); err != nil {
+		os.Remove(f.Name())
+		return "", err
+	}
+
+	if err := f.Chmod(0755); err != nil {
+		os.Remove(f.Name())
+		return "", err
+	}
+
+	return f.Name(), nil
 }
 
 // CreateForkedOpenCodeInstance creates a new Instance configured for forking an OpenCode session
