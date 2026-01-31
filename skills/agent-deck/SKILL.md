@@ -71,21 +71,33 @@ The script auto-detects current session/profile and creates a child session.
 | Code documentation | `context7` |
 | Complex reasoning | `sequential-thinking` |
 
-## Consult Another Agent
+## Consult Another Agent (Codex, Gemini)
 
-**Use when:** User says "consult with codex", "ask gemini", "get codex's opinion", "what does codex think", "consult another agent"
+**Use when:** User says "consult with codex", "ask gemini", "get codex's opinion", "what does codex think", "consult another agent", "brainstorm with codex/gemini", "get a second opinion"
 
-Launch a temporary session with a different AI tool to get a second opinion or delegate a task.
+**IMPORTANT:** You MUST use the `--tool` flag to specify which agent. Without it, the script defaults to Claude.
+
+### Quick Reference
 
 ```bash
-# Ask Codex a question and wait for the answer
-scripts/launch-subagent.sh "Consult Codex" "Review this function for bugs: ..." --tool codex --wait --timeout 120
+# Consult Codex (MUST include --tool codex)
+scripts/launch-subagent.sh "Consult Codex" "Your question here" --tool codex --wait --timeout 120
 
-# Ask Gemini and check later
-scripts/launch-subagent.sh "Ask Gemini" "What's the best approach for ..." --tool gemini
+# Consult Gemini (MUST include --tool gemini)
+scripts/launch-subagent.sh "Consult Gemini" "Your question here" --tool gemini --wait --timeout 120
+```
 
-# Check output when ready
-agent-deck session output "Ask Gemini"
+**DO NOT** try to create Codex/Gemini sessions manually with `agent-deck add`. Always use the script above. It handles tool-specific initialization, readiness detection, and output retrieval automatically.
+
+### Full Options
+
+```bash
+scripts/launch-subagent.sh "Title" "Prompt" \
+  --tool codex|gemini \     # REQUIRED for non-Claude agents
+  --path /project/dir \     # Working directory (auto-inherits parent path if omitted)
+  --wait \                  # Block until response is ready
+  --timeout 180 \           # Seconds to wait (default: 300)
+  --mcp exa                 # Attach MCP servers (can repeat)
 ```
 
 ### Supported Tools
@@ -96,12 +108,29 @@ agent-deck session output "Ask Gemini"
 | Codex | `--tool codex` | Requires `codex` CLI installed |
 | Gemini | `--tool gemini` | Requires `gemini` CLI installed |
 
-### Workflow
+### How It Works
 
-1. Script creates a child session with the specified tool
-2. Sends the question/prompt to the agent
-3. With `--wait`: polls until the agent responds, then returns output
-4. Without `--wait`: returns immediately, check output later
+1. Script auto-detects current session and profile
+2. Creates a child session with the specified tool in the parent's project directory
+3. Waits for the tool to initialize (handles Codex approval prompts automatically)
+4. Sends the question/prompt
+5. With `--wait`: polls until the agent responds, then returns the full output
+6. Without `--wait`: returns immediately, check output later with `agent-deck session output "Title"`
+
+### Examples
+
+```bash
+# Code review from Codex
+scripts/launch-subagent.sh "Codex Review" "Read cmd/main.go and suggest improvements" --tool codex --wait --timeout 180
+
+# Architecture feedback from Gemini
+scripts/launch-subagent.sh "Gemini Arch" "Review the project structure and suggest better patterns" --tool gemini --wait --timeout 180
+
+# Both in parallel (consult both, compare answers)
+scripts/launch-subagent.sh "Ask Codex" "Best way to handle errors in Go?" --tool codex --wait --timeout 120 &
+scripts/launch-subagent.sh "Ask Gemini" "Best way to handle errors in Go?" --tool gemini --wait --timeout 120 &
+wait
+```
 
 ### Cleanup
 
@@ -109,21 +138,8 @@ After getting the response, remove the consultation session:
 
 ```bash
 agent-deck remove "Consult Codex"
-```
-
-### Manual Fallback
-
-If the script doesn't work for a specific tool, do it manually:
-
-```bash
-agent-deck add -t "Consult" -c codex /tmp/consult
-agent-deck session start "Consult"
-# Wait for it to initialize, then:
-agent-deck session send "Consult" "Your question here"
-# Check output:
-agent-deck session output "Consult"
-# Clean up:
-agent-deck remove "Consult"
+# Or remove multiple at once:
+agent-deck remove "Codex Review" && agent-deck remove "Gemini Arch"
 ```
 
 ## TUI Keyboard Shortcuts
