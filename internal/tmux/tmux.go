@@ -1242,6 +1242,18 @@ func (s *Session) DetectTool() string {
 	}
 	s.mu.Unlock()
 
+	// If a custom tool name is set, return it directly.
+	// Custom tools have their underlying command detected at creation time;
+	// runtime detection should preserve the custom name.
+	s.mu.Lock()
+	if s.customToolName != "" {
+		s.detectedTool = s.customToolName
+		s.toolDetectedAt = time.Now()
+		s.mu.Unlock()
+		return s.customToolName
+	}
+	s.mu.Unlock()
+
 	// Detect tool from command first (most reliable)
 	if s.Command != "" {
 		cmdLower := strings.ToLower(s.Command)
@@ -1913,10 +1925,10 @@ var (
 	// Matches Claude Code status line: "(45s · 1234 tokens · ctrl+c to interrupt)" and "(35s · ↑ 673 tokens)"
 	dynamicStatusPattern = regexp.MustCompile(`\([^)]*\d+s\s*·[^)]*(?:tokens|↑|↓)[^)]*\)`)
 
-	// Claude Code 2.1.25+ active spinner: symbol + word + unicode ellipsis (U+2026)
-	// Matches: "✳ gusting…" or "· sublimating…" or "✻ cooking…"
-	// Does NOT match done state: "✻ worked for 54s" (no ellipsis)
-	claudeSpinnerActivePattern = regexp.MustCompile(`[·✳✽✶✻✢]\s*\w+…`)
+	// Claude Code 2.1.25+ active spinner: symbol + unicode ellipsis (U+2026)
+	// Matches: "✳ Gusting…", "✻ Adding mcp-proxy subcommand…" (single or multi-word)
+	// Does NOT match done state: "✻ Worked for 54s" (no ellipsis)
+	claudeSpinnerActivePattern = regexp.MustCompile(`[·✳✽✶✻✢]\s*.+…`)
 
 	// Matches whimsical thinking words with timing info (e.g., "⠋ Flibbertigibbeting... (25s · 340 tokens)")
 	// Requires spinner prefix to avoid matching normal English words like "processing" or "computing"
@@ -1924,8 +1936,8 @@ var (
 	thinkingPattern = regexp.MustCompile(`[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏·✳✽✶✻✢]\s*(?i)(` + whimsicalWordsPattern + `)[^(]*\([^)]*\)`)
 
 	// Claude 2.1.25+ uses unicode ellipsis: "✳ Gusting… (35s · ↑ 673 tokens)"
-	// Word-list independent - any spinner + word + ellipsis + parenthesized status
-	thinkingPatternEllipsis = regexp.MustCompile(`[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏·✳✽✶✻✢]\s*\w+…\s*\([^)]*\)`)
+	// Word-list independent - any spinner + text + ellipsis + parenthesized status
+	thinkingPatternEllipsis = regexp.MustCompile(`[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏·✳✽✶✻✢]\s*.+…\s*\([^)]*\)`)
 
 	// Progress bar patterns for normalization (Fix 2.1)
 	// These cause hash changes when progress updates

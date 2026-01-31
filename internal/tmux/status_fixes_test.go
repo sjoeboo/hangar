@@ -637,6 +637,35 @@ func TestClaudeCode2125_ActiveDetection(t *testing.T) {
 			content:  "✳ Discombobulating… (5s · ↑ 50 tokens)",
 			wantBusy: true,
 		},
+		// Multi-word task names (from TodoWrite tasks)
+		{
+			name:     "active - multi-word task with ✶",
+			content:  "✶ Fixing Scanner Buffer Overflow… (1m 16s · ↓ 938 tokens)",
+			wantBusy: true,
+		},
+		{
+			name:     "active - multi-word task with ✻",
+			content:  "✻ Adding mcp-proxy subcommand… (2m 23s · ↓ 2.7k tokens)",
+			wantBusy: true,
+		},
+		{
+			name:     "active - multi-word task with ·",
+			content:  "· Installing package dependencies… (45s · ↑ 312 tokens)",
+			wantBusy: true,
+		},
+		{
+			name: "active - multi-word with surrounding content",
+			content: `Some previous output
+
+✻ Adding mcp-proxy subcommand… (2m 23s · ↓ 2.7k tokens)
+  ✓ Fix scanner buffer overflow in socket_proxy.go
+  ■ Add mcp-proxy reconnecting subcommand
+  □ Build, test, and verify all changes
+
+[Opus 4.5] Context: 54%
+▶▶ bypass permissions on (shift+Tab to cycle) · 3 files +25 -3`,
+			wantBusy: true,
+		},
 		// Done states (should NOT be GREEN)
 		{
 			name:     "done - Worked for N seconds",
@@ -710,10 +739,14 @@ func TestClaudeCode2125_SpinnerActiveRegex(t *testing.T) {
 		{"· sublimating…", true},
 		{"✻ cooking…", true},
 		{"✢ channelling…", true},
-		{"✻ worked for 54s", false},  // done state, no ellipsis
-		{"✻ churned for 47s", false}, // done state, no ellipsis
-		{"some random text…", false}, // no spinner symbol
-		{"✻ ", false},                // no word
+		{"✶ Fixing Scanner Buffer Overflow…", true},    // multi-word task name
+		{"✻ Adding mcp-proxy subcommand…", true},       // multi-word with excluded spinner
+		{"· Installing package dependencies…", true},    // multi-word with excluded spinner
+		{"✳ Running tests and building…", true},         // multi-word
+		{"✻ worked for 54s", false},                     // done state, no ellipsis
+		{"✻ churned for 47s", false},                    // done state, no ellipsis
+		{"some random text…", false},                    // no spinner symbol
+		{"✻ ", false},                                   // no content after spinner
 	}
 
 	for _, tt := range tests {
