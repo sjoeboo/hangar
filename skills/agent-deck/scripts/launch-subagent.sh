@@ -110,17 +110,21 @@ for i in $(seq 1 20); do
         sleep 2  # Extra buffer for stability
         break
     fi
+
+    # Codex: dismiss the approval prompt if it appears
+    if [ "$TOOL" = "codex" ]; then
+        FULL_PANE=$(tmux capture-pane -t "$TMUX_SESSION" -p 2>/dev/null)
+        if echo "$FULL_PANE" | grep -qE "(Require approval|Press enter to continue)" 2>/dev/null; then
+            tmux send-keys -t "$TMUX_SESSION" Enter
+            sleep 1
+        fi
+    fi
+
     sleep 1
 done
 
 # Send prompt
 agent-deck -p "$PROFILE" session send "$TITLE" "$PROMPT"
-
-# Codex safety net: Ink TUI sometimes needs an extra Enter nudge
-if [ "$TOOL" = "codex" ]; then
-    sleep 1
-    tmux send-keys -t "$TMUX_SESSION" Enter
-fi
 
 echo ""
 echo "Sub-agent launched:"
@@ -148,7 +152,10 @@ if [ "$WAIT" = "true" ]; then
             echo "Complete!"
             echo ""
             echo "=== Response ==="
-            agent-deck -p "$PROFILE" session output "$TITLE"
+            # Try native output first, fall back to pane capture
+            if ! agent-deck -p "$PROFILE" session output "$TITLE" 2>/dev/null; then
+                tmux capture-pane -t "$TMUX_SESSION" -p 2>/dev/null
+            fi
             exit 0
         fi
 
