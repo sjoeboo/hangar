@@ -2480,6 +2480,9 @@ func (i *Instance) ForkWithOptions(newTitle, newGroupPath string, opts *ClaudeOp
 	}
 
 	workDir := i.ProjectPath
+	if opts != nil && opts.WorkDir != "" {
+		workDir = opts.WorkDir
+	}
 
 	// IMPORTANT: For capture-resume commands (which contain $(...) syntax), we MUST use
 	// "claude" binary + CLAUDE_CONFIG_DIR, NOT a custom command alias like "cdw".
@@ -2541,9 +2544,12 @@ func (i *Instance) CreateForkedInstanceWithOptions(newTitle, newGroupPath string
 		return nil, "", err
 	}
 
-	// Create new instance with the PARENT's project path
-	// This ensures the forked session is in the same Claude project directory as parent
-	forked := NewInstance(newTitle, i.ProjectPath)
+	// Create new instance - use worktree path if provided, otherwise parent's project path
+	projectPath := i.ProjectPath
+	if opts != nil && opts.WorkDir != "" {
+		projectPath = opts.WorkDir
+	}
+	forked := NewInstance(newTitle, projectPath)
 	if newGroupPath != "" {
 		forked.GroupPath = newGroupPath
 	} else {
@@ -2557,6 +2563,12 @@ func (i *Instance) CreateForkedInstanceWithOptions(newTitle, newGroupPath string
 		if err := forked.SetClaudeOptions(opts); err != nil {
 			// Log but don't fail - options are not critical for fork
 			log.Printf("Warning: failed to set Claude options on forked session: %v", err)
+		}
+		// Copy transient worktree fields to the forked instance
+		if opts.WorktreePath != "" {
+			forked.WorktreePath = opts.WorktreePath
+			forked.WorktreeRepoRoot = opts.WorktreeRepoRoot
+			forked.WorktreeBranch = opts.WorktreeBranch
 		}
 	}
 

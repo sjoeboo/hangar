@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/asheshgoplani/agent-deck/internal/git"
 	"github.com/asheshgoplani/agent-deck/internal/session"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
@@ -16,11 +17,16 @@ type ForkDialog struct {
 	nameInput     textinput.Model
 	groupInput    textinput.Model
 	optionsPanel  *ClaudeOptionsPanel
-	focusIndex    int // 0=name, 1=group, 2+=options
+	focusIndex    int // 0=name, 1=group, 2=branch(if worktree), 2/3+=options
 	width         int
 	height        int
 	projectPath   string
 	validationErr string // Inline validation error displayed inside the dialog
+
+	// Worktree support
+	worktreeEnabled bool
+	branchInput     textinput.Model
+	isGitRepo       bool
 }
 
 // NewForkDialog creates a new fork dialog
@@ -35,9 +41,15 @@ func NewForkDialog() *ForkDialog {
 	groupInput.CharLimit = 64
 	groupInput.Width = 40
 
+	branchInput := textinput.New()
+	branchInput.Placeholder = "fork/branch-name"
+	branchInput.CharLimit = 100
+	branchInput.Width = 40
+
 	return &ForkDialog{
 		nameInput:    nameInput,
 		groupInput:   groupInput,
+		branchInput:  branchInput,
 		optionsPanel: NewClaudeOptionsPanelForFork(),
 	}
 }
@@ -52,7 +64,17 @@ func (d *ForkDialog) Show(originalName, projectPath, groupPath string) {
 	d.focusIndex = 0
 	d.nameInput.Focus()
 	d.groupInput.Blur()
+	d.branchInput.Blur()
 	d.optionsPanel.Blur()
+
+	// Reset worktree fields
+	d.worktreeEnabled = false
+	d.isGitRepo = git.IsGitRepo(projectPath)
+
+	// Auto-suggest branch name based on fork title
+	sanitized := strings.ToLower(originalName)
+	sanitized = strings.ReplaceAll(sanitized, " ", "-")
+	d.branchInput.SetValue("fork/" + sanitized)
 
 	// Initialize options with defaults from config
 	if config, err := session.LoadUserConfig(); err == nil {
@@ -65,6 +87,7 @@ func (d *ForkDialog) Hide() {
 	d.visible = false
 	d.nameInput.Blur()
 	d.groupInput.Blur()
+	d.branchInput.Blur()
 	d.optionsPanel.Blur()
 }
 
@@ -78,6 +101,15 @@ func (d *ForkDialog) GetValues() (name, group string) {
 	return d.nameInput.Value(), d.groupInput.Value()
 }
 
+// GetValuesWithWorktree returns all values including worktree settings
+func (d *ForkDialog) GetValuesWithWorktree() (name, group, branch string, worktreeEnabled bool) {
+	name = d.nameInput.Value()
+	group = d.groupInput.Value()
+	branch = strings.TrimSpace(d.branchInput.Value())
+	worktreeEnabled = d.worktreeEnabled
+	return
+}
+
 // GetOptions returns the current Claude options
 func (d *ForkDialog) GetOptions() *session.ClaudeOptions {
 	return d.optionsPanel.GetOptions()
@@ -89,6 +121,24 @@ func (d *ForkDialog) SetSize(width, height int) {
 	d.height = height
 }
 
+// ToggleWorktree toggles the worktree checkbox
+func (d *ForkDialog) ToggleWorktree() {
+	d.worktreeEnabled = !d.worktreeEnabled
+}
+
+// IsWorktreeEnabled returns whether worktree mode is enabled
+func (d *ForkDialog) IsWorktreeEnabled() bool {
+	return d.worktreeEnabled
+}
+
+// optionsStartIndex returns the focus index where the options panel begins
+func (d *ForkDialog) optionsStartIndex() int {
+	if d.worktreeEnabled {
+		return 3 // 0=name, 1=group, 2=branch, 3+=options
+	}
+	return 2 // 0=name, 1=group, 2+=options
+}
+
 // Validate checks if the dialog values are valid and returns an error message if not
 func (d *ForkDialog) Validate() string {
 	name := strings.TrimSpace(d.nameInput.Value())
@@ -97,6 +147,16 @@ func (d *ForkDialog) Validate() string {
 	}
 	if len(name) > MaxNameLength {
 		return fmt.Sprintf("Session name too long (max %d characters)", MaxNameLength)
+	}
+	// Validate worktree branch if enabled
+	if d.worktreeEnabled {
+		branch := strings.TrimSpace(d.branchInput.Value())
+		if branch == "" {
+			return "Branch name required for worktree"
+		}
+		if err := git.ValidateBranchName(branch); err != nil {
+			return err.Error()
+		}
 	}
 	return ""
 }
@@ -117,13 +177,19 @@ func (d *ForkDialog) Update(msg tea.Msg) (*ForkDialog, tea.Cmd) {
 		return d, nil
 	}
 
+	optStart := d.optionsStartIndex()
+
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		switch msg.String() {
 		case "tab", "down":
-			if d.focusIndex < 2 {
-				// Move from name/group to next field or options
+			if d.focusIndex < optStart {
+				// Move from name/group/branch to next field
 				d.focusIndex++
+				// Skip branch field if worktree not enabled
+				if d.focusIndex == 2 && !d.worktreeEnabled {
+					d.focusIndex = optStart
+				}
 				d.updateFocus()
 			} else {
 				// Inside options panel - delegate
@@ -134,12 +200,20 @@ func (d *ForkDialog) Update(msg tea.Msg) (*ForkDialog, tea.Cmd) {
 			return d, nil
 
 		case "shift+tab", "up":
-			if d.focusIndex == 2 && d.optionsPanel.focusIndex == 0 {
-				// At first option item, move back to group
-				d.focusIndex = 1
+			if d.focusIndex == optStart && d.optionsPanel.focusIndex == 0 {
+				// At first option item, move back
+				if d.worktreeEnabled {
+					d.focusIndex = 2 // branch
+				} else {
+					d.focusIndex = 1 // group
+				}
 				d.updateFocus()
-			} else if d.focusIndex < 2 {
+			} else if d.focusIndex < optStart {
 				d.focusIndex--
+				// Skip branch field if worktree not enabled
+				if d.focusIndex == 2 && !d.worktreeEnabled {
+					d.focusIndex = 1
+				}
 				if d.focusIndex < 0 {
 					d.focusIndex = 0
 				}
@@ -161,9 +235,20 @@ func (d *ForkDialog) Update(msg tea.Msg) (*ForkDialog, tea.Cmd) {
 				return d, nil // Signal completion
 			}
 
+		case "w":
+			// Toggle worktree when on group field (only if git repo)
+			if d.focusIndex == 1 && d.isGitRepo {
+				d.ToggleWorktree()
+				if d.worktreeEnabled {
+					d.focusIndex = 2
+					d.updateFocus()
+				}
+				return d, nil
+			}
+
 		case " ", "left", "right":
 			// Delegate space/arrow keys to options panel if focused there
-			if d.focusIndex >= 2 {
+			if d.focusIndex >= optStart {
 				var cmd tea.Cmd
 				d.optionsPanel, cmd = d.optionsPanel.Update(msg)
 				return d, cmd
@@ -178,6 +263,12 @@ func (d *ForkDialog) Update(msg tea.Msg) (*ForkDialog, tea.Cmd) {
 		d.nameInput, cmd = d.nameInput.Update(msg)
 	case 1:
 		d.groupInput, cmd = d.groupInput.Update(msg)
+	case 2:
+		if d.worktreeEnabled {
+			d.branchInput, cmd = d.branchInput.Update(msg)
+		} else {
+			d.optionsPanel, cmd = d.optionsPanel.Update(msg)
+		}
 	default:
 		// Options panel handles its own inputs
 		d.optionsPanel, cmd = d.optionsPanel.Update(msg)
@@ -189,6 +280,7 @@ func (d *ForkDialog) Update(msg tea.Msg) (*ForkDialog, tea.Cmd) {
 func (d *ForkDialog) updateFocus() {
 	d.nameInput.Blur()
 	d.groupInput.Blur()
+	d.branchInput.Blur()
 	d.optionsPanel.Blur()
 
 	switch d.focusIndex {
@@ -196,6 +288,12 @@ func (d *ForkDialog) updateFocus() {
 		d.nameInput.Focus()
 	case 1:
 		d.groupInput.Focus()
+	case 2:
+		if d.worktreeEnabled {
+			d.branchInput.Focus()
+		} else {
+			d.optionsPanel.Focus()
+		}
 	default:
 		d.optionsPanel.Focus()
 	}
@@ -246,6 +344,37 @@ func (d *ForkDialog) View() string {
 		groupLabel = labelStyle.Render("  Group:")
 	}
 
+	// Worktree checkbox and branch input (only for git repos)
+	worktreeSection := ""
+	if d.isGitRepo {
+		checkboxStyle := lipgloss.NewStyle().Foreground(ColorText)
+		checkboxActiveStyle := lipgloss.NewStyle().Foreground(ColorCyan).Bold(true)
+
+		checkbox := "[ ]"
+		if d.worktreeEnabled {
+			checkbox = "[x]"
+		}
+
+		if d.focusIndex == 1 {
+			worktreeSection += checkboxActiveStyle.Render(fmt.Sprintf("  %s Create in worktree (press w)", checkbox))
+		} else {
+			worktreeSection += checkboxStyle.Render(fmt.Sprintf("  %s Create in worktree", checkbox))
+		}
+		worktreeSection += "\n"
+
+		// Branch input (only visible when worktree is enabled)
+		if d.worktreeEnabled {
+			worktreeSection += "\n"
+			if d.focusIndex == 2 {
+				worktreeSection += activeLabelStyle.Render("▶ Branch:")
+			} else {
+				worktreeSection += labelStyle.Render("  Branch:")
+			}
+			worktreeSection += "\n"
+			worktreeSection += "  " + d.branchInput.View() + "\n"
+		}
+	}
+
 	errLine := ""
 	if d.validationErr != "" {
 		errStyle := lipgloss.NewStyle().Foreground(ColorRed).Bold(true)
@@ -256,7 +385,8 @@ func (d *ForkDialog) View() string {
 		nameLabel + "\n" +
 		"  " + d.nameInput.View() + "\n\n" +
 		groupLabel + "\n" +
-		"  " + d.groupInput.View() + "\n\n" +
+		"  " + d.groupInput.View() + "\n" +
+		worktreeSection + "\n" +
 		d.optionsPanel.View() +
 		errLine + "\n" +
 		lipgloss.NewStyle().Foreground(ColorComment).

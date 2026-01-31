@@ -3894,8 +3894,8 @@ func (h *Home) handleForkDialogKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return h, nil
 		}
 
-		// Get fork parameters from dialog
-		title, groupPath := h.forkDialog.GetValues()
+		// Get fork parameters from dialog including worktree settings
+		title, groupPath, branchName, worktreeEnabled := h.forkDialog.GetValuesWithWorktree()
 		opts := h.forkDialog.GetOptions()
 		h.clearError() // Clear any previous error
 
@@ -3903,8 +3903,41 @@ func (h *Home) handleForkDialogKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if h.cursor < len(h.flatItems) {
 			item := h.flatItems[h.cursor]
 			if item.Type == session.ItemTypeSession && item.Session != nil {
+				source := item.Session
+
+				// Handle worktree creation if enabled
+				if worktreeEnabled && branchName != "" {
+					if !git.IsGitRepo(source.ProjectPath) {
+						h.forkDialog.SetError("Path is not a git repository")
+						return h, nil
+					}
+					repoRoot, err := git.GetRepoRoot(source.ProjectPath)
+					if err != nil {
+						h.forkDialog.SetError(fmt.Sprintf("Failed to get repo root: %v", err))
+						return h, nil
+					}
+
+					wtSettings := session.GetWorktreeSettings()
+					worktreePath := git.GenerateWorktreePath(repoRoot, branchName, wtSettings.DefaultLocation)
+
+					if err := os.MkdirAll(filepath.Dir(worktreePath), 0755); err != nil {
+						h.forkDialog.SetError(fmt.Sprintf("Failed to create directory: %v", err))
+						return h, nil
+					}
+
+					if err := git.CreateWorktree(repoRoot, worktreePath, branchName); err != nil {
+						h.forkDialog.SetError(fmt.Sprintf("Worktree creation failed: %v", err))
+						return h, nil
+					}
+
+					opts.WorkDir = worktreePath
+					opts.WorktreePath = worktreePath
+					opts.WorktreeRepoRoot = repoRoot
+					opts.WorktreeBranch = branchName
+				}
+
 				h.forkDialog.Hide()
-				return h, h.forkSessionCmdWithOptions(item.Session, title, groupPath, opts)
+				return h, h.forkSessionCmdWithOptions(source, title, groupPath, opts)
 			}
 		}
 		h.forkDialog.Hide()

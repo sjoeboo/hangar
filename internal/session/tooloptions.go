@@ -24,6 +24,12 @@ type ClaudeOptions struct {
 	SkipPermissions bool `json:"skip_permissions,omitempty"`
 	// UseChrome adds --chrome flag
 	UseChrome bool `json:"use_chrome,omitempty"`
+
+	// Transient fields for worktree fork (not persisted)
+	WorkDir          string `json:"-"`
+	WorktreePath     string `json:"-"`
+	WorktreeRepoRoot string `json:"-"`
+	WorktreeBranch   string `json:"-"`
 }
 
 // ToolName returns "claude"

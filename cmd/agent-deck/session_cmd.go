@@ -6,10 +6,12 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/asheshgoplani/agent-deck/internal/clipboard"
+	"github.com/asheshgoplani/agent-deck/internal/git"
 	"github.com/asheshgoplani/agent-deck/internal/profile"
 	"github.com/asheshgoplani/agent-deck/internal/session"
 	"github.com/asheshgoplani/agent-deck/internal/tmux"
@@ -355,6 +357,10 @@ func handleSessionFork(profile string, args []string) {
 	titleShort := fs.String("t", "", "Title for forked session (short)")
 	group := fs.String("group", "", "Group for forked session")
 	groupShort := fs.String("g", "", "Group for forked session (short)")
+	worktreeBranch := fs.String("w", "", "Create fork in git worktree for branch")
+	worktreeBranchLong := fs.String("worktree", "", "Create fork in git worktree for branch")
+	newBranch := fs.Bool("b", false, "Create new branch (use with --worktree)")
+	newBranchLong := fs.Bool("new-branch", false, "Create new branch")
 
 	fs.Usage = func() {
 		fmt.Println("Usage: agent-deck session fork <id|title> [options]")
@@ -368,6 +374,8 @@ func handleSessionFork(profile string, args []string) {
 		fmt.Println("  agent-deck session fork my-project")
 		fmt.Println("  agent-deck session fork my-project -t \"my-fork\"")
 		fmt.Println("  agent-deck session fork my-project -t \"my-fork\" -g \"experiments\"")
+		fmt.Println("  agent-deck session fork my-project -w fork/experiment")
+		fmt.Println("  agent-deck session fork my-project -w fork/new-idea -b")
 	}
 
 	if err := fs.Parse(args); err != nil {
@@ -427,8 +435,59 @@ func handleSessionFork(profile string, args []string) {
 		forkGroup = inst.GroupPath
 	}
 
+	// Resolve worktree flags
+	wtBranch := *worktreeBranch
+	if *worktreeBranchLong != "" {
+		wtBranch = *worktreeBranchLong
+	}
+	createNewBranch := *newBranch || *newBranchLong
+
+	// Handle worktree creation
+	var opts *session.ClaudeOptions
+	if wtBranch != "" {
+		if !git.IsGitRepo(inst.ProjectPath) {
+			out.Error("session path is not a git repository", ErrCodeInvalidOperation)
+			os.Exit(1)
+		}
+		repoRoot, err := git.GetRepoRoot(inst.ProjectPath)
+		if err != nil {
+			out.Error(fmt.Sprintf("failed to get repo root: %v", err), ErrCodeInvalidOperation)
+			os.Exit(1)
+		}
+
+		if !createNewBranch && !git.BranchExists(repoRoot, wtBranch) {
+			out.Error(fmt.Sprintf("branch '%s' does not exist (use -b to create)", wtBranch), ErrCodeInvalidOperation)
+			os.Exit(1)
+		}
+
+		wtSettings := session.GetWorktreeSettings()
+		worktreePath := git.GenerateWorktreePath(repoRoot, wtBranch, wtSettings.DefaultLocation)
+
+		if _, statErr := os.Stat(worktreePath); statErr == nil {
+			out.Error(fmt.Sprintf("worktree path already exists: %s", worktreePath), ErrCodeInvalidOperation)
+			os.Exit(1)
+		}
+
+		if err := os.MkdirAll(filepath.Dir(worktreePath), 0755); err != nil {
+			out.Error(fmt.Sprintf("failed to create directory: %v", err), ErrCodeInvalidOperation)
+			os.Exit(1)
+		}
+
+		if err := git.CreateWorktree(repoRoot, worktreePath, wtBranch); err != nil {
+			out.Error(fmt.Sprintf("worktree creation failed: %v", err), ErrCodeInvalidOperation)
+			os.Exit(1)
+		}
+
+		userConfig, _ := session.LoadUserConfig()
+		opts = session.NewClaudeOptions(userConfig)
+		opts.WorkDir = worktreePath
+		opts.WorktreePath = worktreePath
+		opts.WorktreeRepoRoot = repoRoot
+		opts.WorktreeBranch = wtBranch
+	}
+
 	// Create the forked instance
-	forkedInst, _, err := inst.CreateForkedInstance(forkTitle, forkGroup)
+	forkedInst, _, err := inst.CreateForkedInstanceWithOptions(forkTitle, forkGroup, opts)
 	if err != nil {
 		out.Error(fmt.Sprintf("failed to create fork: %v", err), ErrCodeInvalidOperation)
 		os.Exit(1)
