@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"os/exec"
@@ -75,6 +76,11 @@ type Instance struct {
 	// Latest user input for context (extracted from session files)
 	LatestPrompt      string    `json:"latest_prompt,omitempty"`
 	lastPromptModTime time.Time // mtime cache for updateGeminiLatestPrompt (not serialized)
+
+	// JSONL tail-read cache: skip re-reading if file hasn't grown
+	lastJSONLSize int64
+	lastJSONLPath string
+	cachedPrompt  string
 
 	// MCP tracking - which MCPs were loaded when session started/restarted
 	// Used to detect pending MCPs (added after session start) and stale MCPs (removed but still running)
@@ -944,26 +950,30 @@ func (i *Instance) CanRestartGeneric() bool {
 	return i.GetGenericSessionID() != ""
 }
 
-// loadCustomPatternsFromConfig loads custom detection patterns from config.toml
-// and sets them on the tmux session for status detection and tool auto-detection
+// loadCustomPatternsFromConfig loads detection patterns from built-in defaults + config.toml
+// overrides, and sets them on the tmux session for status detection and tool auto-detection.
+// Works for ALL tools: built-in (claude, gemini, opencode, codex) and custom.
 func (i *Instance) loadCustomPatternsFromConfig() {
 	if i.tmuxSession == nil {
 		return
 	}
 
-	toolDef := GetToolDef(i.Tool)
-	if toolDef == nil {
-		return // No custom config for this tool
+	// Merge built-in defaults with any user config overrides/extras
+	raw := MergeToolPatterns(i.Tool)
+	if raw != nil {
+		resolved, err := tmux.CompilePatterns(raw)
+		if err != nil {
+			log.Printf("[PATTERNS] Warning: compile error for %s: %v", i.Tool, err)
+		}
+		if resolved != nil {
+			i.tmuxSession.SetPatterns(resolved)
+		}
 	}
 
-	// Set custom patterns on the tmux session
-	// The tool name is passed so DetectTool() knows what to return when patterns match
-	i.tmuxSession.SetCustomPatterns(
-		i.Tool, // Tool name (e.g., "vibe", "aider")
-		toolDef.BusyPatterns,
-		toolDef.PromptPatterns,
-		toolDef.DetectPatterns,
-	)
+	// Keep detect patterns for DetectTool() (separate from busy/prompt detection)
+	if toolDef := GetToolDef(i.Tool); toolDef != nil {
+		i.tmuxSession.SetDetectPatterns(i.Tool, toolDef.DetectPatterns)
+	}
 }
 
 // Start starts the session in tmux
@@ -1242,18 +1252,20 @@ func (i *Instance) UpdateStatus() error {
 		i.Tool = detectedTool
 	}
 
-	// Update Claude session tracking (non-blocking, best-effort)
-	// Pass nil for excludeIDs - deduplication happens at manager level
-	i.UpdateClaudeSession(nil)
+	// Update session tracking only for active/waiting sessions (skip idle - nothing changes)
+	if i.Status == StatusRunning || i.Status == StatusWaiting {
+		// Update Claude session tracking (non-blocking, best-effort)
+		i.UpdateClaudeSession(nil)
 
-	// Update Gemini session tracking (non-blocking, best-effort)
-	if i.Tool == "gemini" {
-		i.UpdateGeminiSession(nil)
-	}
+		// Update Gemini session tracking (non-blocking, best-effort)
+		if i.Tool == "gemini" {
+			i.UpdateGeminiSession(nil)
+		}
 
-	// Update Codex session tracking (non-blocking, best-effort)
-	if i.Tool == "codex" {
-		i.UpdateCodexSession(nil)
+		// Update Codex session tracking (non-blocking, best-effort)
+		if i.Tool == "codex" {
+			i.UpdateCodexSession(nil)
+		}
 	}
 
 	return nil
@@ -1277,14 +1289,12 @@ func (i *Instance) UpdateClaudeSession(excludeIDs map[string]bool) {
 		i.ClaudeDetectedAt = time.Now()
 	}
 
-	// Update latest prompt from JSONL file
+	// Update latest prompt from JSONL file (tail-read with size caching)
 	if i.ClaudeSessionID != "" {
 		jsonlPath := i.GetJSONLPath()
 		if jsonlPath != "" {
-			if data, err := os.ReadFile(jsonlPath); err == nil {
-				if prompt, err := parseClaudeLatestUserPrompt(data); err == nil && prompt != "" {
-					i.LatestPrompt = prompt
-				}
+			if prompt := i.readJSONLTail(jsonlPath); prompt != "" {
+				i.LatestPrompt = prompt
 			}
 		}
 	}
@@ -1810,6 +1820,67 @@ func parseClaudeLatestUserPrompt(data []byte) (string, error) {
 	}
 
 	return latestPrompt, nil
+}
+
+// readJSONLTail reads the last user prompt from a JSONL file using tail-read with size caching.
+// Instead of reading the entire file (can be 100-800MB), it:
+// 1. Stats the file to get current size (cheap syscall)
+// 2. Skips reading entirely if size hasn't changed since last check
+// 3. Only reads the last 32KB when the file has grown
+func (i *Instance) readJSONLTail(path string) string {
+	info, err := os.Stat(path)
+	if err != nil {
+		return ""
+	}
+	size := info.Size()
+
+	// If same file and same size, return cached prompt
+	if path == i.lastJSONLPath && size == i.lastJSONLSize {
+		return i.cachedPrompt
+	}
+
+	// File changed or new file - read the tail
+	const tailSize int64 = 32 * 1024 // 32KB
+	f, err := os.Open(path)
+	if err != nil {
+		return ""
+	}
+	defer f.Close()
+
+	offset := size - tailSize
+	if offset < 0 {
+		offset = 0
+	}
+	if offset > 0 {
+		if _, err := f.Seek(offset, 0); err != nil {
+			return ""
+		}
+	}
+
+	data, err := io.ReadAll(f)
+	if err != nil {
+		return ""
+	}
+
+	// If we seeked into the middle of the file, skip to the first complete line
+	if offset > 0 {
+		if idx := bytes.IndexByte(data, '\n'); idx >= 0 {
+			data = data[idx+1:]
+		}
+	}
+
+	prompt, err := parseClaudeLatestUserPrompt(data)
+	if err != nil || prompt == "" {
+		// Update cache even on empty result to avoid re-reading
+		i.lastJSONLPath = path
+		i.lastJSONLSize = size
+		return i.cachedPrompt // Return previous cached value
+	}
+
+	i.lastJSONLPath = path
+	i.lastJSONLSize = size
+	i.cachedPrompt = prompt
+	return prompt
 }
 
 // parseGeminiLatestUserPrompt parses a Gemini JSON file to extract the last user message

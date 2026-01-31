@@ -392,7 +392,22 @@ type Session struct {
 	customBusyPatterns   []string
 	customPromptPatterns []string
 	customDetectPatterns []string
+
+	// Configurable patterns (replaces hardcoded detection logic)
+	// When non-nil, hasBusyIndicator and normalizeContent use these instead of hardcoded values
+	resolvedPatterns *ResolvedPatterns
+
+	// Environment variable cache (reduces tmux show-environment subprocess spawns)
+	envCache     map[string]envCacheEntry
+	envCacheMu   sync.RWMutex
 }
+
+type envCacheEntry struct {
+	value string
+	time  time.Time
+}
+
+const envCacheTTL = 30 * time.Second
 
 // invalidateCache clears the CapturePane cache.
 // MUST be called after any action that might change terminal content.
@@ -424,6 +439,22 @@ func (s *Session) SetCustomPatterns(toolName string, busyPatterns, promptPattern
 	s.customToolName = toolName
 	s.customBusyPatterns = busyPatterns
 	s.customPromptPatterns = promptPatterns
+	s.customDetectPatterns = detectPatterns
+}
+
+// SetPatterns sets the compiled ResolvedPatterns for configurable status detection.
+// When set, hasBusyIndicator and normalizeContent use these instead of hardcoded values.
+func (s *Session) SetPatterns(p *ResolvedPatterns) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.resolvedPatterns = p
+}
+
+// SetDetectPatterns sets tool auto-detection patterns (separate from busy/prompt patterns).
+func (s *Session) SetDetectPatterns(toolName string, detectPatterns []string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.customToolName = toolName
 	s.customDetectPatterns = detectPatterns
 }
 
@@ -630,12 +661,32 @@ func generateShortID() string {
 // SetEnvironment sets an environment variable for this tmux session
 func (s *Session) SetEnvironment(key, value string) error {
 	cmd := exec.Command("tmux", "set-environment", "-t", s.Name, key, value)
-	return cmd.Run()
+	err := cmd.Run()
+	if err == nil {
+		// Invalidate cache entry so next GetEnvironment sees the new value
+		s.envCacheMu.Lock()
+		if s.envCache != nil {
+			delete(s.envCache, key)
+		}
+		s.envCacheMu.Unlock()
+	}
+	return err
 }
 
-// GetEnvironment gets an environment variable from this tmux session
-// Returns the value or error if not found
+// GetEnvironment gets an environment variable from this tmux session.
+// Uses a 30-second cache to avoid spawning tmux show-environment subprocesses
+// on every poll cycle. Call InvalidateEnvCache() after SetEnvironment to clear.
 func (s *Session) GetEnvironment(key string) (string, error) {
+	// Check cache first
+	s.envCacheMu.RLock()
+	if s.envCache != nil {
+		if entry, ok := s.envCache[key]; ok && time.Since(entry.time) < envCacheTTL {
+			s.envCacheMu.RUnlock()
+			return entry.value, nil
+		}
+	}
+	s.envCacheMu.RUnlock()
+
 	cmd := exec.Command("tmux", "show-environment", "-t", s.Name, key)
 	output, err := cmd.Output()
 	if err != nil {
@@ -645,9 +696,25 @@ func (s *Session) GetEnvironment(key string) (string, error) {
 	line := strings.TrimSpace(string(output))
 	prefix := key + "="
 	if strings.HasPrefix(line, prefix) {
-		return strings.TrimPrefix(line, prefix), nil
+		value := strings.TrimPrefix(line, prefix)
+		// Store in cache
+		s.envCacheMu.Lock()
+		if s.envCache == nil {
+			s.envCache = make(map[string]envCacheEntry)
+		}
+		s.envCache[key] = envCacheEntry{value: value, time: time.Now()}
+		s.envCacheMu.Unlock()
+		return value, nil
 	}
 	return "", fmt.Errorf("variable not found: %s", key)
+}
+
+// InvalidateEnvCache clears the environment variable cache for this session.
+// Should be called after SetEnvironment to ensure fresh reads.
+func (s *Session) InvalidateEnvCache() {
+	s.envCacheMu.Lock()
+	s.envCache = nil
+	s.envCacheMu.Unlock()
 }
 
 // sanitizeName converts a display name to a valid tmux session name
@@ -1754,26 +1821,89 @@ func (s *Session) GetWaitingSince() time.Time {
 	return s.stateTracker.waitingSince
 }
 
-// hasBusyIndicator checks if the terminal shows explicit busy indicators
-// This is a quick check used in GetStatus() to detect active processing
-//
-// Busy indicators for Claude Code:
-// - PRIMARY: "ctrl+c to interrupt" - Current Claude Code (2024+), always present when working
-// - FALLBACK: "esc to interrupt" - Older Claude Code versions
-// - BACKUP: Spinner characters (braille dots) in last 5 lines
+// hasBusyIndicator checks if the terminal shows explicit busy indicators.
+// Uses configurable ResolvedPatterns when available, otherwise falls back to legacy hardcoded logic.
 func (s *Session) hasBusyIndicator(content string) bool {
+	if s.resolvedPatterns != nil {
+		return s.hasBusyIndicatorResolved(content)
+	}
+	return s.hasBusyIndicatorLegacy(content)
+}
+
+// hasBusyIndicatorResolved uses compiled ResolvedPatterns for busy detection.
+// This is the configurable path: patterns come from DefaultRawPatterns + user config.toml overrides.
+func (s *Session) hasBusyIndicatorResolved(content string) bool {
+	patterns := s.resolvedPatterns
+	shortName := s.DisplayName
+	if len(shortName) > 12 {
+		shortName = shortName[:12]
+	}
+
+	lines := strings.Split(content, "\n")
+	for len(lines) > 0 && strings.TrimSpace(lines[len(lines)-1]) == "" {
+		lines = lines[:len(lines)-1]
+	}
+	start := len(lines) - 25
+	if start < 0 {
+		start = 0
+	}
+	lastLines := lines[start:]
+	recentContent := strings.ToLower(strings.Join(lastLines, "\n"))
+
+	// String-based busy indicators
+	for _, pat := range patterns.BusyStrings {
+		if strings.Contains(recentContent, strings.ToLower(pat)) {
+			debugLog("%s: BUSY_REASON=pattern %q", shortName, pat)
+			return true
+		}
+	}
+
+	// Regex-based busy indicators
+	for _, re := range patterns.BusyRegexps {
+		if re.MatchString(recentContent) {
+			debugLog("%s: BUSY_REASON=regex %q", shortName, re.String())
+			return true
+		}
+	}
+
+	// Spinner active pattern (built from whimsical words + spinner chars)
+	if patterns.SpinnerActivePattern != nil && patterns.SpinnerActivePattern.MatchString(recentContent) {
+		debugLog("%s: BUSY_REASON=spinner active pattern (ellipsis)", shortName)
+		return true
+	}
+
+	// Spinner characters in last 5 lines (keep box-drawing skip logic)
+	if len(patterns.SpinnerChars) > 0 {
+		last5 := lastLines
+		if len(last5) > 5 {
+			last5 = last5[len(last5)-5:]
+		}
+		for _, line := range last5 {
+			if startsWithBoxDrawing(line) {
+				continue
+			}
+			for _, ch := range patterns.SpinnerChars {
+				if strings.Contains(line, ch) {
+					debugLog("%s: BUSY_REASON=spinner char=%q", shortName, ch)
+					return true
+				}
+			}
+		}
+	}
+
+	return false
+}
+
+// hasBusyIndicatorLegacy is the original hardcoded busy detection logic.
+// Used as fallback when resolvedPatterns is nil (safety net during migration).
+func (s *Session) hasBusyIndicatorLegacy(content string) bool {
 	shortName := s.DisplayName
 	if len(shortName) > 12 {
 		shortName = shortName[:12]
 	}
 
 	// Get last 25 lines for analysis, skipping trailing blank lines
-	// tmux capture-pane returns the full terminal buffer including blank lines at the end
-	// Need 25 lines (not 20) because Claude's todo list and status bar can push
-	// the interrupt message further up from the bottom
 	lines := strings.Split(content, "\n")
-
-	// Strip trailing blank lines
 	for len(lines) > 0 && strings.TrimSpace(lines[len(lines)-1]) == "" {
 		lines = lines[:len(lines)-1]
 	}
@@ -1785,58 +1915,31 @@ func (s *Session) hasBusyIndicator(content string) bool {
 	lastLines := lines[start:]
 	recentContent := strings.ToLower(strings.Join(lastLines, "\n"))
 
-	// ═══════════════════════════════════════════════════════════════════════
-	// CHECK 1: "ctrl+c to interrupt" - PRIMARY indicator for Claude Code (2024+)
-	// This text ALWAYS appears when Claude is actively working
-	// ═══════════════════════════════════════════════════════════════════════
 	if strings.Contains(recentContent, "ctrl+c to interrupt") {
 		debugLog("%s: BUSY_REASON=ctrl+c to interrupt", shortName)
 		return true
 	}
 
-	// ═══════════════════════════════════════════════════════════════════════
-	// CHECK 1b: Claude Code 2.1.25+ active spinner pattern
-	// Detects: "✳ Gusting… (35s · ↑ 673 tokens)" (unicode ellipsis = active)
-	// Does NOT match done: "✻ Worked for 54s" (no ellipsis)
-	// Word-list independent for future-proofing
-	// ═══════════════════════════════════════════════════════════════════════
 	if claudeSpinnerActivePattern.MatchString(recentContent) {
 		debugLog("%s: BUSY_REASON=claude 2.1.25+ spinner active (ellipsis pattern)", shortName)
 		return true
 	}
 
-	// ═══════════════════════════════════════════════════════════════════════
-	// CHECK 2: "esc to interrupt" - FALLBACK for older Claude Code versions
-	// Older versions showed "esc to interrupt" instead of "ctrl+c to interrupt"
-	// ═══════════════════════════════════════════════════════════════════════
 	if strings.Contains(recentContent, "esc to interrupt") {
 		debugLog("%s: BUSY_REASON=esc to interrupt (fallback)", shortName)
 		return true
 	}
 
-	// ═══════════════════════════════════════════════════════════════════════
-	// CHECK 2b: "esc to cancel" - Gemini CLI busy indicator
-	// Gemini shows "esc to cancel" while actively processing
-	// ═══════════════════════════════════════════════════════════════════════
 	if strings.Contains(recentContent, "esc to cancel") {
 		debugLog("%s: BUSY_REASON=esc to cancel (Gemini)", shortName)
 		return true
 	}
 
-	// ═══════════════════════════════════════════════════════════════════════
-	// CHECK 3: OpenCode "esc interrupt" - PRIMARY indicator for OpenCode
-	// OpenCode shows "esc interrupt" at the bottom status bar when actively working
-	// This is equivalent to Claude's "ctrl+c to interrupt"
-	// ═══════════════════════════════════════════════════════════════════════
 	if strings.Contains(recentContent, "esc interrupt") {
 		debugLog("%s: BUSY_REASON=esc interrupt (OpenCode)", shortName)
 		return true
 	}
 
-	// ═══════════════════════════════════════════════════════════════════════
-	// CHECK 4: Custom busy patterns from config.toml
-	// Allows custom tools to define their own busy indicators
-	// ═══════════════════════════════════════════════════════════════════════
 	if len(s.customBusyPatterns) > 0 {
 		for _, pattern := range s.customBusyPatterns {
 			if strings.Contains(recentContent, strings.ToLower(pattern)) {
@@ -1846,14 +1949,9 @@ func (s *Session) hasBusyIndicator(content string) bool {
 		}
 	}
 
-	// ═══════════════════════════════════════════════════════════════════════
-	// CHECK 5: Spinner characters - BACKUP indicator
-	// Braille spinner dots from cli-spinners "dots" pattern
-	// Check last 5 lines (spinners appear at status line)
-	// ═══════════════════════════════════════════════════════════════════════
 	spinnerChars := []string{
 		"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏",
-		"✳", "✽", "✶", "✢", // Claude Code 2.1.25+ asterisk spinner (excl ✻ and · which appear in done/other states)
+		"✳", "✽", "✶", "✢",
 	}
 	last5 := lastLines
 	if len(last5) > 5 {
@@ -1861,14 +1959,8 @@ func (s *Session) hasBusyIndicator(content string) bool {
 	}
 
 	for _, line := range last5 {
-		// Skip lines starting with box-drawing characters (e.g., │├└─┌┐┘┤┬┴┼)
-		// These are UI borders that can contain braille-like chars as rendering artifacts
-		trimmedLine := strings.TrimSpace(line)
-		if len(trimmedLine) > 0 {
-			r := []rune(trimmedLine)[0]
-			if r == '│' || r == '├' || r == '└' || r == '─' || r == '┌' || r == '┐' || r == '┘' || r == '┤' || r == '┬' || r == '┴' || r == '┼' || r == '╭' || r == '╰' || r == '╮' || r == '╯' {
-				continue
-			}
+		if startsWithBoxDrawing(line) {
+			continue
 		}
 		for _, spinner := range spinnerChars {
 			if strings.Contains(line, spinner) {
@@ -1879,6 +1971,16 @@ func (s *Session) hasBusyIndicator(content string) bool {
 	}
 
 	return false
+}
+
+// startsWithBoxDrawing checks if a line starts with box-drawing characters (UI borders).
+func startsWithBoxDrawing(line string) bool {
+	trimmedLine := strings.TrimSpace(line)
+	if len(trimmedLine) == 0 {
+		return false
+	}
+	r := []rune(trimmedLine)[0]
+	return r == '│' || r == '├' || r == '└' || r == '─' || r == '┌' || r == '┐' || r == '┘' || r == '┤' || r == '┬' || r == '┴' || r == '┼' || r == '╭' || r == '╰' || r == '╮' || r == '╯'
 }
 
 // isSustainedActivity checks if activity is sustained (real work) or a spike.
@@ -1995,22 +2097,26 @@ func (s *Session) normalizeContent(content string) string {
 	// Strip other non-printing control characters
 	result = stripControlChars(result)
 
-	// Strip braille spinner characters (used by Claude Code and others)
-	// These animate while processing and cause hash changes
-	spinners := []rune{
-		'⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏',
-		'·', '✳', '✽', '✶', '✻', '✢', // Claude Code 2.1.25+ asterisk spinners
-	}
-	for _, r := range spinners {
+	// Strip spinner characters that animate and cause hash changes
+	// Use the centralized SpinnerRuneSet which includes all normalization chars
+	for _, r := range SpinnerRuneSet() {
 		result = strings.ReplaceAll(result, string(r), "")
 	}
 
 	// Strip dynamic time/token counters that change every second
-	// This prevents flickering when Claude Code shows "(45s · 1234 tokens · ctrl+c to interrupt)"
-	// which updates to "(46s · 1234 tokens · ctrl+c to interrupt)" one second later
 	result = dynamicStatusPattern.ReplaceAllString(result, "(STATUS)")
-	result = thinkingPattern.ReplaceAllString(result, "$1...")
-	result = thinkingPatternEllipsis.ReplaceAllString(result, "THINKING…")
+
+	// Use resolved combo patterns when available, otherwise fall back to package-level patterns
+	if s.resolvedPatterns != nil && s.resolvedPatterns.ThinkingPattern != nil {
+		result = s.resolvedPatterns.ThinkingPattern.ReplaceAllString(result, "$1...")
+	} else {
+		result = thinkingPattern.ReplaceAllString(result, "$1...")
+	}
+	if s.resolvedPatterns != nil && s.resolvedPatterns.ThinkingPatternEllipsis != nil {
+		result = s.resolvedPatterns.ThinkingPatternEllipsis.ReplaceAllString(result, "THINKING…")
+	} else {
+		result = thinkingPatternEllipsis.ReplaceAllString(result, "THINKING…")
+	}
 
 	// Strip progress indicators that change frequently (Fix 2.1)
 	// These cause hash changes during downloads, builds, etc.

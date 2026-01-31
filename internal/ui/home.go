@@ -2601,8 +2601,8 @@ func (h *Home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		h.cleanupExpiredAnimations(h.mcpLoadingSessions, claudeTimeout, defaultTimeout)
 		h.cleanupExpiredAnimations(h.forkingSessions, claudeTimeout, defaultTimeout)
 
-		// Sync notification bar with current session states
-		h.syncNotifications()
+		// Notification bar sync handled by background worker (syncNotificationsBackground)
+		// which runs even when TUI is paused during tea.Exec
 
 		// Fetch preview for currently selected session (if stale/missing and not fetching)
 		// Cache expires after 2 seconds to show live terminal updates without excessive fetching
