@@ -46,4 +46,5 @@ Thumbs.db
 .playwright-mcp/
 *.screenstudio/
 
-.worktreesagent-deck-test
+.worktrees
+agent-deck-test

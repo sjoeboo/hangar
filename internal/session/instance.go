@@ -2459,7 +2459,7 @@ func (i *Instance) CanFork() bool {
 
 // CanForkOpenCode returns true if this OpenCode session can be forked
 func (i *Instance) CanForkOpenCode() bool {
-	return i.Tool == "opencode" && i.OpenCodeSessionID != ""
+	return i.Tool == "opencode" && i.OpenCodeSessionID != "" && time.Since(i.OpenCodeDetectedAt) < 5*time.Minute
 }
 
 // Fork returns the command to create a forked Claude session
@@ -2598,8 +2598,14 @@ if [ $export_status -ne 0 ]; then
   exit 1
 fi
 
-new_id="ses_$(date +%%s | md5 | head -c12)$(openssl rand -base64 20 | tr -dc a-zA-Z0-9 | head -c14)"
-sed -i "" "s/%s/$new_id/g" "$tmpfile" || { echo "Sed failed"; exit 1; }
+hash_cmd="md5sum"
+command -v md5sum >/dev/null 2>&1 || hash_cmd="md5"
+new_id="ses_$(date +%%s | $hash_cmd | head -c12)$(openssl rand -base64 20 | tr -dc a-zA-Z0-9 | head -c14)"
+if [[ "$OSTYPE" == "darwin"* ]]; then
+  sed -i "" "s/%s/$new_id/g" "$tmpfile" || { echo "Sed failed"; exit 1; }
+else
+  sed -i "s/%s/$new_id/g" "$tmpfile" || { echo "Sed failed"; exit 1; }
+fi
 opencode import "$tmpfile" 2>&1 || { echo "Import failed"; exit 1; }
 tmux set-environment OPENCODE_SESSION_ID "$new_id"
 echo "Forked to: $new_id"

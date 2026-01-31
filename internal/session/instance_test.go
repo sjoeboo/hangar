@@ -1138,17 +1138,29 @@ func TestInstance_ForkOpenCode(t *testing.T) {
 		t.Errorf("ForkOpenCode() failed: %v", err)
 	}
 
-	if !strings.Contains(cmd, "opencode export") {
-		t.Errorf("ForkOpenCode() should use opencode export, got: %s", cmd)
+	// cmd is "bash '<script_path>'" - extract and read the script file
+	if !strings.HasPrefix(cmd, "bash '") {
+		t.Fatalf("ForkOpenCode() should return bash command, got: %s", cmd)
 	}
-	if !strings.Contains(cmd, "opencode import") {
-		t.Errorf("ForkOpenCode() should use opencode import, got: %s", cmd)
+	scriptPath := strings.TrimPrefix(cmd, "bash '")
+	scriptPath = strings.TrimSuffix(scriptPath, "'")
+	scriptContent, err := os.ReadFile(scriptPath)
+	if err != nil {
+		t.Fatalf("Failed to read fork script at %s: %v", scriptPath, err)
 	}
-	if !strings.Contains(cmd, "ses_abc123def456ffe1234567890abcd") {
-		t.Errorf("ForkOpenCode() should include original session ID, got: %s", cmd)
+	script := string(scriptContent)
+
+	if !strings.Contains(script, "opencode export") {
+		t.Errorf("Fork script should use opencode export, got: %s", script)
 	}
-	if !strings.Contains(cmd, "tmux set-environment OPENCODE_SESSION_ID") {
-		t.Errorf("ForkOpenCode() should set tmux environment, got: %s", cmd)
+	if !strings.Contains(script, "opencode import") {
+		t.Errorf("Fork script should use opencode import, got: %s", script)
+	}
+	if !strings.Contains(script, "ses_abc123def456ffe1234567890abcd") {
+		t.Errorf("Fork script should include original session ID, got: %s", script)
+	}
+	if !strings.Contains(script, "tmux set-environment OPENCODE_SESSION_ID") {
+		t.Errorf("Fork script should set tmux environment, got: %s", script)
 	}
 }
 
