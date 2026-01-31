@@ -1020,6 +1020,10 @@ func handleListAllProfiles(jsonOutput bool) {
 // handleRemove removes a session by ID or title
 func handleRemove(profile string, args []string) {
 	fs := flag.NewFlagSet("remove", flag.ExitOnError)
+	jsonOutput := fs.Bool("json", false, "Output as JSON")
+	quiet := fs.Bool("quiet", false, "Minimal output")
+	quietShort := fs.Bool("q", false, "Minimal output (short)")
+
 	fs.Usage = func() {
 		fmt.Println("Usage: agent-deck remove <id|title>")
 		fmt.Println()
@@ -1035,38 +1039,46 @@ func handleRemove(profile string, args []string) {
 		os.Exit(1)
 	}
 
+	quietMode := *quiet || *quietShort
+	out := NewCLIOutput(*jsonOutput, quietMode)
+
 	identifier := fs.Arg(0)
 	if identifier == "" {
-		fmt.Println("Error: session ID or title is required")
-		fs.Usage()
+		out.Error("session ID or title is required", ErrCodeNotFound)
+		if !*jsonOutput {
+			fs.Usage()
+		}
 		os.Exit(1)
 	}
 
 	storage, err := session.NewStorageWithProfile(profile)
 	if err != nil {
-		fmt.Printf("Error: failed to initialize storage: %v\n", err)
+		out.Error(fmt.Sprintf("failed to initialize storage: %v", err), ErrCodeInvalidOperation)
 		os.Exit(1)
 	}
 
 	instances, groups, err := storage.LoadWithGroups()
 	if err != nil {
-		fmt.Printf("Error: failed to load sessions: %v\n", err)
+		out.Error(fmt.Sprintf("failed to load sessions: %v", err), ErrCodeInvalidOperation)
 		os.Exit(1)
 	}
 
 	// Find and remove the session
 	found := false
-	var removedTitle string
+	var removedID, removedTitle string
 	newInstances := make([]*session.Instance, 0, len(instances))
 	for _, inst := range instances {
 		if inst.ID == identifier || strings.HasPrefix(inst.ID, identifier) || inst.Title == identifier {
 			found = true
+			removedID = inst.ID
 			removedTitle = inst.Title
 			// Kill tmux session if it exists
 			if inst.Exists() {
 				if err := inst.Kill(); err != nil {
-					fmt.Printf("Warning: failed to kill tmux session: %v\n", err)
-					fmt.Println("Session removed from Agent Deck but may still be running in tmux")
+					if !*jsonOutput {
+						fmt.Printf("Warning: failed to kill tmux session: %v\n", err)
+						fmt.Println("Session removed from Agent Deck but may still be running in tmux")
+					}
 				}
 			}
 		} else {
@@ -1075,7 +1087,7 @@ func handleRemove(profile string, args []string) {
 	}
 
 	if !found {
-		fmt.Printf("Error: session not found in profile '%s': %s\n", storage.Profile(), identifier)
+		out.Error(fmt.Sprintf("session not found in profile '%s': %s", storage.Profile(), identifier), ErrCodeNotFound)
 		os.Exit(1)
 	}
 
@@ -1083,11 +1095,17 @@ func handleRemove(profile string, args []string) {
 	groupTree := session.NewGroupTreeWithGroups(newInstances, groups)
 
 	if err := storage.SaveWithGroups(newInstances, groupTree); err != nil {
-		fmt.Printf("Error: failed to save: %v\n", err)
+		out.Error(fmt.Sprintf("failed to save: %v", err), ErrCodeInvalidOperation)
 		os.Exit(1)
 	}
 
-	fmt.Printf("✓ Removed session: %s (from profile '%s')\n", removedTitle, storage.Profile())
+	out.Success(fmt.Sprintf("Removed session: %s (from profile '%s')", removedTitle, storage.Profile()), map[string]interface{}{
+		"success": true,
+		"id":      removedID,
+		"title":   removedTitle,
+		"removed": true,
+		"profile": storage.Profile(),
+	})
 }
 
 // statusCounts holds session counts by status
@@ -1237,59 +1255,83 @@ func handleStatus(profile string, args []string) {
 
 // handleProfile manages profiles (list, create, delete, default)
 func handleProfile(args []string) {
-	if len(args) == 0 {
+	// Extract --json and -q/--quiet flags from anywhere in args
+	var jsonMode, quietMode bool
+	var filteredArgs []string
+	for _, arg := range args {
+		switch arg {
+		case "--json":
+			jsonMode = true
+		case "--quiet", "-q":
+			quietMode = true
+		default:
+			filteredArgs = append(filteredArgs, arg)
+		}
+	}
+	out := NewCLIOutput(jsonMode, quietMode)
+
+	if len(filteredArgs) == 0 {
 		// Default to list
-		handleProfileList()
+		handleProfileList(out, jsonMode)
 		return
 	}
 
-	switch args[0] {
+	switch filteredArgs[0] {
 	case "list", "ls":
-		handleProfileList()
+		handleProfileList(out, jsonMode)
 	case "create", "new":
-		if len(args) < 2 {
-			fmt.Println("Error: profile name is required")
-			fmt.Println("Usage: agent-deck profile create <name>")
+		if len(filteredArgs) < 2 {
+			out.Error("profile name is required", ErrCodeInvalidOperation)
+			if !jsonMode {
+				fmt.Println("Usage: agent-deck profile create <name>")
+			}
 			os.Exit(1)
 		}
-		handleProfileCreate(args[1])
+		handleProfileCreate(out, filteredArgs[1])
 	case "delete", "rm":
-		if len(args) < 2 {
-			fmt.Println("Error: profile name is required")
-			fmt.Println("Usage: agent-deck profile delete <name>")
+		if len(filteredArgs) < 2 {
+			out.Error("profile name is required", ErrCodeInvalidOperation)
+			if !jsonMode {
+				fmt.Println("Usage: agent-deck profile delete <name>")
+			}
 			os.Exit(1)
 		}
-		handleProfileDelete(args[1])
+		handleProfileDelete(out, jsonMode, filteredArgs[1])
 	case "default":
-		if len(args) < 2 {
+		if len(filteredArgs) < 2 {
 			// Show current default
 			config, err := session.LoadConfig()
 			if err != nil {
-				fmt.Printf("Error: failed to load config: %v\n", err)
+				out.Error(fmt.Sprintf("failed to load config: %v", err), ErrCodeInvalidOperation)
 				os.Exit(1)
 			}
-			fmt.Printf("Default profile: %s\n", config.DefaultProfile)
+			out.Success(fmt.Sprintf("Default profile: %s", config.DefaultProfile), map[string]interface{}{
+				"success":         true,
+				"default_profile": config.DefaultProfile,
+			})
 			return
 		}
-		handleProfileSetDefault(args[1])
+		handleProfileSetDefault(out, filteredArgs[1])
 	default:
-		fmt.Printf("Unknown profile command: %s\n", args[0])
-		fmt.Println()
-		fmt.Println("Usage: agent-deck profile <command>")
-		fmt.Println()
-		fmt.Println("Commands:")
-		fmt.Println("  list              List all profiles")
-		fmt.Println("  create <name>     Create a new profile")
-		fmt.Println("  delete <name>     Delete a profile")
-		fmt.Println("  default [name]    Show or set default profile")
+		out.Error(fmt.Sprintf("unknown profile command: %s", filteredArgs[0]), ErrCodeInvalidOperation)
+		if !jsonMode {
+			fmt.Println()
+			fmt.Println("Usage: agent-deck profile <command>")
+			fmt.Println()
+			fmt.Println("Commands:")
+			fmt.Println("  list              List all profiles")
+			fmt.Println("  create <name>     Create a new profile")
+			fmt.Println("  delete <name>     Delete a profile")
+			fmt.Println("  default [name]    Show or set default profile")
+		}
 		os.Exit(1)
 	}
 }
 
-func handleProfileList() {
+func handleProfileList(out *CLIOutput, jsonMode bool) {
 	profiles, err := session.ListProfiles()
 	if err != nil {
-		fmt.Printf("Error: failed to list profiles: %v\n", err)
+		out.Error(fmt.Sprintf("failed to list profiles: %v", err), ErrCodeInvalidOperation)
 		os.Exit(1)
 	}
 
@@ -1297,6 +1339,23 @@ func handleProfileList() {
 	defaultProfile := session.DefaultProfile
 	if config != nil {
 		defaultProfile = config.DefaultProfile
+	}
+
+	if jsonMode {
+		var profileList []map[string]interface{}
+		for _, p := range profiles {
+			profileList = append(profileList, map[string]interface{}{
+				"name":       p,
+				"is_default": p == defaultProfile,
+			})
+		}
+		out.Success("", map[string]interface{}{
+			"success":         true,
+			"profiles":        profileList,
+			"default_profile": defaultProfile,
+			"total":           len(profiles),
+		})
+		return
 	}
 
 	if len(profiles) == 0 {
@@ -1316,38 +1375,51 @@ func handleProfileList() {
 	fmt.Printf("\nTotal: %d profiles\n", len(profiles))
 }
 
-func handleProfileCreate(name string) {
+func handleProfileCreate(out *CLIOutput, name string) {
 	if err := session.CreateProfile(name); err != nil {
-		fmt.Printf("Error: %v\n", err)
+		out.Error(fmt.Sprintf("%v", err), ErrCodeAlreadyExists)
 		os.Exit(1)
 	}
-	fmt.Printf("✓ Created profile: %s\n", name)
-	fmt.Printf("  Use with: agent-deck -p %s\n", name)
+	out.Success(fmt.Sprintf("Created profile: %s", name), map[string]interface{}{
+		"success": true,
+		"name":    name,
+		"created": true,
+	})
 }
 
-func handleProfileDelete(name string) {
-	// Confirm deletion
-	fmt.Printf("Are you sure you want to delete profile '%s'? This will remove all sessions in this profile. [y/N] ", name)
-	var response string
-	_, _ = fmt.Scanln(&response)
-	if response != "y" && response != "Y" {
-		fmt.Println("Cancelled.")
-		return
+func handleProfileDelete(out *CLIOutput, jsonMode bool, name string) {
+	// Skip confirmation in JSON mode (for automation)
+	if !jsonMode {
+		fmt.Printf("Are you sure you want to delete profile '%s'? This will remove all sessions in this profile. [y/N] ", name)
+		var response string
+		_, _ = fmt.Scanln(&response)
+		if response != "y" && response != "Y" {
+			fmt.Println("Cancelled.")
+			return
+		}
 	}
 
 	if err := session.DeleteProfile(name); err != nil {
-		fmt.Printf("Error: %v\n", err)
+		out.Error(fmt.Sprintf("%v", err), ErrCodeNotFound)
 		os.Exit(1)
 	}
-	fmt.Printf("✓ Deleted profile: %s\n", name)
+	out.Success(fmt.Sprintf("Deleted profile: %s", name), map[string]interface{}{
+		"success": true,
+		"name":    name,
+		"deleted": true,
+	})
 }
 
-func handleProfileSetDefault(name string) {
+func handleProfileSetDefault(out *CLIOutput, name string) {
 	if err := session.SetDefaultProfile(name); err != nil {
-		fmt.Printf("Error: %v\n", err)
+		out.Error(fmt.Sprintf("%v", err), ErrCodeNotFound)
 		os.Exit(1)
 	}
-	fmt.Printf("✓ Default profile set to: %s\n", name)
+	out.Success(fmt.Sprintf("Default profile set to: %s", name), map[string]interface{}{
+		"success":         true,
+		"name":            name,
+		"default_profile": name,
+	})
 }
 
 // handleUpdate checks for and performs updates

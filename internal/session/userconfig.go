@@ -11,6 +11,7 @@ import (
 
 	"github.com/BurntSushi/toml"
 	"github.com/asheshgoplani/agent-deck/internal/platform"
+	"github.com/asheshgoplani/agent-deck/internal/tmux"
 )
 
 // UserConfigFileName is the TOML config file for user preferences
@@ -440,6 +441,21 @@ type ToolDef struct {
 	// These are exported AFTER env_file (highest priority)
 	// Example: env = { ANTHROPIC_BASE_URL = "https://...", API_KEY = "token" }
 	Env map[string]string `toml:"env"`
+
+	// Pattern override fields (extend built-in defaults for claude/gemini/opencode/codex)
+	// Patterns prefixed with "re:" are compiled as regex; everything else uses strings.Contains.
+
+	// BusyPatternsExtra appends additional busy patterns to the built-in defaults
+	BusyPatternsExtra []string `toml:"busy_patterns_extra"`
+
+	// PromptPatternsExtra appends additional prompt patterns to the built-in defaults
+	PromptPatternsExtra []string `toml:"prompt_patterns_extra"`
+
+	// SpinnerChars replaces the default spinner characters entirely (use with caution)
+	SpinnerChars []string `toml:"spinner_chars"`
+
+	// SpinnerCharsExtra appends additional spinner characters to the built-in defaults
+	SpinnerCharsExtra []string `toml:"spinner_chars_extra"`
 }
 
 // HTTPServerConfig defines how to auto-start an HTTP MCP server
@@ -772,6 +788,42 @@ func GetToolBusyPatterns(toolName string) []string {
 
 	// Built-in patterns are handled by the detector
 	return patterns
+}
+
+// MergeToolPatterns returns merged RawPatterns for a tool, combining built-in
+// defaults with any user overrides/extras from config.toml.
+// Works for ALL tools: built-in (claude, gemini, etc.) and custom.
+// Returns nil only if there are no defaults AND no config entry.
+func MergeToolPatterns(toolName string) *tmux.RawPatterns {
+	defaults := tmux.DefaultRawPatterns(toolName)
+	toolDef := GetToolDef(toolName)
+
+	// No defaults and no config entry: nothing to do
+	if defaults == nil && toolDef == nil {
+		return nil
+	}
+
+	// Build overrides from ToolDef's replace fields (BusyPatterns, PromptPatterns, SpinnerChars)
+	var overrides *tmux.RawPatterns
+	if toolDef != nil && (toolDef.BusyPatterns != nil || toolDef.PromptPatterns != nil || toolDef.SpinnerChars != nil) {
+		overrides = &tmux.RawPatterns{
+			BusyPatterns:   toolDef.BusyPatterns,
+			PromptPatterns: toolDef.PromptPatterns,
+			SpinnerChars:   toolDef.SpinnerChars,
+		}
+	}
+
+	// Build extras from ToolDef's *Extra fields
+	var extras *tmux.RawPatterns
+	if toolDef != nil && (len(toolDef.BusyPatternsExtra) > 0 || len(toolDef.PromptPatternsExtra) > 0 || len(toolDef.SpinnerCharsExtra) > 0) {
+		extras = &tmux.RawPatterns{
+			BusyPatterns:   toolDef.BusyPatternsExtra,
+			PromptPatterns: toolDef.PromptPatternsExtra,
+			SpinnerChars:   toolDef.SpinnerCharsExtra,
+		}
+	}
+
+	return tmux.MergeRawPatterns(defaults, overrides, extras)
 }
 
 // GetDefaultTool returns the user's preferred default tool for new sessions

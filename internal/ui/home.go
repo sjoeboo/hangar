@@ -5293,6 +5293,143 @@ func renderSectionDivider(label string, width int) string {
 		lineStyle.Render(strings.Repeat("─", sideWidth))
 }
 
+// renderToolStatusLine renders a Status + Session line for a tool section.
+// sessionID is the detected session ID (empty = not connected).
+// detectedAt is when detection ran (zero = still detecting, used only when threeState is true).
+// threeState enables the "Detecting..." intermediate state (for tools like OpenCode/Codex).
+func renderToolStatusLine(b *strings.Builder, sessionID string, detectedAt time.Time, threeState bool) {
+	labelStyle := lipgloss.NewStyle().Foreground(ColorText)
+	valueStyle := lipgloss.NewStyle().Foreground(ColorText)
+
+	if sessionID != "" {
+		statusStyle := lipgloss.NewStyle().Foreground(ColorGreen).Bold(true)
+		b.WriteString(labelStyle.Render("Status:  "))
+		b.WriteString(statusStyle.Render("● Connected"))
+		b.WriteString("\n")
+
+		b.WriteString(labelStyle.Render("Session: "))
+		b.WriteString(valueStyle.Render(sessionID))
+		b.WriteString("\n")
+	} else if threeState && detectedAt.IsZero() {
+		statusStyle := lipgloss.NewStyle().Foreground(ColorYellow)
+		b.WriteString(labelStyle.Render("Status:  "))
+		b.WriteString(statusStyle.Render("◐ Detecting session..."))
+		b.WriteString("\n")
+	} else {
+		statusStyle := lipgloss.NewStyle().Foreground(ColorText)
+		b.WriteString(labelStyle.Render("Status:  "))
+		if threeState {
+			b.WriteString(statusStyle.Render("○ No session found"))
+		} else {
+			b.WriteString(statusStyle.Render("○ Not connected"))
+		}
+		b.WriteString("\n")
+	}
+}
+
+// renderDetectedAtLine renders a "Detected: X ago" line.
+func renderDetectedAtLine(b *strings.Builder, detectedAt time.Time) {
+	if detectedAt.IsZero() {
+		return
+	}
+	labelStyle := lipgloss.NewStyle().Foreground(ColorText)
+	dimStyle := lipgloss.NewStyle().Foreground(ColorText).Italic(true)
+	b.WriteString(labelStyle.Render("Detected:"))
+	b.WriteString(dimStyle.Render(" " + formatRelativeTime(detectedAt)))
+	b.WriteString("\n")
+}
+
+// renderForkHintLine renders the fork keyboard hint line.
+func renderForkHintLine(b *strings.Builder) {
+	hintStyle := lipgloss.NewStyle().Foreground(ColorText).Italic(true)
+	keyStyle := lipgloss.NewStyle().Foreground(ColorAccent).Bold(true)
+	b.WriteString(hintStyle.Render("Fork:    "))
+	b.WriteString(keyStyle.Render("f"))
+	b.WriteString(hintStyle.Render(" quick fork, "))
+	b.WriteString(keyStyle.Render("F"))
+	b.WriteString(hintStyle.Render(" fork with options"))
+	b.WriteString("\n")
+}
+
+// renderSimpleMCPLine renders MCPs without sync status (for Gemini and other tools).
+// Width-aware truncation shows "(+N more)" when MCPs don't fit.
+func renderSimpleMCPLine(b *strings.Builder, mcpInfo *session.MCPInfo, width int) {
+	if mcpInfo == nil || !mcpInfo.HasAny() {
+		return
+	}
+
+	labelStyle := lipgloss.NewStyle().Foreground(ColorText)
+	valueStyle := lipgloss.NewStyle().Foreground(ColorText)
+
+	var mcpParts []string
+	for _, name := range mcpInfo.Global {
+		mcpParts = append(mcpParts, valueStyle.Render(name+" (g)"))
+	}
+	for _, name := range mcpInfo.Project {
+		mcpParts = append(mcpParts, valueStyle.Render(name+" (p)"))
+	}
+	for _, mcp := range mcpInfo.LocalMCPs {
+		mcpParts = append(mcpParts, valueStyle.Render(mcp.Name+" (l)"))
+	}
+
+	if len(mcpParts) == 0 {
+		return
+	}
+
+	b.WriteString(labelStyle.Render("MCPs:    "))
+
+	mcpMaxWidth := width - 4 - 9
+	if mcpMaxWidth < 20 {
+		mcpMaxWidth = 20
+	}
+
+	var mcpResult strings.Builder
+	mcpCount := 0
+	currentWidth := 0
+
+	for i, part := range mcpParts {
+		plainPart := tmux.StripANSI(part)
+		partWidth := runewidth.StringWidth(plainPart)
+
+		addedWidth := partWidth
+		if mcpCount > 0 {
+			addedWidth += 2
+		}
+
+		remaining := len(mcpParts) - i
+		isLast := remaining == 1
+
+		var wouldExceed bool
+		if isLast {
+			wouldExceed = currentWidth+addedWidth > mcpMaxWidth
+		} else {
+			moreIndicator := fmt.Sprintf(" (+%d more)", remaining)
+			moreWidth := runewidth.StringWidth(moreIndicator)
+			wouldExceed = currentWidth+addedWidth+moreWidth > mcpMaxWidth
+		}
+
+		if wouldExceed {
+			moreStyle := lipgloss.NewStyle().Foreground(ColorText).Italic(true)
+			if mcpCount > 0 {
+				mcpResult.WriteString(moreStyle.Render(fmt.Sprintf(" (+%d more)", remaining)))
+			} else {
+				mcpResult.WriteString(moreStyle.Render(fmt.Sprintf("(%d MCPs)", len(mcpParts))))
+			}
+			break
+		}
+
+		if mcpCount > 0 {
+			mcpResult.WriteString(", ")
+		}
+		mcpResult.WriteString(part)
+		currentWidth += addedWidth
+		mcpCount++
+	}
+
+	b.WriteString(mcpResult.String())
+	b.WriteString("\n")
+}
+
 // renderHelpBar renders context-aware keyboard shortcuts, adapting to terminal width
 func (h *Home) renderHelpBar() string {
 	// Route to appropriate tier based on width
@@ -6449,6 +6586,10 @@ func (h *Home) renderPreviewPane(width, height int) string {
 			b.WriteString(labelStyle.Render("Model:   "))
 			b.WriteString(accentStyle.Render(modelDisplay))
 			b.WriteString("\n")
+
+			// MCPs for Gemini (global only)
+			mcpInfo := selected.GetMCPInfo()
+			renderSimpleMCPLine(&b, mcpInfo, width)
 		} else {
 			statusStyle := lipgloss.NewStyle().Foreground(ColorText)
 			b.WriteString(labelStyle.Render("Status:  "))
@@ -6487,6 +6628,11 @@ func (h *Home) renderPreviewPane(width, height int) string {
 				b.WriteString(dimStyle.Render(" " + detectedAgo))
 				b.WriteString("\n")
 			}
+
+			// Fork hint for OpenCode
+			if selected.CanFork() {
+				renderForkHintLine(&b)
+			}
 		} else {
 			// Check if detection has completed (OpenCodeDetectedAt is set even when no session found)
 			if selected.OpenCodeDetectedAt.IsZero() {
@@ -6504,6 +6650,62 @@ func (h *Home) renderPreviewPane(width, height int) string {
 			}
 		}
 	}
+
+	// Codex-specific info (session ID, detection)
+	if selected.Tool == "codex" {
+		codexHeader := renderSectionDivider("Codex", width-4)
+		b.WriteString(codexHeader)
+		b.WriteString("\n")
+
+		renderToolStatusLine(&b, selected.CodexSessionID, selected.CodexDetectedAt, true)
+		if selected.CodexSessionID != "" {
+			renderDetectedAtLine(&b, selected.CodexDetectedAt)
+		}
+	}
+
+	// Custom tool info (tools defined in config.toml that aren't built-in)
+	if selected.Tool != "claude" && selected.Tool != "gemini" && selected.Tool != "opencode" && selected.Tool != "codex" {
+		if toolDef := session.GetToolDef(selected.Tool); toolDef != nil {
+			toolName := selected.Tool
+			if toolDef.Icon != "" {
+				toolName = toolDef.Icon + " " + toolName
+			}
+			customHeader := renderSectionDivider(toolName, width-4)
+			b.WriteString(customHeader)
+			b.WriteString("\n")
+
+			labelStyle := lipgloss.NewStyle().Foreground(ColorText)
+
+			genericID := selected.GetGenericSessionID()
+			if genericID != "" {
+				statusStyle := lipgloss.NewStyle().Foreground(ColorGreen).Bold(true)
+				valueStyle := lipgloss.NewStyle().Foreground(ColorText)
+				b.WriteString(labelStyle.Render("Status:  "))
+				b.WriteString(statusStyle.Render("● Connected"))
+				b.WriteString("\n")
+
+				b.WriteString(labelStyle.Render("Session: "))
+				b.WriteString(valueStyle.Render(genericID))
+				b.WriteString("\n")
+			} else {
+				statusStyle := lipgloss.NewStyle().Foreground(ColorText)
+				b.WriteString(labelStyle.Render("Status:  "))
+				b.WriteString(statusStyle.Render("○ Not connected"))
+				b.WriteString("\n")
+			}
+
+			// Resume hint when tool supports restart with session resume
+			if selected.CanRestartGeneric() {
+				hintStyle := lipgloss.NewStyle().Foreground(ColorText).Italic(true)
+				keyStyle := lipgloss.NewStyle().Foreground(ColorAccent).Bold(true)
+				b.WriteString(hintStyle.Render("Resume:  "))
+				b.WriteString(keyStyle.Render("r"))
+				b.WriteString(hintStyle.Render(" restart with session resume"))
+				b.WriteString("\n")
+			}
+		}
+	}
+
 	b.WriteString("\n")
 
 	// Special handling for error state - show guidance instead of output
