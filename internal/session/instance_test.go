@@ -1088,8 +1088,6 @@ func TestInstance_RegenerateMCPConfig_WriteFailure(t *testing.T) {
 }
 
 func TestInstance_CanFork_Gemini(t *testing.T) {
-	// Test 1: Gemini tool with valid session ID should NOT be forkable
-	// Gemini CLI has NO --fork-session flag (unlike Claude)
 	inst := NewInstanceWithTool("test", "/tmp/test", "gemini")
 	inst.GeminiSessionID = "abc-123-def"
 	inst.GeminiDetectedAt = time.Now()
@@ -1098,13 +1096,87 @@ func TestInstance_CanFork_Gemini(t *testing.T) {
 		t.Error("CanFork() should be false for Gemini (not supported by Gemini CLI)")
 	}
 
-	// Test 2: Even if ClaudeSessionID were somehow set, Gemini tool should not fork
-	// This tests the explicit tool check
 	inst.ClaudeSessionID = "claude-session-xyz"
 	inst.ClaudeDetectedAt = time.Now()
 
 	if inst.CanFork() {
 		t.Error("CanFork() should be false for Gemini tool even with ClaudeSessionID set")
+	}
+}
+
+func TestInstance_CanFork_OpenCode(t *testing.T) {
+	inst := NewInstanceWithTool("test", "/tmp/test", "opencode")
+
+	if inst.CanFork() {
+		t.Error("CanFork() should be false without OpenCodeSessionID")
+	}
+
+	inst.OpenCodeSessionID = "ses_abc123def456"
+	inst.OpenCodeDetectedAt = time.Now()
+	if !inst.CanFork() {
+		t.Error("CanFork() should be true with recent OpenCodeSessionID")
+	}
+
+	inst.OpenCodeDetectedAt = time.Now().Add(-10 * time.Minute)
+	if inst.CanFork() {
+		t.Error("CanFork() should be false with stale OpenCodeSessionID")
+	}
+}
+
+func TestInstance_ForkOpenCode(t *testing.T) {
+	inst := NewInstanceWithTool("test", "/tmp/test", "opencode")
+
+	_, err := inst.ForkOpenCode("forked-test", "")
+	if err == nil {
+		t.Error("ForkOpenCode() should fail without OpenCodeSessionID")
+	}
+
+	inst.OpenCodeSessionID = "ses_abc123def456ffe1234567890abcd"
+	inst.OpenCodeDetectedAt = time.Now()
+	cmd, err := inst.ForkOpenCode("forked-test", "")
+	if err != nil {
+		t.Errorf("ForkOpenCode() failed: %v", err)
+	}
+
+	if !strings.Contains(cmd, "opencode export") {
+		t.Errorf("ForkOpenCode() should use opencode export, got: %s", cmd)
+	}
+	if !strings.Contains(cmd, "opencode import") {
+		t.Errorf("ForkOpenCode() should use opencode import, got: %s", cmd)
+	}
+	if !strings.Contains(cmd, "ses_abc123def456ffe1234567890abcd") {
+		t.Errorf("ForkOpenCode() should include original session ID, got: %s", cmd)
+	}
+	if !strings.Contains(cmd, "tmux set-environment OPENCODE_SESSION_ID") {
+		t.Errorf("ForkOpenCode() should set tmux environment, got: %s", cmd)
+	}
+}
+
+func TestInstance_CreateForkedOpenCodeInstance(t *testing.T) {
+	inst := NewInstanceWithTool("test", "/tmp/test", "opencode")
+	inst.OpenCodeSessionID = "ses_abc123def456ffe1234567890abcd"
+	inst.OpenCodeDetectedAt = time.Now()
+	inst.GroupPath = "projects/ai"
+
+	forked, cmd, err := inst.CreateForkedOpenCodeInstance("forked-test", "")
+	if err != nil {
+		t.Fatalf("CreateForkedOpenCodeInstance() failed: %v", err)
+	}
+
+	if forked.Title != "forked-test" {
+		t.Errorf("Forked instance title = %q, want %q", forked.Title, "forked-test")
+	}
+	if forked.Tool != "opencode" {
+		t.Errorf("Forked instance tool = %q, want %q", forked.Tool, "opencode")
+	}
+	if forked.GroupPath != "projects/ai" {
+		t.Errorf("Forked instance GroupPath = %q, want %q", forked.GroupPath, "projects/ai")
+	}
+	if forked.ProjectPath != "/tmp/test" {
+		t.Errorf("Forked instance ProjectPath = %q, want %q", forked.ProjectPath, "/tmp/test")
+	}
+	if cmd == "" {
+		t.Error("CreateForkedOpenCodeInstance() returned empty command")
 	}
 }
 
@@ -1222,11 +1294,11 @@ func TestInstance_CanRestart_Gemini(t *testing.T) {
 // Issue #16: Fork command breaks for project paths with spaces
 func TestInstance_Fork_PathWithSpaces(t *testing.T) {
 	inst := &Instance{
-		ID:              "test-123",
-		Title:           "test-session",
-		ProjectPath:     "/tmp/Test Path With Spaces",
-		Tool:            "claude",
-		ClaudeSessionID: "session-abc-123",
+		ID:               "test-123",
+		Title:            "test-session",
+		ProjectPath:      "/tmp/Test Path With Spaces",
+		Tool:             "claude",
+		ClaudeSessionID:  "session-abc-123",
 		ClaudeDetectedAt: time.Now(),
 	}
 
@@ -1334,11 +1406,11 @@ func TestInstance_WorktreeFields(t *testing.T) {
 // Issue #8: Fork command ignores dangerous_mode configuration
 func TestInstance_Fork_RespectsDangerousMode(t *testing.T) {
 	inst := &Instance{
-		ID:              "test-456",
-		Title:           "test-session",
-		ProjectPath:     "/tmp/test",
-		Tool:            "claude",
-		ClaudeSessionID: "session-xyz-789",
+		ID:               "test-456",
+		Title:            "test-session",
+		ProjectPath:      "/tmp/test",
+		Tool:             "claude",
+		ClaudeSessionID:  "session-xyz-789",
 		ClaudeDetectedAt: time.Now(),
 	}
 

@@ -191,7 +191,7 @@ type Home struct {
 	// PERFORMANCE: Worker pool for log-driven status updates (Priority 2)
 	// Caps the number of goroutines spawned for log file changes
 	logUpdateChan chan *session.Instance // Buffers status update requests from LogWatcher
-	logWorkerWg   sync.WaitGroup       // Tracks log worker goroutines for clean shutdown
+	logWorkerWg   sync.WaitGroup         // Tracks log worker goroutines for clean shutdown
 
 	// Event-driven status detection (Priority 2)
 	logWatcher *tmux.LogWatcher
@@ -2937,13 +2937,17 @@ func (h *Home) handleNewDialogKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			path = worktreePath
 		}
 
-		h.newDialog.Hide()
-		h.clearError() // Clear any previous validation error
+		if _, err := os.Stat(path); os.IsNotExist(err) {
+			h.newDialog.Hide()
+			h.confirmDialog.ShowCreateDirectory(path, name, command, groupPath)
+			return h, nil
+		}
 
-		// Get Gemini YOLO mode from dialog
+		h.newDialog.Hide()
+		h.clearError()
+
 		geminiYoloMode := h.newDialog.IsGeminiYoloMode()
 
-		// Create session with worktree info and options (claudeOpts already obtained above)
 		return h, h.createSessionInGroupWithWorktreeAndOptions(name, path, command, groupPath, worktreePath, worktreeRepoRoot, branchName, geminiYoloMode, claudeOpts)
 
 	case "esc":
@@ -3598,22 +3602,34 @@ func (h *Home) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 func (h *Home) handleConfirmDialogKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch h.confirmDialog.GetConfirmType() {
 	case ConfirmQuitWithPool:
-		// Special handling for quit with pool dialog
 		switch msg.String() {
 		case "k", "K":
-			// Keep pool running - quit without shutting down
 			h.confirmDialog.Hide()
 			h.isQuitting = true
-			return h, h.performQuit(false) // false = don't shutdown pool
+			return h, h.performQuit(false)
 		case "s", "S":
-			// Shut down pool - quit and shutdown
 			h.confirmDialog.Hide()
 			h.isQuitting = true
-			return h, h.performQuit(true) // true = shutdown pool
+			return h, h.performQuit(true)
 		case "esc":
-			// Cancel - don't quit
 			h.confirmDialog.Hide()
 			h.isQuitting = false
+			return h, nil
+		}
+		return h, nil
+
+	case ConfirmCreateDirectory:
+		switch msg.String() {
+		case "y", "Y":
+			name, path, command, groupPath := h.confirmDialog.GetPendingSession()
+			h.confirmDialog.Hide()
+			if err := os.MkdirAll(path, 0755); err != nil {
+				h.setError(fmt.Errorf("failed to create directory: %w", err))
+				return h, nil
+			}
+			return h, h.createSessionInGroupWithWorktreeAndOptions(name, path, command, groupPath, "", "", "", false, nil)
+		case "n", "N", "esc":
+			h.confirmDialog.Hide()
 			return h, nil
 		}
 		return h, nil
@@ -4003,8 +4019,6 @@ func (h *Home) createSessionInGroupWithWorktreeAndOptions(name, path, command, g
 			return sessionCreatedMsg{err: fmt.Errorf("cannot create session: %w", err)}
 		}
 
-		// Determine tool from command for proper session initialization
-		// When tool is "claude", session ID will be detected from files after start
 		tool := "shell"
 		switch command {
 		case "claude":
@@ -4015,6 +4029,8 @@ func (h *Home) createSessionInGroupWithWorktreeAndOptions(name, path, command, g
 			tool = "aider"
 		case "codex":
 			tool = "codex"
+		case "opencode":
+			tool = "opencode"
 		default:
 			// Check custom tools: tool identity stays as the custom name (e.g. "glm")
 			// so config lookup works, but command resolves to the actual binary (e.g. "claude")
@@ -4106,22 +4122,28 @@ func (h *Home) forkSessionCmdWithOptions(source *session.Instance, title, groupP
 			return sessionForkedMsg{err: fmt.Errorf("cannot fork session: %w", err), sourceID: sourceID}
 		}
 
-		// Use CreateForkedInstanceWithOptions to get the proper fork command with options
-		inst, _, err := source.CreateForkedInstanceWithOptions(title, groupPath, opts)
+		var inst *session.Instance
+		var err error
+
+		switch source.Tool {
+		case "opencode":
+			inst, _, err = source.CreateForkedOpenCodeInstance(title, groupPath)
+		default:
+			inst, _, err = source.CreateForkedInstanceWithOptions(title, groupPath, opts)
+		}
 		if err != nil {
 			return sessionForkedMsg{err: fmt.Errorf("cannot create forked instance: %w", err), sourceID: sourceID}
 		}
 
-		// Start the forked session
 		if err := inst.Start(); err != nil {
 			return sessionForkedMsg{err: err, sourceID: sourceID}
 		}
 
-		// Wait for Claude to create the new session file (fork creates new UUID)
-		// Give Claude up to 5 seconds to initialize and write the session file
-		// Pass usedIDs to prevent detecting an already-claimed session
-		if inst.Tool == "claude" {
+		switch inst.Tool {
+		case "claude":
 			_ = inst.WaitForClaudeSessionWithExclude(5*time.Second, usedIDs)
+		case "opencode":
+			go inst.DetectOpenCodeSession()
 		}
 
 		return sessionForkedMsg{instance: inst, sourceID: sourceID}
@@ -5855,6 +5877,13 @@ func (h *Home) renderLaunchingState(inst *session.Instance, width int, startTime
 			toolDesc = "Resuming Codex session..."
 		} else {
 			toolDesc = "Starting Codex..."
+		}
+	case "opencode":
+		toolName = "OpenCode"
+		if isResuming {
+			toolDesc = "Resuming OpenCode session..."
+		} else {
+			toolDesc = "Starting OpenCode..."
 		}
 	default:
 		toolName = "Shell"
