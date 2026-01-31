@@ -1511,16 +1511,30 @@ func (s *Session) GetStatus() (string, error) {
 				s.stateTracker.lastHash = currentHash
 			}
 
-			// GREEN only if explicit busy indicator found
+			// Check for prompt indicators (AskUserQuestion, permission dialogs, etc.)
+			// Prompt detection takes priority over busy indicator because Claude can
+			// show spinner/status text alongside an interactive question UI.
+			hasPrompt := s.hasPromptIndicator(content)
+
+			// GREEN only if explicit busy indicator found AND no prompt is showing
 			// Content hash changes alone should NOT trigger GREEN here - they must
 			// go through spike detection (2+ changes in 1s) to filter cursor blinks
-			if isExplicitlyBusy {
+			if isExplicitlyBusy && !hasPrompt {
 				s.stateTracker.lastChangeTime = time.Now()
 				s.stateTracker.acknowledged = false
 				s.stateTracker.lastActivityTimestamp = currentTS
 				s.lastStableStatus = "active"
 				debugLog("%s: BUSY_INDICATOR → active", shortName)
 				return "active", nil
+			}
+			if hasPrompt {
+				s.stateTracker.acknowledged = false
+				if s.lastStableStatus != "waiting" {
+					s.stateTracker.waitingSince = time.Now()
+				}
+				s.lastStableStatus = "waiting"
+				debugLog("%s: PROMPT_DETECTED → waiting (busy=%v)", shortName, isExplicitlyBusy)
+				return "waiting", nil
 			}
 		}
 	}
@@ -1650,9 +1664,18 @@ func (s *Session) GetStatus() (string, error) {
 		s.mu.Unlock()
 		content, captureErr := s.CapturePane()
 		s.mu.Lock()
-		if captureErr == nil && s.hasBusyIndicator(content) {
+		if captureErr == nil && s.hasBusyIndicator(content) && !s.hasPromptIndicator(content) {
 			debugLog("%s: STILL_BUSY (verified) → keeping active", shortName)
 			return "active", nil
+		}
+		if captureErr == nil && s.hasPromptIndicator(content) {
+			s.stateTracker.acknowledged = false
+			if s.lastStableStatus != "waiting" {
+				s.stateTracker.waitingSince = time.Now()
+			}
+			s.lastStableStatus = "waiting"
+			debugLog("%s: PROMPT_DETECTED (re-check) → waiting", shortName)
+			return "waiting", nil
 		}
 		debugLog("%s: NO_LONGER_BUSY → transitioning from active", shortName)
 	}
@@ -1687,6 +1710,20 @@ func (s *Session) getStatusFallback() (string, error) {
 		s.mu.Unlock()
 		debugLog("%s: FALLBACK INACTIVE (capture failed: %v)", shortName, err)
 		return "inactive", nil
+	}
+
+	// Check prompt first - prompt overrides busy indicator
+	if s.hasPromptIndicator(content) {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		s.ensureStateTrackerLocked()
+		s.stateTracker.acknowledged = false
+		if s.lastStableStatus != "waiting" {
+			s.stateTracker.waitingSince = time.Now()
+		}
+		s.lastStableStatus = "waiting"
+		debugLog("%s: FALLBACK WAITING (prompt detected)", shortName)
+		return "waiting", nil
 	}
 
 	if s.hasBusyIndicator(content) {
@@ -1892,6 +1929,38 @@ func (s *Session) hasBusyIndicatorResolved(content string) bool {
 	}
 
 	return false
+}
+
+// hasPromptIndicator checks if the terminal shows a prompt waiting for user input.
+// Uses the PromptDetector which understands tool-specific prompt patterns (permission
+// dialogs, AskUserQuestion UI, input prompts, etc.). Prompt detection takes priority
+// over busy indicators because tools can show status text alongside interactive prompts.
+//
+// NOTE: This method reads s.detectedTool and s.customToolName without locking.
+// Callers in GetStatus() already hold s.mu, so we must not re-lock.
+func (s *Session) hasPromptIndicator(content string) bool {
+	tool := s.detectedTool
+	if tool == "" {
+		tool = s.customToolName
+	}
+	if tool == "" {
+		// Try to infer from Command field (no lock needed, set at creation)
+		cmd := strings.ToLower(s.Command)
+		if strings.Contains(cmd, "claude") {
+			tool = "claude"
+		} else if strings.Contains(cmd, "gemini") {
+			tool = "gemini"
+		} else if strings.Contains(cmd, "opencode") {
+			tool = "opencode"
+		} else if strings.Contains(cmd, "codex") {
+			tool = "codex"
+		}
+	}
+	if tool == "" {
+		return false
+	}
+	detector := NewPromptDetector(tool)
+	return detector.HasPrompt(content)
 }
 
 // hasBusyIndicatorLegacy is the original hardcoded busy detection logic.

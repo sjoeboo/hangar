@@ -165,6 +165,10 @@ func (d *PromptDetector) hasClaudePrompt(content string) bool {
 		"Action Required",
 		"Waiting for user confirmation",
 		"Allow execution of",
+		// AskUserQuestion / interactive question UI
+		// Claude Code renders selection options with these indicators
+		"Use arrow keys to navigate",
+		"Press Enter to select",
 	}
 	for _, prompt := range permissionPrompts {
 		if strings.Contains(content, prompt) {
