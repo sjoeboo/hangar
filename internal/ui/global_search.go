@@ -254,13 +254,21 @@ func (gs *GlobalSearch) updateResults() {
 		if i >= 15 {
 			break
 		}
+		content := sr.Entry.ContentString()
+		if content == "" {
+			if sr.Snippet != "" {
+				content = sr.Snippet
+			} else {
+				content = sr.Entry.Summary
+			}
+		}
 		// Count occurrences of query in content (case-insensitive)
-		matchCount := strings.Count(strings.ToLower(sr.Entry.Content), queryLower)
+		matchCount := strings.Count(strings.ToLower(content), queryLower)
 		gs.results = append(gs.results, &GlobalSearchResult{
 			SessionID:  sr.Entry.SessionID,
 			Summary:    sr.Entry.Summary,
 			Snippet:    sr.Snippet,
-			Content:    sr.Entry.Content, // Full content for preview
+			Content:    content, // Full content for preview (fallbacks for balanced tier)
 			CWD:        sr.Entry.CWD,
 			ModTime:    sr.Entry.ModTime,
 			Score:      sr.Score,

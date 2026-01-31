@@ -26,7 +26,7 @@ type SearchTier int
 
 const (
 	TierInstant  SearchTier = iota // < 100MB, full in-memory
-	TierBalanced                   // 100MB-500MB, LRU cache
+	TierBalanced                   // 100MB-500MB, on-demand scan to cap memory
 )
 
 // TierThresholdInstant is the max size for instant tier (100MB)
@@ -37,14 +37,14 @@ const TierThresholdBalanced = 500 * 1024 * 1024
 
 // SearchEntry represents a searchable Claude session
 type SearchEntry struct {
-	SessionID    string    // Claude session UUID
-	FilePath     string    // Path to .jsonl file
-	CWD          string    // Project working directory
-	Content      string    // Full conversation content (original case)
-	ContentLower string    // Lowercased for search
-	Summary      string    // First user message or summary
-	ModTime      time.Time // File modification time
-	FileSize     int64     // File size in bytes
+	SessionID string    // Claude session UUID
+	FilePath  string    // Path to .jsonl file
+	CWD       string    // Project working directory
+	Summary   string    // First user message or summary
+	ModTime   time.Time // File modification time
+	FileSize  int64     // File size in bytes
+
+	content *ContentBuffer
 }
 
 // MatchRange represents a match position in content
@@ -56,22 +56,28 @@ type MatchRange struct {
 // Match searches for query in entry content (case-insensitive)
 // Returns match positions for highlighting
 func (e *SearchEntry) Match(query string) []MatchRange {
-	queryLower := strings.ToLower(query)
+	if e.content == nil || query == "" {
+		return nil
+	}
+
+	queryLower := []byte(strings.ToLower(query))
 	var matches []MatchRange
 
-	start := 0
-	for {
-		idx := strings.Index(e.ContentLower[start:], queryLower)
-		if idx == -1 {
-			break
+	e.content.With(func(_, lower []byte) {
+		start := 0
+		for {
+			idx := bytes.Index(lower[start:], queryLower)
+			if idx == -1 {
+				break
+			}
+			absIdx := start + idx
+			matches = append(matches, MatchRange{
+				Start: absIdx,
+				End:   absIdx + len(queryLower),
+			})
+			start = absIdx + len(queryLower)
 		}
-		absIdx := start + idx
-		matches = append(matches, MatchRange{
-			Start: absIdx,
-			End:   absIdx + len(query),
-		})
-		start = absIdx + len(query)
-	}
+	})
 
 	return matches
 }
@@ -80,22 +86,40 @@ func (e *SearchEntry) Match(query string) []MatchRange {
 // Uses rune-based indexing to safely handle UTF-8 content
 // Optimized: Single rune conversion instead of triple conversion
 func (e *SearchEntry) GetSnippet(query string, windowSize int) string {
-	matches := e.Match(query)
-	runes := []rune(e.Content)
+	if e.content == nil {
+		if e.Summary != "" {
+			return e.Summary
+		}
+		return ""
+	}
 
+	queryLower := []byte(strings.ToLower(query))
+	var content string
+	var matches []MatchRange
+
+	e.content.With(func(data, lower []byte) {
+		if len(data) == 0 {
+			return
+		}
+		content = string(data)
+		matches = matchRanges(lower, queryLower)
+	})
+
+	if content == "" {
+		return ""
+	}
+
+	runes := []rune(content)
 	if len(matches) == 0 {
-		// No match, return beginning of content
 		if len(runes) > windowSize*2 {
 			return string(runes[:windowSize*2]) + "..."
 		}
-		return e.Content
+		return content
 	}
 
 	match := matches[0]
-	// Convert byte indices to rune indices efficiently (single pass)
-	// Count runes up to each byte position without creating substring copies
-	runeStart := byteIndexToRuneIndex(e.Content, match.Start)
-	runeEnd := byteIndexToRuneIndex(e.Content, match.End)
+	runeStart := byteIndexToRuneIndex(content, match.Start)
+	runeEnd := byteIndexToRuneIndex(content, match.End)
 
 	start := runeStart - windowSize
 	if start < 0 {
@@ -106,7 +130,6 @@ func (e *SearchEntry) GetSnippet(query string, windowSize int) string {
 		end = len(runes)
 	}
 
-	// Expand to word boundaries using runes
 	for start > 0 && runes[start-1] != ' ' && runes[start-1] != '\n' {
 		start--
 	}
@@ -147,6 +170,114 @@ func byteIndexToRuneIndex(s string, byteIdx int) int {
 	return runeCount
 }
 
+// ContentBuffer stores full content and a lowercased copy for fast search.
+// It is safe for concurrent reads and append-only writes.
+type ContentBuffer struct {
+	mu    sync.RWMutex
+	data  []byte
+	lower []byte
+}
+
+func newContentBuffer(data []byte) *ContentBuffer {
+	if len(data) == 0 {
+		return &ContentBuffer{}
+	}
+	copied := append([]byte(nil), data...)
+	lower := []byte(strings.ToLower(string(copied)))
+	return &ContentBuffer{
+		data:  copied,
+		lower: lower,
+	}
+}
+
+func (b *ContentBuffer) Append(data []byte) {
+	if len(data) == 0 {
+		return
+	}
+	lowerChunk := []byte(strings.ToLower(string(data)))
+	b.mu.Lock()
+	b.data = append(b.data, data...)
+	b.lower = append(b.lower, lowerChunk...)
+	b.mu.Unlock()
+}
+
+func (b *ContentBuffer) With(fn func(data, lower []byte)) {
+	b.mu.RLock()
+	fn(b.data, b.lower)
+	b.mu.RUnlock()
+}
+
+func (b *ContentBuffer) CopyData() []byte {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	return append([]byte(nil), b.data...)
+}
+
+func (e *SearchEntry) hasContent() bool {
+	return e != nil && e.content != nil
+}
+
+func (e *SearchEntry) setContent(data []byte) {
+	if len(data) == 0 {
+		return
+	}
+	e.content = newContentBuffer(data)
+}
+
+func (e *SearchEntry) appendContent(data []byte) {
+	if len(data) == 0 {
+		return
+	}
+	if e.content == nil {
+		e.setContent(data)
+		return
+	}
+	e.content.Append(data)
+}
+
+func (e *SearchEntry) ContentString() string {
+	if e.content == nil {
+		return ""
+	}
+	var content string
+	e.content.With(func(data, _ []byte) {
+		if len(data) > 0 {
+			content = string(data)
+		}
+	})
+	return content
+}
+
+func (e *SearchEntry) ContentPreview(max int) string {
+	if e.content == nil || max <= 0 {
+		return ""
+	}
+	var preview string
+	e.content.With(func(data, _ []byte) {
+		if len(data) == 0 {
+			return
+		}
+		if len(data) > max {
+			preview = string(data[:max])
+			return
+		}
+		preview = string(data)
+	})
+	return preview
+}
+
+func (e *SearchEntry) MatchCount(query string) int {
+	if e.content == nil || query == "" {
+		return 0
+	}
+	queryLower := []byte(strings.ToLower(query))
+	count := 0
+	e.content.With(func(_, lower []byte) {
+		count = bytes.Count(lower, queryLower)
+	})
+	return count
+}
+
 // claudeJSONLRecord represents a single line in Claude's JSONL files
 type claudeJSONLRecord struct {
 	SessionID string          `json:"sessionId"`
@@ -164,16 +295,16 @@ type claudeMessage struct {
 }
 
 // parseClaudeJSONL parses a Claude JSONL file into a SearchEntry
-func parseClaudeJSONL(filePath string, data []byte) (*SearchEntry, error) {
+func parseClaudeJSONL(filePath string, data []byte, includeContent bool) (*SearchEntry, error) {
 	entry := &SearchEntry{
 		FilePath: filePath,
 	}
 
-	var contentBuilder strings.Builder
+	var contentBuilder bytes.Buffer
 	scanner := bufio.NewScanner(bytes.NewReader(data))
 	// Handle large lines
 	buf := make([]byte, 0, 64*1024)
-	scanner.Buffer(buf, 1024*1024)
+	scanner.Buffer(buf, 10*1024*1024)
 
 	for scanner.Scan() {
 		line := scanner.Bytes()
@@ -201,43 +332,13 @@ func parseClaudeJSONL(filePath string, data []byte) (*SearchEntry, error) {
 			entry.Summary = record.Summary
 		}
 
-		// Extract message content with role prefix
 		if len(record.Message) > 0 {
 			var msg claudeMessage
 			if err := json.Unmarshal(record.Message, &msg); err == nil {
-				// Determine role prefix for better preview display
-				var rolePrefix string
-				switch msg.Role {
-				case "user":
-					rolePrefix = "User: "
-				case "assistant":
-					rolePrefix = "Assistant: "
-				default:
-					rolePrefix = ""
-				}
-
-				// Content can be string or array
-				var contentStr string
-				if err := json.Unmarshal(msg.Content, &contentStr); err == nil {
-					if rolePrefix != "" && contentStr != "" {
-						contentBuilder.WriteString(rolePrefix)
-					}
-					contentBuilder.WriteString(contentStr)
-					contentBuilder.WriteString("\n")
-				} else {
-					// Try as array of content blocks
-					var blocks []map[string]interface{}
-					if err := json.Unmarshal(msg.Content, &blocks); err == nil {
-						for i, block := range blocks {
-							if text, ok := block["text"].(string); ok {
-								// Only add prefix to first block of message
-								if i == 0 && rolePrefix != "" && text != "" {
-									contentBuilder.WriteString(rolePrefix)
-								}
-								contentBuilder.WriteString(text)
-								contentBuilder.WriteString("\n")
-							}
-						}
+				if includeContent {
+					if formatted := formatMessageContent(msg); formatted != "" {
+						contentBuilder.WriteString(formatted)
+						contentBuilder.WriteString("\n")
 					}
 				}
 			}
@@ -259,8 +360,13 @@ func parseClaudeJSONL(filePath string, data []byte) (*SearchEntry, error) {
 		}
 	}
 
-	entry.Content = contentBuilder.String()
-	entry.ContentLower = strings.ToLower(entry.Content)
+	if err := scanner.Err(); err != nil {
+		return entry, err
+	}
+
+	if includeContent && contentBuilder.Len() > 0 {
+		entry.setContent(contentBuilder.Bytes())
+	}
 
 	return entry, nil
 }
@@ -322,6 +428,11 @@ type GlobalSearchIndex struct {
 	ctx    context.Context
 	cancel context.CancelFunc
 	wg     sync.WaitGroup
+
+	// Query cache for balanced tier narrowing
+	lastQuery   string
+	lastResults []*SearchResult
+	lastQueryMu sync.Mutex
 }
 
 // FileTracker tracks file state for incremental updates
@@ -457,6 +568,7 @@ func (idx *GlobalSearchIndex) initialLoad() {
 	}
 
 	var entries []SearchEntry
+	includeContent := idx.tier == TierInstant
 
 	_ = filepath.WalkDir(projectsDir, func(path string, d os.DirEntry, err error) error {
 		if err != nil || d.IsDir() {
@@ -498,7 +610,7 @@ func (idx *GlobalSearchIndex) initialLoad() {
 			return nil
 		}
 
-		entry, err := parseClaudeJSONL(path, data)
+		entry, err := parseClaudeJSONL(path, data, includeContent)
 		if err != nil || entry.SessionID == "" {
 			return nil
 		}
@@ -590,6 +702,7 @@ func (idx *GlobalSearchIndex) updateFile(path string) {
 		return // File deleted, ignore for now
 	}
 
+	includeContent := idx.tier == TierInstant
 	idx.trackerMu.RLock()
 	tracker, exists := idx.fileTrackers[path]
 	idx.trackerMu.RUnlock()
@@ -597,6 +710,39 @@ func (idx *GlobalSearchIndex) updateFile(path string) {
 	if exists && info.Size() < tracker.LastSize {
 		// File was truncated/replaced, do full reload of this file
 		tracker = nil
+	}
+
+	oldEntries := idx.entries.Load()
+	newEntries := make([]SearchEntry, 0, len(*oldEntries)+1)
+	found := false
+
+	if !includeContent {
+		canSkipParse := false
+		for _, e := range *oldEntries {
+			if e.FilePath == path {
+				updated := e
+				updated.ModTime = info.ModTime()
+				updated.FileSize = info.Size()
+				newEntries = append(newEntries, updated)
+				found = true
+				canSkipParse = e.SessionID != "" && e.CWD != "" && e.Summary != ""
+			} else {
+				newEntries = append(newEntries, e)
+			}
+		}
+
+		if found && canSkipParse {
+			idx.entries.Store(&newEntries)
+			idx.trackerMu.Lock()
+			idx.fileTrackers[path] = &FileTracker{
+				Path:       path,
+				LastOffset: info.Size(),
+				LastSize:   info.Size(),
+				LastMod:    info.ModTime(),
+			}
+			idx.trackerMu.Unlock()
+			return
+		}
 	}
 
 	// Read file (or just new portion for append-only)
@@ -620,7 +766,7 @@ func (idx *GlobalSearchIndex) updateFile(path string) {
 	}
 
 	// Parse and update
-	entry, err := parseClaudeJSONL(path, data)
+	entry, err := parseClaudeJSONL(path, data, includeContent)
 	if err != nil || entry.SessionID == "" {
 		return
 	}
@@ -628,18 +774,26 @@ func (idx *GlobalSearchIndex) updateFile(path string) {
 	entry.FileSize = info.Size()
 
 	// Update entries atomically
-	oldEntries := idx.entries.Load()
-	newEntries := make([]SearchEntry, 0, len(*oldEntries)+1)
-
-	found := false
 	for _, e := range *oldEntries {
 		if e.FilePath == path {
-			// Merge content for incremental update
-			if tracker != nil {
-				entry.Content = e.Content + entry.Content
-				entry.ContentLower = strings.ToLower(entry.Content)
+			updated := e
+			if updated.SessionID == "" && entry.SessionID != "" {
+				updated.SessionID = entry.SessionID
 			}
-			newEntries = append(newEntries, *entry)
+			if updated.CWD == "" && entry.CWD != "" {
+				updated.CWD = entry.CWD
+			}
+			if updated.Summary == "" && entry.Summary != "" {
+				updated.Summary = entry.Summary
+			}
+			updated.ModTime = entry.ModTime
+			updated.FileSize = entry.FileSize
+
+			if includeContent && entry.hasContent() {
+				updated.appendContent(entry.content.CopyData())
+			}
+
+			newEntries = append(newEntries, updated)
 			found = true
 		} else {
 			newEntries = append(newEntries, e)
@@ -665,7 +819,12 @@ func (idx *GlobalSearchIndex) updateFile(path string) {
 // Search performs a simple substring search
 func (idx *GlobalSearchIndex) Search(query string) []*SearchResult {
 	if query == "" {
+		idx.resetQueryCache()
 		return nil
+	}
+
+	if idx.tier == TierBalanced {
+		return idx.searchOnDisk(query)
 	}
 
 	entries := idx.entries.Load()
@@ -673,20 +832,28 @@ func (idx *GlobalSearchIndex) Search(query string) []*SearchResult {
 		return nil
 	}
 
-	queryLower := strings.ToLower(query)
+	queryLower := []byte(strings.ToLower(query))
 	var results []*SearchResult
 
 	for i := range *entries {
 		entry := &(*entries)[i]
-		if strings.Contains(entry.ContentLower, queryLower) {
-			matches := entry.Match(query)
-			results = append(results, &SearchResult{
-				Entry:   entry,
-				Matches: matches,
-				Score:   len(matches) * 10,
-				Snippet: entry.GetSnippet(query, 60),
-			})
+		if entry.content == nil {
+			continue
 		}
+		hasMatch := false
+		entry.content.With(func(_, lower []byte) {
+			hasMatch = bytes.Contains(lower, queryLower)
+		})
+		if !hasMatch {
+			continue
+		}
+		matches := entry.Match(query)
+		results = append(results, &SearchResult{
+			Entry:   entry,
+			Matches: matches,
+			Score:   len(matches) * 10,
+			Snippet: entry.GetSnippet(query, 60),
+		})
 	}
 
 	// Sort by score (more matches = higher score) - O(n log n)
@@ -705,9 +872,9 @@ type fuzzySearchSource struct {
 func (s fuzzySearchSource) String(i int) string {
 	entry := &(*s.entries)[i]
 	// Use summary + first part of content for fuzzy matching
-	contentPreview := entry.Content
-	if len(contentPreview) > 500 {
-		contentPreview = contentPreview[:500]
+	contentPreview := entry.ContentPreview(500)
+	if contentPreview == "" {
+		return entry.Summary
 	}
 	return entry.Summary + " " + contentPreview
 }
@@ -772,4 +939,233 @@ func (idx *GlobalSearchIndex) Close() {
 		idx.watcher.Close()
 	}
 	idx.wg.Wait()
+}
+
+func matchRanges(lower []byte, queryLower []byte) []MatchRange {
+	if len(lower) == 0 || len(queryLower) == 0 {
+		return nil
+	}
+	var matches []MatchRange
+	start := 0
+	for {
+		idx := bytes.Index(lower[start:], queryLower)
+		if idx == -1 {
+			break
+		}
+		absIdx := start + idx
+		matches = append(matches, MatchRange{
+			Start: absIdx,
+			End:   absIdx + len(queryLower),
+		})
+		start = absIdx + len(queryLower)
+	}
+	return matches
+}
+
+func formatMessageContent(msg claudeMessage) string {
+	rolePrefix := ""
+	switch msg.Role {
+	case "user":
+		rolePrefix = "User: "
+	case "assistant":
+		rolePrefix = "Assistant: "
+	}
+
+	contentStr := extractContentText(msg.Content)
+	if contentStr == "" {
+		return ""
+	}
+	if rolePrefix != "" {
+		return rolePrefix + contentStr
+	}
+	return contentStr
+}
+
+func extractContentText(contentRaw json.RawMessage) string {
+	var contentStr string
+	if err := json.Unmarshal(contentRaw, &contentStr); err == nil {
+		return contentStr
+	}
+
+	var blocks []map[string]interface{}
+	if err := json.Unmarshal(contentRaw, &blocks); err != nil {
+		return ""
+	}
+	var sb strings.Builder
+	for i, block := range blocks {
+		text, ok := block["text"].(string)
+		if !ok || text == "" {
+			continue
+		}
+		if i > 0 {
+			sb.WriteString("\n")
+		}
+		sb.WriteString(text)
+	}
+	return sb.String()
+}
+
+func (idx *GlobalSearchIndex) searchOnDisk(query string) []*SearchResult {
+	entries := idx.entries.Load()
+	if entries == nil {
+		return nil
+	}
+
+	queryLower := strings.ToLower(query)
+	var results []*SearchResult
+
+	candidates := idx.queryCandidates(query, entries)
+	for _, entry := range candidates {
+		matchCount, snippet := scanFileForQuery(entry.FilePath, queryLower, 60)
+		if matchCount == 0 {
+			continue
+		}
+		results = append(results, &SearchResult{
+			Entry:   entry,
+			Score:   matchCount * 10,
+			Snippet: snippet,
+		})
+	}
+
+	sort.Slice(results, func(i, j int) bool {
+		return results[i].Score > results[j].Score
+	})
+
+	idx.storeQueryCache(query, results)
+	return results
+}
+
+func (idx *GlobalSearchIndex) queryCandidates(query string, entries *[]SearchEntry) []*SearchEntry {
+	idx.lastQueryMu.Lock()
+	usePrev := idx.lastQuery != "" && strings.HasPrefix(query, idx.lastQuery) && len(query) > len(idx.lastQuery)
+	if usePrev && len(idx.lastResults) > 0 {
+		candidates := make([]*SearchEntry, 0, len(idx.lastResults))
+		for _, res := range idx.lastResults {
+			if res != nil && res.Entry != nil {
+				candidates = append(candidates, res.Entry)
+			}
+		}
+		idx.lastQueryMu.Unlock()
+		return candidates
+	}
+	idx.lastQueryMu.Unlock()
+
+	candidates := make([]*SearchEntry, 0, len(*entries))
+	for i := range *entries {
+		candidates = append(candidates, &(*entries)[i])
+	}
+	return candidates
+}
+
+func (idx *GlobalSearchIndex) storeQueryCache(query string, results []*SearchResult) {
+	idx.lastQueryMu.Lock()
+	idx.lastQuery = query
+	idx.lastResults = results
+	idx.lastQueryMu.Unlock()
+}
+
+func (idx *GlobalSearchIndex) resetQueryCache() {
+	idx.lastQueryMu.Lock()
+	idx.lastQuery = ""
+	idx.lastResults = nil
+	idx.lastQueryMu.Unlock()
+}
+
+func scanFileForQuery(path string, queryLower string, windowSize int) (int, string) {
+	file, err := os.Open(path)
+	if err != nil {
+		return 0, ""
+	}
+	defer file.Close()
+
+	scanner := bufio.NewScanner(file)
+	buf := make([]byte, 0, 64*1024)
+	scanner.Buffer(buf, 10*1024*1024)
+
+	matchCount := 0
+	snippet := ""
+
+	for scanner.Scan() {
+		line := scanner.Bytes()
+		if len(line) == 0 {
+			continue
+		}
+		var record claudeJSONLRecord
+		if err := json.Unmarshal(line, &record); err != nil {
+			continue
+		}
+		if len(record.Message) == 0 {
+			continue
+		}
+		var msg claudeMessage
+		if err := json.Unmarshal(record.Message, &msg); err != nil {
+			continue
+		}
+		content := formatMessageContent(msg)
+		if content == "" {
+			continue
+		}
+		contentLower := strings.ToLower(content)
+		if !strings.Contains(contentLower, queryLower) {
+			continue
+		}
+
+		matchCount += strings.Count(contentLower, queryLower)
+		if snippet == "" {
+			snippet = snippetFromText(content, queryLower, windowSize)
+		}
+	}
+
+	if err := scanner.Err(); err != nil {
+		return matchCount, snippet
+	}
+
+	return matchCount, snippet
+}
+
+func snippetFromText(content string, queryLower string, windowSize int) string {
+	if content == "" {
+		return ""
+	}
+	lower := strings.ToLower(content)
+	matchIdx := strings.Index(lower, queryLower)
+	runes := []rune(content)
+
+	if matchIdx == -1 {
+		if len(runes) > windowSize*2 {
+			return string(runes[:windowSize*2]) + "..."
+		}
+		return content
+	}
+
+	matchStart := byteIndexToRuneIndex(content, matchIdx)
+	matchEnd := byteIndexToRuneIndex(content, matchIdx+len(queryLower))
+
+	start := matchStart - windowSize
+	if start < 0 {
+		start = 0
+	}
+	end := matchEnd + windowSize
+	if end > len(runes) {
+		end = len(runes)
+	}
+
+	for start > 0 && runes[start-1] != ' ' && runes[start-1] != '\n' {
+		start--
+	}
+	for end < len(runes) && runes[end] != ' ' && runes[end] != '\n' {
+		end++
+	}
+
+	snippet := string(runes[start:end])
+	prefix := ""
+	suffix := ""
+	if start > 0 {
+		prefix = "..."
+	}
+	if end < len(runes) {
+		suffix = "..."
+	}
+
+	return prefix + strings.TrimSpace(snippet) + suffix
 }
