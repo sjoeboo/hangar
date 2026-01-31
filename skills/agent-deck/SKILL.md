@@ -71,6 +71,61 @@ The script auto-detects current session/profile and creates a child session.
 | Code documentation | `context7` |
 | Complex reasoning | `sequential-thinking` |
 
+## Consult Another Agent
+
+**Use when:** User says "consult with codex", "ask gemini", "get codex's opinion", "what does codex think", "consult another agent"
+
+Launch a temporary session with a different AI tool to get a second opinion or delegate a task.
+
+```bash
+# Ask Codex a question and wait for the answer
+scripts/launch-subagent.sh "Consult Codex" "Review this function for bugs: ..." --tool codex --wait --timeout 120
+
+# Ask Gemini and check later
+scripts/launch-subagent.sh "Ask Gemini" "What's the best approach for ..." --tool gemini
+
+# Check output when ready
+agent-deck session output "Ask Gemini"
+```
+
+### Supported Tools
+
+| Tool | Flag | Notes |
+|------|------|-------|
+| Claude | `--tool claude` | Default, no flag needed |
+| Codex | `--tool codex` | Requires `codex` CLI installed |
+| Gemini | `--tool gemini` | Requires `gemini` CLI installed |
+
+### Workflow
+
+1. Script creates a child session with the specified tool
+2. Sends the question/prompt to the agent
+3. With `--wait`: polls until the agent responds, then returns output
+4. Without `--wait`: returns immediately, check output later
+
+### Cleanup
+
+After getting the response, remove the consultation session:
+
+```bash
+agent-deck remove "Consult Codex"
+```
+
+### Manual Fallback
+
+If the script doesn't work for a specific tool, do it manually:
+
+```bash
+agent-deck add -t "Consult" -c codex /tmp/consult
+agent-deck session start "Consult"
+# Wait for it to initialize, then:
+agent-deck session send "Consult" "Your question here"
+# Check output:
+agent-deck session output "Consult"
+# Clean up:
+agent-deck remove "Consult"
+```
+
 ## TUI Keyboard Shortcuts
 
 ### Navigation

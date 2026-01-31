@@ -1237,6 +1237,9 @@ func handleSessionSend(profile string, args []string) {
 		os.Exit(1)
 	}
 
+	// Small delay for Ink-based TUIs (Codex) to process text before Enter
+	time.Sleep(100 * time.Millisecond)
+
 	// Send Enter
 	cmd = exec.Command("tmux", "send-keys", "-t", tmuxName, "Enter")
 	if err := cmd.Run(); err != nil {

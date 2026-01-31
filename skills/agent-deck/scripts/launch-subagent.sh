@@ -5,6 +5,7 @@
 #
 # Options:
 #   --mcp <name>     Attach MCP (can repeat)
+#   --tool <type>    Agent tool: claude, codex, gemini (default: claude)
 #   --wait           Poll until complete, return output
 #   --timeout <sec>  Wait timeout (default: 300)
 #
@@ -12,12 +13,14 @@
 #   launch-subagent.sh "Research" "Find info about X"
 #   launch-subagent.sh "Task" "Do Y" --mcp exa --mcp firecrawl
 #   launch-subagent.sh "Query" "Answer Z" --wait --timeout 120
+#   launch-subagent.sh "Consult" "Review this approach" --tool codex --wait
 
 set -e
 
 # Parse arguments
 TITLE=""
 PROMPT=""
+TOOL="claude"
 MCPS=()
 WAIT=false
 TIMEOUT=300
@@ -26,6 +29,10 @@ while [ $# -gt 0 ]; do
     case "$1" in
         --mcp)
             MCPS+=("$2")
+            shift 2
+            ;;
+        --tool)
+            TOOL="$2"
             shift 2
             ;;
         --wait)
@@ -48,7 +55,7 @@ while [ $# -gt 0 ]; do
 done
 
 if [ -z "$TITLE" ] || [ -z "$PROMPT" ]; then
-    echo "Usage: launch-subagent.sh \"Title\" \"Prompt\" [--mcp name] [--wait]" >&2
+    echo "Usage: launch-subagent.sh \"Title\" \"Prompt\" [--tool codex] [--mcp name] [--wait]" >&2
     exit 1
 fi
 
@@ -68,7 +75,7 @@ WORK_DIR="/tmp/${SAFE_TITLE}"
 mkdir -p "$WORK_DIR"
 
 # Build add command
-ADD_CMD="agent-deck -p $PROFILE add -t \"$TITLE\" --parent \"$PARENT\" -c claude"
+ADD_CMD="agent-deck -p $PROFILE add -t \"$TITLE\" --parent \"$PARENT\" -c $TOOL"
 for mcp in "${MCPS[@]}"; do
     ADD_CMD="$ADD_CMD --mcp $mcp"
 done
@@ -81,15 +88,25 @@ agent-deck -p "$PROFILE" session start "$TITLE"
 # Get tmux session name for readiness check
 TMUX_SESSION=$(agent-deck -p "$PROFILE" session show "$TITLE" 2>/dev/null | grep '^Tmux:' | awk '{print $2}')
 
-# Wait for Claude to be ready (check for prompt character in pane)
-# Claude shows ">" or has content when ready
-echo "Waiting for Claude to initialize..."
-for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do
-    # Check if Claude is showing a prompt (has substantial content)
+# Tool-aware readiness patterns
+case "$TOOL" in
+    codex)
+        READY_PATTERN="OpenAI Codex|>_|codex>|How can I help"
+        ;;
+    gemini)
+        READY_PATTERN="Gemini|gemini|>>>"
+        ;;
+    *)
+        READY_PATTERN=">|claude|Claude Code|/tmp/"
+        ;;
+esac
+
+# Wait for agent to be ready
+echo "Waiting for $TOOL to initialize..."
+for i in $(seq 1 20); do
     PANE_CONTENT=$(tmux capture-pane -t "$TMUX_SESSION" -p 2>/dev/null | tail -5)
 
-    # Claude is ready when it shows the project path or prompt
-    if echo "$PANE_CONTENT" | grep -qE "(>|claude|Claude Code|/tmp/)" 2>/dev/null; then
+    if echo "$PANE_CONTENT" | grep -qE "($READY_PATTERN)" 2>/dev/null; then
         sleep 2  # Extra buffer for stability
         break
     fi
@@ -99,9 +116,16 @@ done
 # Send prompt
 agent-deck -p "$PROFILE" session send "$TITLE" "$PROMPT"
 
+# Codex safety net: Ink TUI sometimes needs an extra Enter nudge
+if [ "$TOOL" = "codex" ]; then
+    sleep 1
+    tmux send-keys -t "$TMUX_SESSION" Enter
+fi
+
 echo ""
 echo "Sub-agent launched:"
 echo "  Title:   $TITLE"
+echo "  Tool:    $TOOL"
 echo "  Parent:  $PARENT"
 echo "  Profile: $PROFILE"
 echo "  Path:    $WORK_DIR"
