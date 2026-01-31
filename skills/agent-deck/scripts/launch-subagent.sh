@@ -6,6 +6,7 @@
 # Options:
 #   --mcp <name>     Attach MCP (can repeat)
 #   --tool <type>    Agent tool: claude, codex, gemini (default: claude)
+#   --path <dir>     Working directory for the agent (default: /tmp/<title>)
 #   --wait           Poll until complete, return output
 #   --timeout <sec>  Wait timeout (default: 300)
 #
@@ -14,6 +15,7 @@
 #   launch-subagent.sh "Task" "Do Y" --mcp exa --mcp firecrawl
 #   launch-subagent.sh "Query" "Answer Z" --wait --timeout 120
 #   launch-subagent.sh "Consult" "Review this approach" --tool codex --wait
+#   launch-subagent.sh "Review" "Review the session_cmd.go" --tool codex --path /path/to/project --wait
 
 set -e
 
@@ -21,6 +23,7 @@ set -e
 TITLE=""
 PROMPT=""
 TOOL="claude"
+WORK_PATH=""
 MCPS=()
 WAIT=false
 TIMEOUT=300
@@ -33,6 +36,10 @@ while [ $# -gt 0 ]; do
             ;;
         --tool)
             TOOL="$2"
+            shift 2
+            ;;
+        --path)
+            WORK_PATH="$2"
             shift 2
             ;;
         --wait)
@@ -55,7 +62,7 @@ while [ $# -gt 0 ]; do
 done
 
 if [ -z "$TITLE" ] || [ -z "$PROMPT" ]; then
-    echo "Usage: launch-subagent.sh \"Title\" \"Prompt\" [--tool codex] [--mcp name] [--wait]" >&2
+    echo "Usage: launch-subagent.sh \"Title\" \"Prompt\" [--tool codex] [--path /dir] [--mcp name] [--wait]" >&2
     exit 1
 fi
 
@@ -63,15 +70,22 @@ fi
 CURRENT_JSON=$(agent-deck session current --json 2>/dev/null | grep -v '^20')
 PARENT=$(echo "$CURRENT_JSON" | jq -r '.session')
 PROFILE=$(echo "$CURRENT_JSON" | jq -r '.profile')
+PARENT_PATH=$(echo "$CURRENT_JSON" | jq -r '.path')
 
 if [ -z "$PARENT" ] || [ "$PARENT" = "null" ]; then
     echo "Error: Not in an agent-deck session" >&2
     exit 1
 fi
 
-# Create work directory
-SAFE_TITLE=$(echo "$TITLE" | tr ' ' '-' | tr '[:upper:]' '[:lower:]' | tr -cd '[:alnum:]-')
-WORK_DIR="/tmp/${SAFE_TITLE}"
+# Determine work directory: --path flag > parent session path > /tmp fallback
+if [ -n "$WORK_PATH" ]; then
+    WORK_DIR="$WORK_PATH"
+elif [ -n "$PARENT_PATH" ] && [ "$PARENT_PATH" != "null" ]; then
+    WORK_DIR="$PARENT_PATH"
+else
+    SAFE_TITLE=$(echo "$TITLE" | tr ' ' '-' | tr '[:upper:]' '[:lower:]' | tr -cd '[:alnum:]-')
+    WORK_DIR="/tmp/${SAFE_TITLE}"
+fi
 mkdir -p "$WORK_DIR"
 
 # Build add command
@@ -152,9 +166,9 @@ if [ "$WAIT" = "true" ]; then
             echo "Complete!"
             echo ""
             echo "=== Response ==="
-            # Try native output first, fall back to pane capture
+            # Try native output first, fall back to full scrollback capture
             if ! agent-deck -p "$PROFILE" session output "$TITLE" 2>/dev/null; then
-                tmux capture-pane -t "$TMUX_SESSION" -p 2>/dev/null
+                tmux capture-pane -t "$TMUX_SESSION" -p -S - 2>/dev/null
             fi
             exit 0
         fi
