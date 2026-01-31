@@ -234,6 +234,7 @@ func (p *SocketProxy) handleClient(sessionID string, conn net.Conn) {
 	}()
 
 	scanner := bufio.NewScanner(conn)
+	scanner.Buffer(make([]byte, 64*1024), 10*1024*1024) // 10MB max for large MCP requests
 	for scanner.Scan() {
 		line := scanner.Bytes()
 
@@ -255,6 +256,7 @@ func (p *SocketProxy) handleClient(sessionID string, conn net.Conn) {
 
 func (p *SocketProxy) broadcastResponses() {
 	scanner := bufio.NewScanner(p.mcpStdout)
+	scanner.Buffer(make([]byte, 64*1024), 10*1024*1024) // 10MB max for large MCP responses
 	for scanner.Scan() {
 		line := scanner.Bytes()
 
@@ -280,6 +282,26 @@ func (p *SocketProxy) broadcastResponses() {
 
 	// Mark proxy as failed so health monitor can restart it
 	p.SetStatus(StatusFailed)
+
+	// Close all client connections so reconnecting proxies know to retry
+	p.closeAllClientsOnFailure()
+
+	// Close listener so new connections fail fast (will be recreated on restart)
+	if p.listener != nil {
+		p.listener.Close()
+	}
+}
+
+// closeAllClientsOnFailure closes all client connections when the MCP process dies.
+// This signals reconnecting proxies to retry their connection.
+func (p *SocketProxy) closeAllClientsOnFailure() {
+	p.clientsMu.Lock()
+	for sessionID, conn := range p.clients {
+		conn.Close()
+		log.Printf("[Pool] %s: closed client %s (MCP failure)", p.name, sessionID)
+	}
+	p.clients = make(map[string]net.Conn)
+	p.clientsMu.Unlock()
 }
 
 func (p *SocketProxy) routeToClient(responseID interface{}, line []byte) {

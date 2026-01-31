@@ -25,7 +25,7 @@ import (
 	"github.com/muesli/termenv"
 )
 
-const Version = "0.9.0"
+const Version = "0.9.1"
 
 // Table column widths for list command output
 const (
@@ -212,6 +212,13 @@ func main() {
 			return
 		case "mcp":
 			handleMCP(profile, args[1:])
+			return
+		case "mcp-proxy":
+			if len(args) < 2 {
+				fmt.Fprintln(os.Stderr, "Usage: agent-deck mcp-proxy <socket-path>")
+				os.Exit(1)
+			}
+			runMCPProxy(args[1])
 			return
 		case "group":
 			handleGroup(profile, args[1:])
@@ -471,6 +478,9 @@ func handleAdd(profile string, args []string) {
 	commandShort := fs.String("c", "", "Command to run (short)")
 	parent := fs.String("parent", "", "Parent session (creates sub-session, inherits group)")
 	parentShort := fs.String("p", "", "Parent session (short)")
+	jsonOutput := fs.Bool("json", false, "Output as JSON")
+	quiet := fs.Bool("quiet", false, "Minimal output")
+	quietShort := fs.Bool("q", false, "Minimal output (short)")
 
 	// Worktree flags
 	worktreeBranch := fs.String("w", "", "Create session in git worktree for branch")
@@ -748,30 +758,66 @@ func handleAdd(profile string, args []string) {
 		}
 	}
 
-	fmt.Printf("✓ Added session: %s\n", sessionTitle)
-	fmt.Printf("  Profile: %s\n", storage.Profile())
-	fmt.Printf("  Path:    %s\n", path)
-	fmt.Printf("  Group:   %s\n", newInstance.GroupPath)
-	fmt.Printf("  ID:      %s\n", newInstance.ID)
+	quietMode := *quiet || *quietShort
+	out := NewCLIOutput(*jsonOutput, quietMode)
+
+	// Build human-readable output
+	var humanLines []string
+	humanLines = append(humanLines, fmt.Sprintf("Added session: %s", sessionTitle))
+	humanLines = append(humanLines, fmt.Sprintf("  Profile: %s", storage.Profile()))
+	humanLines = append(humanLines, fmt.Sprintf("  Path:    %s", path))
+	humanLines = append(humanLines, fmt.Sprintf("  Group:   %s", newInstance.GroupPath))
+	humanLines = append(humanLines, fmt.Sprintf("  ID:      %s", newInstance.ID))
 	if sessionCommand != "" {
-		fmt.Printf("  Cmd:     %s\n", sessionCommand)
+		humanLines = append(humanLines, fmt.Sprintf("  Cmd:     %s", sessionCommand))
 	}
 	if len(mcpFlags) > 0 {
-		fmt.Printf("  MCPs:    %s\n", strings.Join(mcpFlags, ", "))
+		humanLines = append(humanLines, fmt.Sprintf("  MCPs:    %s", strings.Join(mcpFlags, ", ")))
 	}
 	if parentInstance != nil {
-		fmt.Printf("  Parent:  %s (%s)\n", parentInstance.Title, parentInstance.ID[:8])
+		humanLines = append(humanLines, fmt.Sprintf("  Parent:  %s (%s)", parentInstance.Title, parentInstance.ID[:8]))
 	}
 	if worktreePath != "" {
-		fmt.Printf("  Worktree: %s (branch: %s)\n", worktreePath, wtBranch)
-		fmt.Printf("  Repo:    %s\n", worktreeRepoRoot)
+		humanLines = append(humanLines, fmt.Sprintf("  Worktree: %s (branch: %s)", worktreePath, wtBranch))
+		humanLines = append(humanLines, fmt.Sprintf("  Repo:    %s", worktreeRepoRoot))
+	}
+	humanLines = append(humanLines, "")
+	humanLines = append(humanLines, "Next steps:")
+	humanLines = append(humanLines, fmt.Sprintf("  agent-deck session start %s   # Start the session", sessionTitle))
+	humanLines = append(humanLines, "  agent-deck                         # Open TUI and press Enter to attach")
+
+	// Build JSON data
+	jsonData := map[string]interface{}{
+		"success": true,
+		"id":      newInstance.ID,
+		"title":   newInstance.Title,
+		"path":    path,
+		"tool":    newInstance.Tool,
+		"group":   newInstance.GroupPath,
+		"profile": storage.Profile(),
+	}
+	if sessionCommand != "" {
+		jsonData["command"] = sessionCommand
+	}
+	if len(mcpFlags) > 0 {
+		jsonData["mcps"] = mcpFlags
+	}
+	if parentInstance != nil {
+		jsonData["parent_id"] = parentInstance.ID
+		jsonData["parent_title"] = parentInstance.Title
+	}
+	if worktreePath != "" {
+		jsonData["worktree_path"] = worktreePath
+		jsonData["worktree_branch"] = wtBranch
+		jsonData["worktree_repo_root"] = worktreeRepoRoot
 	}
 
-	// Show helpful next steps
-	fmt.Println()
-	fmt.Println("Next steps:")
-	fmt.Printf("  agent-deck session start %s   # Start the session\n", sessionTitle)
-	fmt.Printf("  agent-deck                         # Open TUI and press Enter to attach\n")
+	out.Success(humanLines[0], jsonData)
+	if !*jsonOutput && !quietMode {
+		for _, line := range humanLines[1:] {
+			fmt.Println(line)
+		}
+	}
 }
 
 // handleList lists all sessions

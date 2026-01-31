@@ -87,10 +87,10 @@ func WriteMCPJsonFromConfig(projectPath string, enabledNames []string) error {
 					// Use Unix socket (nc connects to socket proxy)
 					socketPath := pool.GetSocketPath(name)
 					mcpConfig.MCPServers[name] = MCPServerConfig{
-						Command: "nc",
-						Args:    []string{"-U", socketPath},
+						Command: "agent-deck",
+						Args:    []string{"mcp-proxy", socketPath},
 					}
-					log.Printf("[MCP-POOL] ✓ %s: using socket %s", name, socketPath)
+					log.Printf("[MCP-POOL] ✓ %s: using reconnecting proxy %s", name, socketPath)
 					continue
 				}
 
@@ -113,10 +113,10 @@ func WriteMCPJsonFromConfig(projectPath string, enabledNames []string) error {
 					// Try to find existing socket from TUI's pool
 					if socketPath := getExternalSocketPath(name); socketPath != "" {
 						mcpConfig.MCPServers[name] = MCPServerConfig{
-							Command: "nc",
-							Args:    []string{"-U", socketPath},
+							Command: "agent-deck",
+							Args:    []string{"mcp-proxy", socketPath},
 						}
-						log.Printf("[MCP-POOL] ✓ %s: discovered external socket %s", name, socketPath)
+						log.Printf("[MCP-POOL] ✓ %s: discovered external socket, using reconnecting proxy %s", name, socketPath)
 						continue
 					}
 					// Socket not found - check fallback policy
@@ -223,10 +223,10 @@ func WriteGlobalMCP(enabledNames []string) error {
 					// Use Unix socket (nc connects to socket proxy)
 					socketPath := pool.GetSocketPath(name)
 					mcpServers[name] = MCPServerConfig{
-						Command: "nc",
-						Args:    []string{"-U", socketPath},
+						Command: "agent-deck",
+						Args:    []string{"mcp-proxy", socketPath},
 					}
-					log.Printf("[MCP-POOL] ✓ Global %s: using socket %s", name, socketPath)
+					log.Printf("[MCP-POOL] ✓ Global %s: using reconnecting proxy %s", name, socketPath)
 					continue
 				}
 
@@ -249,10 +249,10 @@ func WriteGlobalMCP(enabledNames []string) error {
 					// Try to find existing socket from TUI's pool
 					if socketPath := getExternalSocketPath(name); socketPath != "" {
 						mcpServers[name] = MCPServerConfig{
-							Command: "nc",
-							Args:    []string{"-U", socketPath},
+							Command: "agent-deck",
+							Args:    []string{"mcp-proxy", socketPath},
 						}
-						log.Printf("[MCP-POOL] ✓ Global %s: discovered external socket %s", name, socketPath)
+						log.Printf("[MCP-POOL] ✓ Global %s: discovered external socket, using reconnecting proxy %s", name, socketPath)
 						continue
 					}
 					// Socket not found - check fallback policy
@@ -482,10 +482,10 @@ func WriteUserMCP(enabledNames []string) error {
 					// Use Unix socket (nc connects to socket proxy)
 					socketPath := pool.GetSocketPath(name)
 					mcpServers[name] = MCPServerConfig{
-						Command: "nc",
-						Args:    []string{"-U", socketPath},
+						Command: "agent-deck",
+						Args:    []string{"mcp-proxy", socketPath},
 					}
-					log.Printf("[MCP-POOL] ✓ User %s: using socket %s", name, socketPath)
+					log.Printf("[MCP-POOL] ✓ User %s: using reconnecting proxy %s", name, socketPath)
 					continue
 				}
 
@@ -508,10 +508,10 @@ func WriteUserMCP(enabledNames []string) error {
 					// Try to find existing socket from TUI's pool
 					if socketPath := getExternalSocketPath(name); socketPath != "" {
 						mcpServers[name] = MCPServerConfig{
-							Command: "nc",
-							Args:    []string{"-U", socketPath},
+							Command: "agent-deck",
+							Args:    []string{"mcp-proxy", socketPath},
 						}
-						log.Printf("[MCP-POOL] ✓ User %s: discovered external socket %s", name, socketPath)
+						log.Printf("[MCP-POOL] ✓ User %s: discovered external socket, using reconnecting proxy %s", name, socketPath)
 						continue
 					}
 					// Socket not found - check fallback policy

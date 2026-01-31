@@ -191,10 +191,10 @@ func (p *Pool) Shutdown() error {
 }
 
 // StartHealthMonitor launches a background goroutine that checks for
-// failed proxies every 10 seconds and restarts them automatically.
+// failed proxies every 3 seconds and restarts them automatically.
 func (p *Pool) StartHealthMonitor() {
 	go func() {
-		ticker := time.NewTicker(10 * time.Second)
+		ticker := time.NewTicker(3 * time.Second)
 		defer ticker.Stop()
 
 		for {
@@ -206,7 +206,7 @@ func (p *Pool) StartHealthMonitor() {
 			}
 		}
 	}()
-	log.Printf("[Pool] Health monitor started (10s interval)")
+	log.Printf("[Pool] Health monitor started (3s interval)")
 }
 
 func (p *Pool) restartFailedProxies() {

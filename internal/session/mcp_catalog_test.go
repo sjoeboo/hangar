@@ -229,6 +229,31 @@ func TestGetProjectMCPNames(t *testing.T) {
 	}
 }
 
+func TestMCPServerConfigSocketProxy(t *testing.T) {
+	// Verify that socket-proxied MCPs use agent-deck mcp-proxy, not nc
+	config := MCPServerConfig{
+		Command: "agent-deck",
+		Args:    []string{"mcp-proxy", "/tmp/agentdeck-mcp-test.sock"},
+	}
+
+	data, err := json.Marshal(config)
+	if err != nil {
+		t.Fatalf("Failed to marshal: %v", err)
+	}
+
+	var parsed MCPServerConfig
+	if err := json.Unmarshal(data, &parsed); err != nil {
+		t.Fatalf("Failed to unmarshal: %v", err)
+	}
+
+	if parsed.Command != "agent-deck" {
+		t.Errorf("Expected command 'agent-deck', got %q", parsed.Command)
+	}
+	if len(parsed.Args) != 2 || parsed.Args[0] != "mcp-proxy" {
+		t.Errorf("Expected args ['mcp-proxy', socket-path], got %v", parsed.Args)
+	}
+}
+
 func TestGetUserMCPRootPath(t *testing.T) {
 	// GetUserMCPRootPath should return ~/.claude.json
 	path := GetUserMCPRootPath()
