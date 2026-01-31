@@ -846,68 +846,9 @@ func (h *Home) syncViewport() {
 	}
 }
 
-// syncNotifications updates the notification bar based on current session states
-func (h *Home) syncNotifications() {
-	if !h.notificationsEnabled || h.notificationManager == nil {
-		return
-	}
-
-	// Debug: Check if we're being called
-	debugNotif := os.Getenv("AGENTDECK_DEBUG") != ""
-
-	// Phase 1: Check for signal file from Ctrl+b 1-6 shortcuts
-	// When user presses Ctrl+b N, the key binding writes the session ID to a signal file
-	var sessionToAcknowledgeID string
-	if signalSessionID := tmux.ReadAndClearAckSignal(); signalSessionID != "" {
-		sessionToAcknowledgeID = signalSessionID
-		if debugNotif {
-			log.Printf("[NOTIF] Signal file found: %s", signalSessionID)
-		}
-	}
-
-	// Phase 2: Detect currently attached session (handles manual switches like Ctrl+b s)
-	// This ensures sessions are excluded from bar even when switched via tmux directly
-	currentSessionID := h.getAttachedSessionID()
-	if debugNotif && currentSessionID != "" {
-		log.Printf("[NOTIF] Detected attached session: %s", currentSessionID)
-	}
-
-	// Signal file takes priority (explicit acknowledgment via Ctrl+b N)
-	if sessionToAcknowledgeID != "" {
-		currentSessionID = sessionToAcknowledgeID
-	}
-
-	// Phase 3: Acknowledge the session if signal was received
-	// NOTE: We always acknowledge regardless of current status because:
-	// - Status might not be updated yet (async statusWorker)
-	// - If we skip acknowledgment, the session gets re-added on next tick
-	if sessionToAcknowledgeID != "" {
-		h.instancesMu.RLock()
-		if inst, ok := h.instanceByID[sessionToAcknowledgeID]; ok {
-			if ts := inst.GetTmuxSession(); ts != nil {
-				ts.Acknowledge()
-				_ = inst.UpdateStatus()
-				if debugNotif {
-					log.Printf("[NOTIF] Acknowledged %s, new status: %s", inst.Title, inst.Status)
-				}
-			}
-		}
-		h.instancesMu.RUnlock()
-	}
-
-	// Phase 4: Sync notifications (uses its own lock internally)
-	// Pass the current session ID so it gets excluded from the bar
-	h.instancesMu.RLock()
-	added, removed := h.notificationManager.SyncFromInstances(h.instances, currentSessionID)
-	h.instancesMu.RUnlock()
-
-	if debugNotif && (len(added) > 0 || len(removed) > 0) {
-		log.Printf("[NOTIF] Sync: added=%v removed=%v", added, removed)
-	}
-
-	// Always update tmux status bars and key bindings
-	h.updateTmuxNotifications()
-}
+// NOTE: syncNotifications (foreground) was removed in v0.9.2 as a CPU optimization.
+// All notification sync is now handled by syncNotificationsBackground() which runs
+// every 2s in the background worker, including during tea.Exec pauses.
 
 // getAttachedSessionID returns the instance ID of the currently attached agentdeck session.
 // This detects which session the user is viewing, even if they switched via tmux directly.
@@ -931,32 +872,8 @@ func (h *Home) getAttachedSessionID() string {
 	return ""
 }
 
-// updateTmuxNotifications updates status bars and key bindings
-func (h *Home) updateTmuxNotifications() {
-	barText := h.notificationManager.FormatBar()
-
-	// Only update status bars if the content changed
-	// PERFORMANCE: Use global option - ONE tmux call instead of 100+
-	h.lastBarTextMu.Lock()
-	if barText != h.lastBarText {
-		h.lastBarText = barText
-		h.lastBarTextMu.Unlock()
-
-		if barText == "" {
-			_ = tmux.ClearStatusLeftGlobal()
-		} else {
-			_ = tmux.SetStatusLeftGlobal(barText)
-		}
-
-		// Force immediate visual update (bypasses 15-second status-interval)
-		_ = tmux.RefreshStatusBarImmediate()
-	} else {
-		h.lastBarTextMu.Unlock()
-	}
-
-	// Update key bindings (thread-safe, can be called from foreground or background)
-	h.updateKeyBindings()
-}
+// NOTE: updateTmuxNotifications (foreground) was removed in v0.9.2 as a CPU optimization.
+// Status bar updates and key binding updates are handled by syncNotificationsBackground().
 
 // cleanupNotifications removes all notification bar state on exit
 func (h *Home) cleanupNotifications() {
@@ -1650,7 +1567,7 @@ func (h *Home) syncNotificationsBackground() {
 
 	// CRITICAL: Update key bindings in background too!
 	// This fixes the bug where key bindings became stale when TUI was paused (tea.Exec).
-	// The updateTmuxNotifications() function is now thread-safe via boundKeysMu.
+	// updateKeyBindings() is thread-safe via boundKeysMu.
 	h.updateKeyBindings()
 }
 
