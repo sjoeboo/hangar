@@ -1528,7 +1528,13 @@ func (s *Session) GetStatus() (string, error) {
 				return "active", nil
 			}
 			if hasPrompt {
-				s.stateTracker.acknowledged = false
+				// Respect acknowledgment: if user already acknowledged (e.g. by attaching),
+				// keep idle status. The prompt is still visible but the user is looking at it.
+				if s.stateTracker.acknowledged {
+					s.lastStableStatus = "idle"
+					debugLog("%s: PROMPT_DETECTED but acknowledged → idle (busy=%v)", shortName, isExplicitlyBusy)
+					return "idle", nil
+				}
 				if s.lastStableStatus != "waiting" {
 					s.stateTracker.waitingSince = time.Now()
 				}
@@ -1669,13 +1675,19 @@ func (s *Session) GetStatus() (string, error) {
 			return "active", nil
 		}
 		if captureErr == nil && s.hasPromptIndicator(content) {
-			s.stateTracker.acknowledged = false
-			if s.lastStableStatus != "waiting" {
-				s.stateTracker.waitingSince = time.Now()
+			// Respect acknowledgment: if user already acknowledged (e.g. by attaching),
+			// keep idle status instead of forcing back to waiting.
+			if !s.stateTracker.acknowledged {
+				if s.lastStableStatus != "waiting" {
+					s.stateTracker.waitingSince = time.Now()
+				}
+				s.lastStableStatus = "waiting"
+				debugLog("%s: PROMPT_DETECTED (re-check) → waiting", shortName)
+				return "waiting", nil
 			}
-			s.lastStableStatus = "waiting"
-			debugLog("%s: PROMPT_DETECTED (re-check) → waiting", shortName)
-			return "waiting", nil
+			s.lastStableStatus = "idle"
+			debugLog("%s: PROMPT_DETECTED (re-check) but acknowledged → idle", shortName)
+			return "idle", nil
 		}
 		debugLog("%s: NO_LONGER_BUSY → transitioning from active", shortName)
 	}

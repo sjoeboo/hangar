@@ -103,13 +103,17 @@ func (d *PromptDetector) hasClaudePrompt(content string) bool {
 	}
 
 	// Check for spinner characters in last 3 lines (indicates active processing)
-	// These are the exact braille spinner chars from cli-spinners "dots"
-	spinnerChars := []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
-	last3Lines := lastLines
-	if len(last3Lines) > 3 {
-		last3Lines = last3Lines[len(last3Lines)-3:]
+	// Includes braille spinner chars (cli-spinners "dots") AND asterisk spinners (Claude 2.1.25+)
+	spinnerChars := []string{
+		"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏",
+		"✳", "✽", "✶", "✢", // Claude 2.1.25+ asterisk spinner chars
 	}
-	for _, line := range last3Lines {
+	// Check last 10 lines (spinner can be further up due to tip lines, borders, status bar)
+	last10Lines := lastLines
+	if len(last10Lines) > 10 {
+		last10Lines = last10Lines[len(last10Lines)-10:]
+	}
+	for _, line := range last10Lines {
 		// Skip lines starting with box-drawing characters (UI borders)
 		trimmedLine := strings.TrimSpace(line)
 		if len(trimmedLine) > 0 {
@@ -127,8 +131,13 @@ func (d *PromptDetector) hasClaudePrompt(content string) bool {
 	}
 
 	// Check for timing indicators that show Claude is processing
-	// Format: "Thinking… (45s · 1234 tokens · ctrl+c to interrupt)" (2024+)
-	// Or older: "Thinking… (45s · 1234 tokens · esc to interrupt)"
+	// Claude 2.1.25+ uses whimsical words (90+ words like "Hullaballooing", "Clauding", etc.)
+	// with unicode ellipsis: "✢ Hullaballooing… (53s · ↓ 749 tokens)"
+	// Check for the universal pattern: unicode ellipsis + "tokens" in recent content
+	if strings.Contains(recentLower, "…") && strings.Contains(recentLower, "tokens") {
+		return false // Actively processing (any whimsical word with timing info)
+	}
+	// Legacy patterns (pre-2.1.25)
 	if strings.Contains(recentLower, "thinking") && strings.Contains(recentLower, "tokens") {
 		return false // Actively thinking
 	}
@@ -282,7 +291,11 @@ func (d *PromptDetector) hasClaudePrompt(content string) bool {
 	}
 	if hasCompletionIndicator {
 		// Check if there's a ">" or "❯" in the last few lines
-		for _, line := range last3Lines {
+		completionCheckLines := lastLines
+		if len(completionCheckLines) > 3 {
+			completionCheckLines = completionCheckLines[len(completionCheckLines)-3:]
+		}
+		for _, line := range completionCheckLines {
 			cleanLine := strings.TrimSpace(StripANSI(line))
 			if cleanLine == ">" || cleanLine == "> " || cleanLine == "❯" || cleanLine == "❯ " {
 				return true
