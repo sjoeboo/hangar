@@ -10,6 +10,29 @@ Terminal session manager for AI coding agents. Built with Go + Bubble Tea.
 
 **Version:** 0.8.98 | **Repo:** [github.com/asheshgoplani/agent-deck](https://github.com/asheshgoplani/agent-deck)
 
+## Script Path Resolution (IMPORTANT)
+
+This skill includes helper scripts in its `scripts/` subdirectory. When Claude Code loads this skill, it shows a line like:
+
+```
+Base directory for this skill: /path/to/.../skills/agent-deck
+```
+
+**You MUST use that base directory path to resolve all script references.** Store it as `SKILL_DIR`:
+
+```bash
+# Set SKILL_DIR to the base directory shown when this skill was loaded
+SKILL_DIR="/path/shown/in/base-directory-line"
+
+# Then run scripts as:
+$SKILL_DIR/scripts/launch-subagent.sh "Title" "Prompt" --wait
+```
+
+**Common mistake:** Do NOT use `<project-root>/scripts/launch-subagent.sh`. The scripts live inside the skill's own directory (plugin cache or project skills folder), NOT in the user's project root.
+
+**For plugin users**, the path looks like: `~/.claude/plugins/cache/agent-deck/agent-deck/<hash>/skills/agent-deck/scripts/`
+**For local development**, the path looks like: `<repo>/skills/agent-deck/scripts/`
+
 ## Quick Start
 
 ```bash
@@ -50,7 +73,7 @@ agent-deck session output "Project"
 **Use when:** User says "launch sub-agent", "create sub-agent", "spawn agent"
 
 ```bash
-scripts/launch-subagent.sh "Title" "Prompt" [--mcp name] [--wait]
+$SKILL_DIR/scripts/launch-subagent.sh "Title" "Prompt" [--mcp name] [--wait]
 ```
 
 The script auto-detects current session/profile and creates a child session.
@@ -81,10 +104,10 @@ The script auto-detects current session/profile and creates a child session.
 
 ```bash
 # Consult Codex (MUST include --tool codex)
-scripts/launch-subagent.sh "Consult Codex" "Your question here" --tool codex --wait --timeout 120
+$SKILL_DIR/scripts/launch-subagent.sh "Consult Codex" "Your question here" --tool codex --wait --timeout 120
 
 # Consult Gemini (MUST include --tool gemini)
-scripts/launch-subagent.sh "Consult Gemini" "Your question here" --tool gemini --wait --timeout 120
+$SKILL_DIR/scripts/launch-subagent.sh "Consult Gemini" "Your question here" --tool gemini --wait --timeout 120
 ```
 
 **DO NOT** try to create Codex/Gemini sessions manually with `agent-deck add`. Always use the script above. It handles tool-specific initialization, readiness detection, and output retrieval automatically.
@@ -92,7 +115,7 @@ scripts/launch-subagent.sh "Consult Gemini" "Your question here" --tool gemini -
 ### Full Options
 
 ```bash
-scripts/launch-subagent.sh "Title" "Prompt" \
+$SKILL_DIR/scripts/launch-subagent.sh "Title" "Prompt" \
   --tool codex|gemini \     # REQUIRED for non-Claude agents
   --path /project/dir \     # Working directory (auto-inherits parent path if omitted)
   --wait \                  # Block until response is ready
@@ -121,14 +144,14 @@ scripts/launch-subagent.sh "Title" "Prompt" \
 
 ```bash
 # Code review from Codex
-scripts/launch-subagent.sh "Codex Review" "Read cmd/main.go and suggest improvements" --tool codex --wait --timeout 180
+$SKILL_DIR/scripts/launch-subagent.sh "Codex Review" "Read cmd/main.go and suggest improvements" --tool codex --wait --timeout 180
 
 # Architecture feedback from Gemini
-scripts/launch-subagent.sh "Gemini Arch" "Review the project structure and suggest better patterns" --tool gemini --wait --timeout 180
+$SKILL_DIR/scripts/launch-subagent.sh "Gemini Arch" "Review the project structure and suggest better patterns" --tool gemini --wait --timeout 180
 
 # Both in parallel (consult both, compare answers)
-scripts/launch-subagent.sh "Ask Codex" "Best way to handle errors in Go?" --tool codex --wait --timeout 120 &
-scripts/launch-subagent.sh "Ask Gemini" "Best way to handle errors in Go?" --tool gemini --wait --timeout 120 &
+$SKILL_DIR/scripts/launch-subagent.sh "Ask Codex" "Best way to handle errors in Go?" --tool codex --wait --timeout 120 &
+$SKILL_DIR/scripts/launch-subagent.sh "Ask Gemini" "Best way to handle errors in Go?" --tool gemini --wait --timeout 120 &
 wait
 ```
 
@@ -293,12 +316,12 @@ Share Claude sessions between developers for collaboration or handoff.
 **Use when:** User says "share session", "export session", "send to colleague", "import session"
 
 ```bash
-# Export current session to file
-skills/session-share/scripts/export.sh
+# Export current session to file (session-share is a sibling skill)
+$SKILL_DIR/../session-share/scripts/export.sh
 # Output: ~/session-shares/session-<date>-<title>.json
 
 # Import received session
-skills/session-share/scripts/import.sh ~/Downloads/session-file.json
+$SKILL_DIR/../session-share/scripts/import.sh ~/Downloads/session-file.json
 ```
 
 **See:** [session-share skill](../session-share/SKILL.md) for full documentation.
