@@ -5,6 +5,19 @@ All notable changes to Agent Deck will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.3] - 2026-02-03
+
+### Fixed
+
+- **Global search unusable with large datasets (#125)**: Multiple performance fixes make global search work with multi-GB session data:
+  - Remove rate limiter from initial load (was causing 42+ minute "Loading..." on large datasets)
+  - Read only first 32KB of files for metadata in balanced tier (was reading entire files, some 800MB+)
+  - Early exit from parsing once metadata found (SessionID/CWD/Summary)
+  - Parallelize disk search with 8-worker pool (was sequential)
+  - Debounced async search on UI thread (250ms debounce + background goroutine)
+  - Default `recent_days` to 30 when not set (was 0 = all time)
+- **G key didn't open Global Search**: Help bar showed `G Global` but the key actually jumped to the bottom of the list. `G` now opens Global Search (falls back to local search if global search is disabled)
+
 ## [0.10.2] - 2026-02-03
 
 ### Fixed

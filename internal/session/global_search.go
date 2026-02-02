@@ -332,18 +332,6 @@ func parseClaudeJSONL(filePath string, data []byte, includeContent bool) (*Searc
 			entry.Summary = record.Summary
 		}
 
-		if len(record.Message) > 0 {
-			var msg claudeMessage
-			if err := json.Unmarshal(record.Message, &msg); err == nil {
-				if includeContent {
-					if formatted := formatMessageContent(msg); formatted != "" {
-						contentBuilder.WriteString(formatted)
-						contentBuilder.WriteString("\n")
-					}
-				}
-			}
-		}
-
 		// Use first user message as summary if no summary field
 		if entry.Summary == "" && record.Type == "user" && len(record.Message) > 0 {
 			var msg claudeMessage
@@ -358,6 +346,21 @@ func parseClaudeJSONL(filePath string, data []byte, includeContent bool) (*Searc
 				}
 			}
 		}
+
+		// For metadata-only mode (TierBalanced): stop once we have all metadata
+		if !includeContent && entry.SessionID != "" && entry.CWD != "" && entry.Summary != "" {
+			break
+		}
+
+		if includeContent && len(record.Message) > 0 {
+			var msg claudeMessage
+			if err := json.Unmarshal(record.Message, &msg); err == nil {
+				if formatted := formatMessageContent(msg); formatted != "" {
+					contentBuilder.WriteString(formatted)
+					contentBuilder.WriteString("\n")
+				}
+			}
+		}
 	}
 
 	if err := scanner.Err(); err != nil {
@@ -368,6 +371,58 @@ func parseClaudeJSONL(filePath string, data []byte, includeContent bool) (*Searc
 		entry.setContent(contentBuilder.Bytes())
 	}
 
+	return entry, nil
+}
+
+// parseClaudeJSONLHead reads only the first 32KB of a JSONL file to extract metadata.
+// Used in TierBalanced mode to avoid reading entire files (which can be 100s of MB).
+func parseClaudeJSONLHead(filePath string) (*SearchEntry, error) {
+	f, err := os.Open(filePath)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+
+	entry := &SearchEntry{FilePath: filePath}
+	scanner := bufio.NewScanner(io.LimitReader(f, 32*1024))
+	buf := make([]byte, 0, 32*1024)
+	scanner.Buffer(buf, 32*1024)
+
+	for scanner.Scan() {
+		line := scanner.Bytes()
+		if len(line) == 0 {
+			continue
+		}
+		var record claudeJSONLRecord
+		if err := json.Unmarshal(line, &record); err != nil {
+			continue
+		}
+		if entry.SessionID == "" && record.SessionID != "" {
+			entry.SessionID = record.SessionID
+		}
+		if entry.CWD == "" && record.CWD != "" {
+			entry.CWD = record.CWD
+		}
+		if entry.Summary == "" && record.Summary != "" {
+			entry.Summary = record.Summary
+		}
+		if entry.Summary == "" && record.Type == "user" && len(record.Message) > 0 {
+			var msg claudeMessage
+			if err := json.Unmarshal(record.Message, &msg); err == nil {
+				var contentStr string
+				if err := json.Unmarshal(msg.Content, &contentStr); err == nil {
+					if len(contentStr) > 200 {
+						entry.Summary = contentStr[:200] + "..."
+					} else {
+						entry.Summary = contentStr
+					}
+				}
+			}
+		}
+		if entry.SessionID != "" && entry.Summary != "" {
+			break
+		}
+	}
 	return entry, nil
 }
 
@@ -452,6 +507,9 @@ func NewGlobalSearchIndex(claudeDir string, config GlobalSearchSettings) (*Globa
 	// Apply defaults if not set
 	if config.IndexRateLimit == 0 {
 		config.IndexRateLimit = 20
+	}
+	if config.RecentDays == 0 {
+		config.RecentDays = 30
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -585,9 +643,6 @@ func (idx *GlobalSearchIndex) initialLoad() {
 		default:
 		}
 
-		// Rate limit
-		_ = idx.limiter.Wait(idx.ctx)
-
 		info, err := d.Info()
 		if err != nil {
 			return nil
@@ -604,14 +659,19 @@ func (idx *GlobalSearchIndex) initialLoad() {
 			return nil
 		}
 
-		// Parse file
-		data, err := os.ReadFile(path)
-		if err != nil {
-			return nil
+		// Parse file: for metadata-only mode, read just the head (first 32KB)
+		var entry *SearchEntry
+		if !includeContent {
+			entry, err = parseClaudeJSONLHead(path)
+		} else {
+			var data []byte
+			data, err = os.ReadFile(path)
+			if err != nil {
+				return nil
+			}
+			entry, err = parseClaudeJSONL(path, data, true)
 		}
-
-		entry, err := parseClaudeJSONL(path, data, includeContent)
-		if err != nil || entry.SessionID == "" {
+		if err != nil || entry == nil || entry.SessionID == "" {
 			return nil
 		}
 
@@ -1012,18 +1072,57 @@ func (idx *GlobalSearchIndex) searchOnDisk(query string) []*SearchResult {
 	}
 
 	queryLower := strings.ToLower(query)
-	var results []*SearchResult
 
 	candidates := idx.queryCandidates(query, entries)
+
+	// Parallel search with worker pool (cap at 8 workers)
+	numWorkers := 8
+	if len(candidates) < numWorkers {
+		numWorkers = len(candidates)
+	}
+	if numWorkers == 0 {
+		return nil
+	}
+
+	type searchHit struct {
+		entry   *SearchEntry
+		count   int
+		snippet string
+	}
+
+	jobs := make(chan *SearchEntry, len(candidates))
+	hits := make(chan searchHit, len(candidates))
+
+	var wg sync.WaitGroup
+	for i := 0; i < numWorkers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for entry := range jobs {
+				matchCount, snippet := scanFileForQuery(entry.FilePath, queryLower, 60)
+				if matchCount > 0 {
+					hits <- searchHit{entry: entry, count: matchCount, snippet: snippet}
+				}
+			}
+		}()
+	}
+
 	for _, entry := range candidates {
-		matchCount, snippet := scanFileForQuery(entry.FilePath, queryLower, 60)
-		if matchCount == 0 {
-			continue
-		}
+		jobs <- entry
+	}
+	close(jobs)
+
+	go func() {
+		wg.Wait()
+		close(hits)
+	}()
+
+	var results []*SearchResult
+	for hit := range hits {
 		results = append(results, &SearchResult{
-			Entry:   entry,
-			Score:   matchCount * 10,
-			Snippet: snippet,
+			Entry:   hit.entry,
+			Score:   hit.count * 10,
+			Snippet: hit.snippet,
 		})
 	}
 
