@@ -96,6 +96,23 @@ func (g *GroupDialog) ShowCreateWithContext(parentPath, parentName string) {
 	}
 }
 
+// ShowCreateWithContextDefaultRoot opens the create dialog defaulting to root mode,
+// but stores the cursor context so Tab toggle can switch to subgroup mode.
+// Used when the cursor is on a session inside a group (not on the group header itself).
+func (g *GroupDialog) ShowCreateWithContextDefaultRoot(parentPath, parentName string) {
+	g.visible = true
+	g.mode = GroupDialogCreate
+	g.contextParentPath = parentPath
+	g.contextParentName = parentName
+	g.validationErr = ""
+	g.nameInput.SetValue("")
+	g.nameInput.Focus()
+
+	// Default to root mode, Tab toggles to subgroup
+	g.groupPath = ""
+	g.parentName = ""
+}
+
 // CanToggle returns true when the Tab toggle between Root and Subgroup is available.
 // Only applies in Create mode when the cursor was on a group context.
 func (g *GroupDialog) CanToggle() bool {

@@ -86,7 +86,7 @@ Attach MCP servers without touching config files. Need web search? Browser autom
 
 ### MCP Socket Pool
 
-Running many sessions? Socket pooling shares MCP processes across all sessions via Unix sockets, reducing MCP memory usage by 85-90%. Enable with `pool_all = true` in [config.toml](skills/agent-deck/references/config-reference.md).
+Running many sessions? Socket pooling shares MCP processes across all sessions via Unix sockets, reducing MCP memory usage by 85-90%. Connections auto-recover from MCP crashes in ~3 seconds via a reconnecting proxy. Enable with `pool_all = true` in [config.toml](skills/agent-deck/references/config-reference.md).
 
 ### Search
 

@@ -3190,24 +3190,29 @@ func (h *Home) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		h.lastGTime = time.Now()
 
 		// Create new group with context-aware Tab toggle (Issue #111):
-		// Defaults to subgroup when on a group/grouped session, root otherwise.
-		// Tab toggle in the dialog lets users switch between Root and Subgroup.
-		parentPath := ""
-		parentName := ""
+		// - Group header: defaults to subgroup, Tab toggles to root
+		// - Grouped session: defaults to root, Tab toggles to subgroup
+		// - Ungrouped item: root only, no toggle
 		if h.cursor < len(h.flatItems) {
 			item := h.flatItems[h.cursor]
 			if item.Type == session.ItemTypeGroup {
-				parentPath = item.Group.Path
-				parentName = item.Group.Name
+				// On group header: default to subgroup mode
+				h.groupDialog.ShowCreateWithContext(item.Group.Path, item.Group.Name)
 			} else if item.Type == session.ItemTypeSession && item.Session != nil && item.Session.GroupPath != "" {
-				parentPath = item.Session.GroupPath
-				parentName = parentPath
-				if idx := strings.LastIndex(parentPath, "/"); idx >= 0 {
-					parentName = parentPath[idx+1:]
+				// On grouped session: default to root, Tab toggles to subgroup
+				gPath := item.Session.GroupPath
+				gName := gPath
+				if idx := strings.LastIndex(gPath, "/"); idx >= 0 {
+					gName = gPath[idx+1:]
 				}
+				h.groupDialog.ShowCreateWithContextDefaultRoot(gPath, gName)
+			} else {
+				// Ungrouped: root only, no toggle
+				h.groupDialog.ShowCreateWithContext("", "")
 			}
+		} else {
+			h.groupDialog.ShowCreateWithContext("", "")
 		}
-		h.groupDialog.ShowCreateWithContext(parentPath, parentName)
 		return h, nil
 
 	case "r":

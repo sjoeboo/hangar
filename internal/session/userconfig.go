@@ -1258,6 +1258,24 @@ default_tool = "claude"
 # dangerous_mode = true
 # dangerous_flag = "--dangerously-skip-permissions"
 # env = { ANTHROPIC_BASE_URL = "https://api.example.com/v4", API_KEY = "your-key" }
+
+# ============================================================================
+# Status Detection Pattern Overrides (Advanced)
+# ============================================================================
+# Built-in tools (claude, gemini, opencode, codex) have default detection
+# patterns that work out of the box. You can extend them with *_extra fields
+# (appended to defaults) or replace them entirely with the base fields.
+# Patterns prefixed with "re:" are compiled as regex.
+#
+# Extend defaults (recommended):
+# [tools.claude]
+# busy_patterns_extra = ["my custom busy text", "re:custom.*regex"]
+# prompt_patterns_extra = ["Custom>"]
+# spinner_chars_extra = ["@"]
+#
+# Replace all defaults (use with caution):
+# [tools.claude]
+# busy_patterns = ["only-this-pattern"]
 `
 
 	// Add platform-aware MCP pool section
