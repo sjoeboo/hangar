@@ -5,6 +5,18 @@ All notable changes to Agent Deck will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.6] - 2026-02-03
+
+### Fixed
+
+- **TUI freezes with 40+ sessions**: Parallel status polling replaces sequential loop that couldn't complete within 2s tick
+  - 10-worker pool via errgroup for concurrent tmux status checks
+  - Instance-level RWMutex prevents data races between background worker and TUI rendering
+  - Tiered polling skips idle sessions with no activity (10s recheck gate)
+  - 3-second timeout on CapturePane/GetWindowActivity prevents hung tmux calls from blocking workers
+  - Timeout preserves previous status instead of flashing RED
+  - Race detector (`-race`) enabled in tests and CI
+
 ## [0.10.5] - 2026-02-03
 
 ### Fixed
