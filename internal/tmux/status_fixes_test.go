@@ -757,6 +757,161 @@ func TestClaudeCode2125_SpinnerActiveRegex(t *testing.T) {
 	}
 }
 
+// =============================================================================
+// VALIDATION 7.0: Opencode Status Detection (#129)
+// =============================================================================
+// Bug: Opencode TUI elements (┃, Build, Plan) are always visible, so HasPrompt
+// returned true even when opencode was busy processing. This caused GetStatus()
+// to take the prompt path (which respects acknowledged flag) and lock into idle.
+//
+// Fix: Comprehensive busy guard using opencode's actual UI signals:
+//   - "esc interrupt" / "esc to exit" in help bar (cancel action)
+//   - Pulse spinner chars: █ ▓ ▒ ░ (Bubble Tea spinner.Pulse)
+//   - Task strings: "Thinking...", "Generating...", etc.
+// Idle detection now uses specific patterns ("press enter to send", "Ask anything")
+// instead of overly broad matches like "Build" or "Plan".
+
+func TestOpencodeBusyGuard(t *testing.T) {
+	detector := NewPromptDetector("opencode")
+
+	tests := []struct {
+		name       string
+		content    string
+		wantPrompt bool
+	}{
+		// === BUSY states: HasPrompt must return false ===
+		{
+			name: "busy - esc interrupt with TUI elements",
+			content: `┃ Ask anything
+Build  Plan
+Some output here...
+press esc to exit cancel
+┃`,
+			wantPrompt: false,
+		},
+		{
+			name: "busy - esc interrupt keyword",
+			content: `opencode v1.2.3
+┃ Processing your request...
+esc interrupt
+┃`,
+			wantPrompt: false,
+		},
+		{
+			name: "busy - pulse spinner █ (full block)",
+			content: `┃
+█ Thinking...
+┃`,
+			wantPrompt: false,
+		},
+		{
+			name: "busy - pulse spinner ▓ (dark shade)",
+			content: `┃
+▓ Thinking...
+┃`,
+			wantPrompt: false,
+		},
+		{
+			name: "busy - pulse spinner ▒ (medium shade)",
+			content: `Some output
+▒ Generating...`,
+			wantPrompt: false,
+		},
+		{
+			name: "busy - pulse spinner ░ (light shade)",
+			content: `░ Waiting for tool response...`,
+			wantPrompt: false,
+		},
+		{
+			name: "busy - Thinking task text without spinner visible",
+			content: `Some output
+Thinking...
+press enter to send`,
+			wantPrompt: false,
+		},
+		{
+			name: "busy - Generating task text",
+			content: `Generating...`,
+			wantPrompt: false,
+		},
+		{
+			name: "busy - Building tool call text",
+			content: `Building tool call...`,
+			wantPrompt: false,
+		},
+		{
+			name: "busy - Waiting for tool response text",
+			content: `Waiting for tool response...`,
+			wantPrompt: false,
+		},
+		{
+			name: "busy - realistic opencode busy TUI",
+			content: `┃ Some previous conversation                                    ┃
+┃                                                                ┃
+█ Thinking...
+─────────────────────────────────────────────────
+  Build   Plan
+press esc to exit cancel                     ctrl+? help
+┃                                                                ┃`,
+			wantPrompt: false,
+		},
+		// === IDLE states: HasPrompt must return true ===
+		{
+			name: "idle - press enter to send (help bar)",
+			content: `┃ Ask anything
+Build  Plan
+press enter to send the message`,
+			wantPrompt: true,
+		},
+		{
+			name: "idle - Ask anything placeholder",
+			content: `Ask anything`,
+			wantPrompt: true,
+		},
+		{
+			name: "idle - open code logo",
+			content: `open code
+┃ Ask anything`,
+			wantPrompt: true,
+		},
+		{
+			name: "idle - line ending with >",
+			content: `some prompt >`,
+			wantPrompt: true,
+		},
+		{
+			name: "idle - realistic opencode idle TUI",
+			content: `┃ Here is the result of your request.                           ┃
+┃                                                                ┃
+─────────────────────────────────────────────────
+  Build   Plan
+┃ Ask anything                                                   ┃
+press enter to send the message, write \ and enter to add a new line`,
+			wantPrompt: true,
+		},
+		// === Edge cases ===
+		{
+			name: "idle - opencode> prompt (line ending with >)",
+			content: `opencode>`,
+			wantPrompt: true, // Matches hasLineEndingWith(">")
+		},
+		{
+			name: "idle - empty content",
+			content: ``,
+			wantPrompt: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := detector.HasPrompt(tt.content)
+			if got != tt.wantPrompt {
+				t.Errorf("HasPrompt() = %v, want %v\nContent:\n%s", got, tt.wantPrompt, tt.content)
+			}
+		})
+	}
+}
+
 func TestClaudeCode2125_DynamicStatusPattern(t *testing.T) {
 	// Verify the updated dynamicStatusPattern matches new token format with arrows
 	tests := []struct {

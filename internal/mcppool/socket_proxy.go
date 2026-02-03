@@ -401,7 +401,9 @@ func (p *SocketProxy) Stop() error {
 		os.Remove(p.socketPath)
 		log.Printf("[Pool] %s: Stopped owned process and removed socket", p.name)
 	} else {
-		log.Printf("[Pool] %s: Disconnected from external socket (not removing)", p.name)
+		// Clean up external socket files on shutdown to prevent stale sockets
+		os.Remove(p.socketPath)
+		log.Printf("[Pool] %s: Disconnected from external socket and removed stale file", p.name)
 	}
 
 	if p.logWriter != nil {

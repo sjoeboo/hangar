@@ -180,47 +180,6 @@ func main() {
 	// Extract global -p/--profile flag before subcommand dispatch
 	profile, args := extractProfileFlag(os.Args[1:])
 
-	// Detect nested agent-deck session (running inside a managed tmux session)
-	if isNestedSession() {
-		// Allow safe read-only commands
-		if len(args) > 0 {
-			switch args[0] {
-			case "version", "--version", "-v":
-				fmt.Printf("Agent Deck v%s\n", Version)
-				return
-			case "help", "--help", "-h":
-				printHelp()
-				return
-			case "status":
-				handleStatus(profile, args[1:])
-				return
-			case "list", "ls":
-				handleList(profile, args[1:])
-				return
-			case "session":
-				// Allow read-only session subcommands
-				if len(args) > 1 {
-					switch args[1] {
-					case "current", "show", "output":
-						handleSession(profile, args[1:])
-						return
-					}
-				}
-			case "mcp":
-				// Allow read-only mcp subcommands
-				if len(args) > 1 && (args[1] == "list" || args[1] == "attached") {
-					handleMCP(profile, args[1:])
-					return
-				}
-			}
-		}
-		fmt.Fprintln(os.Stderr, "Error: Cannot run agent-deck inside an agent-deck session.")
-		fmt.Fprintln(os.Stderr, "You are already inside a managed session. Use Ctrl+Q to detach first.")
-		fmt.Fprintln(os.Stderr, "")
-		fmt.Fprintln(os.Stderr, "Safe commands that work here: version, help, status, list, session current/show/output, mcp list/attached")
-		os.Exit(1)
-	}
-
 	// Handle subcommands
 	if len(args) > 0 {
 		switch args[0] {
@@ -274,6 +233,22 @@ func main() {
 			handleUninstall(args[1:])
 			return
 		}
+	}
+
+	// Block TUI launch inside a managed session to prevent infinite nesting.
+	// CLI commands (add, session start/stop, mcp attach, etc.) still work fine.
+	if isNestedSession() {
+		fmt.Fprintln(os.Stderr, "Error: Cannot launch the agent-deck TUI inside an agent-deck session.")
+		fmt.Fprintln(os.Stderr, "This would create a recursive nested session.")
+		fmt.Fprintln(os.Stderr, "")
+		fmt.Fprintln(os.Stderr, "CLI commands work inside sessions. For example:")
+		fmt.Fprintln(os.Stderr, "  agent-deck add /path -t \"Title\"    # Add a new session")
+		fmt.Fprintln(os.Stderr, "  agent-deck session start <id>      # Start a session")
+		fmt.Fprintln(os.Stderr, "  agent-deck mcp attach <id> <mcp>   # Attach MCP")
+		fmt.Fprintln(os.Stderr, "  agent-deck list                    # List sessions")
+		fmt.Fprintln(os.Stderr, "")
+		fmt.Fprintln(os.Stderr, "To open the TUI, detach first with Ctrl+Q.")
+		os.Exit(1)
 	}
 
 	// Set version for UI update checking

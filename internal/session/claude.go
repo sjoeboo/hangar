@@ -487,6 +487,20 @@ func isMCPEnabled(name string, settings *ProjectMCPSettings, mode MCPMode) bool 
 	}
 }
 
+// PruneMCPCache removes cache entries older than maxAge to prevent unbounded growth.
+// Called periodically from the TUI tick handler.
+func PruneMCPCache(maxAge time.Duration) {
+	mcpInfoCacheMu.Lock()
+	defer mcpInfoCacheMu.Unlock()
+	now := time.Now()
+	for path, t := range mcpCacheTimes {
+		if now.Sub(t) > maxAge {
+			delete(mcpInfoCache, path)
+			delete(mcpCacheTimes, path)
+		}
+	}
+}
+
 // ClearMCPCache invalidates the MCP cache for a project path and all parent directories
 // This is important because getMCPInfoUncached walks up parent directories to find .mcp.json
 func ClearMCPCache(projectPath string) {

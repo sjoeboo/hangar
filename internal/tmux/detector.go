@@ -37,13 +37,24 @@ func (d *PromptDetector) HasPrompt(content string) bool {
 		return d.hasClaudePrompt(content)
 
 	case "opencode":
-		// OpenCode TUI - look for characteristic UI elements
-		// OpenCode displays a visual TUI with input box, mode indicator, and logo
-		return strings.Contains(content, "Ask anything") || // Input placeholder
-			strings.Contains(content, "┃") || // Input box border characters
-			strings.Contains(content, "open code") || // ASCII logo (with space)
-			strings.Contains(content, "Build") || // Build mode indicator
-			strings.Contains(content, "Plan") || // Plan mode indicator
+		// OpenCode TUI - the UI is always visible (input box, mode tabs, logo),
+		// so we MUST check busy indicators first. If opencode is actively working,
+		// return false to let the busy detector handle status correctly.
+		//
+		// Busy indicators (from opencode source: internal/tui/components/chat/list.go):
+		//   - Help bar shows "esc" when busy (to cancel), vs "enter" when idle (to send)
+		//   - Pulse spinner: █ ▓ ▒ ░ (spinner.Pulse, 125ms cycle)
+		//   - Task strings: "Thinking...", "Generating...", "Building tool call...",
+		//     "Waiting for tool response...", "Loading..."
+		if d.hasOpencodeBusyIndicator(content) {
+			return false
+		}
+		// Idle: check for opencode-specific prompt patterns
+		// "press enter to send" only appears when idle (help bar text)
+		// "Ask anything" is the input placeholder
+		return strings.Contains(content, "press enter to send") ||
+			strings.Contains(content, "Ask anything") ||
+			strings.Contains(content, "open code") ||
 			d.hasLineEndingWith(content, ">")
 
 	case "gemini":
@@ -399,6 +410,39 @@ func (d *PromptDetector) hasShellPrompt(content string) bool {
 		}
 	}
 
+	return false
+}
+
+// hasOpencodeBusyIndicator checks if opencode's TUI shows signs of active processing.
+// OpenCode uses a Bubble Tea TUI with these busy signals:
+//   - Help bar: "esc" to cancel (only during processing)
+//   - Pulse spinner: █ ▓ ▒ ░ (cycles at 125ms)
+//   - Task text: "Thinking...", "Generating...", etc.
+func (d *PromptDetector) hasOpencodeBusyIndicator(content string) bool {
+	// "esc interrupt" or "esc to exit" in help bar = processing
+	if strings.Contains(content, "esc interrupt") || strings.Contains(content, "esc to exit") {
+		return true
+	}
+	// Pulse spinner characters (spinner.Pulse from Bubble Tea)
+	// These only appear on the spinner line when opencode is actively working
+	pulseChars := []string{"█", "▓", "▒", "░"}
+	for _, ch := range pulseChars {
+		if strings.Contains(content, ch) {
+			return true
+		}
+	}
+	// Task text patterns shown next to the spinner
+	busyStrings := []string{
+		"Thinking...",
+		"Generating...",
+		"Building tool call...",
+		"Waiting for tool response...",
+	}
+	for _, s := range busyStrings {
+		if strings.Contains(content, s) {
+			return true
+		}
+	}
 	return false
 }
 

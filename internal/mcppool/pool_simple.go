@@ -348,7 +348,8 @@ func (p *Pool) DiscoverExistingSockets() int {
 
 		// Check if socket is alive (owned by another instance)
 		if !isSocketAliveCheck(socketPath) {
-			log.Printf("[Pool] Socket %s exists but not alive, skipping", name)
+			log.Printf("[Pool] Socket %s exists but not alive, removing stale file", name)
+			os.Remove(socketPath)
 			continue
 		}
 

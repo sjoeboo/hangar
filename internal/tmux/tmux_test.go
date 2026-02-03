@@ -139,10 +139,14 @@ func TestPromptDetector(t *testing.T) {
 		content  string
 		expected bool
 	}{
-		{"Ask anything... \"What is the tech stack\"", true},
-		{"┃  hello", true},
-		{"Build  Big Pickle  OpenCode Zen", true},
-		{"Plan mode indicator", true},
+		{"Ask anything... \"What is the tech stack\"", true},                                             // Input placeholder
+		{"press enter to send the message, write \\ and enter to add a new line", true},                  // Idle help bar
+		{"open code\n┃ Ask anything", true},                                                              // Logo + input placeholder
+		{"some prompt >", true},                                                                          // Line ending with >
+		{"█ Thinking...", false},                                                                         // Busy: pulse spinner
+		{"press esc to exit cancel", false},                                                              // Busy: esc help bar
+		{"┃  hello", false},                                                                              // Just pipe char (no idle-specific pattern)
+		{"Build  Big Pickle  OpenCode Zen", false},                                                       // No idle-specific pattern
 	}
 
 	for _, tt := range opencodeTests {

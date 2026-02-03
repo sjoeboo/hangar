@@ -32,16 +32,7 @@ func SetVersion(v string) {
 	Version = v
 }
 
-// Terminal escape sequences for smooth transitions
 const (
-	// Synchronized output (DEC mode 2026) - batches screen updates for atomic rendering
-	// Supported by iTerm2, kitty, Alacritty, WezTerm, and other modern terminals
-	syncOutputBegin = "\x1b[?2026h"
-	syncOutputEnd   = "\x1b[?2026l"
-
-	// Screen clear + cursor home
-	clearScreen = "\033[2J\033[H"
-
 	// tickInterval for UI refresh and status updates
 	// Background worker polls at 2s intervals for status detection
 	// At 2s: 2-5 CapturePane() calls/sec = minimal CPU overhead
@@ -1064,6 +1055,9 @@ func (h *Home) pruneAnalyticsCache() {
 		}
 	}
 	h.logActivityMu.Unlock()
+
+	// Prune MCP info cache (entries older than 10 minutes)
+	session.PruneMCPCache(maxAge)
 }
 
 // setError sets an error with timestamp for auto-dismiss
@@ -1451,8 +1445,18 @@ func (h *Home) backgroundStatusUpdate() {
 		}
 	}()
 
+	debug := os.Getenv("AGENTDECK_DEBUG") != ""
+	totalStart := time.Now()
+
 	// Refresh tmux session cache
+	refreshStart := time.Now()
 	tmux.RefreshExistingSessions()
+	if debug {
+		refreshDur := time.Since(refreshStart)
+		if refreshDur > 100*time.Millisecond {
+			log.Printf("[PERF] RefreshExistingSessions took %v (slow!)", refreshDur)
+		}
+	}
 
 	// Get instances snapshot
 	h.instancesMu.RLock()
@@ -1478,13 +1482,29 @@ func (h *Home) backgroundStatusUpdate() {
 	}
 
 	// Update status for all instances (background can be more thorough)
+	statusStart := time.Now()
 	statusChanged := false
+	var slowSessions []string
 	for _, inst := range instances {
 		oldStatus := inst.Status
+		instStart := time.Now()
 		_ = inst.UpdateStatus()
+		instDur := time.Since(instStart)
+		if debug && instDur > 50*time.Millisecond {
+			slowSessions = append(slowSessions, fmt.Sprintf("%s=%v", inst.Title, instDur.Round(time.Millisecond)))
+		}
 		if inst.Status != oldStatus {
 			statusChanged = true
 			log.Printf("[BACKGROUND] Status changed: %s %s -> %s", inst.Title, oldStatus, inst.Status)
+		}
+	}
+	if debug {
+		statusDur := time.Since(statusStart)
+		if statusDur > 500*time.Millisecond {
+			log.Printf("[PERF] Status update loop: %v for %d sessions", statusDur.Round(time.Millisecond), len(instances))
+			if len(slowSessions) > 0 {
+				log.Printf("[PERF] Slow sessions (>50ms): %s", strings.Join(slowSessions, ", "))
+			}
 		}
 	}
 
@@ -1495,7 +1515,21 @@ func (h *Home) backgroundStatusUpdate() {
 
 	// Always sync notification bar - must check for signal file (Ctrl+b N acknowledgments)
 	// even when no status changes occurred
+	notifStart := time.Now()
 	h.syncNotificationsBackground()
+
+	if debug {
+		totalDur := time.Since(totalStart)
+		notifDur := time.Since(notifStart)
+		if totalDur > 1*time.Second {
+			log.Printf("[PERF] ⚠ backgroundStatusUpdate SLOW: total=%v (status=%v, notif=%v, refresh=%v) sessions=%d",
+				totalDur.Round(time.Millisecond),
+				time.Since(statusStart).Round(time.Millisecond),
+				notifDur.Round(time.Millisecond),
+				time.Since(totalStart).Round(time.Millisecond)-time.Since(statusStart).Round(time.Millisecond),
+				len(instances))
+		}
+	}
 }
 
 // syncNotificationsBackground updates the tmux notification bar directly
@@ -4279,8 +4313,9 @@ skipSave:
 		// causing a blank screen on return from attached session
 		h.isAttaching.Store(false) // Atomic store for thread safety
 
-		// Clear screen with synchronized output for atomic rendering
-		fmt.Print(syncOutputBegin + clearScreen + syncOutputEnd)
+		// NOTE: No manual screen clear here. Bubble Tea's RestoreTerminal()
+		// re-enters alt screen which handles clearing. Direct fmt.Print
+		// of escape codes races with the Bubble Tea renderer.
 
 		// Update last accessed time to detach time (more accurate than attach time)
 		inst.MarkAccessed()
@@ -4478,12 +4513,11 @@ func (h *Home) renderFilterBar() string {
 	hintStyle := lipgloss.NewStyle().Foreground(ColorComment).Faint(true)
 	hint := hintStyle.Render("  !@#$ filter • 0 all")
 
-	// Join pills with spaces
-	filterRow := strings.Join(pills, " ") + hint
+	// Join pills with spaces (leading space replaces Padding)
+	filterRow := " " + strings.Join(pills, " ") + hint
 
 	return lipgloss.NewStyle().
-		Width(h.width).
-		Padding(0, 1).
+		MaxWidth(h.width).
 		Render(filterRow)
 }
 
@@ -4643,7 +4677,7 @@ func (h *Home) View() string {
 
 	headerBar := lipgloss.NewStyle().
 		Background(ColorSurface).
-		Width(h.width).
+		MaxWidth(h.width).
 		Padding(0, 1).
 		Render(headerContent)
 
@@ -4668,7 +4702,7 @@ func (h *Home) View() string {
 			Foreground(ColorBg).
 			Background(ColorYellow).
 			Bold(true).
-			Width(h.width).
+			MaxWidth(h.width).
 			Align(lipgloss.Center)
 		updateText := fmt.Sprintf(" ⬆ Update available: v%s → v%s (run: agent-deck update) ",
 			h.updateInfo.CurrentVersion, h.updateInfo.LatestVersion)
@@ -4686,7 +4720,7 @@ func (h *Home) View() string {
 			Foreground(ColorBg).
 			Background(ColorCyan).
 			Bold(true).
-			Width(h.width).
+			MaxWidth(h.width).
 			Align(lipgloss.Center)
 		b.WriteString(maintStyle.Render(" " + h.maintenanceMsg + " "))
 		b.WriteString("\n")
@@ -5440,7 +5474,8 @@ func (h *Home) renderHelpBarTiny() string {
 	}
 	content := strings.Repeat(" ", padding) + hint
 
-	return lipgloss.JoinVertical(lipgloss.Left, border, content)
+	raw := lipgloss.JoinVertical(lipgloss.Left, border, content)
+	return lipgloss.NewStyle().MaxWidth(h.width).Render(raw)
 }
 
 // renderHelpBarMinimal renders keys-only help for narrow terminals (50-69 cols)
@@ -5484,12 +5519,15 @@ func (h *Home) renderHelpBarMinimal() string {
 	rightPart := globalKeys
 	padding := h.width - lipgloss.Width(leftPart) - lipgloss.Width(rightPart) - 4
 	if padding < 2 {
+		// Content too wide for one line — drop right part to avoid overflow
 		padding = 2
+		rightPart = ""
 	}
 
 	content := leftPart + sep + strings.Repeat(" ", padding) + rightPart
 
-	return lipgloss.JoinVertical(lipgloss.Left, border, content)
+	raw := lipgloss.JoinVertical(lipgloss.Left, border, content)
+	return lipgloss.NewStyle().MaxWidth(h.width).Render(raw)
 }
 
 // renderHelpBarCompact renders abbreviated help for medium terminals (70-99 cols)
@@ -5548,12 +5586,15 @@ func (h *Home) renderHelpBarCompact() string {
 	rightPart := globalHints
 	padding := h.width - lipgloss.Width(leftPart) - lipgloss.Width(rightPart) - 4
 	if padding < 2 {
+		// Content too wide for one line — drop right part to avoid overflow
 		padding = 2
+		rightPart = ""
 	}
 
 	content := leftPart + sep + strings.Repeat(" ", padding) + rightPart
 
-	return lipgloss.JoinVertical(lipgloss.Left, border, content)
+	raw := lipgloss.JoinVertical(lipgloss.Left, border, content)
+	return lipgloss.NewStyle().MaxWidth(h.width).Render(raw)
 }
 
 // helpKeyShort formats a compact keyboard shortcut (no padding)
@@ -5681,12 +5722,15 @@ func (h *Home) renderHelpBarFull() string {
 	rightPart := globalHints
 	padding := h.width - lipgloss.Width(leftPart) - lipgloss.Width(rightPart) - spacingNormal
 	if padding < spacingNormal {
+		// Content too wide for one line — drop right part to avoid overflow
 		padding = spacingNormal
+		rightPart = ""
 	}
 
 	helpContent := leftPart + strings.Repeat(" ", padding) + rightPart
 
-	return lipgloss.JoinVertical(lipgloss.Left, border, helpContent)
+	raw := lipgloss.JoinVertical(lipgloss.Left, border, helpContent)
+	return lipgloss.NewStyle().MaxWidth(h.width).Render(raw)
 }
 
 // helpKey formats a keyboard shortcut for the help bar
