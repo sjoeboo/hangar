@@ -5,6 +5,16 @@ All notable changes to Agent Deck will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.10] - 2026-02-04
+
+### Added
+
+- Add configurable worktree path templates via `path_template` config option (#135, contributed by @peteski22)
+  - Template variables: `{repo-name}`, `{repo-root}`, `{branch}`, `{session-id}`
+  - Overrides `default_location` when set; falls back to existing behavior when unset
+  - Integrated at all 4 worktree creation points (CLI add, CLI fork, TUI new session, TUI fork)
+  - Backported from [njbrake/agent-of-empires](https://github.com/njbrake/agent-of-empires)
+
 ## [0.10.9] - 2026-02-03
 
 ### Removed
