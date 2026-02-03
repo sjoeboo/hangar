@@ -180,6 +180,47 @@ func main() {
 	// Extract global -p/--profile flag before subcommand dispatch
 	profile, args := extractProfileFlag(os.Args[1:])
 
+	// Detect nested agent-deck session (running inside a managed tmux session)
+	if isNestedSession() {
+		// Allow safe read-only commands
+		if len(args) > 0 {
+			switch args[0] {
+			case "version", "--version", "-v":
+				fmt.Printf("Agent Deck v%s\n", Version)
+				return
+			case "help", "--help", "-h":
+				printHelp()
+				return
+			case "status":
+				handleStatus(profile, args[1:])
+				return
+			case "list", "ls":
+				handleList(profile, args[1:])
+				return
+			case "session":
+				// Allow read-only session subcommands
+				if len(args) > 1 {
+					switch args[1] {
+					case "current", "show", "output":
+						handleSession(profile, args[1:])
+						return
+					}
+				}
+			case "mcp":
+				// Allow read-only mcp subcommands
+				if len(args) > 1 && (args[1] == "list" || args[1] == "attached") {
+					handleMCP(profile, args[1:])
+					return
+				}
+			}
+		}
+		fmt.Fprintln(os.Stderr, "Error: Cannot run agent-deck inside an agent-deck session.")
+		fmt.Fprintln(os.Stderr, "You are already inside a managed session. Use Ctrl+Q to detach first.")
+		fmt.Fprintln(os.Stderr, "")
+		fmt.Fprintln(os.Stderr, "Safe commands that work here: version, help, status, list, session current/show/output, mcp list/attached")
+		os.Exit(1)
+	}
+
 	// Handle subcommands
 	if len(args) > 0 {
 		switch args[0] {
@@ -487,7 +528,7 @@ func handleAdd(profile string, args []string) {
 	worktreeBranchLong := fs.String("worktree", "", "Create session in git worktree for branch")
 	newBranch := fs.Bool("b", false, "Create new branch (use with --worktree)")
 	newBranchLong := fs.Bool("new-branch", false, "Create new branch")
-	worktreeLocation := fs.String("location", "", "Worktree location: sibling, subdirectory")
+	worktreeLocation := fs.String("location", "", "Worktree location: sibling, subdirectory, or custom path")
 
 	// MCP flag - can be specified multiple times
 	var mcpFlags []string
@@ -2076,6 +2117,12 @@ func handleUninstall(args []string) {
 	fmt.Println()
 	fmt.Println("Thank you for using Agent Deck!")
 	fmt.Println("Feedback: https://github.com/asheshgoplani/agent-deck/issues")
+}
+
+// isNestedSession returns true if we're running inside an agent-deck managed tmux session.
+// Uses GetCurrentSessionID() which checks if the current tmux session name matches agentdeck_*.
+func isNestedSession() bool {
+	return GetCurrentSessionID() != ""
 }
 
 // formatSize formats bytes into human-readable size
