@@ -65,6 +65,7 @@ type InstanceData struct {
 	Order           int       `json:"order"`
 	ParentSessionID string    `json:"parent_session_id,omitempty"` // Links to parent session (sub-session support)
 	Command         string    `json:"command"`
+	Wrapper         string    `json:"wrapper,omitempty"`
 	Tool            string    `json:"tool"`
 	Status          Status    `json:"status"`
 	CreatedAt       time.Time `json:"created_at"`
@@ -220,6 +221,7 @@ func (s *Storage) SaveWithGroups(instances []*Instance, groupTree *GroupTree) er
 			Order:              inst.Order,
 			ParentSessionID:    inst.ParentSessionID,
 			Command:            inst.Command,
+			Wrapper:            inst.Wrapper,
 			Tool:               inst.Tool,
 			Status:             inst.Status,
 			CreatedAt:          inst.CreatedAt,
@@ -558,6 +560,7 @@ func (s *Storage) convertToInstances(data *StorageData) ([]*Instance, []*GroupDa
 			Order:              instData.Order,
 			ParentSessionID:    instData.ParentSessionID,
 			Command:            instData.Command,
+			Wrapper:            instData.Wrapper,
 			Tool:               instData.Tool,
 			Status:             instData.Status,
 			CreatedAt:          instData.CreatedAt,

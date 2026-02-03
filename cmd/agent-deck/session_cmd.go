@@ -101,6 +101,7 @@ func printSessionHelp() {
 	fmt.Println("  path               Project path")
 	fmt.Println("  command            Command to run")
 	fmt.Println("  tool               Tool type (claude, gemini, shell, etc.)")
+	fmt.Println("  wrapper            Wrapper command (use {command} to include tool command)")
 	fmt.Println("  claude-session-id  Claude conversation ID (for fork/resume)")
 	fmt.Println("  gemini-session-id  Gemini conversation ID (for resume)")
 	fmt.Println()
@@ -108,6 +109,7 @@ func printSessionHelp() {
 	fmt.Println("  agent-deck session set my-project title \"New Title\"")
 	fmt.Println("  agent-deck session set my-project claude-session-id \"abc123-def456\"")
 	fmt.Println("  agent-deck session set my-project tool claude")
+	fmt.Println("  agent-deck session set my-project wrapper \"nvim +'terminal {command}'\"")
 }
 
 // handleSessionStart starts a session's tmux process
@@ -773,6 +775,7 @@ func handleSessionSet(profile string, args []string) {
 		fmt.Println("  path               Project path")
 		fmt.Println("  command            Command to run")
 		fmt.Println("  tool               Tool type (claude, gemini, shell, etc.)")
+		fmt.Println("  wrapper            Wrapper command (use {command} to include tool command)")
 		fmt.Println("  claude-session-id  Claude conversation ID")
 		fmt.Println("  gemini-session-id  Gemini conversation ID")
 		fmt.Println()
@@ -783,6 +786,7 @@ func handleSessionSet(profile string, args []string) {
 		fmt.Println("  agent-deck session set my-project title \"New Title\"")
 		fmt.Println("  agent-deck session set my-project claude-session-id \"abc123-def456\"")
 		fmt.Println("  agent-deck session set my-project path /new/path/to/project")
+		fmt.Println("  agent-deck session set my-project wrapper \"nvim +'terminal {command}'\"")
 	}
 
 	if err := fs.Parse(args); err != nil {
@@ -806,12 +810,13 @@ func handleSessionSet(profile string, args []string) {
 		"path":               true,
 		"command":            true,
 		"tool":               true,
+		"wrapper":            true,
 		"claude-session-id":  true,
 		"gemini-session-id":  true,
 	}
 
 	if !validFields[field] {
-		out.Error(fmt.Sprintf("invalid field: %s\nValid fields: title, path, command, tool, claude-session-id, gemini-session-id", field), ErrCodeInvalidOperation)
+		out.Error(fmt.Sprintf("invalid field: %s\nValid fields: title, path, command, tool, wrapper, claude-session-id, gemini-session-id", field), ErrCodeInvalidOperation)
 		os.Exit(1)
 	}
 
@@ -851,6 +856,9 @@ func handleSessionSet(profile string, args []string) {
 	case "tool":
 		oldValue = inst.Tool
 		inst.Tool = value
+	case "wrapper":
+		oldValue = inst.Wrapper
+		inst.Wrapper = value
 	case "claude-session-id":
 		oldValue = inst.ClaudeSessionID
 		inst.ClaudeSessionID = value

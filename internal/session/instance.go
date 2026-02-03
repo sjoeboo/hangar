@@ -32,6 +32,8 @@ const (
 	StatusStarting Status = "starting" // Session is being created (tmux initializing)
 )
 
+const wrapperPlaceholder = "{command}"
+
 // Instance represents a single agent/shell session
 type Instance struct {
 	ID                string `json:"id"`
@@ -48,6 +50,7 @@ type Instance struct {
 	WorktreeBranch   string `json:"worktree_branch,omitempty"`    // Branch name in worktree
 
 	Command        string    `json:"command"`
+	Wrapper        string    `json:"wrapper,omitempty"` // Optional wrapper command with {command} placeholder
 	Tool           string    `json:"tool"`
 	Status         Status    `json:"status"`
 	CreatedAt      time.Time `json:"created_at"`
@@ -988,6 +991,22 @@ func (i *Instance) CanRestartGeneric() bool {
 	return i.GetGenericSessionID() != ""
 }
 
+func (i *Instance) applyWrapper(command string) (string, error) {
+	wrapper := i.Wrapper
+	if wrapper == "" {
+		if toolDef := GetToolDef(i.Tool); toolDef != nil {
+			wrapper = toolDef.Wrapper
+		}
+	}
+	if wrapper == "" {
+		return command, nil
+	}
+	if strings.Contains(wrapper, wrapperPlaceholder) {
+		return strings.ReplaceAll(wrapper, wrapperPlaceholder, command), nil
+	}
+	return wrapper, nil
+}
+
 // loadCustomPatternsFromConfig loads detection patterns from built-in defaults + config.toml
 // overrides, and sets them on the tmux session for status detection and tool auto-detection.
 // Works for ALL tools: built-in (claude, gemini, opencode, codex) and custom.
@@ -1043,6 +1062,12 @@ func (i *Instance) Start() error {
 		} else {
 			command = i.Command
 		}
+	}
+
+	var err error
+	command, err = i.applyWrapper(command)
+	if err != nil {
+		return err
 	}
 
 	// Load custom patterns for status detection
@@ -1110,6 +1135,12 @@ func (i *Instance) StartWithMessage(message string) error {
 		} else {
 			command = i.Command
 		}
+	}
+
+	var err error
+	command, err = i.applyWrapper(command)
+	if err != nil {
+		return err
 	}
 
 	// Load custom patterns for status detection
@@ -2216,6 +2247,10 @@ func (i *Instance) Restart() error {
 	if i.Tool == "claude" && i.ClaudeSessionID != "" && i.tmuxSession != nil && i.tmuxSession.Exists() {
 		// Build the resume command with proper config
 		resumeCmd := i.buildClaudeResumeCommand()
+		resumeCmd, err := i.applyWrapper(resumeCmd)
+		if err != nil {
+			return err
+		}
 		log.Printf("[MCP-DEBUG] Using respawn-pane with command: %s", resumeCmd)
 
 		// Use respawn-pane for atomic restart
@@ -2245,6 +2280,10 @@ func (i *Instance) Restart() error {
 	// If Gemini session with known ID AND tmux session exists, use respawn-pane
 	if i.Tool == "gemini" && i.GeminiSessionID != "" && i.tmuxSession != nil && i.tmuxSession.Exists() {
 		resumeCmd := i.buildGeminiCommand("gemini")
+		resumeCmd, err := i.applyWrapper(resumeCmd)
+		if err != nil {
+			return err
+		}
 		log.Printf("[RESTART-DEBUG] Gemini using respawn-pane with command: %s", resumeCmd)
 
 		if err := i.tmuxSession.RespawnPane(resumeCmd); err != nil {
@@ -2279,6 +2318,10 @@ func (i *Instance) Restart() error {
 			resumeCmd = "opencode"
 			// Re-record start time for async detection
 			i.OpenCodeStartedAt = time.Now().UnixMilli()
+		}
+		resumeCmd, err := i.applyWrapper(resumeCmd)
+		if err != nil {
+			return err
 		}
 		log.Printf("[RESTART-DEBUG] OpenCode using respawn-pane with command: %s", resumeCmd)
 
@@ -2325,6 +2368,10 @@ func (i *Instance) Restart() error {
 			// Re-record start time for async detection
 			i.CodexStartedAt = time.Now().UnixMilli()
 		}
+		resumeCmd, err := i.applyWrapper(resumeCmd)
+		if err != nil {
+			return err
+		}
 		log.Printf("[RESTART-DEBUG] Codex using respawn-pane with command: %s", resumeCmd)
 
 		if err := i.tmuxSession.RespawnPane(resumeCmd); err != nil {
@@ -2357,6 +2404,10 @@ func (i *Instance) Restart() error {
 			resumeCmd = fmt.Sprintf("tmux set-environment %s %s && %s %s %s",
 				toolDef.SessionIDEnv, sessionID,
 				i.Command, toolDef.ResumeFlag, sessionID)
+		}
+		resumeCmd, err := i.applyWrapper(resumeCmd)
+		if err != nil {
+			return err
 		}
 
 		log.Printf("[RESTART-DEBUG] Generic tool '%s' using respawn-pane with command: %s", i.Tool, resumeCmd)
@@ -2414,6 +2465,10 @@ func (i *Instance) Restart() error {
 				command = i.Command
 			}
 		}
+	}
+	command, err := i.applyWrapper(command)
+	if err != nil {
+		return err
 	}
 
 	// Load custom patterns for status detection (for custom tools)
@@ -2641,6 +2696,10 @@ func (i *Instance) ForkWithOptions(newTitle, newGroupPath string, opts *ClaudeOp
 			`%sclaude --session-id "$session_id" --resume %s --fork-session%s`,
 		workDir,
 		bashExportPrefix, i.ClaudeSessionID, extraFlags)
+	cmd, err := i.applyWrapper(cmd)
+	if err != nil {
+		return "", err
+	}
 
 	return cmd, nil
 }
