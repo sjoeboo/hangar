@@ -2,6 +2,7 @@ package git
 
 import (
 	"path/filepath"
+	"regexp"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -373,5 +374,26 @@ func TestWorktreePath(t *testing.T) {
 		// Falls back to GenerateWorktreePath.
 		expected := "..-feature-branch"
 		require.Equal(t, expected, result)
+	})
+}
+
+func TestGeneratePathID(t *testing.T) {
+	t.Parallel()
+
+	t.Run("returns 8-character hex string", func(t *testing.T) {
+		t.Parallel()
+		id := GeneratePathID()
+		require.Len(t, id, 8)
+		require.Regexp(t, regexp.MustCompile(`^[0-9a-f]{8}$`), id)
+	})
+
+	t.Run("generates unique IDs", func(t *testing.T) {
+		t.Parallel()
+		seen := make(map[string]bool)
+		for range 100 {
+			id := GeneratePathID()
+			require.False(t, seen[id], "duplicate ID generated: %s", id)
+			seen[id] = true
+		}
 	})
 }

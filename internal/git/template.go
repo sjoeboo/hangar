@@ -1,6 +1,8 @@
 package git
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -98,4 +100,12 @@ func WorktreePath(opts WorktreePathOptions) string {
 		sessionID: opts.SessionID,
 	}
 	return resolveTemplate(opts.Template, vars)
+}
+
+// GeneratePathID returns an 8-character random hex string for path uniqueness.
+// Used to provide a unique identifier in worktree path templates via {session-id}.
+func GeneratePathID() string {
+	b := make([]byte, 4)
+	_, _ = rand.Read(b)
+	return hex.EncodeToString(b)
 }
