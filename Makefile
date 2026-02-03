@@ -1,4 +1,4 @@
-.PHONY: build run install clean dev release test fmt lint
+.PHONY: build run install clean dev release release-local test fmt lint
 
 BINARY_NAME=agent-deck
 BUILD_DIR=./build
@@ -60,9 +60,32 @@ lint:
 	@which golangci-lint > /dev/null || go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
 	golangci-lint run
 
-# Build for all platforms
+# Build for all platforms (dev use only)
 release: clean
 	GOOS=darwin GOARCH=amd64 go build $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME)-darwin-amd64 ./cmd/agent-deck
 	GOOS=darwin GOARCH=arm64 go build $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME)-darwin-arm64 ./cmd/agent-deck
 	GOOS=linux GOARCH=amd64 go build $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME)-linux-amd64 ./cmd/agent-deck
-	@echo "✅ Built releases in $(BUILD_DIR)/"
+	@echo "Built releases in $(BUILD_DIR)/"
+
+# Local release using GoReleaser (when GitHub Actions is unavailable)
+# Prerequisites: brew install goreleaser
+# Required env: GITHUB_TOKEN, HOMEBREW_TAP_GITHUB_TOKEN
+release-local:
+	@echo "=== Pre-flight checks ==="
+	@which goreleaser > /dev/null || (echo "ERROR: goreleaser not found. Run: brew install goreleaser" && exit 1)
+	@test -n "$$GITHUB_TOKEN" || (echo "ERROR: GITHUB_TOKEN not set" && exit 1)
+	@test -n "$$HOMEBREW_TAP_GITHUB_TOKEN" || (echo "ERROR: HOMEBREW_TAP_GITHUB_TOKEN not set" && exit 1)
+	@TAG=$$(git describe --tags --exact-match 2>/dev/null) || (echo "ERROR: HEAD is not tagged. Run: git tag vX.Y.Z" && exit 1); \
+	CODE_VERSION=$$(grep 'const Version' cmd/agent-deck/main.go | sed 's/.*"\(.*\)".*/\1/'); \
+	TAG_VERSION=$${TAG#v}; \
+	if [ "$$TAG_VERSION" != "$$CODE_VERSION" ]; then \
+		echo "ERROR: Tag $$TAG ($$TAG_VERSION) != code Version $$CODE_VERSION"; \
+		exit 1; \
+	fi; \
+	echo "Version: $$CODE_VERSION"
+	@echo "=== Running tests ==="
+	go test -race ./...
+	@echo "=== Running GoReleaser ==="
+	goreleaser release --clean
+	@echo "=== Release complete ==="
+	@echo "Verify: gh release view $$(git describe --tags --exact-match) --repo asheshgoplani/agent-deck"
