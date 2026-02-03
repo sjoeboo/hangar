@@ -493,6 +493,7 @@ func handleAdd(profile string, args []string) {
 	groupShort := fs.String("g", "", "Group path (short)")
 	command := fs.String("cmd", "", "Command to run (e.g., 'claude', 'opencode')")
 	commandShort := fs.String("c", "", "Command to run (short)")
+	wrapper := fs.String("wrapper", "", "Wrapper command (use {command} to include tool command, e.g., 'nvim +\"terminal {command}\"')")
 	parent := fs.String("parent", "", "Parent session (creates sub-session, inherits group)")
 	parentShort := fs.String("p", "", "Parent session (short)")
 	jsonOutput := fs.Bool("json", false, "Output as JSON")
@@ -532,6 +533,7 @@ func handleAdd(profile string, args []string) {
 		fmt.Println("  agent-deck -p work add               # Add to 'work' profile")
 		fmt.Println("  agent-deck add -t \"Sub-task\" --parent \"Main Project\"  # Create sub-session")
 		fmt.Println("  agent-deck add -t \"Research\" -c claude --mcp memory --mcp sequential-thinking /tmp/x")
+		fmt.Println("  agent-deck add -c opencode --wrapper \"nvim +'terminal {command}' +'startinsert'\" .")
 		fmt.Println()
 		fmt.Println("Worktree Examples:")
 		fmt.Println("  agent-deck add -w feature/login .    # Create worktree for existing branch")
@@ -739,6 +741,11 @@ func handleAdd(profile string, args []string) {
 		} else {
 			newInstance.Command = sessionCommand
 		}
+	}
+
+	// Set wrapper if provided
+	if *wrapper != "" {
+		newInstance.Wrapper = *wrapper
 	}
 
 	// Set worktree fields if created

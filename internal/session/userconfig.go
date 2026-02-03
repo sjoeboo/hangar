@@ -420,6 +420,11 @@ type ToolDef struct {
 	// Command is the shell command to run
 	Command string `toml:"command"`
 
+	// Wrapper is an optional command that wraps the tool command.
+	// Use {command} placeholder to include the tool command, or omit it to replace the command.
+	// Example: wrapper = "nvim +'terminal {command}' +'startinsert'"
+	Wrapper string `toml:"wrapper"`
+
 	// Icon is the emoji/symbol to display
 	Icon string `toml:"icon"`
 
