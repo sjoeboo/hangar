@@ -229,6 +229,15 @@ func (p *SocketProxy) acceptConnections() {
 
 func (p *SocketProxy) handleClient(sessionID string, conn net.Conn) {
 	defer func() {
+		// Clean up orphaned request map entries for this client
+		p.requestMu.Lock()
+		for id, sid := range p.requestMap {
+			if sid == sessionID {
+				delete(p.requestMap, id)
+			}
+		}
+		p.requestMu.Unlock()
+
 		p.clientsMu.Lock()
 		delete(p.clients, sessionID)
 		p.clientsMu.Unlock()
@@ -305,6 +314,11 @@ func (p *SocketProxy) closeAllClientsOnFailure() {
 	}
 	p.clients = make(map[string]net.Conn)
 	p.clientsMu.Unlock()
+
+	// Clear all orphaned request mappings
+	p.requestMu.Lock()
+	p.requestMap = make(map[interface{}]string)
+	p.requestMu.Unlock()
 }
 
 func (p *SocketProxy) routeToClient(responseID interface{}, line []byte) {

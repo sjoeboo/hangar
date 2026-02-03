@@ -207,6 +207,13 @@ func (b *ContentBuffer) With(fn func(data, lower []byte)) {
 	b.mu.RUnlock()
 }
 
+// Size returns the total memory used by this buffer (data + lowercased copy)
+func (b *ContentBuffer) Size() int64 {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	return int64(len(b.data) + len(b.lower))
+}
+
 func (b *ContentBuffer) CopyData() []byte {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
@@ -484,6 +491,10 @@ type GlobalSearchIndex struct {
 	cancel context.CancelFunc
 	wg     sync.WaitGroup
 
+	// Memory tracking for content buffers
+	currentMemoryBytes atomic.Int64
+	memoryLimitBytes   int64
+
 	// Query cache for balanced tier narrowing
 	lastQuery   string
 	lastResults []*SearchResult
@@ -514,13 +525,20 @@ func NewGlobalSearchIndex(claudeDir string, config GlobalSearchSettings) (*Globa
 
 	ctx, cancel := context.WithCancel(context.Background())
 
+	// Default memory limit: 100MB (applies to instant tier content buffers)
+	memLimitBytes := int64(100 * 1024 * 1024)
+	if config.MemoryLimitMB > 0 {
+		memLimitBytes = int64(config.MemoryLimitMB) * 1024 * 1024
+	}
+
 	idx := &GlobalSearchIndex{
-		config:       config,
-		claudeDir:    claudeDir,
-		fileTrackers: make(map[string]*FileTracker),
-		limiter:      rate.NewLimiter(rate.Limit(config.IndexRateLimit), 5),
-		ctx:          ctx,
-		cancel:       cancel,
+		config:           config,
+		claudeDir:        claudeDir,
+		fileTrackers:     make(map[string]*FileTracker),
+		limiter:          rate.NewLimiter(rate.Limit(config.IndexRateLimit), 5),
+		memoryLimitBytes: memLimitBytes,
+		ctx:              ctx,
+		cancel:           cancel,
 	}
 
 	// Initialize empty entries
@@ -677,6 +695,12 @@ func (idx *GlobalSearchIndex) initialLoad() {
 
 		entry.ModTime = info.ModTime()
 		entry.FileSize = info.Size()
+
+		// Track content memory usage
+		if entry.hasContent() {
+			idx.currentMemoryBytes.Add(entry.content.Size())
+		}
+
 		entries = append(entries, *entry)
 
 		// Track file for incremental updates
@@ -695,6 +719,11 @@ func (idx *GlobalSearchIndex) initialLoad() {
 	// Store entries and mark loading complete
 	idx.entries.Store(&entries)
 	idx.loading.Store(false)
+
+	// Evict oldest entries if over memory limit
+	if idx.currentMemoryBytes.Load() > idx.memoryLimitBytes {
+		idx.evictOldestEntries()
+	}
 }
 
 // isUUIDFileName checks if filename matches UUID pattern
@@ -715,6 +744,12 @@ func (idx *GlobalSearchIndex) watcherLoop() {
 	for {
 		select {
 		case <-idx.ctx.Done():
+			// Stop all pending debounce timers to prevent goroutine leaks
+			debounceMu.Lock()
+			for _, timer := range debounce {
+				timer.Stop()
+			}
+			debounceMu.Unlock()
 			return
 		case event, ok := <-idx.watcher.Events:
 			if !ok {
@@ -850,7 +885,9 @@ func (idx *GlobalSearchIndex) updateFile(path string) {
 			updated.FileSize = entry.FileSize
 
 			if includeContent && entry.hasContent() {
-				updated.appendContent(entry.content.CopyData())
+				newData := entry.content.CopyData()
+				idx.currentMemoryBytes.Add(int64(len(newData) * 2)) // data + lowered copy
+				updated.appendContent(newData)
 			}
 
 			newEntries = append(newEntries, updated)
@@ -860,10 +897,18 @@ func (idx *GlobalSearchIndex) updateFile(path string) {
 		}
 	}
 	if !found {
+		if entry.hasContent() {
+			idx.currentMemoryBytes.Add(entry.content.Size())
+		}
 		newEntries = append(newEntries, *entry)
 	}
 
 	idx.entries.Store(&newEntries)
+
+	// Evict if over memory limit
+	if idx.currentMemoryBytes.Load() > idx.memoryLimitBytes {
+		idx.evictOldestEntries()
+	}
 
 	// Update tracker
 	idx.trackerMu.Lock()
@@ -874,6 +919,62 @@ func (idx *GlobalSearchIndex) updateFile(path string) {
 		LastMod:    info.ModTime(),
 	}
 	idx.trackerMu.Unlock()
+}
+
+// evictOldestEntries frees memory by nil-ing content on the oldest 25% of entries.
+// Evicted entries retain metadata (Summary, CWD, SessionID) so they still appear
+// in results; search just falls back to on-disk scanning for them.
+func (idx *GlobalSearchIndex) evictOldestEntries() {
+	entries := idx.entries.Load()
+	if entries == nil || len(*entries) == 0 {
+		return
+	}
+
+	// Build list of indices that have content, sorted by ModTime (oldest first)
+	type indexedEntry struct {
+		idx     int
+		modTime time.Time
+		size    int64
+	}
+	var withContent []indexedEntry
+	for i := range *entries {
+		e := &(*entries)[i]
+		if e.hasContent() {
+			withContent = append(withContent, indexedEntry{
+				idx:     i,
+				modTime: e.ModTime,
+				size:    e.content.Size(),
+			})
+		}
+	}
+
+	if len(withContent) == 0 {
+		return
+	}
+
+	sort.Slice(withContent, func(i, j int) bool {
+		return withContent[i].modTime.Before(withContent[j].modTime)
+	})
+
+	// Evict oldest 25%
+	evictCount := len(withContent) / 4
+	if evictCount == 0 {
+		evictCount = 1
+	}
+
+	// Make a mutable copy
+	newEntries := make([]SearchEntry, len(*entries))
+	copy(newEntries, *entries)
+
+	var freedBytes int64
+	for i := 0; i < evictCount; i++ {
+		e := &newEntries[withContent[i].idx]
+		freedBytes += withContent[i].size
+		e.content = nil
+	}
+
+	idx.entries.Store(&newEntries)
+	idx.currentMemoryBytes.Add(-freedBytes)
 }
 
 // Search performs a simple substring search
@@ -992,13 +1093,26 @@ func (idx *GlobalSearchIndex) IsLoading() bool {
 	return idx.loading.Load()
 }
 
-// Close shuts down the index
+// Close shuts down the index and releases all memory
 func (idx *GlobalSearchIndex) Close() {
 	idx.cancel()
 	if idx.watcher != nil {
 		idx.watcher.Close()
 	}
 	idx.wg.Wait()
+
+	// Release all content memory
+	emptyEntries := make([]SearchEntry, 0)
+	idx.entries.Store(&emptyEntries)
+	idx.currentMemoryBytes.Store(0)
+
+	// Clear file trackers
+	idx.trackerMu.Lock()
+	idx.fileTrackers = make(map[string]*FileTracker)
+	idx.trackerMu.Unlock()
+
+	// Clear query cache
+	idx.resetQueryCache()
 }
 
 func matchRanges(lower []byte, queryLower []byte) []MatchRange {

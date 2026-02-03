@@ -96,6 +96,18 @@ func (lw *LogWatcher) Start() {
 	}
 }
 
+// PruneLimiters removes rate limiters for sessions not in the active set.
+// This prevents unbounded growth of the limiters map over long-running sessions.
+func (lw *LogWatcher) PruneLimiters(activeNames map[string]bool) {
+	lw.mu.Lock()
+	defer lw.mu.Unlock()
+	for name := range lw.limiters {
+		if !activeNames[name] {
+			delete(lw.limiters, name)
+		}
+	}
+}
+
 // Close stops the watcher. Safe to call multiple times.
 func (lw *LogWatcher) Close() error {
 	var err error

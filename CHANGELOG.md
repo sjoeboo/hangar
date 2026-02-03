@@ -5,6 +5,19 @@ All notable changes to Agent Deck will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.5] - 2026-02-03
+
+### Fixed
+
+- **Fix intermittent `zsh: killed` due to memory exhaustion (#128)**: Four memory leaks causing macOS OOM killer (Jetsam) to SIGKILL agent-deck after prolonged use with many sessions:
+  - Cap global search content buffer memory at 100MB (configurable via `memory_limit_mb`), evict oldest 25% of entries when exceeded
+  - Release all content memory and clear file trackers on index Close()
+  - Stop debounce timers on watcher shutdown to prevent goroutine leaks
+  - Prune stale analytics/activity caches every 20 seconds (were never cleaned up)
+  - Clean up analytics caches on session delete
+  - Clear orphaned MCP socket proxy request map entries on client disconnect and MCP failure
+  - Prune LogWatcher rate limiters for removed sessions every 20 seconds
+
 ## [0.10.4] - 2026-02-03
 
 ### Added

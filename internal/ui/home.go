@@ -200,6 +200,9 @@ type Home struct {
 	lastLogActivity map[string]time.Time // sessionID -> last update time
 	logActivityMu   sync.Mutex           // Protects lastLogActivity map
 
+	// Memory management: periodic cache pruning
+	lastCachePrune time.Time
+
 	// File watcher for external changes (auto-reload)
 	storageWatcher *StorageWatcher
 
@@ -1038,6 +1041,29 @@ func (h *Home) invalidatePreviewCache(sessionID string) {
 	delete(h.previewCache, sessionID)
 	delete(h.previewCacheTime, sessionID)
 	h.previewCacheMu.Unlock()
+}
+
+// pruneAnalyticsCache removes stale entries from analytics and log activity caches.
+// Called periodically from the tick handler to prevent unbounded map growth.
+func (h *Home) pruneAnalyticsCache() {
+	const maxAge = 10 * time.Minute
+	now := time.Now()
+
+	for id, t := range h.analyticsCacheTime {
+		if now.Sub(t) > maxAge {
+			delete(h.analyticsCache, id)
+			delete(h.geminiAnalyticsCache, id)
+			delete(h.analyticsCacheTime, id)
+		}
+	}
+
+	h.logActivityMu.Lock()
+	for id, t := range h.lastLogActivity {
+		if now.Sub(t) > maxAge {
+			delete(h.lastLogActivity, id)
+		}
+	}
+	h.logActivityMu.Unlock()
 }
 
 // setError sets an error with timestamp for auto-dismiss
@@ -2028,6 +2054,13 @@ func (h *Home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		h.cachedStatusCounts.valid.Store(false)
 		// Invalidate preview cache for deleted session
 		h.invalidatePreviewCache(msg.deletedID)
+		// Clean up analytics caches for deleted session
+		delete(h.analyticsCache, msg.deletedID)
+		delete(h.geminiAnalyticsCache, msg.deletedID)
+		delete(h.analyticsCacheTime, msg.deletedID)
+		h.logActivityMu.Lock()
+		delete(h.lastLogActivity, msg.deletedID)
+		h.logActivityMu.Unlock()
 		// Remove from group tree (preserves empty groups)
 		if deletedInstance != nil {
 			h.groupTree.RemoveSession(deletedInstance)
@@ -2494,6 +2527,25 @@ func (h *Home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				// Fast check - only truncate, no orphan cleanup
 				_, _ = tmux.TruncateLargeLogFiles(logSettings.MaxSizeMB, logSettings.MaxLines)
 			}()
+		}
+
+		// Prune stale caches and limiters every 20 seconds
+		if time.Since(h.lastCachePrune) >= 20*time.Second {
+			h.lastCachePrune = time.Now()
+			h.pruneAnalyticsCache()
+
+			// Prune LogWatcher rate limiters for sessions no longer tracked
+			if h.logWatcher != nil {
+				activeNames := make(map[string]bool)
+				h.instancesMu.RLock()
+				for _, inst := range h.instances {
+					if ts := inst.GetTmuxSession(); ts != nil {
+						activeNames[ts.Name] = true
+					}
+				}
+				h.instancesMu.RUnlock()
+				h.logWatcher.PruneLimiters(activeNames)
+			}
 		}
 
 		// Full log maintenance (orphan cleanup, etc) every 5 minutes
