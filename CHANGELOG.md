@@ -5,6 +5,14 @@ All notable changes to Agent Deck will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.8] - 2026-02-03
+
+### Fixed
+
+- Fix shell dying after tool exit by removing `exec` prefix from all tool commands (#133, contributed by @kurochenko)
+  - When Claude, Gemini, OpenCode, Codex, or generic tools exit, users now return to their shell prompt instead of a dead tmux pane
+  - Enables workflows where tools run inside wrappers (e.g., nvim) that should survive tool exit
+
 ## [0.10.7] - 2026-02-03
 
 ### Added
