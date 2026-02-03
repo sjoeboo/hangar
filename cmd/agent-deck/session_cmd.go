@@ -410,7 +410,10 @@ func handleSessionFork(profile string, args []string) {
 
 	// Verify it's a Claude session
 	if inst.Tool != "claude" {
-		out.Error(fmt.Sprintf("session '%s' is not a Claude session (tool: %s)", inst.Title, inst.Tool), ErrCodeInvalidOperation)
+		out.Error(
+			fmt.Sprintf("session '%s' is not a Claude session (tool: %s)", inst.Title, inst.Tool),
+			ErrCodeInvalidOperation,
+		)
 		os.Exit(1)
 	}
 
@@ -421,7 +424,10 @@ func handleSessionFork(profile string, args []string) {
 
 	// Verify it can be forked
 	if !inst.CanFork() {
-		out.Error(fmt.Sprintf("session '%s' cannot be forked: no active Claude session ID", inst.Title), ErrCodeInvalidOperation)
+		out.Error(
+			fmt.Sprintf("session '%s' cannot be forked: no active Claude session ID", inst.Title),
+			ErrCodeInvalidOperation,
+		)
 		os.Exit(1)
 	}
 
@@ -461,14 +467,20 @@ func handleSessionFork(profile string, args []string) {
 		}
 
 		wtSettings := session.GetWorktreeSettings()
-		worktreePath := git.GenerateWorktreePath(repoRoot, wtBranch, wtSettings.DefaultLocation)
+		worktreePath := git.WorktreePath(git.WorktreePathOptions{
+			Branch:    wtBranch,
+			Location:  wtSettings.DefaultLocation,
+			RepoDir:   repoRoot,
+			SessionID: git.GeneratePathID(),
+			Template:  wtSettings.Template(),
+		})
 
 		if _, statErr := os.Stat(worktreePath); statErr == nil {
 			out.Error(fmt.Sprintf("worktree path already exists: %s", worktreePath), ErrCodeInvalidOperation)
 			os.Exit(1)
 		}
 
-		if err := os.MkdirAll(filepath.Dir(worktreePath), 0755); err != nil {
+		if err := os.MkdirAll(filepath.Dir(worktreePath), 0o755); err != nil {
 			out.Error(fmt.Sprintf("failed to create directory: %v", err), ErrCodeInvalidOperation)
 			os.Exit(1)
 		}
@@ -518,12 +530,15 @@ func handleSessionFork(profile string, args []string) {
 	}
 
 	// Output success
-	out.Success(fmt.Sprintf("Forked session: %s -> %s (%s)", inst.Title, forkedInst.Title, TruncateID(forkedInst.ID)), map[string]interface{}{
-		"success":   true,
-		"parent_id": inst.ID,
-		"new_id":    forkedInst.ID,
-		"new_title": forkedInst.Title,
-	})
+	out.Success(
+		fmt.Sprintf("Forked session: %s -> %s (%s)", inst.Title, forkedInst.Title, TruncateID(forkedInst.ID)),
+		map[string]interface{}{
+			"success":   true,
+			"parent_id": inst.ID,
+			"new_id":    forkedInst.ID,
+			"new_title": forkedInst.Title,
+		},
+	)
 }
 
 // handleSessionAttach attaches to a session interactively
@@ -802,16 +817,22 @@ func handleSessionSet(profile string, args []string) {
 
 	// Validate field name
 	validFields := map[string]bool{
-		"title":              true,
-		"path":               true,
-		"command":            true,
-		"tool":               true,
-		"claude-session-id":  true,
-		"gemini-session-id":  true,
+		"title":             true,
+		"path":              true,
+		"command":           true,
+		"tool":              true,
+		"claude-session-id": true,
+		"gemini-session-id": true,
 	}
 
 	if !validFields[field] {
-		out.Error(fmt.Sprintf("invalid field: %s\nValid fields: title, path, command, tool, claude-session-id, gemini-session-id", field), ErrCodeInvalidOperation)
+		out.Error(
+			fmt.Sprintf(
+				"invalid field: %s\nValid fields: title, path, command, tool, claude-session-id, gemini-session-id",
+				field,
+			),
+			ErrCodeInvalidOperation,
+		)
 		os.Exit(1)
 	}
 
@@ -1123,7 +1144,10 @@ func handleSessionSetParent(profile string, args []string) {
 	// Validate: session can't already have sub-sessions
 	for _, other := range instances {
 		if other.ParentSessionID == inst.ID {
-			out.Error(fmt.Sprintf("session '%s' already has sub-sessions, cannot become a sub-session", inst.Title), ErrCodeInvalidOperation)
+			out.Error(
+				fmt.Sprintf("session '%s' already has sub-sessions, cannot become a sub-session", inst.Title),
+				ErrCodeInvalidOperation,
+			)
 			os.Exit(1)
 		}
 	}
@@ -1140,12 +1164,12 @@ func handleSessionSetParent(profile string, args []string) {
 	}
 
 	out.Success(fmt.Sprintf("Linked '%s' as sub-session of '%s'", inst.Title, parentInst.Title), map[string]interface{}{
-		"success":           true,
-		"session_id":        inst.ID,
-		"session_title":     inst.Title,
-		"parent_id":         parentInst.ID,
-		"parent_title":      parentInst.Title,
-		"inherited_group":   inst.GroupPath,
+		"success":         true,
+		"session_id":      inst.ID,
+		"session_title":   inst.Title,
+		"parent_id":       parentInst.ID,
+		"parent_title":    parentInst.Title,
+		"inherited_group": inst.GroupPath,
 	})
 }
 
@@ -1219,12 +1243,15 @@ func handleSessionUnsetParent(profile string, args []string) {
 		os.Exit(1)
 	}
 
-	out.Success(fmt.Sprintf("Removed sub-session link from '%s' (was linked to '%s')", inst.Title, parentTitle), map[string]interface{}{
-		"success":        true,
-		"session_id":     inst.ID,
-		"session_title":  inst.Title,
-		"former_parent":  parentTitle,
-	})
+	out.Success(
+		fmt.Sprintf("Removed sub-session link from '%s' (was linked to '%s')", inst.Title, parentTitle),
+		map[string]interface{}{
+			"success":       true,
+			"session_id":    inst.ID,
+			"session_title": inst.Title,
+			"former_parent": parentTitle,
+		},
+	)
 }
 
 // handleSessionSend sends a message to a running session
@@ -1421,7 +1448,10 @@ func handleSessionOutput(profile string, args []string) {
 			"bytes_copied":  result.ByteSize,
 			"method":        result.Method,
 		}
-		out.Print(fmt.Sprintf("Copied %d lines to clipboard via %s (%s)", result.LineCount, result.Method, inst.Title), jsonData)
+		out.Print(
+			fmt.Sprintf("Copied %d lines to clipboard via %s (%s)", result.LineCount, result.Method, inst.Title),
+			jsonData,
+		)
 		return
 	}
 
@@ -1515,7 +1545,10 @@ func handleSessionCurrent(profileArg string, args []string) {
 	instData, foundProfile := findInstanceDataByTmuxFast(tmuxSessionName, detectedProfile)
 
 	if instData == nil {
-		out.Error("current tmux session is not an agent-deck session\nHint: Run 'agent-deck list' to see available sessions", ErrCodeNotFound)
+		out.Error(
+			"current tmux session is not an agent-deck session\nHint: Run 'agent-deck list' to see available sessions",
+			ErrCodeNotFound,
+		)
 		os.Exit(1)
 	}
 

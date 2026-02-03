@@ -16,13 +16,14 @@ import (
 	"syscall"
 	"time"
 
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
+	"github.com/muesli/termenv"
+
 	"github.com/asheshgoplani/agent-deck/internal/git"
 	"github.com/asheshgoplani/agent-deck/internal/session"
 	"github.com/asheshgoplani/agent-deck/internal/ui"
 	"github.com/asheshgoplani/agent-deck/internal/update"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
-	"github.com/muesli/termenv"
 )
 
 const Version = "0.10.9"
@@ -310,7 +311,7 @@ func main() {
 	if os.Getenv("AGENTDECK_DEBUG") != "" {
 		if baseDir, err := session.GetAgentDeckDir(); err == nil {
 			logPath := filepath.Join(baseDir, "debug.log")
-			logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+			logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
 			if err == nil {
 				log.SetOutput(logFile)
 				log.SetFlags(log.Ltime | log.Lmicroseconds)
@@ -400,7 +401,7 @@ func reorderArgsForFlagParsing(args []string) []string {
 		"-c": true, "--cmd": true,
 		"-p": true, "--parent": true,
 		"--mcp": true,
-		"-w": true, "--worktree": true,
+		"-w":    true, "--worktree": true,
 		"--location": true,
 	}
 
@@ -610,7 +611,11 @@ func handleAdd(profile string, args []string) {
 		// Check -b flag logic: if -b is passed, branch must NOT exist (user wants new branch)
 		branchExists := git.BranchExists(repoRoot, wtBranch)
 		if createNewBranch && branchExists {
-			fmt.Fprintf(os.Stderr, "Error: branch '%s' already exists (remove -b flag to use existing branch)\n", wtBranch)
+			fmt.Fprintf(
+				os.Stderr,
+				"Error: branch '%s' already exists (remove -b flag to use existing branch)\n",
+				wtBranch,
+			)
 			os.Exit(1)
 		}
 
@@ -622,10 +627,16 @@ func handleAdd(profile string, args []string) {
 		}
 
 		// Generate worktree path
-		worktreePath = git.GenerateWorktreePath(repoRoot, wtBranch, location)
+		worktreePath = git.WorktreePath(git.WorktreePathOptions{
+			Branch:    wtBranch,
+			Location:  location,
+			RepoDir:   repoRoot,
+			SessionID: git.GeneratePathID(),
+			Template:  wtSettings.Template(),
+		})
 
 		// Ensure parent directory exists (needed for subdirectory mode)
-		if err := os.MkdirAll(filepath.Dir(worktreePath), 0755); err != nil {
+		if err := os.MkdirAll(filepath.Dir(worktreePath), 0o755); err != nil {
 			fmt.Fprintf(os.Stderr, "Error: failed to create parent directory: %v\n", err)
 			os.Exit(1)
 		}
@@ -1115,13 +1126,16 @@ func handleRemove(profile string, args []string) {
 		os.Exit(1)
 	}
 
-	out.Success(fmt.Sprintf("Removed session: %s (from profile '%s')", removedTitle, storage.Profile()), map[string]interface{}{
-		"success": true,
-		"id":      removedID,
-		"title":   removedTitle,
-		"removed": true,
-		"profile": storage.Profile(),
-	})
+	out.Success(
+		fmt.Sprintf("Removed session: %s (from profile '%s')", removedTitle, storage.Profile()),
+		map[string]interface{}{
+			"success": true,
+			"id":      removedID,
+			"title":   removedTitle,
+			"removed": true,
+			"profile": storage.Profile(),
+		},
+	)
 }
 
 // statusCounts holds session counts by status
@@ -1406,7 +1420,10 @@ func handleProfileCreate(out *CLIOutput, name string) {
 func handleProfileDelete(out *CLIOutput, jsonMode bool, name string) {
 	// Skip confirmation in JSON mode (for automation)
 	if !jsonMode {
-		fmt.Printf("Are you sure you want to delete profile '%s'? This will remove all sessions in this profile. [y/N] ", name)
+		fmt.Printf(
+			"Are you sure you want to delete profile '%s'? This will remove all sessions in this profile. [y/N] ",
+			name,
+		)
 		var response string
 		_, _ = fmt.Scanln(&response)
 		if response != "y" && response != "Y" {
@@ -1676,14 +1693,14 @@ func acquireLock(profile string) error {
 	lockPath := getLockFilePath(profile)
 
 	// Ensure the directory exists
-	if err := os.MkdirAll(filepath.Dir(lockPath), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(lockPath), 0o755); err != nil {
 		return fmt.Errorf("failed to create lock directory: %w", err)
 	}
 
 	// Attempt atomic lock file creation (up to 2 attempts for stale lock cleanup)
 	for attempt := 0; attempt < 2; attempt++ {
 		// O_EXCL ensures atomic creation - fails if file exists
-		f, err := os.OpenFile(lockPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0644)
+		f, err := os.OpenFile(lockPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
 		if err == nil {
 			// Successfully created lock file atomically
 			defer f.Close()
@@ -1713,7 +1730,12 @@ func acquireLock(profile string) error {
 			if effectiveProfile == "" {
 				effectiveProfile = session.DefaultProfile
 			}
-			return fmt.Errorf("agent-deck is already running for profile '%s' (PID %d)\n\nIf this is incorrect, remove the lock file:\n  rm %s", effectiveProfile, pid, lockPath)
+			return fmt.Errorf(
+				"agent-deck is already running for profile '%s' (PID %d)\n\nIf this is incorrect, remove the lock file:\n  rm %s",
+				effectiveProfile,
+				pid,
+				lockPath,
+			)
 		}
 
 		// Stale lock - remove and retry
@@ -1812,7 +1834,10 @@ func handleUninstall(args []string) {
 
 		if info.Mode()&os.ModeSymlink != 0 {
 			target, _ := os.Readlink(loc)
-			foundItems = append(foundItems, foundItem{"binary-symlink", loc, fmt.Sprintf("Binary (symlink) → %s", target)})
+			foundItems = append(
+				foundItems,
+				foundItem{"binary-symlink", loc, fmt.Sprintf("Binary (symlink) → %s", target)},
+			)
 			fmt.Printf("Found: Binary (symlink) at %s\n", loc)
 			fmt.Printf("       → %s\n", target)
 		} else {
@@ -1849,7 +1874,14 @@ func handleUninstall(args []string) {
 		})
 		sizeStr := formatSize(totalSize)
 
-		foundItems = append(foundItems, foundItem{"data", dataDir, fmt.Sprintf("%d profiles, %d sessions, %s", profileCount, sessionCount, sizeStr)})
+		foundItems = append(
+			foundItems,
+			foundItem{
+				"data",
+				dataDir,
+				fmt.Sprintf("%d profiles, %d sessions, %s", profileCount, sessionCount, sizeStr),
+			},
+		)
 		fmt.Printf("Found: Data directory at %s\n", dataDir)
 		fmt.Printf("       %d profiles, %d sessions, %s\n", profileCount, sessionCount, sizeStr)
 	}
@@ -2003,7 +2035,7 @@ func handleUninstall(args []string) {
 
 			// Create backup
 			backupPath := tmuxConf + ".bak.agentdeck-uninstall"
-			if err := os.WriteFile(backupPath, data, 0644); err != nil {
+			if err := os.WriteFile(backupPath, data, 0o644); err != nil {
 				fmt.Printf("Warning: failed to create backup: %v\n", err)
 			}
 
@@ -2030,7 +2062,7 @@ func handleUninstall(args []string) {
 				}
 				newContent = strings.TrimRight(newContent, "\n") + "\n"
 
-				if err := os.WriteFile(tmuxConf, []byte(newContent), 0644); err != nil {
+				if err := os.WriteFile(tmuxConf, []byte(newContent), 0o644); err != nil {
 					fmt.Printf("Warning: failed to update tmux config: %v\n", err)
 				} else {
 					fmt.Printf("✓ tmux configuration removed (backup: %s)\n", backupPath)
@@ -2052,7 +2084,10 @@ func handleUninstall(args []string) {
 				var response string
 				_, _ = fmt.Scanln(&response)
 				if strings.ToLower(response) != "n" {
-					backupFile := filepath.Join(homeDir, fmt.Sprintf("agent-deck-backup-%s.tar.gz", time.Now().Format("20060102-150405")))
+					backupFile := filepath.Join(
+						homeDir,
+						fmt.Sprintf("agent-deck-backup-%s.tar.gz", time.Now().Format("20060102-150405")),
+					)
 					fmt.Printf("Creating backup at %s...\n", backupFile)
 
 					cmd := exec.Command("tar", "-czf", backupFile, "-C", homeDir, ".agent-deck")

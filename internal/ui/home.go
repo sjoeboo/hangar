@@ -2950,9 +2950,15 @@ func (h *Home) handleNewDialogKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				return h, nil
 			}
 
-			// Generate worktree path using configured location
+			// Generate worktree path using configured location/template
 			wtSettings := session.GetWorktreeSettings()
-			worktreePath = git.GenerateWorktreePath(repoRoot, branchName, wtSettings.DefaultLocation)
+			worktreePath = git.WorktreePath(git.WorktreePathOptions{
+				Branch:    branchName,
+				Location:  wtSettings.DefaultLocation,
+				RepoDir:   repoRoot,
+				SessionID: git.GeneratePathID(),
+				Template:  wtSettings.Template(),
+			})
 
 			// Ensure parent directory exists (needed for subdirectory mode)
 			if err := os.MkdirAll(filepath.Dir(worktreePath), 0755); err != nil {
@@ -3955,7 +3961,13 @@ func (h *Home) handleForkDialogKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 					}
 
 					wtSettings := session.GetWorktreeSettings()
-					worktreePath := git.GenerateWorktreePath(repoRoot, branchName, wtSettings.DefaultLocation)
+					worktreePath := git.WorktreePath(git.WorktreePathOptions{
+						Branch:    branchName,
+						Location:  wtSettings.DefaultLocation,
+						RepoDir:   repoRoot,
+						SessionID: git.GeneratePathID(),
+						Template:  wtSettings.Template(),
+					})
 
 					if err := os.MkdirAll(filepath.Dir(worktreePath), 0755); err != nil {
 						h.forkDialog.SetError(fmt.Sprintf("Failed to create directory: %v", err))

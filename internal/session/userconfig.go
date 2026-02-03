@@ -10,6 +10,7 @@ import (
 	"sync"
 
 	"github.com/BurntSushi/toml"
+
 	"github.com/asheshgoplani/agent-deck/internal/platform"
 	"github.com/asheshgoplani/agent-deck/internal/tmux"
 )
@@ -365,13 +366,28 @@ type GeminiSettings struct {
 	EnvFile string `toml:"env_file"`
 }
 
-// WorktreeSettings contains git worktree preferences
+// WorktreeSettings contains git worktree preferences.
 type WorktreeSettings struct {
+	// AutoCleanup: remove worktree when session is deleted
+	AutoCleanup bool `toml:"auto_cleanup"`
+
 	// DefaultLocation: "sibling" (next to repo), "subdirectory" (inside .worktrees/),
 	// or a custom path (e.g., "~/worktrees") creating <path>/<repo_name>/<branch>
 	DefaultLocation string `toml:"default_location"`
-	// AutoCleanup: remove worktree when session is deleted
-	AutoCleanup bool `toml:"auto_cleanup"`
+
+	// PathTemplate: custom path template for worktree location.
+	// Variables: {repo-name}, {repo-root}, {branch}, {session-id}
+	// Unknown variables like {foo} are left as-is in the path.
+	// If set, overrides DefaultLocation.
+	PathTemplate *string `toml:"path_template"`
+}
+
+// Template returns the path template if set, or empty string if nil.
+func (w *WorktreeSettings) Template() string {
+	if w.PathTemplate == nil {
+		return ""
+	}
+	return *w.PathTemplate
 }
 
 // GlobalSearchSettings defines global conversation search configuration
@@ -638,7 +654,7 @@ func SaveUserConfig(config *UserConfig) error {
 
 	// Ensure directory exists
 	dir := filepath.Dir(configPath)
-	if err := os.MkdirAll(dir, 0700); err != nil {
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return fmt.Errorf("failed to create config directory: %w", err)
 	}
 
@@ -669,7 +685,7 @@ func SaveUserConfig(config *UserConfig) error {
 	tmpPath := configPath + ".tmp"
 
 	// Step 1: Write to temporary file (0600 = owner read/write only for security)
-	if err := os.WriteFile(tmpPath, buf.Bytes(), 0600); err != nil {
+	if err := os.WriteFile(tmpPath, buf.Bytes(), 0o600); err != nil {
 		return fmt.Errorf("failed to write temp file: %w", err)
 	}
 
@@ -816,7 +832,8 @@ func MergeToolPatterns(toolName string) *tmux.RawPatterns {
 
 	// Build extras from ToolDef's *Extra fields
 	var extras *tmux.RawPatterns
-	if toolDef != nil && (len(toolDef.BusyPatternsExtra) > 0 || len(toolDef.PromptPatternsExtra) > 0 || len(toolDef.SpinnerCharsExtra) > 0) {
+	if toolDef != nil &&
+		(len(toolDef.BusyPatternsExtra) > 0 || len(toolDef.PromptPatternsExtra) > 0 || len(toolDef.SpinnerCharsExtra) > 0) {
 		extras = &tmux.RawPatterns{
 			BusyPatterns:   toolDef.BusyPatternsExtra,
 			PromptPatterns: toolDef.PromptPatternsExtra,
@@ -1146,6 +1163,17 @@ date_prefix = true
 # Default AI tool for experiment sessions (default: "claude")
 default_tool = "claude"
 
+# Git worktree settings
+# Worktrees allow creating isolated working directories for branches
+[worktree]
+# Where to create worktrees: "sibling" (next to repo) or "subdirectory" (inside repo)
+default_location = "sibling"
+# Automatically remove worktree when session is deleted
+auto_cleanup = true
+# Custom path template (overrides default_location if set)
+# Variables: {repo-name}, {repo-root}, {branch}, {session-id}
+# path_template = "../worktrees/{repo-name}/{branch}"
+
 # ============================================================================
 # MCP Server Definitions
 # ============================================================================
@@ -1284,11 +1312,11 @@ default_tool = "claude"
 
 	// Ensure directory exists
 	dir := filepath.Dir(configPath)
-	if err := os.MkdirAll(dir, 0700); err != nil {
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return err
 	}
 
-	return os.WriteFile(configPath, []byte(exampleConfig), 0600)
+	return os.WriteFile(configPath, []byte(exampleConfig), 0o600)
 }
 
 // GetAvailableMCPs returns MCPs from config.toml as a map
