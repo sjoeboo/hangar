@@ -15,6 +15,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/asheshgoplani/agent-deck/internal/tmux"
@@ -92,10 +93,19 @@ type Instance struct {
 
 	tmuxSession *tmux.Session // Internal tmux session
 
+	// mu protects fields written by backgroundStatusUpdate and read by the TUI goroutine.
+	// Use GetStatus()/SetStatus() and GetTool()/SetTool() for thread-safe access.
+	// UpdateStatus() acquires the write lock internally.
+	mu sync.RWMutex
+
 	// lastErrorCheck tracks when we last confirmed the session doesn't exist
 	// Used to skip expensive Exists() checks for ghost sessions (sessions in JSON but not in tmux)
 	// Not serialized - resets on load, but that's fine since we'll recheck on first poll
 	lastErrorCheck time.Time
+
+	// Tiered polling: skip expensive checks for idle sessions with no activity
+	lastIdleCheck    time.Time // When we last did a full check for an idle session
+	lastKnownActivity int64   // Last window_activity timestamp seen
 
 	// lastStartTime tracks when Start() was called
 	// Used to provide grace period for tmux session creation (prevents error flash)
@@ -106,6 +116,37 @@ type Instance struct {
 	// Set by MCP dialog Apply() to avoid race condition where Apply writes
 	// config then Restart immediately overwrites it with different pool state
 	SkipMCPRegenerate bool `json:"-"` // Don't persist, transient flag
+}
+
+// GetStatusThreadSafe returns the session status with read-lock protection.
+// Use this when reading Status from a goroutine concurrent with backgroundStatusUpdate.
+func (inst *Instance) GetStatusThreadSafe() Status {
+	inst.mu.RLock()
+	s := inst.Status
+	inst.mu.RUnlock()
+	return s
+}
+
+// SetStatusThreadSafe sets the session status with write-lock protection.
+func (inst *Instance) SetStatusThreadSafe(s Status) {
+	inst.mu.Lock()
+	inst.Status = s
+	inst.mu.Unlock()
+}
+
+// GetToolThreadSafe returns the tool name with read-lock protection.
+func (inst *Instance) GetToolThreadSafe() string {
+	inst.mu.RLock()
+	t := inst.Tool
+	inst.mu.RUnlock()
+	return t
+}
+
+// SetToolThreadSafe sets the tool name with write-lock protection.
+func (inst *Instance) SetToolThreadSafe(t string) {
+	inst.mu.Lock()
+	inst.Tool = t
+	inst.mu.Unlock()
 }
 
 // MarkAccessed updates the LastAccessedAt timestamp to now
@@ -1184,8 +1225,12 @@ func (i *Instance) sendMessageWhenReady(message string) error {
 // instead of every 500ms tick, dramatically reducing subprocess spawns
 const errorRecheckInterval = 30 * time.Second
 
-// UpdateStatus updates the session status by checking tmux
+// UpdateStatus updates the session status by checking tmux.
+// Thread-safe: acquires write lock to protect Status, Tool, and internal cache fields.
 func (i *Instance) UpdateStatus() error {
+	i.mu.Lock()
+	defer i.mu.Unlock()
+
 	// Short grace period for tmux initialization (not Claude startup)
 	// Use lastStartTime for accuracy on restarts, fallback to CreatedAt
 	graceTime := i.lastStartTime
@@ -1228,8 +1273,23 @@ func (i *Instance) UpdateStatus() error {
 	// Session exists - clear error check timestamp
 	i.lastErrorCheck = time.Time{}
 
-	// Get status from tmux session
+	// Tiered polling: skip expensive checks for idle sessions with no new activity
+	if i.Status == StatusIdle {
+		currentTS := i.tmuxSession.GetCachedWindowActivity()
+		if currentTS == i.lastKnownActivity && !i.lastIdleCheck.IsZero() &&
+			time.Since(i.lastIdleCheck) < 10*time.Second {
+			return nil // No activity detected, skip full check
+		}
+		// Activity detected OR recheck interval passed: do full check
+		i.lastIdleCheck = time.Now()
+		i.lastKnownActivity = currentTS
+	}
+
+	// Release lock for potentially slow tmux calls (GetStatus calls CapturePane)
+	i.mu.Unlock()
 	status, err := i.tmuxSession.GetStatus()
+	i.mu.Lock()
+
 	if err != nil {
 		i.Status = StatusError
 		return err

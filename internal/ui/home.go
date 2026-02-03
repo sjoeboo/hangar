@@ -13,6 +13,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"golang.org/x/sync/errgroup"
+
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/mattn/go-runewidth"
@@ -1153,9 +1155,11 @@ func (h *Home) hasActiveAnimation(sessionID string) bool {
 	// - StatusRunning (GREEN): Claude is actively processing
 	// - StatusWaiting (YELLOW): Claude is at prompt, waiting for input
 	// - StatusIdle (GRAY): Claude has stopped and user acknowledged
-	if inst.Status == session.StatusRunning ||
-		inst.Status == session.StatusWaiting ||
-		inst.Status == session.StatusIdle {
+	animStatus := inst.GetStatusThreadSafe()
+	animTool := inst.GetToolThreadSafe()
+	if animStatus == session.StatusRunning ||
+		animStatus == session.StatusWaiting ||
+		animStatus == session.StatusIdle {
 		// Session is ready - stop animation immediately
 		return false
 	}
@@ -1166,7 +1170,7 @@ func (h *Home) hasActiveAnimation(sessionID string) bool {
 	previewContent := h.previewCache[sessionID]
 	h.previewCacheMu.RUnlock()
 
-	if inst.Tool == "claude" || inst.Tool == "gemini" {
+	if animTool == "claude" || animTool == "gemini" {
 		// Claude ready indicators
 		agentReady := strings.Contains(previewContent, "ctrl+c to interrupt") ||
 			strings.Contains(previewContent, "No, and tell Claude what to do differently") ||
@@ -1178,7 +1182,7 @@ func (h *Home) hasActiveAnimation(sessionID string) bool {
 			strings.Contains(previewContent, "╭─") // Claude UI border
 
 		// Gemini prompts
-		if inst.Tool == "gemini" {
+		if animTool == "gemini" {
 			agentReady = agentReady ||
 				strings.Contains(previewContent, "▸") ||
 				strings.Contains(previewContent, "gemini>")
@@ -1278,7 +1282,8 @@ func (h *Home) fetchAnalytics(inst *session.Instance) tea.Cmd {
 	}
 	sessionID := inst.ID
 
-	if inst.Tool == "claude" {
+	fetchTool := inst.GetToolThreadSafe()
+	if fetchTool == "claude" {
 		claudeSessionID := inst.ClaudeSessionID
 		return func() tea.Msg {
 			// Get JSONL path for this session
@@ -1309,7 +1314,7 @@ func (h *Home) fetchAnalytics(inst *session.Instance) tea.Cmd {
 				err:       nil,
 			}
 		}
-	} else if inst.Tool == "gemini" {
+	} else if fetchTool == "gemini" {
 		return func() tea.Msg {
 			// Gemini analytics are updated via UpdateGeminiSession which is called in background
 			// during UpdateStatus(). We just return the current snapshot.
@@ -1481,35 +1486,52 @@ func (h *Home) backgroundStatusUpdate() {
 		}
 	}
 
-	// Update status for all instances (background can be more thorough)
+	// Update status for all instances in parallel (I/O bound: tmux subprocess calls)
 	statusStart := time.Now()
-	statusChanged := false
+	var statusChanged atomic.Bool
+	var slowMu sync.Mutex
 	var slowSessions []string
+
+	g := new(errgroup.Group)
+	g.SetLimit(10) // Pool of 10 workers (tmux server serializes, more doesn't help)
+
 	for _, inst := range instances {
-		oldStatus := inst.Status
-		instStart := time.Now()
-		_ = inst.UpdateStatus()
-		instDur := time.Since(instStart)
-		if debug && instDur > 50*time.Millisecond {
-			slowSessions = append(slowSessions, fmt.Sprintf("%s=%v", inst.Title, instDur.Round(time.Millisecond)))
-		}
-		if inst.Status != oldStatus {
-			statusChanged = true
-			log.Printf("[BACKGROUND] Status changed: %s %s -> %s", inst.Title, oldStatus, inst.Status)
-		}
+		inst := inst // capture loop variable
+		g.Go(func() error {
+			oldStatus := inst.GetStatusThreadSafe()
+			instStart := time.Now()
+			_ = inst.UpdateStatus()
+			instDur := time.Since(instStart)
+
+			if debug && instDur > 50*time.Millisecond {
+				slowMu.Lock()
+				slowSessions = append(slowSessions, fmt.Sprintf("%s=%v", inst.Title, instDur.Round(time.Millisecond)))
+				slowMu.Unlock()
+			}
+			newStatus := inst.GetStatusThreadSafe()
+			if newStatus != oldStatus {
+				statusChanged.Store(true)
+				log.Printf("[BACKGROUND] Status changed: %s %s -> %s", inst.Title, oldStatus, newStatus)
+			}
+			return nil
+		})
 	}
+	g.Wait()
+
 	if debug {
 		statusDur := time.Since(statusStart)
 		if statusDur > 500*time.Millisecond {
 			log.Printf("[PERF] Status update loop: %v for %d sessions", statusDur.Round(time.Millisecond), len(instances))
+			slowMu.Lock()
 			if len(slowSessions) > 0 {
 				log.Printf("[PERF] Slow sessions (>50ms): %s", strings.Join(slowSessions, ", "))
 			}
+			slowMu.Unlock()
 		}
 	}
 
 	// Invalidate cache if status changed
-	if statusChanged {
+	if statusChanged.Load() {
 		h.cachedStatusCounts.valid.Store(false)
 	}
 
@@ -1761,9 +1783,9 @@ func (h *Home) processStatusUpdate(req statusUpdateRequest) {
 	// Step 1: Always update visible sessions (Priority 1B - visible first)
 	for _, inst := range instancesCopy {
 		if visibleIDs[inst.ID] {
-			oldStatus := inst.Status
+			oldStatus := inst.GetStatusThreadSafe()
 			_ = inst.UpdateStatus() // Ignore errors in background worker
-			if inst.Status != oldStatus {
+			if inst.GetStatusThreadSafe() != oldStatus {
 				statusChanged = true
 			}
 			updated[inst.ID] = true
@@ -1788,13 +1810,13 @@ func (h *Home) processStatusUpdate(req statusUpdateRequest) {
 
 		// Skip idle sessions - they require user interaction to change state
 		// Background polling will catch any activity when user interacts
-		if inst.Status == "idle" {
+		if inst.GetStatusThreadSafe() == session.StatusIdle {
 			continue
 		}
 
-		oldStatus := inst.Status
+		oldStatus := inst.GetStatusThreadSafe()
 		_ = inst.UpdateStatus() // Ignore errors in background worker
-		if inst.Status != oldStatus {
+		if inst.GetStatusThreadSafe() != oldStatus {
 			statusChanged = true
 		}
 		remaining--
@@ -2403,8 +2425,9 @@ func (h *Home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 			// Analytics fetch (for Claude/Gemini sessions with analytics enabled)
 			// Use TTL cache - only fetch if cache miss/expired and not already fetching
-			if (inst.Tool == "claude" || inst.Tool == "gemini") && h.analyticsFetchingID != inst.ID {
-				if inst.Tool == "claude" {
+			tickTool := inst.GetToolThreadSafe()
+			if (tickTool == "claude" || tickTool == "gemini") && h.analyticsFetchingID != inst.ID {
+				if tickTool == "claude" {
 					cached := h.getAnalyticsForSession(inst)
 					if cached != nil {
 						// Use cached analytics
@@ -2422,7 +2445,7 @@ func (h *Home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 							cmds = append(cmds, h.fetchAnalytics(inst))
 						}
 					}
-				} else if inst.Tool == "gemini" {
+				} else if tickTool == "gemini" {
 					// Check Gemini cache
 					var cached *session.GeminiSessionAnalytics
 					if c, ok := h.geminiAnalyticsCache[inst.ID]; ok {
@@ -3470,7 +3493,7 @@ func (h *Home) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				inst.GeminiYoloMode = &newYolo
 				h.saveInstances()
 				// If session is running, it needs restart to apply
-				if inst.Status == session.StatusRunning || inst.Status == session.StatusWaiting {
+				if inst.GetStatusThreadSafe() == session.StatusRunning || inst.GetStatusThreadSafe() == session.StatusWaiting {
 					h.resumingSessions[inst.ID] = time.Now()
 					return h, h.restartSession(inst)
 				}
@@ -4298,7 +4321,7 @@ skipSave:
 	// - GREEN (running) sessions stay green when attached/detached
 	// - YELLOW (waiting) sessions turn gray when user looks at them
 	// - Detach just lets polling take over naturally
-	if inst.Status == session.StatusWaiting {
+	if inst.GetStatusThreadSafe() == session.StatusWaiting {
 		tmuxSess.Acknowledge()
 		log.Printf("[STATUS] Acknowledged %s on attach (was waiting)", inst.Title)
 	}
@@ -4385,7 +4408,7 @@ func (h *Home) countSessionStatuses() (running, waiting, idle, errored int) {
 	// Compute counts
 	h.instancesMu.RLock()
 	for _, inst := range h.instances {
-		switch inst.Status {
+		switch inst.GetStatusThreadSafe() {
 		case session.StatusRunning:
 			running++
 		case session.StatusWaiting:
@@ -5909,6 +5932,10 @@ const (
 func (h *Home) renderSessionItem(b *strings.Builder, item session.Item, selected bool) {
 	inst := item.Session
 
+	// Snapshot status and tool under read lock to avoid races with background worker
+	instStatus := inst.GetStatusThreadSafe()
+	instTool := inst.GetToolThreadSafe()
+
 	// Tree style for connectors - Use ColorText for clear visibility of box-drawing characters
 	treeStyle := TreeConnectorStyle
 
@@ -5949,7 +5976,7 @@ func (h *Home) renderSessionItem(b *strings.Builder, item session.Item, selected
 	// Status indicator with consistent sizing
 	var statusIcon string
 	var statusStyle lipgloss.Style
-	switch inst.Status {
+	switch instStatus {
 	case session.StatusRunning:
 		statusIcon = "●"
 		statusStyle = SessionStatusRunning
@@ -5971,7 +5998,7 @@ func (h *Home) renderSessionItem(b *strings.Builder, item session.Item, selected
 
 	// Title styling - add bold/underline for accessibility (colorblind users)
 	var titleStyle lipgloss.Style
-	switch inst.Status {
+	switch instStatus {
 	case session.StatusRunning, session.StatusWaiting:
 		// Bold for active states (distinguishable without color)
 		titleStyle = SessionTitleActive
@@ -5984,7 +6011,7 @@ func (h *Home) renderSessionItem(b *strings.Builder, item session.Item, selected
 
 	// Tool badge with brand-specific color
 	// Claude=orange, Gemini=purple, Codex=cyan, Aider=red
-	toolStyle := GetToolStyle(inst.Tool)
+	toolStyle := GetToolStyle(instTool)
 
 	// Selection indicator
 	selectionPrefix := " "
@@ -6004,11 +6031,11 @@ func (h *Home) renderSessionItem(b *strings.Builder, item session.Item, selected
 	}
 
 	title := titleStyle.Render(inst.Title)
-	tool := toolStyle.Render(" " + inst.Tool)
+	tool := toolStyle.Render(" " + instTool)
 
 	// YOLO badge for Gemini sessions with YOLO mode enabled
 	yoloBadge := ""
-	if inst.Tool == "gemini" && inst.GeminiYoloMode != nil && *inst.GeminiYoloMode {
+	if instTool == "gemini" && inst.GeminiYoloMode != nil && *inst.GeminiYoloMode {
 		yoloStyle := lipgloss.NewStyle().Foreground(ColorYellow).Bold(true)
 		if selected {
 			yoloStyle = SessionStatusSelStyle
@@ -6255,8 +6282,12 @@ func (h *Home) renderSessionInfoCard(inst *session.Instance, width, height int) 
 
 	var b strings.Builder
 
+	// Snapshot status/tool under read lock for thread safety
+	cardStatus := inst.GetStatusThreadSafe()
+	cardTool := inst.GetToolThreadSafe()
+
 	// Header with tool icon
-	icon := ToolIcon(inst.Tool)
+	icon := ToolIcon(cardTool)
 	header := lipgloss.NewStyle().
 		Bold(true).
 		Foreground(ColorAccent).
@@ -6274,7 +6305,7 @@ func (h *Home) renderSessionInfoCard(inst *session.Instance, width, height int) 
 
 	// Status with color
 	var statusColor lipgloss.Color
-	switch inst.Status {
+	switch cardStatus {
 	case session.StatusRunning:
 		statusColor = ColorGreen
 	case session.StatusWaiting:
@@ -6285,10 +6316,10 @@ func (h *Home) renderSessionInfoCard(inst *session.Instance, width, height int) 
 		statusColor = ColorTextDim
 	}
 	statusStyle := lipgloss.NewStyle().Foreground(statusColor)
-	b.WriteString(fmt.Sprintf("%s %s\n", labelStyle.Render("Status:"), statusStyle.Render(string(inst.Status))))
+	b.WriteString(fmt.Sprintf("%s %s\n", labelStyle.Render("Status:"), statusStyle.Render(string(cardStatus))))
 
 	// Tool
-	b.WriteString(fmt.Sprintf("%s %s\n", labelStyle.Render("Tool:"), valueStyle.Render(inst.Tool)))
+	b.WriteString(fmt.Sprintf("%s %s\n", labelStyle.Render("Tool:"), valueStyle.Render(cardTool)))
 
 	// Session ID (if available) - Claude, Gemini, or OpenCode
 	sessionID := inst.ClaudeSessionID
@@ -7363,7 +7394,7 @@ func (h *Home) getOtherActiveSessions(excludeID string) []*session.Instance {
 		if inst.ID == excludeID {
 			continue
 		}
-		if inst.Status == session.StatusError {
+		if inst.GetStatusThreadSafe() == session.StatusError {
 			continue
 		}
 		result = append(result, inst)

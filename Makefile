@@ -47,9 +47,9 @@ dev:
 	@which air > /dev/null || go install github.com/cosmtrek/air@latest
 	air
 
-# Run tests
+# Run tests (with race detector)
 test:
-	go test -v ./...
+	go test -race -v ./...
 
 # Format code
 fmt:

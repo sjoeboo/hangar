@@ -1,9 +1,11 @@
 package tmux
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -18,6 +20,10 @@ import (
 
 	"golang.org/x/sync/singleflight"
 )
+
+// ErrCaptureTimeout is returned when CapturePane exceeds its timeout.
+// Callers should preserve previous state rather than transitioning to error/inactive.
+var ErrCaptureTimeout = errors.New("capture-pane timed out")
 
 // Debug flag - set via environment variable AGENTDECK_DEBUG=1
 var debugStatusEnabled = os.Getenv("AGENTDECK_DEBUG") == "1"
@@ -1193,7 +1199,9 @@ func (s *Session) GetWindowActivity() (int64, error) {
 	}
 
 	// Cache miss/stale - fall back to direct check (spawns subprocess)
-	cmd := exec.Command("tmux", "display-message", "-t", s.Name, "-p", "#{window_activity}")
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "tmux", "display-message", "-t", s.Name, "-p", "#{window_activity}")
 	output, err := cmd.Output()
 	if err != nil {
 		return 0, fmt.Errorf("failed to get window activity: %w", err)
@@ -1204,6 +1212,17 @@ func (s *Session) GetWindowActivity() (int64, error) {
 		return 0, fmt.Errorf("failed to parse timestamp: %w", err)
 	}
 	return ts, nil
+}
+
+// GetCachedWindowActivity returns the cached window_activity timestamp without
+// spawning a subprocess. Returns 0 if the cache is stale or session not found.
+// This is used for cheap idle-session activity gating in tiered polling.
+func (s *Session) GetCachedWindowActivity() int64 {
+	activity, valid := sessionActivityFromCache(s.Name)
+	if valid {
+		return activity
+	}
+	return 0
 }
 
 // CapturePane captures the visible pane content.
@@ -1231,9 +1250,15 @@ func (s *Session) CapturePane() (string, error) {
 		s.cacheMu.RUnlock()
 
 		// -J joins wrapped lines and trims trailing spaces so hashes don't change on resize
-		cmd := exec.Command("tmux", "capture-pane", "-t", s.Name, "-p", "-J")
+		// 3-second timeout prevents hung tmux calls from blocking the entire worker pool
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+		cmd := exec.CommandContext(ctx, "tmux", "capture-pane", "-t", s.Name, "-p", "-J")
 		output, err := cmd.Output()
 		if err != nil {
+			if ctx.Err() == context.DeadlineExceeded {
+				return "", ErrCaptureTimeout
+			}
 			return "", fmt.Errorf("failed to capture pane: %w", err)
 		}
 
@@ -1485,7 +1510,15 @@ func (s *Session) GetStatus() (string, error) {
 		content, err := s.CapturePane()
 		s.mu.Lock()
 
-		if err == nil {
+		if errors.Is(err, ErrCaptureTimeout) {
+			// Timeout: preserve previous state to avoid false RED flashing
+			if s.lastStableStatus != "" {
+				debugLog("%s: CAPTURE_TIMEOUT → preserving %s", shortName, s.lastStableStatus)
+				return s.lastStableStatus, nil
+			}
+			// No previous state, fall through to default logic
+			debugLog("%s: CAPTURE_TIMEOUT → no previous state, falling through", shortName)
+		} else if err == nil {
 			s.ensureStateTrackerLocked()
 
 			// Check for explicit busy indicator (spinner, "ctrl+c to interrupt")
@@ -1717,6 +1750,16 @@ func (s *Session) getStatusFallback() (string, error) {
 
 	content, err := s.CapturePane()
 	if err != nil {
+		if errors.Is(err, ErrCaptureTimeout) {
+			// Timeout: preserve previous state instead of going inactive
+			s.mu.Lock()
+			prev := s.lastStableStatus
+			s.mu.Unlock()
+			if prev != "" {
+				debugLog("%s: FALLBACK TIMEOUT → preserving %s", shortName, prev)
+				return prev, nil
+			}
+		}
 		s.mu.Lock()
 		s.lastStableStatus = "inactive"
 		s.mu.Unlock()

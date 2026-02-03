@@ -173,7 +173,7 @@ func (nm *NotificationManager) SyncFromInstances(instances []*Instance, currentS
 	// Build set of currently waiting sessions (excluding current)
 	waitingSet := make(map[string]*Instance)
 	for _, inst := range instances {
-		if inst.Status == StatusWaiting && inst.ID != currentSessionID {
+		if inst.GetStatusThreadSafe() == StatusWaiting && inst.ID != currentSessionID {
 			waitingSet[inst.ID] = inst
 		}
 	}
