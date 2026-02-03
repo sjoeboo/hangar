@@ -1,4 +1,4 @@
-.PHONY: build run install clean dev release release-local test fmt lint
+.PHONY: build run install clean dev release-local test fmt lint
 
 BINARY_NAME=agent-deck
 BUILD_DIR=./build
@@ -60,14 +60,7 @@ lint:
 	@which golangci-lint > /dev/null || go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
 	golangci-lint run
 
-# Build for all platforms (dev use only)
-release: clean
-	GOOS=darwin GOARCH=amd64 go build $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME)-darwin-amd64 ./cmd/agent-deck
-	GOOS=darwin GOARCH=arm64 go build $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME)-darwin-arm64 ./cmd/agent-deck
-	GOOS=linux GOARCH=amd64 go build $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME)-linux-amd64 ./cmd/agent-deck
-	@echo "Built releases in $(BUILD_DIR)/"
-
-# Local release using GoReleaser (when GitHub Actions is unavailable)
+# Local release using GoReleaser
 # Prerequisites: brew install goreleaser
 # Required env: GITHUB_TOKEN, HOMEBREW_TAP_GITHUB_TOKEN
 release-local:

@@ -118,12 +118,6 @@ type Storage struct {
 	mu      sync.Mutex // Protects all file operations
 }
 
-// NewStorage creates a new storage instance using the default profile.
-// It automatically runs migration from old layout if needed.
-func NewStorage() (*Storage, error) {
-	return NewStorageWithProfile("")
-}
-
 // NewStorageWithProfile creates a storage instance for a specific profile.
 // If profile is empty, uses the effective profile (from env var or config).
 // Automatically runs migration from old layout if needed.
@@ -600,12 +594,6 @@ func (s *Storage) convertToInstances(data *StorageData) ([]*Instance, []*GroupDa
 	}
 
 	return instances, data.Groups, nil
-}
-
-// GetStoragePath returns the path to the sessions.json file for the default profile.
-// DEPRECATED: Use GetStoragePathForProfile for explicit profile support.
-func GetStoragePath() (string, error) {
-	return GetStoragePathForProfile(DefaultProfile)
 }
 
 // GetStoragePathForProfile returns the path to the sessions.json file for a specific profile.
