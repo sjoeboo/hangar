@@ -367,7 +367,8 @@ type GeminiSettings struct {
 
 // WorktreeSettings contains git worktree preferences
 type WorktreeSettings struct {
-	// DefaultLocation: "sibling" (next to repo) or "subdirectory" (inside .worktrees/)
+	// DefaultLocation: "sibling" (next to repo), "subdirectory" (inside .worktrees/),
+	// or a custom path (e.g., "~/worktrees") creating <path>/<repo_name>/<branch>
 	DefaultLocation string `toml:"default_location"`
 	// AutoCleanup: remove worktree when session is deleted
 	AutoCleanup bool `toml:"auto_cleanup"`

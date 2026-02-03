@@ -5,6 +5,7 @@ import (
 	"bufio"
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
@@ -104,11 +105,28 @@ func ValidateBranchName(name string) error {
 // repository directory, branch name, and location strategy.
 // Location "subdirectory" places worktrees under <repo>/.worktrees/<branch>.
 // Location "sibling" (or empty) places worktrees as <repo>-<branch> alongside the repo.
+// A custom path (containing "/" or starting with "~") places worktrees at <path>/<repo_name>/<branch>.
 func GenerateWorktreePath(repoDir, branchName, location string) string {
 	// Sanitize branch name for filesystem
 	sanitized := branchName
 	sanitized = strings.ReplaceAll(sanitized, "/", "-")
 	sanitized = strings.ReplaceAll(sanitized, " ", "-")
+
+	// Custom path: contains "/" or starts with "~"
+	if strings.Contains(location, "/") || strings.HasPrefix(location, "~") {
+		expanded := location
+		if strings.HasPrefix(expanded, "~/") {
+			if home, err := os.UserHomeDir(); err == nil {
+				expanded = filepath.Join(home, expanded[2:])
+			}
+		} else if expanded == "~" {
+			if home, err := os.UserHomeDir(); err == nil {
+				expanded = home
+			}
+		}
+		repoName := filepath.Base(repoDir)
+		return filepath.Join(expanded, repoName, sanitized)
+	}
 
 	switch location {
 	case "subdirectory":

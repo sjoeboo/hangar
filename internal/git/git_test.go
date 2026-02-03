@@ -356,6 +356,85 @@ func TestGenerateWorktreePath(t *testing.T) {
 			t.Errorf("empty and sibling should produce same path: %s vs %s", pathEmpty, pathSibling)
 		}
 	})
+
+	t.Run("custom absolute path", func(t *testing.T) {
+		repoDir := "/path/to/my-project"
+		branchName := "feature-branch"
+
+		path := GenerateWorktreePath(repoDir, branchName, "/tmp/worktrees")
+
+		expected := "/tmp/worktrees/my-project/feature-branch"
+		if path != expected {
+			t.Errorf("expected %s, got %s", expected, path)
+		}
+	})
+
+	t.Run("custom path with tilde", func(t *testing.T) {
+		repoDir := "/path/to/my-project"
+		branchName := "feature-branch"
+
+		path := GenerateWorktreePath(repoDir, branchName, "~/worktrees")
+
+		home, err := os.UserHomeDir()
+		if err != nil {
+			t.Fatalf("could not get home dir: %v", err)
+		}
+		expected := filepath.Join(home, "worktrees", "my-project", "feature-branch")
+		if path != expected {
+			t.Errorf("expected %s, got %s", expected, path)
+		}
+	})
+
+	t.Run("custom path sanitizes branch slashes", func(t *testing.T) {
+		repoDir := "/path/to/my-project"
+		branchName := "feature/my-branch"
+
+		path := GenerateWorktreePath(repoDir, branchName, "/tmp/wt")
+
+		expected := "/tmp/wt/my-project/feature-my-branch"
+		if path != expected {
+			t.Errorf("expected %s, got %s", expected, path)
+		}
+	})
+
+	t.Run("custom path with trailing slash", func(t *testing.T) {
+		repoDir := "/path/to/my-project"
+		branchName := "main"
+
+		path := GenerateWorktreePath(repoDir, branchName, "/tmp/worktrees/")
+
+		// filepath.Join normalizes trailing slashes
+		expected := "/tmp/worktrees/my-project/main"
+		if path != expected {
+			t.Errorf("expected %s, got %s", expected, path)
+		}
+	})
+
+	t.Run("sibling keyword not treated as custom path", func(t *testing.T) {
+		repoDir := "/path/to/my-project"
+		branchName := "feature-branch"
+
+		path := GenerateWorktreePath(repoDir, branchName, "sibling")
+
+		// Should be sibling mode, not custom path
+		expected := "/path/to/my-project-feature-branch"
+		if path != expected {
+			t.Errorf("expected sibling path %s, got %s", expected, path)
+		}
+	})
+
+	t.Run("absolute path that looks like keyword is custom", func(t *testing.T) {
+		repoDir := "/path/to/my-project"
+		branchName := "feature-branch"
+
+		path := GenerateWorktreePath(repoDir, branchName, "/sibling")
+
+		// Contains "/" so should be treated as custom path
+		expected := "/sibling/my-project/feature-branch"
+		if path != expected {
+			t.Errorf("expected custom path %s, got %s", expected, path)
+		}
+	})
 }
 
 func TestCreateWorktree(t *testing.T) {

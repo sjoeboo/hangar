@@ -123,10 +123,10 @@ Configure the default worktree location in `~/.agent-deck/config.toml`:
 
 ```toml
 [worktree]
-default_location = "subdirectory"  # "sibling" (default) or "subdirectory"
+default_location = "subdirectory"  # "sibling" (default), "subdirectory", or a custom path
 ```
 
-`sibling` creates worktrees next to the repo (`repo-branch`). `subdirectory` creates them inside it (`repo/.worktrees/branch`). The `--location` flag overrides the config per session.
+`sibling` creates worktrees next to the repo (`repo-branch`). `subdirectory` creates them inside it (`repo/.worktrees/branch`). A custom path like `~/worktrees` or `/tmp/worktrees` creates repo-namespaced worktrees at `<path>/<repo_name>/<branch>`. The `--location` flag overrides the config per session.
 
 ### Multi-Tool Support
 
