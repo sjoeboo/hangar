@@ -31,6 +31,10 @@ type UserConfig struct {
 	// Tools defines custom AI tool configurations
 	Tools map[string]ToolDef `toml:"tools"`
 
+	// MCPDefaultScope sets the default scope for MCP operations
+	// Valid values: "local" (default), "global", "user"
+	MCPDefaultScope string `toml:"mcp_default_scope"`
+
 	// MCPs defines available MCP servers for the MCP Manager
 	// These can be attached/detached per-project via the MCP Manager (M key)
 	MCPs map[string]MCPDef `toml:"mcps"`
@@ -1179,6 +1183,12 @@ auto_cleanup = true
 # Variables: {repo-name}, {repo-root}, {branch}, {session-id}
 # path_template = "../worktrees/{repo-name}/{branch}"
 
+# Default scope for MCP operations: "local", "global", or "user"
+# "local" writes to .mcp.json (project-only, default)
+# "global" writes to Claude profile config (profile-wide)
+# "user" writes to ~/.claude.json (all profiles)
+# mcp_default_scope = "local"
+
 # ============================================================================
 # MCP Server Definitions
 # ============================================================================
@@ -1343,6 +1353,21 @@ func GetAvailableMCPNames() []string {
 	}
 	sort.Strings(names)
 	return names
+}
+
+// GetMCPDefaultScope returns the configured default MCP scope.
+// Returns "local", "global", or "user". Defaults to "local" if unset or invalid.
+func GetMCPDefaultScope() string {
+	config, err := LoadUserConfig()
+	if err != nil || config == nil {
+		return "local"
+	}
+	switch config.MCPDefaultScope {
+	case "global", "user":
+		return config.MCPDefaultScope
+	default:
+		return "local"
+	}
 }
 
 // GetMCPDef returns a specific MCP definition by name

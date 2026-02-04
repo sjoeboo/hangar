@@ -279,11 +279,18 @@ func (m *MCPDialog) Show(projectPath string, sessionID string, tool string) erro
 
 	m.visible = true
 	m.projectPath = projectPath
-	// Gemini only has global scope, Claude starts with local
+	// Gemini only has global scope, Claude uses configured default
 	if tool == "gemini" {
 		m.scope = MCPScopeGlobal
 	} else {
-		m.scope = MCPScopeLocal
+		switch session.GetMCPDefaultScope() {
+		case "global":
+			m.scope = MCPScopeGlobal
+		case "user":
+			m.scope = MCPScopeUser
+		default:
+			m.scope = MCPScopeLocal
+		}
 	}
 	m.column = MCPColumnAttached
 	m.localAttachedIdx = 0

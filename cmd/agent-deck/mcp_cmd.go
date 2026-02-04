@@ -409,7 +409,7 @@ func handleMCPAttach(profile string, args []string) {
 		os.Exit(2)
 	}
 
-	scope := "local"
+	scope := session.GetMCPDefaultScope()
 	if *global {
 		scope = "global"
 	}
@@ -553,7 +553,7 @@ func handleMCPDetach(profile string, args []string) {
 		return // unreachable, satisfies staticcheck SA5011
 	}
 
-	scope := "local"
+	scope := session.GetMCPDefaultScope()
 	if *global {
 		scope = "global"
 	}

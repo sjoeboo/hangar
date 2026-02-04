@@ -5,6 +5,15 @@ All notable changes to Agent Deck will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.11] - 2026-02-04
+
+### Added
+
+- Add `mcp_default_scope` config option to control where MCPs are written (#137)
+  - Set to `"global"` or `"user"` to stop agent-deck from overwriting `.mcp.json` on restart
+  - Affects MCP Manager default tab, CLI attach/detach defaults, and session restart regeneration
+  - Defaults to `"local"` (no breaking change)
+
 ## [0.10.10] - 2026-02-04
 
 ### Added

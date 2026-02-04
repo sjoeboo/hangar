@@ -2948,19 +2948,39 @@ func (i *Instance) regenerateMCPConfig() error {
 		return nil // No MCP info, nothing to regenerate
 	}
 
-	localMCPs := mcpInfo.Local()
-	if len(localMCPs) == 0 {
-		return nil // No local MCPs, nothing to regenerate
+	switch GetMCPDefaultScope() {
+	case "global":
+		globalMCPs := mcpInfo.Global
+		if len(globalMCPs) == 0 {
+			return nil
+		}
+		if err := WriteGlobalMCP(globalMCPs); err != nil {
+			log.Printf("[MCP-DEBUG] Failed to regenerate global MCP config: %v", err)
+			return fmt.Errorf("failed to regenerate global MCP config: %w", err)
+		}
+		log.Printf("[MCP-DEBUG] Regenerated global MCP config for %s with %d MCPs", i.Title, len(globalMCPs))
+	case "user":
+		userMCPs := GetUserMCPNames()
+		if len(userMCPs) == 0 {
+			return nil
+		}
+		if err := WriteUserMCP(userMCPs); err != nil {
+			log.Printf("[MCP-DEBUG] Failed to regenerate user MCP config: %v", err)
+			return fmt.Errorf("failed to regenerate user MCP config: %w", err)
+		}
+		log.Printf("[MCP-DEBUG] Regenerated user MCP config for %s with %d MCPs", i.Title, len(userMCPs))
+	default:
+		localMCPs := mcpInfo.Local()
+		if len(localMCPs) == 0 {
+			return nil
+		}
+		// WriteMCPJsonFromConfig checks pool status and writes socket configs if pool is running
+		if err := WriteMCPJsonFromConfig(i.ProjectPath, localMCPs); err != nil {
+			log.Printf("[MCP-DEBUG] Failed to regenerate .mcp.json: %v", err)
+			return fmt.Errorf("failed to regenerate .mcp.json: %w", err)
+		}
+		log.Printf("[MCP-DEBUG] Regenerated .mcp.json for %s with %d MCPs", i.Title, len(localMCPs))
 	}
-
-	// Regenerate .mcp.json - WriteMCPJsonFromConfig checks pool status
-	// and writes socket configs if pool is running
-	if err := WriteMCPJsonFromConfig(i.ProjectPath, localMCPs); err != nil {
-		log.Printf("[MCP-DEBUG] Failed to regenerate .mcp.json: %v", err)
-		return fmt.Errorf("failed to regenerate .mcp.json: %w", err)
-	}
-
-	log.Printf("[MCP-DEBUG] Regenerated .mcp.json for %s with %d MCPs", i.Title, len(localMCPs))
 	return nil
 }
 
