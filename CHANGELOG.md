@@ -14,6 +14,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Affects MCP Manager default tab, CLI attach/detach defaults, and session restart regeneration
   - Defaults to `"local"` (no breaking change)
 
+### Fixed
+
+- Fix tmux pane showing stale conversation history after session restart (#138)
+  - Clear scrollback buffer before respawn to remove old content
+  - Invalidate preview cache on restart for immediate refresh
+  - Kill old tmux session in fallback restart path to prevent orphans
+
 ## [0.10.10] - 2026-02-04
 
 ### Added
