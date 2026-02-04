@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.10.13] - 2026-02-04
 
+### Added
+
+- Migrate all logging to structured JSONL via `log/slog` with automatic rotation
+  - JSONL output to `~/.agent-deck/debug.log` with component-based filtering (`jq 'select(.component=="pool")'`)
+  - Automatic log rotation via lumberjack (configurable size, backups, retention in `[logs]` config)
+  - Event aggregation for high-frequency MCP socket events (1 summary per 30s instead of 40 lines/sec)
+  - In-memory ring buffer with crash dump support (`kill -USR1 <pid>`)
+  - Optional pprof profiling on `localhost:6060`
+  - 9 log components: status, mcp, notif, perf, ui, session, storage, pool, http
+  - New `[logs]` config options: `debug_level`, `debug_format`, `debug_max_mb`, `debug_backups`, `debug_retention_days`, `debug_compress`, `ring_buffer_mb`, `pprof_enabled`, `aggregate_interval_secs`
+
 ### Fixed
 
 - Fix MCP pool infinite restart loop causing 45 GB memory leak over 15 hours
@@ -14,6 +25,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Fix leaked proxy context/goroutines when `Start()` fails during restart
   - Reset failure counters after proxy is healthy for 5+ minutes (allows transient failure recovery)
   - Skip permanently failed proxies in health monitor for both socket and HTTP pools
+- Fix inconsistent debug flag check in tmux.go (`== "1"` changed to `!= ""` to match rest of codebase)
 
 ## [0.10.12] - 2026-02-04
 
