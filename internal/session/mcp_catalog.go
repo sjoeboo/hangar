@@ -3,13 +3,17 @@ package session
 import (
 	"encoding/json"
 	"fmt"
-	"log"
+	"log/slog"
 	"net"
 	"os"
 	"path/filepath"
 	"sort"
 	"time"
+
+	"github.com/asheshgoplani/agent-deck/internal/logging"
 )
+
+var mcpCatLog = logging.ForComponent(logging.CompMCP)
 
 // MCPServerConfig represents an MCP server configuration (Claude's format)
 type MCPServerConfig struct {
@@ -34,7 +38,7 @@ func getExternalSocketPath(mcpName string) string {
 	// Check if socket is alive (accepting connections)
 	conn, err := net.DialTimeout("unix", socketPath, 500*time.Millisecond)
 	if err != nil {
-		log.Printf("[MCP-POOL] Socket %s exists but not alive: %v", socketPath, err)
+		mcpCatLog.Debug("socket_not_alive", slog.String("socket", socketPath), slog.Any("error", err))
 		return ""
 	}
 	conn.Close()
@@ -62,7 +66,7 @@ func WriteMCPJsonFromConfig(projectPath string, enabledNames []string) error {
 				// Start HTTP server if configured
 				if def.HasAutoStartServer() {
 					if err := StartHTTPServer(name, &def); err != nil {
-						log.Printf("[MCP] ⚠️ %s: failed to start HTTP server: %v", name, err)
+						mcpCatLog.Warn("http_server_start_failed", slog.String("mcp", name), slog.String("scope", "local"), slog.Any("error", err))
 						// Continue anyway - server might be external or user will troubleshoot
 					}
 				}
@@ -76,7 +80,7 @@ func WriteMCPJsonFromConfig(projectPath string, enabledNames []string) error {
 					URL:     def.URL,
 					Headers: def.Headers,
 				}
-				log.Printf("[MCP] ✓ %s: using %s transport at %s", name, transport, def.URL)
+				mcpCatLog.Info("transport_http", slog.String("mcp", name), slog.String("scope", "local"), slog.String("transport", transport), slog.String("url", def.URL))
 				continue
 			}
 
@@ -90,22 +94,22 @@ func WriteMCPJsonFromConfig(projectPath string, enabledNames []string) error {
 						Command: "agent-deck",
 						Args:    []string{"mcp-proxy", socketPath},
 					}
-					log.Printf("[MCP-POOL] ✓ %s: using reconnecting proxy %s", name, socketPath)
+					mcpCatLog.Info("transport_socket", slog.String("mcp", name), slog.String("scope", "local"), slog.String("socket", socketPath))
 					continue
 				}
 
 				// Socket not ready - check fallback policy
 				if !pool.FallbackEnabled() {
-					log.Printf("[MCP-POOL] ✗ %s: socket not ready, fallback disabled", name)
+					mcpCatLog.Warn("socket_not_ready", slog.String("mcp", name), slog.String("scope", "local"), slog.Bool("fallback", false))
 					return fmt.Errorf("MCP '%s' socket not ready. Options:\n"+
 						"  1. Enable fallback: set fallback_to_stdio = true in config.toml\n"+
 						"  2. Wait for pool to initialize and try again\n"+
 						"  3. Check MCP is running: ls /tmp/agentdeck-mcp-%s.sock", name, name)
 				}
-				log.Printf("[MCP-POOL] ⚠️ %s: socket not ready - falling back to stdio", name)
+				mcpCatLog.Warn("pool_fallback_stdio", slog.String("mcp", name), slog.String("scope", "local"), slog.String("reason", "socket_not_ready"))
 			} else if pool != nil && !pool.ShouldPool(name) {
 				// MCP is explicitly excluded from pool - use stdio
-				log.Printf("[MCP-POOL] %s: excluded from pool, using stdio", name)
+				mcpCatLog.Debug("pool_excluded", slog.String("mcp", name), slog.String("scope", "local"))
 			} else if pool == nil {
 				// Pool not initialized (CLI mode) - try to discover external sockets from TUI
 				config, _ := LoadUserConfig()
@@ -116,20 +120,20 @@ func WriteMCPJsonFromConfig(projectPath string, enabledNames []string) error {
 							Command: "agent-deck",
 							Args:    []string{"mcp-proxy", socketPath},
 						}
-						log.Printf("[MCP-POOL] ✓ %s: discovered external socket, using reconnecting proxy %s", name, socketPath)
+						mcpCatLog.Info("external_socket_discovered", slog.String("mcp", name), slog.String("scope", "local"), slog.String("socket", socketPath))
 						continue
 					}
 					// Socket not found - check fallback policy
 					if !config.MCPPool.FallbackStdio {
-						log.Printf("[MCP-POOL] ✗ %s: pool enabled but socket not found - fallback disabled", name)
+						mcpCatLog.Warn("socket_not_found", slog.String("mcp", name), slog.String("scope", "local"), slog.Bool("fallback", false))
 						return fmt.Errorf("MCP '%s' socket not found. Options:\n"+
 							"  1. Enable fallback: set fallback_to_stdio = true in config.toml\n"+
 							"  2. Start TUI to initialize pool: agent-deck\n"+
 							"  3. Check socket exists: ls /tmp/agentdeck-mcp-%s.sock", name, name)
 					}
-					log.Printf("[MCP-POOL] ⚠️ %s: socket not found, falling back to stdio", name)
+					mcpCatLog.Warn("pool_fallback_stdio", slog.String("mcp", name), slog.String("scope", "local"), slog.String("reason", "socket_not_found"))
 				} else {
-					log.Printf("[MCP-POOL] %s: pool disabled, using stdio", name)
+					mcpCatLog.Debug("pool_disabled", slog.String("mcp", name), slog.String("scope", "local"))
 				}
 			}
 
@@ -148,7 +152,7 @@ func WriteMCPJsonFromConfig(projectPath string, enabledNames []string) error {
 				Args:    args,
 				Env:     env,
 			}
-			log.Printf("[MCP-POOL] ⚠️ %s: using stdio (NOT pooled)", name)
+			mcpCatLog.Info("transport_stdio", slog.String("mcp", name), slog.String("scope", "local"))
 		}
 	}
 
@@ -199,7 +203,7 @@ func WriteGlobalMCP(enabledNames []string) error {
 				// Start HTTP server if configured
 				if def.HasAutoStartServer() {
 					if err := StartHTTPServer(name, &def); err != nil {
-						log.Printf("[MCP] ⚠️ Global %s: failed to start HTTP server: %v", name, err)
+						mcpCatLog.Warn("http_server_start_failed", slog.String("mcp", name), slog.String("scope", "global"), slog.Any("error", err))
 					}
 				}
 
@@ -212,7 +216,7 @@ func WriteGlobalMCP(enabledNames []string) error {
 					URL:     def.URL,
 					Headers: def.Headers,
 				}
-				log.Printf("[MCP] ✓ Global %s: using %s transport at %s", name, transport, def.URL)
+				mcpCatLog.Info("transport_http", slog.String("mcp", name), slog.String("scope", "global"), slog.String("transport", transport), slog.String("url", def.URL))
 				continue
 			}
 
@@ -226,22 +230,22 @@ func WriteGlobalMCP(enabledNames []string) error {
 						Command: "agent-deck",
 						Args:    []string{"mcp-proxy", socketPath},
 					}
-					log.Printf("[MCP-POOL] ✓ Global %s: using reconnecting proxy %s", name, socketPath)
+					mcpCatLog.Info("transport_socket", slog.String("mcp", name), slog.String("scope", "global"), slog.String("socket", socketPath))
 					continue
 				}
 
 				// Socket not ready - check fallback policy
 				if !pool.FallbackEnabled() {
-					log.Printf("[MCP-POOL] ✗ Global %s: socket not ready, fallback disabled", name)
+					mcpCatLog.Warn("socket_not_ready", slog.String("mcp", name), slog.String("scope", "global"), slog.Bool("fallback", false))
 					return fmt.Errorf("MCP '%s' socket not ready. Options:\n"+
 						"  1. Enable fallback: set fallback_to_stdio = true in config.toml\n"+
 						"  2. Wait for pool to initialize and try again\n"+
 						"  3. Check MCP is running: ls /tmp/agentdeck-mcp-%s.sock", name, name)
 				}
-				log.Printf("[MCP-POOL] ⚠️ Global %s: socket not ready - falling back to stdio", name)
+				mcpCatLog.Warn("pool_fallback_stdio", slog.String("mcp", name), slog.String("scope", "global"), slog.String("reason", "socket_not_ready"))
 			} else if pool != nil && !pool.ShouldPool(name) {
 				// MCP is explicitly excluded from pool - use stdio
-				log.Printf("[MCP-POOL] Global %s: excluded from pool, using stdio", name)
+				mcpCatLog.Debug("pool_excluded", slog.String("mcp", name), slog.String("scope", "global"))
 			} else if pool == nil {
 				// Pool not initialized (CLI mode) - try to discover external sockets from TUI
 				config, _ := LoadUserConfig()
@@ -252,20 +256,20 @@ func WriteGlobalMCP(enabledNames []string) error {
 							Command: "agent-deck",
 							Args:    []string{"mcp-proxy", socketPath},
 						}
-						log.Printf("[MCP-POOL] ✓ Global %s: discovered external socket, using reconnecting proxy %s", name, socketPath)
+						mcpCatLog.Info("external_socket_discovered", slog.String("mcp", name), slog.String("scope", "global"), slog.String("socket", socketPath))
 						continue
 					}
 					// Socket not found - check fallback policy
 					if !config.MCPPool.FallbackStdio {
-						log.Printf("[MCP-POOL] ✗ Global %s: pool enabled but socket not found - fallback disabled", name)
+						mcpCatLog.Warn("socket_not_found", slog.String("mcp", name), slog.String("scope", "global"), slog.Bool("fallback", false))
 						return fmt.Errorf("MCP '%s' socket not found. Options:\n"+
 							"  1. Enable fallback: set fallback_to_stdio = true in config.toml\n"+
 							"  2. Start TUI to initialize pool: agent-deck\n"+
 							"  3. Check socket exists: ls /tmp/agentdeck-mcp-%s.sock", name, name)
 					}
-					log.Printf("[MCP-POOL] ⚠️ Global %s: socket not found, falling back to stdio", name)
+					mcpCatLog.Warn("pool_fallback_stdio", slog.String("mcp", name), slog.String("scope", "global"), slog.String("reason", "socket_not_found"))
 				} else {
-					log.Printf("[MCP-POOL] Global %s: pool disabled, using stdio", name)
+					mcpCatLog.Debug("pool_disabled", slog.String("mcp", name), slog.String("scope", "global"))
 				}
 			}
 
@@ -284,7 +288,7 @@ func WriteGlobalMCP(enabledNames []string) error {
 				Args:    args,
 				Env:     env,
 			}
-			log.Printf("[MCP-POOL] ⚠️ Global %s: using stdio (NOT pooled)", name)
+			mcpCatLog.Info("transport_stdio", slog.String("mcp", name), slog.String("scope", "global"))
 		}
 	}
 
@@ -458,7 +462,7 @@ func WriteUserMCP(enabledNames []string) error {
 				// Start HTTP server if configured
 				if def.HasAutoStartServer() {
 					if err := StartHTTPServer(name, &def); err != nil {
-						log.Printf("[MCP] ⚠️ User %s: failed to start HTTP server: %v", name, err)
+						mcpCatLog.Warn("http_server_start_failed", slog.String("mcp", name), slog.String("scope", "user"), slog.Any("error", err))
 					}
 				}
 
@@ -471,7 +475,7 @@ func WriteUserMCP(enabledNames []string) error {
 					URL:     def.URL,
 					Headers: def.Headers,
 				}
-				log.Printf("[MCP] ✓ User %s: using %s transport at %s", name, transport, def.URL)
+				mcpCatLog.Info("transport_http", slog.String("mcp", name), slog.String("scope", "user"), slog.String("transport", transport), slog.String("url", def.URL))
 				continue
 			}
 
@@ -485,22 +489,22 @@ func WriteUserMCP(enabledNames []string) error {
 						Command: "agent-deck",
 						Args:    []string{"mcp-proxy", socketPath},
 					}
-					log.Printf("[MCP-POOL] ✓ User %s: using reconnecting proxy %s", name, socketPath)
+					mcpCatLog.Info("transport_socket", slog.String("mcp", name), slog.String("scope", "user"), slog.String("socket", socketPath))
 					continue
 				}
 
 				// Socket not ready - check fallback policy
 				if !pool.FallbackEnabled() {
-					log.Printf("[MCP-POOL] ✗ User %s: socket not ready, fallback disabled", name)
+					mcpCatLog.Warn("socket_not_ready", slog.String("mcp", name), slog.String("scope", "user"), slog.Bool("fallback", false))
 					return fmt.Errorf("MCP '%s' socket not ready for USER scope. Options:\n"+
 						"  1. Enable fallback: set fallback_to_stdio = true in config.toml\n"+
 						"  2. Wait for pool to initialize and try again\n"+
 						"  3. Check MCP is running: ls /tmp/agentdeck-mcp-%s.sock", name, name)
 				}
-				log.Printf("[MCP-POOL] ⚠️ User %s: socket not ready - falling back to stdio", name)
+				mcpCatLog.Warn("pool_fallback_stdio", slog.String("mcp", name), slog.String("scope", "user"), slog.String("reason", "socket_not_ready"))
 			} else if pool != nil && !pool.ShouldPool(name) {
 				// MCP is explicitly excluded from pool - use stdio
-				log.Printf("[MCP-POOL] User %s: excluded from pool, using stdio", name)
+				mcpCatLog.Debug("pool_excluded", slog.String("mcp", name), slog.String("scope", "user"))
 			} else if pool == nil {
 				// Pool not initialized (CLI mode) - try to discover external sockets from TUI
 				config, _ := LoadUserConfig()
@@ -511,20 +515,20 @@ func WriteUserMCP(enabledNames []string) error {
 							Command: "agent-deck",
 							Args:    []string{"mcp-proxy", socketPath},
 						}
-						log.Printf("[MCP-POOL] ✓ User %s: discovered external socket, using reconnecting proxy %s", name, socketPath)
+						mcpCatLog.Info("external_socket_discovered", slog.String("mcp", name), slog.String("scope", "user"), slog.String("socket", socketPath))
 						continue
 					}
 					// Socket not found - check fallback policy
 					if !config.MCPPool.FallbackStdio {
-						log.Printf("[MCP-POOL] ✗ User %s: pool enabled but socket not found - fallback disabled", name)
+						mcpCatLog.Warn("socket_not_found", slog.String("mcp", name), slog.String("scope", "user"), slog.Bool("fallback", false))
 						return fmt.Errorf("MCP '%s' socket not found for USER scope. Options:\n"+
 							"  1. Enable fallback: set fallback_to_stdio = true in config.toml\n"+
 							"  2. Start TUI to initialize pool: agent-deck\n"+
 							"  3. Check socket exists: ls /tmp/agentdeck-mcp-%s.sock", name, name)
 					}
-					log.Printf("[MCP-POOL] ⚠️ User %s: socket not found, falling back to stdio", name)
+					mcpCatLog.Warn("pool_fallback_stdio", slog.String("mcp", name), slog.String("scope", "user"), slog.String("reason", "socket_not_found"))
 				} else {
-					log.Printf("[MCP-POOL] User %s: pool disabled, using stdio", name)
+					mcpCatLog.Debug("pool_disabled", slog.String("mcp", name), slog.String("scope", "user"))
 				}
 			}
 
@@ -543,7 +547,7 @@ func WriteUserMCP(enabledNames []string) error {
 				Args:    args,
 				Env:     env,
 			}
-			log.Printf("[MCP-POOL] ⚠️ User %s: using stdio (NOT pooled)", name)
+			mcpCatLog.Info("transport_stdio", slog.String("mcp", name), slog.String("scope", "user"))
 		}
 	}
 

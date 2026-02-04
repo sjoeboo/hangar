@@ -3,13 +3,17 @@ package session
 import (
 	"context"
 	"fmt"
-	"log"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/asheshgoplani/agent-deck/internal/logging"
 )
+
+var maintLog = logging.ForComponent(logging.CompSession)
 
 // MaintenanceResult holds the outcome of a maintenance run.
 type MaintenanceResult struct {
@@ -25,7 +29,7 @@ func RunMaintenance() MaintenanceResult {
 
 	deckDir, err := GetAgentDeckDir()
 	if err != nil {
-		log.Printf("[MAINTENANCE] failed to get agent-deck dir: %v", err)
+		maintLog.Warn("maintenance_dir_lookup_failed", slog.String("error", err.Error()))
 		return MaintenanceResult{Duration: time.Since(start)}
 	}
 	geminiDir := GetGeminiConfigDir()
@@ -81,7 +85,7 @@ func pruneGeminiLogs(baseDir string) int {
 
 	dirs, err := filepath.Glob(filepath.Join(baseDir, "tmp", "*"))
 	if err != nil {
-		log.Printf("[MAINTENANCE] pruneGeminiLogs glob error: %v", err)
+		maintLog.Warn("prune_gemini_logs_glob_error", slog.String("error", err.Error()))
 		return 0
 	}
 
@@ -105,7 +109,7 @@ func pruneGeminiLogs(baseDir string) int {
 			}
 			fullPath := filepath.Join(dir, entry.Name())
 			if err := os.Remove(fullPath); err != nil {
-				log.Printf("[MAINTENANCE] failed to remove %s: %v", fullPath, err)
+				maintLog.Warn("maintenance_file_remove_failed", slog.String("path", fullPath), slog.String("error", err.Error()))
 			} else {
 				pruned++
 			}
@@ -122,7 +126,7 @@ func cleanupDeckBackups(profilesDir string) int {
 
 	matches, err := filepath.Glob(filepath.Join(profilesDir, "*", "sessions.json.bak.*"))
 	if err != nil {
-		log.Printf("[MAINTENANCE] cleanupDeckBackups glob error: %v", err)
+		maintLog.Warn("cleanup_backups_glob_error", slog.String("error", err.Error()))
 		return 0
 	}
 
@@ -158,7 +162,7 @@ func cleanupDeckBackups(profilesDir string) int {
 		// Delete everything after the first 3.
 		for i := 3; i < len(sorted); i++ {
 			if err := os.Remove(sorted[i].path); err != nil {
-				log.Printf("[MAINTENANCE] failed to remove backup %s: %v", sorted[i].path, err)
+				maintLog.Warn("maintenance_backup_remove_failed", slog.String("path", sorted[i].path), slog.String("error", err.Error()))
 			} else {
 				pruned++
 			}
@@ -178,7 +182,7 @@ func archiveBloatedSessions(baseDir string) int {
 
 	matches, err := filepath.Glob(filepath.Join(baseDir, "profiles", "*", "*.json"))
 	if err != nil {
-		log.Printf("[MAINTENANCE] archiveBloatedSessions glob error: %v", err)
+		maintLog.Warn("archive_bloated_sessions_glob_error", slog.String("error", err.Error()))
 		return 0
 	}
 
@@ -212,13 +216,13 @@ func archiveBloatedSessions(baseDir string) int {
 
 			archiveDir := filepath.Join(dir, "archive")
 			if err := os.MkdirAll(archiveDir, 0755); err != nil {
-				log.Printf("[MAINTENANCE] failed to create archive dir %s: %v", archiveDir, err)
+				maintLog.Warn("archive_dir_creation_failed", slog.String("path", archiveDir), slog.String("error", err.Error()))
 				continue
 			}
 
 			dest := filepath.Join(archiveDir, filepath.Base(f))
 			if err := os.Rename(f, dest); err != nil {
-				log.Printf("[MAINTENANCE] failed to archive %s: %v", f, err)
+				maintLog.Warn("archive_file_failed", slog.String("path", f), slog.String("error", err.Error()))
 			} else {
 				archived++
 			}

@@ -6,7 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"io"
-	"log"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -16,10 +16,13 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/asheshgoplani/agent-deck/internal/logging"
 	"github.com/fsnotify/fsnotify"
 	"github.com/sahilm/fuzzy"
 	"golang.org/x/time/rate"
 )
+
+var searchLog = logging.ForComponent(logging.CompSession)
 
 // SearchTier represents the search strategy tier
 type SearchTier int
@@ -580,7 +583,7 @@ func NewGlobalSearchIndex(claudeDir string, config GlobalSearchSettings) (*Globa
 	// Watch the projects directory (create if doesn't exist check)
 	if _, err := os.Stat(projectsDir); err == nil {
 		if err := watcher.Add(projectsDir); err != nil {
-			log.Printf("GlobalSearch: failed to watch projects dir: %v", err)
+			searchLog.Warn("global_search_watch_failed", slog.String("error", err.Error()))
 		}
 
 		// Also watch subdirectories
@@ -781,7 +784,7 @@ func (idx *GlobalSearchIndex) watcherLoop() {
 			if !ok {
 				return
 			}
-			log.Printf("GlobalSearch watcher error: %v", err)
+			searchLog.Warn("global_search_watcher_error", slog.String("error", err.Error()))
 		}
 	}
 }

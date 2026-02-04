@@ -1,12 +1,15 @@
 package ui
 
 import (
-	"log"
+	"log/slog"
 
+	"github.com/asheshgoplani/agent-deck/internal/logging"
 	"github.com/asheshgoplani/agent-deck/internal/session"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
+
+var mcpDialogLog = logging.ForComponent(logging.CompMCP)
 
 // MCPScope represents LOCAL, GLOBAL, or USER scope
 type MCPScope int
@@ -332,8 +335,11 @@ func (m *MCPDialog) HasItems() bool {
 // HasChanged returns true if any MCPs were changed (any scope)
 func (m *MCPDialog) HasChanged() bool {
 	result := m.localChanged || m.globalChanged || m.userChanged
-	log.Printf("[MCP-DEBUG] HasChanged() called - localChanged=%v, globalChanged=%v, userChanged=%v, result=%v",
-		m.localChanged, m.globalChanged, m.userChanged, result)
+	mcpDialogLog.Debug("has_changed_check",
+		slog.Bool("local_changed", m.localChanged),
+		slog.Bool("global_changed", m.globalChanged),
+		slog.Bool("user_changed", m.userChanged),
+		slog.Bool("result", result))
 	return result
 }
 
@@ -379,15 +385,17 @@ func (m *MCPDialog) getCurrentList() (*[]MCPItem, *int) {
 
 // Move moves the selected item between Attached <-> Available
 func (m *MCPDialog) Move() {
-	log.Printf("[MCP-DEBUG] Move() called - scope=%d, column=%d", m.scope, m.column)
+	mcpDialogLog.Debug("mcp_move_start",
+		slog.Int("scope", int(m.scope)),
+		slog.Int("column", int(m.column)))
 	list, idx := m.getCurrentList()
 	if len(*list) == 0 || *idx < 0 || *idx >= len(*list) {
-		log.Printf("[MCP-DEBUG] Move() early return - list empty or invalid index")
+		mcpDialogLog.Debug("mcp_move_early_return", slog.String("reason", "list_empty_or_invalid_index"))
 		return
 	}
 
 	item := (*list)[*idx]
-	log.Printf("[MCP-DEBUG] Moving item: %q", item.Name)
+	mcpDialogLog.Debug("mcp_move_item", slog.String("name", item.Name))
 
 	// Remove from current list
 	*list = append((*list)[:*idx], (*list)[*idx+1:]...)
@@ -399,15 +407,15 @@ func (m *MCPDialog) Move() {
 		case MCPScopeLocal:
 			m.localAvailable = append(m.localAvailable, item)
 			m.localChanged = true
-			log.Printf("[MCP-DEBUG] Moved to localAvailable, localChanged=true")
+			mcpDialogLog.Debug("mcp_moved_to_available", slog.String("scope", "local"))
 		case MCPScopeGlobal:
 			m.globalAvailable = append(m.globalAvailable, item)
 			m.globalChanged = true
-			log.Printf("[MCP-DEBUG] Moved to globalAvailable, globalChanged=true")
+			mcpDialogLog.Debug("mcp_moved_to_available", slog.String("scope", "global"))
 		case MCPScopeUser:
 			m.userAvailable = append(m.userAvailable, item)
 			m.userChanged = true
-			log.Printf("[MCP-DEBUG] Moved to userAvailable, userChanged=true")
+			mcpDialogLog.Debug("mcp_moved_to_available", slog.String("scope", "user"))
 		}
 	} else {
 		// Moving from Available -> Attached
@@ -415,20 +423,22 @@ func (m *MCPDialog) Move() {
 		case MCPScopeLocal:
 			m.localAttached = append(m.localAttached, item)
 			m.localChanged = true
-			log.Printf("[MCP-DEBUG] Moved to localAttached, localChanged=true")
+			mcpDialogLog.Debug("mcp_moved_to_attached", slog.String("scope", "local"))
 		case MCPScopeGlobal:
 			m.globalAttached = append(m.globalAttached, item)
 			m.globalChanged = true
-			log.Printf("[MCP-DEBUG] Moved to globalAttached, globalChanged=true")
+			mcpDialogLog.Debug("mcp_moved_to_attached", slog.String("scope", "global"))
 		case MCPScopeUser:
 			m.userAttached = append(m.userAttached, item)
 			m.userChanged = true
-			log.Printf("[MCP-DEBUG] Moved to userAttached, userChanged=true")
+			mcpDialogLog.Debug("mcp_moved_to_attached", slog.String("scope", "user"))
 		}
 	}
 
-	log.Printf("[MCP-DEBUG] After Move: localChanged=%v, globalChanged=%v, userChanged=%v",
-		m.localChanged, m.globalChanged, m.userChanged)
+	mcpDialogLog.Debug("mcp_move_complete",
+		slog.Bool("local_changed", m.localChanged),
+		slog.Bool("global_changed", m.globalChanged),
+		slog.Bool("user_changed", m.userChanged))
 
 	// Adjust index if needed
 	if *idx >= len(*list) && len(*list) > 0 {
@@ -438,8 +448,12 @@ func (m *MCPDialog) Move() {
 
 // Apply saves the changes to LOCAL (.mcp.json), GLOBAL (Claude/Gemini config), and USER (~/.claude.json)
 func (m *MCPDialog) Apply() error {
-	log.Printf("[MCP-DEBUG] Apply() called - tool=%q, localChanged=%v, globalChanged=%v, userChanged=%v, projectPath=%q",
-		m.tool, m.localChanged, m.globalChanged, m.userChanged, m.projectPath)
+	mcpDialogLog.Debug("mcp_apply_start",
+		slog.String("tool", m.tool),
+		slog.Bool("local_changed", m.localChanged),
+		slog.Bool("global_changed", m.globalChanged),
+		slog.Bool("user_changed", m.userChanged),
+		slog.String("project_path", m.projectPath))
 
 	if m.tool == "gemini" {
 		// Gemini: Only global scope, write to settings.json

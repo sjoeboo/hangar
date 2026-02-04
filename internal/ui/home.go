@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"sort"
@@ -21,6 +21,7 @@ import (
 
 	"github.com/asheshgoplani/agent-deck/internal/clipboard"
 	"github.com/asheshgoplani/agent-deck/internal/git"
+	"github.com/asheshgoplani/agent-deck/internal/logging"
 	"github.com/asheshgoplani/agent-deck/internal/session"
 	"github.com/asheshgoplani/agent-deck/internal/tmux"
 	"github.com/asheshgoplani/agent-deck/internal/update"
@@ -33,6 +34,15 @@ var Version = "0.0.0"
 func SetVersion(v string) {
 	Version = v
 }
+
+// Structured loggers for UI components
+var (
+	uiLog     = logging.ForComponent(logging.CompUI)
+	perfLog   = logging.ForComponent(logging.CompPerf)
+	notifLog  = logging.ForComponent(logging.CompNotif)
+	mcpUILog  = logging.ForComponent(logging.CompMCP)
+	statusLog = logging.ForComponent(logging.CompStatus)
+)
 
 const (
 	// tickInterval for UI refresh and status updates
@@ -417,7 +427,7 @@ func NewHomeWithProfileAndMode(profile string, isPrimary bool) *Home {
 	storage, err := session.NewStorageWithProfile(profile)
 	if err != nil {
 		// Log the error and set warning - sessions won't persist but app will still function
-		log.Printf("Warning: failed to initialize storage, sessions won't persist: %v", err)
+		uiLog.Warn("storage_init_failed", slog.String("error", err.Error()))
 		storageWarning = fmt.Sprintf("⚠ Storage unavailable: %v (sessions won't persist)", err)
 		storage = nil
 	}
@@ -512,7 +522,7 @@ func NewHomeWithProfileAndMode(profile string, isPrimary bool) *Home {
 		h.instancesMu.RUnlock()
 	})
 	if err != nil {
-		log.Printf("Warning: failed to create log watcher: %v (falling back to polling)", err)
+		uiLog.Warn("log_watcher_init_failed", slog.String("error", err.Error()))
 	} else {
 		h.logWatcher = logWatcher
 		go h.logWatcher.Start()
@@ -531,7 +541,7 @@ func NewHomeWithProfileAndMode(profile string, isPrimary bool) *Home {
 	if userConfig != nil && userConfig.GlobalSearch.Enabled {
 		globalSearchIndex, err := session.NewGlobalSearchIndex(claudeDir, userConfig.GlobalSearch)
 		if err != nil {
-			log.Printf("Warning: failed to initialize global search: %v", err)
+			uiLog.Warn("global_search_init_failed", slog.String("error", err.Error()))
 		} else {
 			h.globalSearchIndex = globalSearchIndex
 			h.globalSearch.SetIndex(globalSearchIndex)
@@ -548,12 +558,12 @@ func NewHomeWithProfileAndMode(profile string, isPrimary bool) *Home {
 	if storage != nil {
 		storagePath, err := session.GetStoragePathForProfile(actualProfile)
 		if err != nil {
-			log.Printf("Warning: failed to get storage path for watcher: %v", err)
+			uiLog.Warn("storage_path_watcher_failed", slog.String("error", err.Error()))
 		} else {
 			watcher, err := NewStorageWatcher(storagePath)
 			if err != nil {
 				// Log warning but continue (fallback to manual refresh with Ctrl+R)
-				log.Printf("Warning: failed to initialize storage watcher: %v", err)
+				uiLog.Warn("storage_watcher_init_failed", slog.String("error", err.Error()))
 			} else {
 				h.storageWatcher = watcher
 				watcher.Start()
@@ -1007,11 +1017,11 @@ func (h *Home) loadSessions() tea.Msg {
 	if configErr == nil && userConfig != nil && userConfig.MCPPool.Enabled {
 		pool, poolErr := session.InitializeGlobalPool(h.ctx, userConfig, instances)
 		if poolErr != nil {
-			log.Printf("Warning: failed to initialize MCP pool: %v", poolErr)
+			mcpUILog.Warn("pool_init_failed", slog.String("error", poolErr.Error()))
 			msg.poolError = poolErr
 		} else if pool != nil {
 			proxies := pool.ListServers()
-			log.Printf("✓ MCP Socket Pool initialized (%d proxies)", len(proxies))
+			mcpUILog.Info("pool_initialized", slog.Int("proxies", len(proxies)))
 			msg.poolProxies = len(proxies)
 		}
 	}
@@ -1300,7 +1310,7 @@ func (h *Home) fetchAnalytics(inst *session.Instance) tea.Cmd {
 			// Parse the JSONL file
 			analytics, err := session.ParseSessionJSONL(jsonlPath)
 			if err != nil {
-				log.Printf("Failed to parse analytics for session %s (claude session %s): %v", sessionID, claudeSessionID, err)
+				uiLog.Warn("analytics_parse_failed", slog.String("session_id", sessionID), slog.String("claude_session_id", claudeSessionID), slog.String("error", err.Error()))
 				return analyticsFetchedMsg{
 					sessionID: sessionID,
 					analytics: nil,
@@ -1397,7 +1407,7 @@ func (h *Home) statusWorker() {
 			func() {
 				defer func() {
 					if r := recover(); r != nil {
-						log.Printf("STATUS WORKER PANIC (recovered): %v", r)
+						statusLog.Error("worker_panic", slog.Any("panic", r))
 					}
 				}()
 				h.processStatusUpdate(req)
@@ -1431,7 +1441,7 @@ func (h *Home) logWorker() {
 			func() {
 				defer func() {
 					if r := recover(); r != nil {
-						log.Printf("LOG WORKER PANIC (recovered): %v", r)
+						uiLog.Error("log_worker_panic", slog.Any("panic", r))
 					}
 				}()
 				_ = inst.UpdateStatus()
@@ -1446,21 +1456,18 @@ func (h *Home) logWorker() {
 func (h *Home) backgroundStatusUpdate() {
 	defer func() {
 		if r := recover(); r != nil {
-			log.Printf("Warning: background update recovered from panic: %v", r)
+			notifLog.Error("background_update_panic", slog.Any("panic", r))
 		}
 	}()
 
-	debug := os.Getenv("AGENTDECK_DEBUG") != ""
 	totalStart := time.Now()
 
 	// Refresh tmux session cache
 	refreshStart := time.Now()
 	tmux.RefreshExistingSessions()
-	if debug {
-		refreshDur := time.Since(refreshStart)
-		if refreshDur > 100*time.Millisecond {
-			log.Printf("[PERF] RefreshExistingSessions took %v (slow!)", refreshDur)
-		}
+	refreshDur := time.Since(refreshStart)
+	if refreshDur > 100*time.Millisecond {
+		perfLog.Warn("slow_refresh", slog.Duration("duration", refreshDur))
 	}
 
 	// Get instances snapshot
@@ -1503,7 +1510,7 @@ func (h *Home) backgroundStatusUpdate() {
 			_ = inst.UpdateStatus()
 			instDur := time.Since(instStart)
 
-			if debug && instDur > 50*time.Millisecond {
+			if instDur > 50*time.Millisecond {
 				slowMu.Lock()
 				slowSessions = append(slowSessions, fmt.Sprintf("%s=%v", inst.Title, instDur.Round(time.Millisecond)))
 				slowMu.Unlock()
@@ -1511,23 +1518,21 @@ func (h *Home) backgroundStatusUpdate() {
 			newStatus := inst.GetStatusThreadSafe()
 			if newStatus != oldStatus {
 				statusChanged.Store(true)
-				log.Printf("[BACKGROUND] Status changed: %s %s -> %s", inst.Title, oldStatus, newStatus)
+				notifLog.Debug("status_changed", slog.String("title", inst.Title), slog.String("old", string(oldStatus)), slog.String("new", string(newStatus)))
 			}
 			return nil
 		})
 	}
 	g.Wait()
 
-	if debug {
-		statusDur := time.Since(statusStart)
-		if statusDur > 500*time.Millisecond {
-			log.Printf("[PERF] Status update loop: %v for %d sessions", statusDur.Round(time.Millisecond), len(instances))
-			slowMu.Lock()
-			if len(slowSessions) > 0 {
-				log.Printf("[PERF] Slow sessions (>50ms): %s", strings.Join(slowSessions, ", "))
-			}
-			slowMu.Unlock()
+	statusDur := time.Since(statusStart)
+	if statusDur > 500*time.Millisecond {
+		perfLog.Info("slow_status_loop", slog.Duration("duration", statusDur), slog.Int("sessions", len(instances)))
+		slowMu.Lock()
+		if len(slowSessions) > 0 {
+			perfLog.Info("slow_sessions", slog.String("details", strings.Join(slowSessions, ", ")))
 		}
+		slowMu.Unlock()
 	}
 
 	// Invalidate cache if status changed
@@ -1540,17 +1545,15 @@ func (h *Home) backgroundStatusUpdate() {
 	notifStart := time.Now()
 	h.syncNotificationsBackground()
 
-	if debug {
-		totalDur := time.Since(totalStart)
-		notifDur := time.Since(notifStart)
-		if totalDur > 1*time.Second {
-			log.Printf("[PERF] ⚠ backgroundStatusUpdate SLOW: total=%v (status=%v, notif=%v, refresh=%v) sessions=%d",
-				totalDur.Round(time.Millisecond),
-				time.Since(statusStart).Round(time.Millisecond),
-				notifDur.Round(time.Millisecond),
-				time.Since(totalStart).Round(time.Millisecond)-time.Since(statusStart).Round(time.Millisecond),
-				len(instances))
-		}
+	totalDur := time.Since(totalStart)
+	notifDur := time.Since(notifStart)
+	if totalDur > 1*time.Second {
+		perfLog.Warn("background_status_update_slow",
+			slog.Duration("total", totalDur),
+			slog.Duration("status", time.Since(statusStart)),
+			slog.Duration("notif", notifDur),
+			slog.Duration("refresh", refreshDur),
+			slog.Int("sessions", len(instances)))
 	}
 }
 
@@ -1559,7 +1562,7 @@ func (h *Home) backgroundStatusUpdate() {
 func (h *Home) syncNotificationsBackground() {
 	defer func() {
 		if r := recover(); r != nil {
-			log.Printf("Warning: syncNotificationsBackground recovered from panic: %v", r)
+			notifLog.Error("sync_notifications_panic", slog.Any("panic", r))
 		}
 	}()
 
@@ -1567,26 +1570,20 @@ func (h *Home) syncNotificationsBackground() {
 		return
 	}
 
-	debug := os.Getenv("AGENTDECK_DEBUG") != ""
-
 	// Phase 1: Check for signal file from Ctrl+b 1-6 shortcuts
 	// CRITICAL: This must be done in background sync too, because the foreground
 	// sync might not run when user is attached to a session (tea.Exec pauses TUI)
 	var sessionToAcknowledgeID string
 	if signalSessionID := tmux.ReadAndClearAckSignal(); signalSessionID != "" {
 		sessionToAcknowledgeID = signalSessionID
-		if debug {
-			log.Printf("[NOTIF-BG] Signal file found: %s", signalSessionID)
-		}
+		notifLog.Debug("signal_found", slog.String("session_id", signalSessionID))
 
 		// Track notification switch during attach for cursor sync on detach
 		if h.isAttaching.Load() {
 			h.lastNotifSwitchMu.Lock()
 			h.lastNotifSwitchID = signalSessionID
 			h.lastNotifSwitchMu.Unlock()
-			if debug {
-				log.Printf("[NOTIF-BG] Recorded attach-switch to %s for cursor sync", signalSessionID)
-			}
+			notifLog.Debug("attach_switch_recorded", slog.String("session_id", signalSessionID))
 		}
 	}
 
@@ -1601,9 +1598,7 @@ func (h *Home) syncNotificationsBackground() {
 			if ts := inst.GetTmuxSession(); ts != nil {
 				ts.Acknowledge()
 				_ = inst.UpdateStatus()
-				if debug {
-					log.Printf("[NOTIF-BG] Acknowledged %s, new status: %s", inst.Title, inst.Status)
-				}
+				notifLog.Debug("session_acknowledged", slog.String("title", inst.Title), slog.String("status", string(inst.Status)))
 			}
 		}
 	}
@@ -1617,9 +1612,7 @@ func (h *Home) syncNotificationsBackground() {
 		currentSessionID = sessionToAcknowledgeID
 	}
 
-	if debug {
-		log.Printf("[NOTIF-BG] currentSessionID=%s, instances=%d", currentSessionID, len(instances))
-	}
+	notifLog.Debug("sync_state", slog.String("current_session_id", currentSessionID), slog.Int("instances", len(instances)))
 
 	// Sync notification manager with current states
 	h.notificationManager.SyncFromInstances(instances, currentSessionID)
@@ -1642,7 +1635,7 @@ func (h *Home) syncNotificationsBackground() {
 		// Force immediate visual update (bypasses 15-second status-interval)
 		_ = tmux.RefreshStatusBarImmediate()
 
-		log.Printf("[BACKGROUND] Notification bar updated: %s", barText)
+		notifLog.Info("bar_updated", slog.String("text", barText))
 	} else {
 		h.lastBarTextMu.Unlock()
 	}
@@ -1895,7 +1888,7 @@ func (h *Home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			oldCount := len(h.instances)
 			h.instances = msg.instances
 			newCount := len(msg.instances)
-			log.Printf("[RELOAD-DEBUG] loadSessionsMsg: replacing %d instances with %d instances (profile=%s)", oldCount, newCount, h.profile)
+			uiLog.Debug("reload_load_sessions", slog.Int("old_count", oldCount), slog.Int("new_count", newCount), slog.String("profile", h.profile))
 			// Rebuild instanceByID map for O(1) lookup
 			h.instanceByID = make(map[string]*session.Instance, len(h.instances))
 			for _, inst := range h.instances {
@@ -1976,7 +1969,7 @@ func (h *Home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// our changes, but by then we've already modified groupTree inconsistently
 		if h.isReloading {
 			// The reload will provide fresh data - don't modify state now
-			log.Printf("[RELOAD-DEBUG] sessionCreatedMsg: skipping during reload")
+			uiLog.Debug("reload_skip_session_created")
 			return h, nil
 		}
 		if msg.err != nil {
@@ -2029,7 +2022,7 @@ func (h *Home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		// CRITICAL FIX: Skip processing during reload to prevent state corruption
 		if h.isReloading {
-			log.Printf("[RELOAD-DEBUG] sessionForkedMsg: skipping during reload")
+			uiLog.Debug("reload_skip_session_forked")
 			return h, nil
 		}
 
@@ -2079,7 +2072,7 @@ func (h *Home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case sessionDeletedMsg:
 		// CRITICAL FIX: Skip processing during reload to prevent state corruption
 		if h.isReloading {
-			log.Printf("[RELOAD-DEBUG] sessionDeletedMsg: skipping during reload")
+			uiLog.Debug("reload_skip_session_deleted")
 			return h, nil
 		}
 
@@ -2135,7 +2128,7 @@ func (h *Home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case sessionRestoredMsg:
 		if h.isReloading {
-			log.Printf("[RELOAD-DEBUG] sessionRestoredMsg: skipping during reload")
+			uiLog.Debug("reload_skip_session_restored")
 			return h, nil
 		}
 		if msg.err != nil {
@@ -2182,27 +2175,22 @@ func (h *Home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// CRITICAL: Find the CURRENT instance by ID and update it
 		// The original pointer may have been replaced by storage watcher reload
 		if msg.sessionID != "" {
-			log.Printf("[OPENCODE] Detection complete for instance %s: session=%s",
-				msg.instanceID, msg.sessionID)
+			uiLog.Debug("opencode_detection_complete", slog.String("instance_id", msg.instanceID), slog.String("session_id", msg.sessionID))
 			// Update the CURRENT instance (not the original pointer which may be stale)
 			if inst := h.getInstanceByID(msg.instanceID); inst != nil {
 				inst.OpenCodeSessionID = msg.sessionID
 				inst.OpenCodeDetectedAt = time.Now()
-				log.Printf("[OPENCODE] Updated current instance %s with session ID %s",
-					msg.instanceID, msg.sessionID)
+				uiLog.Debug("opencode_instance_updated", slog.String("instance_id", msg.instanceID), slog.String("session_id", msg.sessionID))
 			} else {
-				log.Printf("[OPENCODE] Warning: instance %s not found in current instances",
-					msg.instanceID)
+				uiLog.Warn("opencode_instance_not_found", slog.String("instance_id", msg.instanceID))
 			}
 		} else {
-			log.Printf("[OPENCODE] Detection complete for instance %s: no session found",
-				msg.instanceID)
+			uiLog.Debug("opencode_detection_no_session", slog.String("instance_id", msg.instanceID))
 			// Mark detection as completed even when no session found
 			// This allows UI to show "No session found" instead of "Detecting..."
 			if inst := h.getInstanceByID(msg.instanceID); inst != nil {
 				inst.OpenCodeDetectedAt = time.Now()
-				log.Printf("[OPENCODE] Marked detection complete for %s (no session found)",
-					msg.instanceID)
+				uiLog.Debug("opencode_marked_complete", slog.String("instance_id", msg.instanceID))
 			}
 		}
 		// CRITICAL: Force save to persist the detected session ID to storage
@@ -2241,7 +2229,7 @@ func (h *Home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			h.saveInstances()
 			// NOTE: Do NOT delete from mcpLoadingSessions here!
 			// Animation continues until Claude is ready or timeout expires
-			log.Printf("[MCP-DEBUG] mcpRestartedMsg: MCP reload initiated for %s (animation continues)", msg.session.ID)
+			mcpUILog.Debug("mcp_reload_initiated", slog.String("session_id", msg.session.ID))
 		}
 		return h, nil
 
@@ -2306,7 +2294,7 @@ func (h *Home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return h, h.loadSessions
 
 	case storageChangedMsg:
-		log.Printf("[RELOAD-DEBUG] storageChangedMsg received (profile=%s, current instances=%d)", h.profile, len(h.instances))
+		uiLog.Debug("reload_storage_changed", slog.String("profile", h.profile), slog.Int("instances", len(h.instances)))
 
 		// Show reload indicator and increment version to invalidate in-flight background saves
 		h.reloadMu.Lock()
@@ -2320,7 +2308,7 @@ func (h *Home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Reload from disk
 		cmd := func() tea.Msg {
 			instances, groups, err := h.storage.LoadWithGroups()
-			log.Printf("[RELOAD-DEBUG] LoadWithGroups returned %d instances, err=%v", len(instances), err)
+			uiLog.Debug("reload_load_with_groups", slog.Int("instances", len(instances)), slog.Any("error", err))
 			return loadSessionsMsg{
 				instances:    instances,
 				groups:       groups,
@@ -3749,7 +3737,7 @@ func (h *Home) performFinalShutdown(shutdownPool bool) tea.Cmd {
 			select {
 			case <-h.statusWorkerDone:
 			case <-time.After(5 * time.Second):
-				log.Printf("Warning: status worker did not stop within 5s, continuing shutdown")
+				uiLog.Warn("status_worker_stop_timeout")
 			}
 		}
 		// Wait for log workers to drain before closing the watcher they depend on
@@ -3761,7 +3749,7 @@ func (h *Home) performFinalShutdown(shutdownPool bool) tea.Cmd {
 		select {
 		case <-logDone:
 		case <-time.After(5 * time.Second):
-			log.Printf("Warning: log workers did not stop within 5s, continuing shutdown")
+			uiLog.Warn("log_workers_stop_timeout")
 		}
 
 		if h.logWatcher != nil {
@@ -3777,7 +3765,7 @@ func (h *Home) performFinalShutdown(shutdownPool bool) tea.Cmd {
 		}
 		// Shutdown or disconnect from MCP pool based on user choice
 		if err := session.ShutdownGlobalPool(shutdownPool); err != nil {
-			log.Printf("Warning: error handling MCP pool: %v", err)
+			mcpUILog.Warn("pool_shutdown_error", slog.String("error", err.Error()))
 		}
 		// Clean up notification bar (clear tmux status bars and unbind keys)
 		h.cleanupNotifications()
@@ -3793,34 +3781,34 @@ func (h *Home) handleMCPDialogKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "enter":
 		// DEBUG: Log entry point
-		log.Printf("[MCP-DEBUG] Enter pressed in MCP dialog")
+		mcpUILog.Debug("dialog_enter_pressed")
 
 		// Apply changes and close dialog
 		hasChanged := h.mcpDialog.HasChanged()
-		log.Printf("[MCP-DEBUG] HasChanged() = %v", hasChanged)
+		mcpUILog.Debug("dialog_has_changed", slog.Bool("changed", hasChanged))
 
 		if hasChanged {
 			// Apply changes (saves state + writes .mcp.json)
 			if err := h.mcpDialog.Apply(); err != nil {
-				log.Printf("[MCP-DEBUG] Apply() failed: %v", err)
+				mcpUILog.Debug("dialog_apply_failed", slog.String("error", err.Error()))
 				h.setError(err)
 				h.mcpDialog.Hide() // Hide dialog even on error
 				return h, nil
 			}
-			log.Printf("[MCP-DEBUG] Apply() succeeded")
+			mcpUILog.Debug("dialog_apply_succeeded")
 
 			// Find the session by ID (stored when dialog opened - same as Shift+S uses)
 			sessionID := h.mcpDialog.GetSessionID()
-			log.Printf("[MCP-DEBUG] Looking for sessionID: %q", sessionID)
+			mcpUILog.Debug("dialog_looking_for_session", slog.String("session_id", sessionID))
 
 			// O(1) lookup - no lock needed as Update() runs on main goroutine
 			targetInst := h.getInstanceByID(sessionID)
 			if targetInst != nil {
-				log.Printf("[MCP-DEBUG] Found session by ID: %s, Title=%s", targetInst.ID, targetInst.Title)
+				mcpUILog.Debug("dialog_session_found", slog.String("session_id", targetInst.ID), slog.String("title", targetInst.Title))
 			}
 
 			if targetInst != nil {
-				log.Printf("[MCP-DEBUG] Calling restartSession for: %s (with MCP loading animation)", targetInst.ID)
+				mcpUILog.Debug("dialog_restarting_session", slog.String("session_id", targetInst.ID))
 				// Track as MCP loading for animation in preview pane
 				h.mcpLoadingSessions[targetInst.ID] = time.Now()
 				// Set flag to skip MCP regeneration (Apply just wrote the config)
@@ -3829,10 +3817,10 @@ func (h *Home) handleMCPDialogKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				h.mcpDialog.Hide()
 				return h, h.restartSession(targetInst)
 			} else {
-				log.Printf("[MCP-DEBUG] No session found with ID: %s", sessionID)
+				mcpUILog.Debug("dialog_session_not_found", slog.String("session_id", sessionID))
 			}
 		}
-		log.Printf("[MCP-DEBUG] Hiding dialog without restart")
+		mcpUILog.Debug("dialog_hiding_without_restart")
 		h.mcpDialog.Hide()
 		return h, nil
 
@@ -4023,11 +4011,11 @@ func (h *Home) saveInstancesWithForce(force bool) {
 	// Skip saving during reload to avoid overwriting external changes (CLI)
 	// Unless force=true for critical updates like detection results
 	if h.isReloading && !force {
-		log.Printf("[SAVE-DEBUG] Skipping save during reload (force=%v)", force)
+		uiLog.Debug("save_skip_during_reload", slog.Bool("force", force))
 		return
 	}
 	if force && h.isReloading {
-		log.Printf("[SAVE-DEBUG] Force saving despite reload in progress")
+		uiLog.Debug("save_force_during_reload")
 	}
 
 	if h.storage != nil {
@@ -4035,11 +4023,11 @@ func (h *Home) saveInstancesWithForce(force bool) {
 		// This prevents catastrophic cross-profile contamination
 		expectedPath, err := session.GetStoragePathForProfile(h.profile)
 		if err != nil {
-			log.Printf("[SAVE-DEBUG] Failed to get expected path for profile %s: %v", h.profile, err)
+			uiLog.Warn("save_expected_path_failed", slog.String("profile", h.profile), slog.String("error", err.Error()))
 			return
 		}
 		if h.storage.Path() != expectedPath {
-			log.Printf("[SAVE-DEBUG] CRITICAL: Storage path mismatch! Profile=%s, Expected=%s, Got=%s - ABORTING SAVE TO PREVENT DATA LOSS", h.profile, expectedPath, h.storage.Path())
+			uiLog.Error("save_path_mismatch", slog.String("profile", h.profile), slog.String("expected", expectedPath), slog.String("got", h.storage.Path()))
 			h.setError(fmt.Errorf("storage path mismatch (profile=%s): expected %s, got %s", h.profile, expectedPath, h.storage.Path()))
 			return
 		}
@@ -4052,14 +4040,14 @@ func (h *Home) saveInstancesWithForce(force bool) {
 		instanceCount := len(h.instances)
 		h.instancesMu.RUnlock()
 
-		log.Printf("[SAVE-DEBUG] Saving %d instances to profile %s (path=%s, force=%v)", instanceCount, h.profile, h.storage.Path(), force)
+		uiLog.Debug("save_instances", slog.Int("count", instanceCount), slog.String("profile", h.profile), slog.String("path", h.storage.Path()), slog.Bool("force", force))
 
 		// DEFENSIVE: Never save empty instances if storage file has data
 		// This prevents catastrophic data loss from transient load failures
 		if instanceCount == 0 {
 			// Check if storage file exists and has data before overwriting with empty
 			if info, err := os.Stat(h.storage.Path()); err == nil && info.Size() > 100 {
-				log.Printf("[SAVE-DEBUG] WARNING: Refusing to save empty instances - storage file has %d bytes (potential data loss)", info.Size())
+				uiLog.Warn("save_refusing_empty_overwrite", slog.Int64("file_bytes", info.Size()))
 				return
 			}
 		}
@@ -4270,11 +4258,11 @@ type mcpRestartedMsg struct {
 // restartSession restarts a dead/errored session by creating a new tmux session
 func (h *Home) restartSession(inst *session.Instance) tea.Cmd {
 	id := inst.ID
-	log.Printf("[MCP-DEBUG] restartSession() called for ID=%s, Title=%s, Tool=%s", inst.ID, inst.Title, inst.Tool)
+	mcpUILog.Debug("restart_session_called", slog.String("id", inst.ID), slog.String("title", inst.Title), slog.String("tool", inst.Tool))
 	return func() tea.Msg {
-		log.Printf("[MCP-DEBUG] restartSession() cmd executing - calling inst.Restart()")
+		mcpUILog.Debug("restart_session_executing", slog.String("id", id))
 		err := inst.Restart()
-		log.Printf("[MCP-DEBUG] restartSession() inst.Restart() returned err=%v", err)
+		mcpUILog.Debug("restart_session_result", slog.String("id", id), slog.Any("error", err))
 		return sessionRestartedMsg{sessionID: id, err: err}
 	}
 }
@@ -4314,7 +4302,7 @@ func (h *Home) attachSession(inst *session.Instance) tea.Cmd {
 		// DEFENSIVE: Never save empty instances if storage has data
 		if instanceCount == 0 {
 			if info, err := os.Stat(h.storage.Path()); err == nil && info.Size() > 100 {
-				log.Printf("[SAVE-DEBUG] attachSession: Refusing to save empty instances - storage has %d bytes", info.Size())
+				uiLog.Warn("save_attach_refusing_empty_overwrite", slog.Int64("file_bytes", info.Size()))
 				goto skipSave
 			}
 		}
@@ -4337,7 +4325,7 @@ skipSave:
 	// - Detach just lets polling take over naturally
 	if inst.GetStatusThreadSafe() == session.StatusWaiting {
 		tmuxSess.Acknowledge()
-		log.Printf("[STATUS] Acknowledged %s on attach (was waiting)", inst.Title)
+		statusLog.Debug("acknowledged_on_attach", slog.String("title", inst.Title))
 	}
 
 	// Use tea.Exec with a custom command that runs our Attach method
@@ -6677,7 +6665,7 @@ func (h *Home) renderPreviewPane(width, height int) string {
 		valueStyle := lipgloss.NewStyle().Foreground(ColorText)
 
 		// Debug: log what value we're seeing
-		log.Printf("[OPENCODE-UI] Rendering preview for %s: OpenCodeSessionID=%q", selected.Title, selected.OpenCodeSessionID)
+		uiLog.Debug("opencode_rendering_preview", slog.String("title", selected.Title), slog.String("session_id", selected.OpenCodeSessionID))
 
 		if selected.OpenCodeSessionID != "" {
 			statusStyle := lipgloss.NewStyle().Foreground(ColorGreen).Bold(true)

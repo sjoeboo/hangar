@@ -7,7 +7,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"log"
+	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -18,21 +18,17 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/asheshgoplani/agent-deck/internal/logging"
 	"golang.org/x/sync/singleflight"
 )
+
+var statusLog = logging.ForComponent(logging.CompStatus)
+var respawnLog = logging.ForComponent(logging.CompSession)
+var mcpLog = logging.ForComponent(logging.CompMCP)
 
 // ErrCaptureTimeout is returned when CapturePane exceeds its timeout.
 // Callers should preserve previous state rather than transitioning to error/inactive.
 var ErrCaptureTimeout = errors.New("capture-pane timed out")
-
-// Debug flag - set via environment variable AGENTDECK_DEBUG=1
-var debugStatusEnabled = os.Getenv("AGENTDECK_DEBUG") == "1"
-
-func debugLog(format string, args ...interface{}) {
-	if debugStatusEnabled {
-		log.Printf("[STATUS] "+format, args...)
-	}
-}
 
 const SessionPrefix = "agentdeck_"
 
@@ -522,7 +518,7 @@ func ReconnectSession(tmuxName, displayName, workDir, command string) *Session {
 	// Enable pipe-pane for event-driven status detection
 	if sess.Exists() {
 		if err := sess.EnablePipePane(); err != nil {
-			debugLog("Warning: failed to enable pipe-pane for %s: %v", tmuxName, err)
+			statusLog.Debug("pipe_pane_failed", slog.String("session", tmuxName), slog.String("error", err.Error()))
 		}
 		// Configure status bar for existing sessions
 		sess.ConfigureStatusBar()
@@ -569,7 +565,7 @@ func ReconnectSessionWithStatus(tmuxName, displayName, workDir, command string, 
 	// (Note: Also called in ReconnectSession, but we ensure it's enabled after state restoration)
 	if sess.Exists() {
 		if err := sess.EnablePipePane(); err != nil {
-			debugLog("Warning: failed to enable pipe-pane for %s: %v", tmuxName, err)
+			statusLog.Debug("pipe_pane_failed", slog.String("session", tmuxName), slog.String("error", err.Error()))
 		}
 	}
 
@@ -637,13 +633,13 @@ func (s *Session) EnsureConfigured() {
 
 	// Run deferred configuration
 	if err := s.EnablePipePane(); err != nil {
-		debugLog("Warning: failed to enable pipe-pane for %s: %v", s.DisplayName, err)
+		statusLog.Debug("pipe_pane_failed", slog.String("session", s.DisplayName), slog.String("error", err.Error()))
 	}
 	s.ConfigureStatusBar()
 	_ = s.EnableMouseMode()
 
 	s.configured = true
-	debugLog("Lazy configuration completed for %s", s.DisplayName)
+	statusLog.Debug("lazy_config_completed", slog.String("session", s.DisplayName))
 }
 
 // IsConfigured returns whether the session has been fully configured.
@@ -826,7 +822,7 @@ func (s *Session) Start(command string) error {
 	// Enable pipe-pane to log output for event-driven status detection
 	if err := s.EnablePipePane(); err != nil {
 		// Non-fatal: status detection will fall back to polling
-		debugLog("Warning: failed to enable pipe-pane for %s: %v", s.Name, err)
+		statusLog.Debug("pipe_pane_failed", slog.String("session", s.Name), slog.String("error", err.Error()))
 	}
 
 	// Note: We tried using tmux hooks for instant GREEN status detection:
@@ -975,7 +971,7 @@ func (s *Session) Kill() error {
 	// Capture process tree BEFORE killing so we can verify they die
 	_, oldPIDs := s.getPaneProcessTree()
 	if len(oldPIDs) > 0 {
-		log.Printf("[RESPAWN] Pre-kill process tree for %s: %v", s.Name, oldPIDs)
+		respawnLog.Info("pre_kill_process_tree", slog.String("session", s.Name), slog.Any("pids", oldPIDs))
 	}
 
 	// Kill the tmux session
@@ -1072,7 +1068,7 @@ func (s *Session) ensureProcessesDead(oldPIDs []int, newPanePID int) {
 		}
 		// Guard against PID reuse: verify it's still one of our processes
 		if !isOurProcess(pid) {
-			log.Printf("[RESPAWN] PID %d is alive but not our process, skipping", pid)
+			respawnLog.Info("pid_not_ours_skipping", slog.Int("pid", pid))
 			continue
 		}
 		survivors = append(survivors, pid)
@@ -1083,7 +1079,7 @@ func (s *Session) ensureProcessesDead(oldPIDs []int, newPanePID int) {
 	}
 
 	// First try SIGTERM
-	log.Printf("[RESPAWN] %d processes survived respawn SIGHUP, sending SIGTERM: %v", len(survivors), survivors)
+	respawnLog.Info("survivors_sending_sigterm", slog.Int("count", len(survivors)), slog.Any("pids", survivors))
 	for _, pid := range survivors {
 		if proc, err := os.FindProcess(pid); err == nil {
 			_ = proc.Signal(syscall.SIGTERM)
@@ -1107,17 +1103,17 @@ func (s *Session) ensureProcessesDead(oldPIDs []int, newPanePID int) {
 	}
 
 	if len(stubborn) == 0 {
-		log.Printf("[RESPAWN] All survivors terminated after SIGTERM")
+		respawnLog.Info("all_survivors_terminated_after_sigterm")
 		return
 	}
 
-	log.Printf("[RESPAWN] %d processes ignored SIGTERM, sending SIGKILL: %v", len(stubborn), stubborn)
+	respawnLog.Info("stubborn_sending_sigkill", slog.Int("count", len(stubborn)), slog.Any("pids", stubborn))
 	for _, pid := range stubborn {
 		if proc, err := os.FindProcess(pid); err == nil {
 			_ = proc.Signal(syscall.SIGKILL)
 		}
 	}
-	log.Printf("[RESPAWN] SIGKILL sent to %d processes, cleanup complete", len(stubborn))
+	respawnLog.Info("sigkill_cleanup_complete", slog.Int("count", len(stubborn)))
 }
 
 // RespawnPane kills the current process in the pane and starts a new command.
@@ -1137,7 +1133,7 @@ func (s *Session) RespawnPane(command string) error {
 	// Capture the current process tree BEFORE respawn so we can verify they die
 	_, oldPIDs := s.getPaneProcessTree()
 	if len(oldPIDs) > 0 {
-		log.Printf("[RESPAWN] Pre-respawn process tree: %v", oldPIDs)
+		respawnLog.Info("pre_respawn_process_tree", slog.Any("pids", oldPIDs))
 	}
 
 	// Clear scrollback buffer BEFORE respawn to prevent stale content
@@ -1145,9 +1141,9 @@ func (s *Session) RespawnPane(command string) error {
 	clearTarget := s.Name + ":"
 	clearCmd := exec.Command("tmux", "clear-history", "-t", clearTarget)
 	if clearOut, clearErr := clearCmd.CombinedOutput(); clearErr != nil {
-		log.Printf("[RESPAWN] clear-history failed (non-fatal): %v, output: %s", clearErr, string(clearOut))
+		respawnLog.Debug("clear_history_failed", slog.String("error", clearErr.Error()), slog.String("output", string(clearOut)))
 	} else {
-		log.Printf("[RESPAWN] Cleared scrollback buffer for %s", s.Name)
+		respawnLog.Info("cleared_scrollback", slog.String("session", s.Name))
 	}
 
 	// Build respawn-pane command
@@ -1178,14 +1174,14 @@ func (s *Session) RespawnPane(command string) error {
 		args = append(args, wrappedCmd)
 	}
 
-	log.Printf("[MCP-DEBUG] RespawnPane executing: tmux %v", args)
+	mcpLog.Debug("respawn_pane_executing", slog.Any("args", args))
 	cmd := exec.Command("tmux", args...)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		log.Printf("[MCP-DEBUG] RespawnPane error: %v, output: %s", err, string(output))
+		mcpLog.Debug("respawn_pane_error", slog.String("error", err.Error()), slog.String("output", string(output)))
 		return fmt.Errorf("failed to respawn pane: %w (output: %s)", err, string(output))
 	}
-	log.Printf("[MCP-DEBUG] RespawnPane output: %s", string(output))
+	mcpLog.Debug("respawn_pane_output", slog.String("output", string(output)))
 
 	// Get the NEW pane PID so we don't accidentally kill the fresh process
 	newPanePID, _ := s.getPaneProcessTree()
@@ -1448,7 +1444,7 @@ func (s *Session) AcknowledgeWithSnapshot() {
 	// Clear cooldown to show GRAY status immediately
 	// This ensures explicit user acknowledge (Ctrl+Q detach) takes effect immediately
 	s.stateTracker.lastChangeTime = time.Now()
-	debugLog("%s: AckSnapshot → acknowledged, cleared cooldown", shortName)
+	statusLog.Debug("ack_snapshot", slog.String("session", shortName))
 }
 
 // GetStatus returns the current status of the session
@@ -1482,7 +1478,7 @@ func (s *Session) GetStatus() (string, error) {
 		s.mu.Lock()
 		s.lastStableStatus = "inactive"
 		s.mu.Unlock()
-		debugLog("%s: INACTIVE (session not found)", shortName)
+		statusLog.Debug("session_inactive", slog.String("session", shortName))
 		return "inactive", nil
 	}
 
@@ -1523,11 +1519,11 @@ func (s *Session) GetStatus() (string, error) {
 		if errors.Is(err, ErrCaptureTimeout) {
 			// Timeout: preserve previous state to avoid false RED flashing
 			if s.lastStableStatus != "" {
-				debugLog("%s: CAPTURE_TIMEOUT → preserving %s", shortName, s.lastStableStatus)
+				statusLog.Debug("capture_timeout_preserve", slog.String("session", shortName), slog.String("status", s.lastStableStatus))
 				return s.lastStableStatus, nil
 			}
 			// No previous state, fall through to default logic
-			debugLog("%s: CAPTURE_TIMEOUT → no previous state, falling through", shortName)
+			statusLog.Debug("capture_timeout_no_previous", slog.String("session", shortName))
 		} else if err == nil {
 			s.ensureStateTrackerLocked()
 
@@ -1545,7 +1541,7 @@ func (s *Session) GetStatus() (string, error) {
 					break
 				}
 			}
-			debugLog("%s: needsBusyCheck busy=%v lastLine=%q", shortName, isExplicitlyBusy, lastLine)
+			statusLog.Debug("needs_busy_check", slog.String("session", shortName), slog.Bool("busy", isExplicitlyBusy), slog.String("last_line", lastLine))
 
 			// Update content hash for spike detection (used later to confirm real activity)
 			cleanContent := s.normalizeContent(content)
@@ -1567,7 +1563,7 @@ func (s *Session) GetStatus() (string, error) {
 				s.stateTracker.acknowledged = false
 				s.stateTracker.lastActivityTimestamp = currentTS
 				s.lastStableStatus = "active"
-				debugLog("%s: BUSY_INDICATOR → active", shortName)
+				statusLog.Debug("busy_indicator_active", slog.String("session", shortName))
 				return "active", nil
 			}
 			if hasPrompt {
@@ -1575,14 +1571,14 @@ func (s *Session) GetStatus() (string, error) {
 				// keep idle status. The prompt is still visible but the user is looking at it.
 				if s.stateTracker.acknowledged {
 					s.lastStableStatus = "idle"
-					debugLog("%s: PROMPT_DETECTED but acknowledged → idle (busy=%v)", shortName, isExplicitlyBusy)
+					statusLog.Debug("prompt_detected_idle", slog.String("session", shortName), slog.Bool("busy", isExplicitlyBusy))
 					return "idle", nil
 				}
 				if s.lastStableStatus != "waiting" {
 					s.stateTracker.waitingSince = time.Now()
 				}
 				s.lastStableStatus = "waiting"
-				debugLog("%s: PROMPT_DETECTED → waiting (busy=%v)", shortName, isExplicitlyBusy)
+				statusLog.Debug("prompt_detected_waiting", slog.String("session", shortName), slog.Bool("busy", isExplicitlyBusy))
 				return "waiting", nil
 			}
 		}
@@ -1598,7 +1594,7 @@ func (s *Session) GetStatus() (string, error) {
 			waitingSince:          now, // Track when session became waiting
 		}
 		s.lastStableStatus = "waiting"
-		debugLog("%s: INIT → waiting", shortName)
+		statusLog.Debug("init_waiting", slog.String("session", shortName))
 		return "waiting", nil
 	}
 
@@ -1607,14 +1603,14 @@ func (s *Session) GetStatus() (string, error) {
 		s.stateTracker.lastActivityTimestamp = currentTS
 		if s.stateTracker.acknowledged {
 			s.lastStableStatus = "idle"
-			debugLog("%s: IDLE (restored session, acknowledged)", shortName)
+			statusLog.Debug("restored_idle", slog.String("session", shortName))
 			return "idle", nil
 		}
 		if s.lastStableStatus != "waiting" {
 			s.stateTracker.waitingSince = time.Now()
 		}
 		s.lastStableStatus = "waiting"
-		debugLog("%s: WAITING (restored session, not acknowledged)", shortName)
+		statusLog.Debug("restored_waiting", slog.String("session", shortName))
 		return "waiting", nil
 	}
 
@@ -1631,11 +1627,11 @@ func (s *Session) GetStatus() (string, error) {
 			// Start new detection window
 			s.stateTracker.activityCheckStart = now
 			s.stateTracker.activityChangeCount = 1
-			debugLog("%s: ACTIVITY_START ts=%d→%d count=1", shortName, oldTS, currentTS)
+			statusLog.Debug("activity_start", slog.String("session", shortName), slog.Int64("old_ts", oldTS), slog.Int64("new_ts", currentTS), slog.Int("count", 1))
 		} else {
 			// Within detection window - count this change
 			s.stateTracker.activityChangeCount++
-			debugLog("%s: ACTIVITY_COUNT ts=%d→%d count=%d", shortName, oldTS, currentTS, s.stateTracker.activityChangeCount)
+			statusLog.Debug("activity_count", slog.String("session", shortName), slog.Int64("old_ts", oldTS), slog.Int64("new_ts", currentTS), slog.Int("count", s.stateTracker.activityChangeCount))
 
 			// 2+ changes within 1 second = potential sustained activity
 			// BUT we must confirm with content check (fixes cursor blink false positives)
@@ -1665,12 +1661,12 @@ func (s *Session) GetStatus() (string, error) {
 						s.stateTracker.activityCheckStart = time.Time{} // Reset window
 						s.stateTracker.activityChangeCount = 0
 						s.lastStableStatus = "active"
-						debugLog("%s: SUSTAINED CONFIRMED (busy indicator) → active", shortName)
+						statusLog.Debug("sustained_confirmed", slog.String("session", shortName))
 						return "active", nil
 					}
 
 					// No busy indicator - spike was false positive (cursor blink, status bar, etc.)
-					debugLog("%s: SUSTAINED REJECTED (no busy indicator)", shortName)
+					statusLog.Debug("sustained_rejected", slog.String("session", shortName))
 				}
 
 				// Reset spike tracking - the activity was not real
@@ -1684,7 +1680,7 @@ func (s *Session) GetStatus() (string, error) {
 		if s.stateTracker.activityChangeCount == 1 && !s.stateTracker.activityCheckStart.IsZero() {
 			if time.Since(s.stateTracker.activityCheckStart) > 1*time.Second {
 				// Only 1 change in 1 second = spike, reset tracking
-				debugLog("%s: SPIKE_EXPIRED count=1 (filtered)", shortName)
+				statusLog.Debug("spike_expired", slog.String("session", shortName), slog.Int("count", 1))
 				s.stateTracker.activityCheckStart = time.Time{}
 				s.stateTracker.activityChangeCount = 0
 			}
@@ -1697,12 +1693,12 @@ func (s *Session) GetStatus() (string, error) {
 	if !s.stateTracker.activityCheckStart.IsZero() &&
 		time.Since(s.stateTracker.activityCheckStart) < 1*time.Second {
 		// Return previous status - don't flash GREEN on unconfirmed single spike
-		debugLog("%s: SPIKE_WINDOW_PENDING → keeping %s (not flashing green)", shortName, s.lastStableStatus)
+		statusLog.Debug("spike_window_pending", slog.String("session", shortName), slog.String("status", s.lastStableStatus))
 		if s.lastStableStatus != "" {
 			return s.lastStableStatus, nil
 		}
 		// Fallback if no previous status
-		debugLog("%s: WAITING (spike window fallback)", shortName)
+		statusLog.Debug("spike_window_fallback_waiting", slog.String("session", shortName))
 		return "waiting", nil
 	}
 
@@ -1714,7 +1710,7 @@ func (s *Session) GetStatus() (string, error) {
 		content, captureErr := s.CapturePane()
 		s.mu.Lock()
 		if captureErr == nil && s.hasBusyIndicator(content) && !s.hasPromptIndicator(content) {
-			debugLog("%s: STILL_BUSY (verified) → keeping active", shortName)
+			statusLog.Debug("still_busy", slog.String("session", shortName))
 			return "active", nil
 		}
 		if captureErr == nil && s.hasPromptIndicator(content) {
@@ -1725,20 +1721,20 @@ func (s *Session) GetStatus() (string, error) {
 					s.stateTracker.waitingSince = time.Now()
 				}
 				s.lastStableStatus = "waiting"
-				debugLog("%s: PROMPT_DETECTED (re-check) → waiting", shortName)
+				statusLog.Debug("prompt_recheck_waiting", slog.String("session", shortName))
 				return "waiting", nil
 			}
 			s.lastStableStatus = "idle"
-			debugLog("%s: PROMPT_DETECTED (re-check) but acknowledged → idle", shortName)
+			statusLog.Debug("prompt_recheck_idle", slog.String("session", shortName))
 			return "idle", nil
 		}
-		debugLog("%s: NO_LONGER_BUSY → transitioning from active", shortName)
+		statusLog.Debug("no_longer_busy", slog.String("session", shortName))
 	}
 
 	// No busy indicator found - check acknowledged state
 	if s.stateTracker.acknowledged {
 		s.lastStableStatus = "idle"
-		debugLog("%s: IDLE (acknowledged, no busy indicator)", shortName)
+		statusLog.Debug("idle_acknowledged", slog.String("session", shortName))
 		return "idle", nil
 	}
 	// Track when we transition to waiting (not already waiting)
@@ -1746,7 +1742,7 @@ func (s *Session) GetStatus() (string, error) {
 		s.stateTracker.waitingSince = time.Now()
 	}
 	s.lastStableStatus = "waiting"
-	debugLog("%s: WAITING (not acknowledged, no busy indicator)", shortName)
+	statusLog.Debug("waiting_not_acknowledged", slog.String("session", shortName))
 	return "waiting", nil
 }
 
@@ -1766,14 +1762,14 @@ func (s *Session) getStatusFallback() (string, error) {
 			prev := s.lastStableStatus
 			s.mu.Unlock()
 			if prev != "" {
-				debugLog("%s: FALLBACK TIMEOUT → preserving %s", shortName, prev)
+				statusLog.Debug("fallback_timeout_preserve", slog.String("session", shortName), slog.String("status", prev))
 				return prev, nil
 			}
 		}
 		s.mu.Lock()
 		s.lastStableStatus = "inactive"
 		s.mu.Unlock()
-		debugLog("%s: FALLBACK INACTIVE (capture failed: %v)", shortName, err)
+		statusLog.Debug("fallback_inactive", slog.String("session", shortName), slog.String("error", err.Error()))
 		return "inactive", nil
 	}
 
@@ -1787,7 +1783,7 @@ func (s *Session) getStatusFallback() (string, error) {
 			s.stateTracker.waitingSince = time.Now()
 		}
 		s.lastStableStatus = "waiting"
-		debugLog("%s: FALLBACK WAITING (prompt detected)", shortName)
+		statusLog.Debug("fallback_waiting_prompt", slog.String("session", shortName))
 		return "waiting", nil
 	}
 
@@ -1798,7 +1794,7 @@ func (s *Session) getStatusFallback() (string, error) {
 		s.stateTracker.lastChangeTime = time.Now()
 		s.stateTracker.acknowledged = false
 		s.lastStableStatus = "active"
-		debugLog("%s: FALLBACK ACTIVE (busy indicator found)", shortName)
+		statusLog.Debug("fallback_active", slog.String("session", shortName))
 		return "active", nil
 	}
 
@@ -1820,7 +1816,7 @@ func (s *Session) getStatusFallback() (string, error) {
 			waitingSince:   now,   // Track when session became waiting
 		}
 		s.lastStableStatus = "waiting"
-		debugLog("%s: FALLBACK INIT → waiting", shortName)
+		statusLog.Debug("fallback_init_waiting", slog.String("session", shortName))
 		return "waiting", nil
 	}
 
@@ -1828,14 +1824,14 @@ func (s *Session) getStatusFallback() (string, error) {
 		s.stateTracker.lastHash = currentHash
 		if s.stateTracker.acknowledged {
 			s.lastStableStatus = "idle"
-			debugLog("%s: FALLBACK IDLE (restored, acknowledged)", shortName)
+			statusLog.Debug("fallback_restored_idle", slog.String("session", shortName))
 			return "idle", nil
 		}
 		if s.lastStableStatus != "waiting" {
 			s.stateTracker.waitingSince = time.Now()
 		}
 		s.lastStableStatus = "waiting"
-		debugLog("%s: FALLBACK WAITING (restored, not acknowledged)", shortName)
+		statusLog.Debug("fallback_restored_waiting", slog.String("session", shortName))
 		return "waiting", nil
 	}
 
@@ -1844,13 +1840,13 @@ func (s *Session) getStatusFallback() (string, error) {
 	// Hash changes can occur from cursor blinks, terminal redraws, status bar updates, etc.
 	if s.stateTracker.lastHash != currentHash {
 		s.stateTracker.lastHash = currentHash
-		debugLog("%s: FALLBACK hash updated (no status change)", shortName)
+		statusLog.Debug("fallback_hash_updated", slog.String("session", shortName))
 	}
 
 	// No busy indicator found - check acknowledged state
 	if s.stateTracker.acknowledged {
 		s.lastStableStatus = "idle"
-		debugLog("%s: FALLBACK IDLE (acknowledged, no busy indicator)", shortName)
+		statusLog.Debug("fallback_idle_acknowledged", slog.String("session", shortName))
 		return "idle", nil
 	}
 	// Track when we transition to waiting (not already waiting)
@@ -1858,7 +1854,7 @@ func (s *Session) getStatusFallback() (string, error) {
 		s.stateTracker.waitingSince = time.Now()
 	}
 	s.lastStableStatus = "waiting"
-	debugLog("%s: FALLBACK WAITING (not acknowledged, no busy indicator)", shortName)
+	statusLog.Debug("fallback_waiting_not_acknowledged", slog.String("session", shortName))
 	return "waiting", nil
 }
 
@@ -1955,7 +1951,7 @@ func (s *Session) hasBusyIndicatorResolved(content string) bool {
 	// String-based busy indicators
 	for _, pat := range patterns.BusyStrings {
 		if strings.Contains(recentContent, strings.ToLower(pat)) {
-			debugLog("%s: BUSY_REASON=pattern %q", shortName, pat)
+			statusLog.Debug("busy_reason_pattern", slog.String("session", shortName), slog.String("pattern", pat))
 			return true
 		}
 	}
@@ -1963,14 +1959,14 @@ func (s *Session) hasBusyIndicatorResolved(content string) bool {
 	// Regex-based busy indicators
 	for _, re := range patterns.BusyRegexps {
 		if re.MatchString(recentContent) {
-			debugLog("%s: BUSY_REASON=regex %q", shortName, re.String())
+			statusLog.Debug("busy_reason_regex", slog.String("session", shortName), slog.String("regex", re.String()))
 			return true
 		}
 	}
 
 	// Spinner active pattern (built from whimsical words + spinner chars)
 	if patterns.SpinnerActivePattern != nil && patterns.SpinnerActivePattern.MatchString(recentContent) {
-		debugLog("%s: BUSY_REASON=spinner active pattern (ellipsis)", shortName)
+		statusLog.Debug("busy_reason_spinner", slog.String("session", shortName))
 		return true
 	}
 
@@ -1986,7 +1982,7 @@ func (s *Session) hasBusyIndicatorResolved(content string) bool {
 			}
 			for _, ch := range patterns.SpinnerChars {
 				if strings.Contains(line, ch) {
-					debugLog("%s: BUSY_REASON=spinner char=%q", shortName, ch)
+					statusLog.Debug("busy_reason_spinner_char", slog.String("session", shortName), slog.String("char", ch))
 					return true
 				}
 			}
@@ -2050,34 +2046,34 @@ func (s *Session) hasBusyIndicatorLegacy(content string) bool {
 	recentContent := strings.ToLower(strings.Join(lastLines, "\n"))
 
 	if strings.Contains(recentContent, "ctrl+c to interrupt") {
-		debugLog("%s: BUSY_REASON=ctrl+c to interrupt", shortName)
+		statusLog.Debug("busy_reason_ctrl_c", slog.String("session", shortName))
 		return true
 	}
 
 	if claudeSpinnerActivePattern.MatchString(recentContent) {
-		debugLog("%s: BUSY_REASON=claude 2.1.25+ spinner active (ellipsis pattern)", shortName)
+		statusLog.Debug("busy_reason_claude_spinner", slog.String("session", shortName))
 		return true
 	}
 
 	if strings.Contains(recentContent, "esc to interrupt") {
-		debugLog("%s: BUSY_REASON=esc to interrupt (fallback)", shortName)
+		statusLog.Debug("busy_reason_esc_interrupt", slog.String("session", shortName))
 		return true
 	}
 
 	if strings.Contains(recentContent, "esc to cancel") {
-		debugLog("%s: BUSY_REASON=esc to cancel (Gemini)", shortName)
+		statusLog.Debug("busy_reason_esc_cancel", slog.String("session", shortName))
 		return true
 	}
 
 	if strings.Contains(recentContent, "esc interrupt") {
-		debugLog("%s: BUSY_REASON=esc interrupt (OpenCode)", shortName)
+		statusLog.Debug("busy_reason_esc_opencode", slog.String("session", shortName))
 		return true
 	}
 
 	if len(s.customBusyPatterns) > 0 {
 		for _, pattern := range s.customBusyPatterns {
 			if strings.Contains(recentContent, strings.ToLower(pattern)) {
-				debugLog("%s: BUSY_REASON=custom pattern=%q", shortName, pattern)
+				statusLog.Debug("busy_reason_custom_pattern", slog.String("session", shortName), slog.String("pattern", pattern))
 				return true
 			}
 		}
@@ -2098,7 +2094,7 @@ func (s *Session) hasBusyIndicatorLegacy(content string) bool {
 		}
 		for _, spinner := range spinnerChars {
 			if strings.Contains(line, spinner) {
-				debugLog("%s: BUSY_REASON=spinner char=%q", shortName, spinner)
+				statusLog.Debug("busy_reason_spinner_char", slog.String("session", shortName), slog.String("char", spinner))
 				return true
 			}
 		}
@@ -2151,7 +2147,7 @@ func (s *Session) isSustainedActivity() bool {
 	}
 
 	isSustained := changes >= 1 // At least 1 MORE change after initial detection
-	debugLog("%s: isSustainedActivity changes=%d sustained=%v", s.DisplayName, changes, isSustained)
+	statusLog.Debug("is_sustained_activity", slog.String("session", s.DisplayName), slog.Int("changes", changes), slog.Bool("sustained", isSustained))
 	return isSustained
 }
 
@@ -2452,7 +2448,7 @@ func (s *Session) WaitForReady(timeout time.Duration) bool {
 		attempts++
 		content, err := s.CapturePane()
 		if err != nil {
-			log.Printf("[WaitForReady] Attempt %d: CapturePane error: %v", attempts, err)
+			statusLog.Debug("wait_for_ready_capture_error", slog.Int("attempt", attempts), slog.String("error", err.Error()))
 			time.Sleep(pollInterval)
 			continue
 		}
@@ -2461,19 +2457,19 @@ func (s *Session) WaitForReady(timeout time.Duration) bool {
 		prompt := hasPrompt(content)
 
 		if attempts%10 == 0 { // Log every 10th attempt (every second)
-			log.Printf("[WaitForReady] Attempt %d: busy=%v, prompt=%v", attempts, busy, prompt)
+			statusLog.Debug("wait_for_ready_status", slog.Int("attempt", attempts), slog.Bool("busy", busy), slog.Bool("prompt", prompt))
 		}
 
 		// Check: NOT busy AND has prompt
 		if !busy && prompt {
-			log.Printf("[WaitForReady] READY detected after %d attempts (%.1fs)", attempts, float64(attempts)*0.1)
+			statusLog.Debug("wait_for_ready_detected", slog.Int("attempts", attempts), slog.Float64("seconds", float64(attempts)*0.1))
 			return true // Ready for input!
 		}
 
 		time.Sleep(pollInterval)
 	}
 
-	log.Printf("[WaitForReady] TIMEOUT after %d attempts", attempts)
+	statusLog.Debug("wait_for_ready_timeout", slog.Int("attempts", attempts))
 	return false // Timeout
 }
 
@@ -2642,7 +2638,7 @@ func TruncateLogFile(logPath string, maxLines int) error {
 		return fmt.Errorf("failed to write truncated log: %w", err)
 	}
 
-	debugLog("Truncated log %s: %d -> %d lines", filepath.Base(logPath), len(lines), len(truncatedLines))
+	statusLog.Debug("log_truncated", slog.String("file", filepath.Base(logPath)), slog.Int("from_lines", len(lines)), slog.Int("to_lines", len(truncatedLines)))
 	return nil
 }
 
@@ -2673,7 +2669,7 @@ func TruncateLargeLogFiles(maxSizeMB int, maxLines int) (truncated int, err erro
 
 		if info.Size() > maxSizeBytes {
 			if err := TruncateLogFile(logPath, maxLines); err != nil {
-				debugLog("Failed to truncate %s: %v", entry.Name(), err)
+				statusLog.Debug("truncate_failed", slog.String("file", entry.Name()), slog.String("error", err.Error()))
 				continue
 			}
 			truncated++
@@ -2739,13 +2735,13 @@ func CleanupOrphanedLogs() (removed int, freedBytes int64, err error) {
 		// Remove orphaned log
 		size := info.Size()
 		if err := os.Remove(logPath); err != nil {
-			debugLog("Failed to remove orphaned log %s: %v", entry.Name(), err)
+			statusLog.Debug("orphan_remove_failed", slog.String("file", entry.Name()), slog.String("error", err.Error()))
 			continue
 		}
 
 		removed++
 		freedBytes += size
-		debugLog("Removed orphaned log: %s (%.1f KB)", entry.Name(), float64(size)/1024)
+		statusLog.Debug("orphan_removed", slog.String("file", entry.Name()), slog.Float64("size_kb", float64(size)/1024))
 	}
 
 	return removed, freedBytes, nil
@@ -2757,18 +2753,18 @@ func RunLogMaintenance(maxSizeMB int, maxLines int, removeOrphans bool) {
 	// Truncate large files
 	truncated, err := TruncateLargeLogFiles(maxSizeMB, maxLines)
 	if err != nil {
-		debugLog("Log truncation error: %v", err)
+		statusLog.Debug("log_truncation_error", slog.String("error", err.Error()))
 	} else if truncated > 0 {
-		debugLog("Truncated %d large log files", truncated)
+		statusLog.Debug("log_truncation_complete", slog.Int("count", truncated))
 	}
 
 	// Remove orphaned logs
 	if removeOrphans {
 		removed, freed, err := CleanupOrphanedLogs()
 		if err != nil {
-			debugLog("Orphan cleanup error: %v", err)
+			statusLog.Debug("orphan_cleanup_error", slog.String("error", err.Error()))
 		} else if removed > 0 {
-			debugLog("Removed %d orphaned logs (freed %.1f MB)", removed, float64(freed)/(1024*1024))
+			statusLog.Debug("orphan_cleanup_complete", slog.Int("count", removed), slog.Float64("freed_mb", float64(freed)/(1024*1024)))
 		}
 	}
 }

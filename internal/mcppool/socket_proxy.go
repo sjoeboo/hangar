@@ -6,7 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"net"
 	"os"
 	"os/exec"
@@ -14,7 +14,11 @@ import (
 	"sync"
 	"syscall"
 	"time"
+
+	"github.com/asheshgoplani/agent-deck/internal/logging"
 )
+
+var proxyLog = logging.ForComponent(logging.CompPool)
 
 // SocketProxy wraps a stdio MCP process with a Unix socket
 type SocketProxy struct {
@@ -101,7 +105,7 @@ func NewSocketProxy(ctx context.Context, name, command string, args []string, en
 
 	// Check if socket already exists and is alive (another agent-deck instance owns it)
 	if isSocketAlive(socketPath) {
-		log.Printf("[Pool] Socket %s already alive (owned by another agent-deck), reusing", name)
+		proxyLog.Info("socket_reuse_external", slog.String("mcp", name))
 		// Return a proxy that just points to the existing socket (no process to manage)
 		return &SocketProxy{
 			name:       name,
@@ -137,7 +141,7 @@ func NewSocketProxy(ctx context.Context, name, command string, args []string, en
 func (p *SocketProxy) Start() error {
 	// If already running (reusing external socket), skip process creation
 	if p.GetStatus() == StatusRunning {
-		log.Printf("[Pool] %s: Reusing existing socket, no process to start", p.name)
+		proxyLog.Info("socket_reuse_existing", slog.String("mcp", p.name))
 		return nil
 	}
 
@@ -182,7 +186,7 @@ func (p *SocketProxy) Start() error {
 		return err
 	}
 
-	log.Printf("Started MCP %s (PID: %d)", p.name, p.mcpProcess.Process.Pid)
+	proxyLog.Info("mcp_started", slog.String("mcp", p.name), slog.Int("pid", p.mcpProcess.Process.Pid))
 	go func() { _, _ = io.Copy(p.logWriter, stderr) }()
 
 	listener, err := net.Listen("unix", p.socketPath)
@@ -192,7 +196,7 @@ func (p *SocketProxy) Start() error {
 	}
 	p.listener = listener
 
-	log.Printf("Socket proxy %s at: %s", p.name, p.socketPath)
+	proxyLog.Info("socket_listening", slog.String("mcp", p.name), slog.String("path", p.socketPath))
 
 	go p.acceptConnections()
 	go p.broadcastResponses()
@@ -215,7 +219,7 @@ func (p *SocketProxy) acceptConnections() {
 			default:
 				// Listener was closed (e.g., MCP process crashed and broadcastResponses
 				// closed the listener). Exit to avoid spinning in a tight loop.
-				log.Printf("[%s] acceptConnections: listener error (exiting): %v", p.name, err)
+				proxyLog.Warn("accept_listener_error", slog.String("mcp", p.name), slog.String("error", err.Error()))
 				return
 			}
 		}
@@ -227,7 +231,7 @@ func (p *SocketProxy) acceptConnections() {
 		p.clients[sessionID] = conn
 		p.clientsMu.Unlock()
 
-		log.Printf("[%s] Client connected: %s", p.name, sessionID)
+		logging.Aggregate(logging.CompPool, "client_connect", slog.String("mcp", p.name), slog.String("client", sessionID))
 		go p.handleClient(sessionID, conn)
 	}
 }
@@ -247,7 +251,7 @@ func (p *SocketProxy) handleClient(sessionID string, conn net.Conn) {
 		delete(p.clients, sessionID)
 		p.clientsMu.Unlock()
 		conn.Close()
-		log.Printf("[%s] Client disconnected: %s", p.name, sessionID)
+		logging.Aggregate(logging.CompPool, "client_disconnect", slog.String("mcp", p.name), slog.String("client", sessionID))
 	}()
 
 	scanner := bufio.NewScanner(conn)
@@ -292,9 +296,9 @@ func (p *SocketProxy) broadcastResponses() {
 
 	// Log error when scanner exits
 	if err := scanner.Err(); err != nil {
-		log.Printf("[Pool] %s: broadcastResponses scanner error: %v", p.name, err)
+		proxyLog.Warn("broadcast_scanner_error", slog.String("mcp", p.name), slog.String("error", err.Error()))
 	} else {
-		log.Printf("[Pool] %s: broadcastResponses exited (MCP stdout closed)", p.name)
+		proxyLog.Info("broadcast_exited", slog.String("mcp", p.name))
 	}
 
 	// Mark proxy as failed so health monitor can restart it
@@ -315,7 +319,7 @@ func (p *SocketProxy) closeAllClientsOnFailure() {
 	p.clientsMu.Lock()
 	for sessionID, conn := range p.clients {
 		conn.Close()
-		log.Printf("[Pool] %s: closed client %s (MCP failure)", p.name, sessionID)
+		proxyLog.Debug("client_closed_on_failure", slog.String("mcp", p.name), slog.String("client", sessionID))
 	}
 	p.clients = make(map[string]net.Conn)
 	p.clientsMu.Unlock()
@@ -369,7 +373,7 @@ func (p *SocketProxy) Stop() error {
 	p.clientsMu.Lock()
 	for sessionID, conn := range p.clients {
 		conn.Close()
-		log.Printf("[Pool] %s: Closed client connection: %s", p.name, sessionID)
+		proxyLog.Debug("client_closed_on_stop", slog.String("mcp", p.name), slog.String("client", sessionID))
 	}
 	p.clients = make(map[string]net.Conn)
 	p.clientsMu.Unlock()
@@ -395,20 +399,20 @@ func (p *SocketProxy) Stop() error {
 		select {
 		case err := <-done:
 			if err != nil {
-				log.Printf("[Pool] %s: process exited with: %v", p.name, err)
+				proxyLog.Warn("process_exit_error", slog.String("mcp", p.name), slog.String("error", err.Error()))
 			}
 		case <-time.After(5 * time.Second):
 			// Final safety net: force kill if Wait() somehow still blocks
-			log.Printf("[Pool] %s: Wait() timed out after 5s, force killing", p.name)
+			proxyLog.Warn("process_wait_timeout", slog.String("mcp", p.name))
 			_ = p.mcpProcess.Process.Kill()
 			<-done // Wait must return after Kill
 		}
 		os.Remove(p.socketPath)
-		log.Printf("[Pool] %s: Stopped owned process and removed socket", p.name)
+		proxyLog.Info("proxy_stopped", slog.String("mcp", p.name))
 	} else {
 		// Clean up external socket files on shutdown to prevent stale sockets
 		os.Remove(p.socketPath)
-		log.Printf("[Pool] %s: Disconnected from external socket and removed stale file", p.name)
+		proxyLog.Info("external_socket_disconnected", slog.String("mcp", p.name))
 	}
 
 	if p.logWriter != nil {

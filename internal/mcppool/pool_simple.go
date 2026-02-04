@@ -3,14 +3,18 @@ package mcppool
 import (
 	"context"
 	"fmt"
-	"log"
+	"log/slog"
 	"net"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/asheshgoplani/agent-deck/internal/logging"
 )
+
+var poolLog = logging.ForComponent(logging.CompPool)
 
 type Pool struct {
 	proxies map[string]*SocketProxy
@@ -99,13 +103,13 @@ func (p *Pool) IsRunning(name string) bool {
 	if proxy.GetStatus() == StatusRunning {
 		if !isSocketAliveCheck(proxy.socketPath) {
 			p.mu.RUnlock()
-			log.Printf("[Pool] ⚠️ %s: marked running but socket is DEAD - attempting restart", name)
+			poolLog.Warn("socket_dead_restart", slog.String("mcp", name))
 			// Try to restart the proxy
 			if err := p.RestartProxy(name); err != nil {
-				log.Printf("[Pool] ✗ %s: restart failed: %v", name, err)
+				poolLog.Error("restart_failed", slog.String("mcp", name), slog.String("error", err.Error()))
 				return false
 			}
-			log.Printf("[Pool] ✓ %s: successfully restarted", name)
+			poolLog.Info("restart_success", slog.String("mcp", name))
 			return true
 		}
 		p.mu.RUnlock()
@@ -183,7 +187,7 @@ func (p *Pool) Shutdown() error {
 		wg.Add(1)
 		go func(n string, sp *SocketProxy) {
 			defer wg.Done()
-			log.Printf("Stopping socket proxy: %s", n)
+			poolLog.Info("proxy_stopping", slog.String("mcp", n))
 			_ = sp.Stop()
 		}(name, proxy)
 	}
@@ -195,9 +199,9 @@ func (p *Pool) Shutdown() error {
 	}()
 	select {
 	case <-done:
-		log.Printf("[Pool] All proxies stopped cleanly")
+		poolLog.Info("all_proxies_stopped")
 	case <-time.After(10 * time.Second):
-		log.Printf("[Pool] WARNING: Shutdown timed out after 10s, some proxies may not have stopped cleanly")
+		poolLog.Warn("shutdown_timeout")
 	}
 
 	return nil
@@ -219,7 +223,7 @@ func (p *Pool) StartHealthMonitor() {
 			}
 		}
 	}()
-	log.Printf("[Pool] Health monitor started (3s interval)")
+	poolLog.Info("health_monitor_started")
 }
 
 func (p *Pool) restartFailedProxies() {
@@ -242,7 +246,7 @@ func (p *Pool) restartFailedProxies() {
 			proxy.statusMu.RUnlock()
 			if !successSince.IsZero() && time.Since(successSince) > 5*time.Minute {
 				if proxy.totalFailures > 0 || proxy.restartCount > 0 {
-					log.Printf("[Pool] %s: healthy for 5+ min, resetting failure counters (was %d total failures)", name, proxy.totalFailures)
+					poolLog.Info("failure_counters_reset", slog.String("mcp", name), slog.Int("prev_failures", proxy.totalFailures))
 					proxy.totalFailures = 0
 					proxy.restartCount = 0
 				}
@@ -257,7 +261,7 @@ func (p *Pool) restartFailedProxies() {
 
 	for _, name := range failedProxies {
 		if err := p.RestartProxyWithRateLimit(name); err != nil {
-			log.Printf("[Pool] Failed to restart %s: %v", name, err)
+			poolLog.Error("restart_failed", slog.String("mcp", name), slog.String("error", err.Error()))
 		}
 	}
 }
@@ -284,7 +288,7 @@ func (p *Pool) RestartProxyWithRateLimit(name string) error {
 
 	// Check if we've exceeded the total failure limit
 	if proxy.totalFailures >= maxTotalRestartFailures {
-		log.Printf("[Pool] ✗ %s: permanently disabled after %d total failures (broken MCP?)", name, proxy.totalFailures)
+		poolLog.Error("permanently_disabled", slog.String("mcp", name), slog.Int("total_failures", proxy.totalFailures))
 		proxy.SetStatus(StatusPermanentlyFailed)
 		return fmt.Errorf("proxy %s permanently disabled after %d failures", name, proxy.totalFailures)
 	}
@@ -297,7 +301,7 @@ func (p *Pool) RestartProxyWithRateLimit(name string) error {
 		return fmt.Errorf("rate limited: %d restarts in last minute", proxy.restartCount)
 	}
 
-	log.Printf("[Pool] Auto-restarting failed proxy: %s (total failures: %d/%d)", name, proxy.totalFailures, maxTotalRestartFailures)
+	poolLog.Info("auto_restart", slog.String("mcp", name), slog.Int("total_failures", proxy.totalFailures), slog.Int("max_failures", maxTotalRestartFailures))
 
 	// Save config before stopping
 	command := proxy.command
@@ -327,7 +331,7 @@ func (p *Pool) RestartProxyWithRateLimit(name string) error {
 		newProxy.restartCount = prevRestartCount + 1
 		newProxy.lastRestart = time.Now()
 		if newProxy.totalFailures >= maxTotalRestartFailures {
-			log.Printf("[Pool] ✗ %s: permanently disabled after %d total failures", name, newProxy.totalFailures)
+			poolLog.Error("permanently_disabled", slog.String("mcp", name), slog.Int("total_failures", newProxy.totalFailures))
 			newProxy.SetStatus(StatusPermanentlyFailed)
 		} else {
 			newProxy.SetStatus(StatusFailed)
@@ -343,7 +347,7 @@ func (p *Pool) RestartProxyWithRateLimit(name string) error {
 	newProxy.lastRestart = time.Now()
 
 	p.proxies[name] = newProxy
-	log.Printf("[Pool] Successfully restarted %s (restart #%d)", name, newProxy.restartCount)
+	poolLog.Info("restart_complete", slog.String("mcp", name), slog.Int("restart_num", newProxy.restartCount))
 
 	return nil
 }
@@ -391,7 +395,7 @@ func (p *Pool) DiscoverExistingSockets() int {
 	pattern := filepath.Join("/tmp", "agentdeck-mcp-*.sock")
 	matches, err := filepath.Glob(pattern)
 	if err != nil {
-		log.Printf("[Pool] Failed to scan for existing sockets: %v", err)
+		poolLog.Warn("socket_scan_failed", slog.String("error", err.Error()))
 		return 0
 	}
 
@@ -415,23 +419,23 @@ func (p *Pool) DiscoverExistingSockets() int {
 
 		// Check if socket is alive (owned by another instance)
 		if !isSocketAliveCheck(socketPath) {
-			log.Printf("[Pool] Socket %s exists but not alive, removing stale file", name)
+			poolLog.Debug("stale_socket_removed", slog.String("mcp", name))
 			os.Remove(socketPath)
 			continue
 		}
 
 		// Register the external socket
 		if err := p.RegisterExternalSocket(name, socketPath); err != nil {
-			log.Printf("[Pool] Failed to register external socket %s: %v", name, err)
+			poolLog.Warn("external_register_failed", slog.String("mcp", name), slog.String("error", err.Error()))
 			continue
 		}
 
-		log.Printf("[Pool] ✓ Discovered external socket: %s → %s", name, socketPath)
+		poolLog.Info("external_socket_discovered", slog.String("mcp", name), slog.String("path", socketPath))
 		discovered++
 	}
 
 	if discovered > 0 {
-		log.Printf("[Pool] Discovered %d existing sockets from another agent-deck instance", discovered)
+		poolLog.Info("discovery_complete", slog.Int("count", discovered))
 	}
 	return discovered
 }

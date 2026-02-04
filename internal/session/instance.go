@@ -8,7 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -18,8 +18,12 @@ import (
 	"sync"
 	"time"
 
+	"github.com/asheshgoplani/agent-deck/internal/logging"
 	"github.com/asheshgoplani/agent-deck/internal/tmux"
 )
+
+var sessionLog = logging.ForComponent(logging.CompSession)
+var mcpLog = logging.ForComponent(logging.CompMCP)
 
 // Status represents the current state of a session
 type Status string
@@ -580,11 +584,11 @@ func (i *Instance) detectOpenCodeSessionAsync() {
 
 		if sessionID := i.queryOpenCodeSession(); sessionID != "" {
 			i.setOpenCodeSession(sessionID)
-			log.Printf("[OPENCODE] Detected session ID: %s (quick phase, attempt %d)", sessionID, attempt+1)
+			sessionLog.Debug("opencode_session_detected", slog.String("session_id", sessionID), slog.String("phase", "quick"), slog.Int("attempt", attempt+1))
 			return
 		}
 
-		log.Printf("[OPENCODE] Session ID not found yet (attempt %d/%d)", attempt+1, len(quickDelays))
+		sessionLog.Debug("opencode_session_not_found", slog.Int("attempt", attempt+1), slog.Int("total", len(quickDelays)))
 	}
 
 	// Phase 2: Long-running background watcher for new sessions
@@ -608,20 +612,20 @@ func (i *Instance) watchForOpenCodeSession() {
 		attempt++
 
 		if i.OpenCodeSessionID != "" {
-			log.Printf("[OPENCODE] Background watcher: session already set, stopping")
+			sessionLog.Debug("opencode_watcher_already_set")
 			return
 		}
 
 		if sessionID := i.queryOpenCodeSession(); sessionID != "" {
 			i.setOpenCodeSession(sessionID)
-			log.Printf("[OPENCODE] Background watcher detected session ID: %s (attempt %d)", sessionID, attempt)
+			sessionLog.Debug("opencode_watcher_detected", slog.String("session_id", sessionID), slog.Int("attempt", attempt))
 			return
 		}
 
-		log.Printf("[OPENCODE] Background watcher: session not found (attempt %d)", attempt)
+		sessionLog.Debug("opencode_watcher_not_found", slog.Int("attempt", attempt))
 	}
 
-	log.Printf("[OPENCODE] Background watcher: gave up after %v", maxDuration)
+	sessionLog.Debug("opencode_watcher_timeout", slog.Duration("max_duration", maxDuration))
 }
 
 // setOpenCodeSession sets the session ID and stores it in tmux environment.
@@ -631,7 +635,7 @@ func (i *Instance) setOpenCodeSession(sessionID string) {
 
 	if i.tmuxSession != nil {
 		if err := i.tmuxSession.SetEnvironment("OPENCODE_SESSION_ID", sessionID); err != nil {
-			log.Printf("[OPENCODE] Warning: failed to set OPENCODE_SESSION_ID env: %v", err)
+			sessionLog.Warn("opencode_set_env_failed", slog.String("error", err.Error()))
 		}
 	}
 }
@@ -644,15 +648,15 @@ func (i *Instance) queryOpenCodeSession() string {
 	cmd := exec.Command("opencode", "session", "list", "--format", "json")
 	cmd.Dir = i.ProjectPath
 
-	log.Printf("[OPENCODE] Querying sessions from dir: %s", i.ProjectPath)
+	sessionLog.Debug("opencode_query_sessions", slog.String("dir", i.ProjectPath))
 
 	output, err := cmd.Output()
 	if err != nil {
-		log.Printf("[OPENCODE] Failed to query sessions: %v", err)
+		sessionLog.Debug("opencode_query_failed", slog.String("error", err.Error()))
 		return ""
 	}
 
-	log.Printf("[OPENCODE] Got %d bytes of session data", len(output))
+	sessionLog.Debug("opencode_session_data_size", slog.Int("bytes", len(output)))
 
 	// Parse JSON response
 	// Expected format: array of session objects with id, directory, created, updated fields
@@ -665,11 +669,11 @@ func (i *Instance) queryOpenCodeSession() string {
 	}
 
 	if err := json.Unmarshal(output, &sessions); err != nil {
-		log.Printf("[OPENCODE] Failed to parse session list: %v", err)
+		sessionLog.Debug("opencode_parse_failed", slog.String("error", err.Error()))
 		return ""
 	}
 
-	log.Printf("[OPENCODE] Parsed %d sessions", len(sessions))
+	sessionLog.Debug("opencode_parsed_sessions", slog.Int("count", len(sessions)))
 
 	// Find the most recently updated session matching our project path
 	// OpenCode auto-resumes the most recent session when you run `opencode` in a directory,
@@ -689,12 +693,11 @@ func (i *Instance) queryOpenCodeSession() string {
 		normalizedSessDir := normalizePath(sessDir)
 		normalizedProjectPath := normalizePath(projectPath)
 
-		log.Printf("[OPENCODE] Session %s: dir=%q vs project=%q, created=%d, updated=%d",
-			sess.ID, sessDir, projectPath, sess.Created, sess.Updated)
+		sessionLog.Debug("opencode_session_compare", slog.String("session_id", sess.ID), slog.String("sess_dir", sessDir), slog.String("project_path", projectPath), slog.Int64("created", sess.Created), slog.Int64("updated", sess.Updated))
 
 		// Normalize both paths for comparison
 		if sessDir == "" || normalizedSessDir != normalizedProjectPath {
-			log.Printf("[OPENCODE] Session %s: directory mismatch, skipping", sess.ID)
+			sessionLog.Debug("opencode_session_dir_mismatch", slog.String("session_id", sess.ID))
 			continue
 		}
 
@@ -704,7 +707,7 @@ func (i *Instance) queryOpenCodeSession() string {
 			updatedAt = sess.Created // Fallback to created if updated not available
 		}
 
-		log.Printf("[OPENCODE] Session %s: directory matches, updated=%d", sess.ID, updatedAt)
+		sessionLog.Debug("opencode_session_dir_match", slog.String("session_id", sess.ID), slog.Int64("updated", updatedAt))
 
 		if bestMatch == "" || updatedAt > bestMatchTime {
 			bestMatch = sess.ID
@@ -712,7 +715,7 @@ func (i *Instance) queryOpenCodeSession() string {
 		}
 	}
 
-	log.Printf("[OPENCODE] Best match: %s (updated=%d)", bestMatch, bestMatchTime)
+	sessionLog.Debug("opencode_best_match", slog.String("session_id", bestMatch), slog.Int64("updated", bestMatchTime))
 	return bestMatch
 }
 
@@ -766,18 +769,18 @@ func (i *Instance) detectCodexSessionAsync() {
 			// Store in tmux environment for restart
 			if i.tmuxSession != nil {
 				if err := i.tmuxSession.SetEnvironment("CODEX_SESSION_ID", sessionID); err != nil {
-					log.Printf("[CODEX] Warning: failed to set CODEX_SESSION_ID env: %v", err)
+					sessionLog.Warn("codex_set_env_failed", slog.String("error", err.Error()))
 				}
 			}
 
-			log.Printf("[CODEX] Detected session ID: %s (attempt %d)", sessionID, attempt+1)
+			sessionLog.Debug("codex_session_detected", slog.String("session_id", sessionID), slog.Int("attempt", attempt+1))
 			return
 		}
 
-		log.Printf("[CODEX] Session ID not found yet (attempt %d/%d)", attempt+1, len(delays))
+		sessionLog.Debug("codex_session_not_found", slog.Int("attempt", attempt+1), slog.Int("total", len(delays)))
 	}
 
-	log.Printf("[CODEX] Warning: Could not detect session ID after %d attempts", len(delays))
+	sessionLog.Warn("codex_detection_failed", slog.Int("attempts", len(delays)))
 }
 
 // queryCodexSession scans the Codex sessions directory for the most recent session
@@ -842,7 +845,7 @@ func (i *Instance) queryCodexSession() string {
 	})
 
 	if err != nil {
-		log.Printf("[CODEX] Error scanning sessions directory: %v", err)
+		sessionLog.Debug("codex_scan_error", slog.String("error", err.Error()))
 	}
 
 	return bestMatch
@@ -869,7 +872,7 @@ func (i *Instance) UpdateCodexSession(excludeIDs map[string]bool) {
 	// Krudony fix: user may have started a NEW session - don't use stale cached ID
 	if sessionID := i.queryCodexSession(); sessionID != "" {
 		if sessionID != i.CodexSessionID {
-			log.Printf("[CODEX] Updating session ID: %s -> %s", i.CodexSessionID, sessionID)
+			sessionLog.Debug("codex_session_update", slog.String("old_id", i.CodexSessionID), slog.String("new_id", sessionID))
 		}
 		i.CodexSessionID = sessionID
 		i.CodexDetectedAt = time.Now()
@@ -1020,7 +1023,7 @@ func (i *Instance) loadCustomPatternsFromConfig() {
 	if raw != nil {
 		resolved, err := tmux.CompilePatterns(raw)
 		if err != nil {
-			log.Printf("[PATTERNS] Warning: compile error for %s: %v", i.Tool, err)
+			sessionLog.Warn("pattern_compile_error", slog.String("tool", i.Tool), slog.String("error", err.Error()))
 		}
 		if resolved != nil {
 			i.tmuxSession.SetPatterns(resolved)
@@ -1081,7 +1084,7 @@ func (i *Instance) Start() error {
 	// Set AGENTDECK_INSTANCE_ID for Claude hooks to identify this session
 	// This enables real-time status updates via Stop/SessionStart hooks
 	if err := i.tmuxSession.SetEnvironment("AGENTDECK_INSTANCE_ID", i.ID); err != nil {
-		log.Printf("Warning: failed to set AGENTDECK_INSTANCE_ID: %v", err)
+		sessionLog.Warn("set_instance_id_failed", slog.String("error", err.Error()))
 	}
 
 	// Capture MCPs that are now loaded (for sync tracking)
@@ -1154,7 +1157,7 @@ func (i *Instance) StartWithMessage(message string) error {
 	// Set AGENTDECK_INSTANCE_ID for Claude hooks to identify this session
 	// This enables real-time status updates via Stop/SessionStart hooks
 	if err := i.tmuxSession.SetEnvironment("AGENTDECK_INSTANCE_ID", i.ID); err != nil {
-		log.Printf("Warning: failed to set AGENTDECK_INSTANCE_ID: %v", err)
+		sessionLog.Warn("set_instance_id_failed", slog.String("error", err.Error()))
 	}
 
 	// Capture MCPs that are now loaded (for sync tracking)
@@ -1450,7 +1453,7 @@ func (i *Instance) syncGeminiSessionFromDisk() {
 	// Pick the most recent session (list is sorted by LastUpdated desc)
 	mostRecent := sessions[0]
 	if mostRecent.SessionID != i.GeminiSessionID {
-		log.Printf("[GEMINI] Updating session ID: %s -> %s", i.GeminiSessionID, mostRecent.SessionID)
+		sessionLog.Debug("gemini_session_update", slog.String("old_id", i.GeminiSessionID), slog.String("new_id", mostRecent.SessionID))
 	}
 	i.GeminiSessionID = mostRecent.SessionID
 	i.GeminiDetectedAt = time.Now()
@@ -2225,8 +2228,7 @@ func (i *Instance) Kill() error {
 // For Claude sessions with known ID: sends Ctrl+C twice and resume command to existing session
 // For dead sessions or unknown ID: recreates the tmux session
 func (i *Instance) Restart() error {
-	log.Printf("[MCP-DEBUG] Instance.Restart() called - Tool=%s, ClaudeSessionID=%q, tmuxSession=%v, tmuxExists=%v",
-		i.Tool, i.ClaudeSessionID, i.tmuxSession != nil, i.tmuxSession != nil && i.tmuxSession.Exists())
+	mcpLog.Debug("restart_called", slog.String("tool", i.Tool), slog.String("claude_session_id", i.ClaudeSessionID), slog.Bool("tmux_session", i.tmuxSession != nil), slog.Bool("tmux_exists", i.tmuxSession != nil && i.tmuxSession.Exists()))
 
 	// Clear flag immediately to prevent it staying set if restart fails
 	skipRegen := i.SkipMCPRegenerate
@@ -2236,11 +2238,11 @@ func (i *Instance) Restart() error {
 	// Skip if MCP dialog just wrote the config (avoids race condition)
 	if i.Tool == "claude" && !skipRegen {
 		if err := i.regenerateMCPConfig(); err != nil {
-			log.Printf("[MCP-DEBUG] Warning: MCP config regeneration failed: %v", err)
+			mcpLog.Warn("mcp_config_regen_failed", slog.String("error", err.Error()))
 			// Continue with restart - Claude will use existing .mcp.json or defaults
 		}
 	} else if skipRegen {
-		log.Printf("[MCP-DEBUG] Skipping MCP regeneration (flag set by Apply)")
+		mcpLog.Debug("mcp_regen_skipped", slog.String("reason", "flag_set_by_apply"))
 	}
 
 	// If Claude session with known ID AND tmux session exists, use respawn-pane
@@ -2251,17 +2253,17 @@ func (i *Instance) Restart() error {
 		if err != nil {
 			return err
 		}
-		log.Printf("[MCP-DEBUG] Using respawn-pane with command: %s", resumeCmd)
+		mcpLog.Debug("respawn_pane_claude", slog.String("command", resumeCmd))
 
 		// Use respawn-pane for atomic restart
 		// This is more reliable than Ctrl+C + wait for shell + send command
 		// respawn-pane -k kills the current process and starts the new command atomically
 		if err := i.tmuxSession.RespawnPane(resumeCmd); err != nil {
-			log.Printf("[MCP-DEBUG] RespawnPane failed: %v", err)
+			mcpLog.Debug("respawn_pane_claude_failed", slog.String("error", err.Error()))
 			return fmt.Errorf("failed to restart Claude session: %w", err)
 		}
 
-		log.Printf("[MCP-DEBUG] RespawnPane succeeded")
+		mcpLog.Debug("respawn_pane_claude_succeeded")
 
 		// Re-capture MCPs after restart (they may have changed since session started)
 		i.CaptureLoadedMCPs()
@@ -2284,14 +2286,14 @@ func (i *Instance) Restart() error {
 		if err != nil {
 			return err
 		}
-		log.Printf("[RESTART-DEBUG] Gemini using respawn-pane with command: %s", resumeCmd)
+		sessionLog.Info("restart_gemini_respawn", slog.String("command", resumeCmd))
 
 		if err := i.tmuxSession.RespawnPane(resumeCmd); err != nil {
-			log.Printf("[RESTART-DEBUG] Gemini RespawnPane failed: %v", err)
+			sessionLog.Info("restart_gemini_respawn_failed", slog.String("error", err.Error()))
 			return fmt.Errorf("failed to restart Gemini session: %w", err)
 		}
 
-		log.Printf("[RESTART-DEBUG] Gemini RespawnPane succeeded")
+		sessionLog.Info("restart_gemini_respawn_succeeded")
 		i.Status = StatusWaiting
 		return nil
 	}
@@ -2304,7 +2306,7 @@ func (i *Instance) Restart() error {
 			if envID, err := i.tmuxSession.GetEnvironment("OPENCODE_SESSION_ID"); err == nil && envID != "" {
 				i.OpenCodeSessionID = envID
 				i.OpenCodeDetectedAt = time.Now()
-				log.Printf("[RESTART-DEBUG] OpenCode: recovered session ID from tmux env: %s", envID)
+				sessionLog.Info("restart_opencode_recovered_id", slog.String("session_id", envID))
 			}
 		}
 
@@ -2323,10 +2325,10 @@ func (i *Instance) Restart() error {
 		if err != nil {
 			return err
 		}
-		log.Printf("[RESTART-DEBUG] OpenCode using respawn-pane with command: %s", resumeCmd)
+		sessionLog.Info("restart_opencode_respawn", slog.String("command", resumeCmd))
 
 		if err := i.tmuxSession.RespawnPane(resumeCmd); err != nil {
-			log.Printf("[RESTART-DEBUG] OpenCode RespawnPane failed: %v", err)
+			sessionLog.Info("restart_opencode_respawn_failed", slog.String("error", err.Error()))
 			return fmt.Errorf("failed to restart OpenCode session: %w", err)
 		}
 
@@ -2335,7 +2337,7 @@ func (i *Instance) Restart() error {
 			go i.detectOpenCodeSessionAsync()
 		}
 
-		log.Printf("[RESTART-DEBUG] OpenCode RespawnPane succeeded")
+		sessionLog.Info("restart_opencode_respawn_succeeded")
 		i.Status = StatusWaiting
 		return nil
 	}
@@ -2353,7 +2355,7 @@ func (i *Instance) Restart() error {
 			if envID, err := i.tmuxSession.GetEnvironment("CODEX_SESSION_ID"); err == nil && envID != "" {
 				i.CodexSessionID = envID
 				i.CodexDetectedAt = time.Now()
-				log.Printf("[RESTART-DEBUG] Codex: recovered session ID from tmux env: %s", envID)
+				sessionLog.Info("restart_codex_recovered_id", slog.String("session_id", envID))
 			}
 		}
 
@@ -2372,10 +2374,10 @@ func (i *Instance) Restart() error {
 		if err != nil {
 			return err
 		}
-		log.Printf("[RESTART-DEBUG] Codex using respawn-pane with command: %s", resumeCmd)
+		sessionLog.Info("restart_codex_respawn", slog.String("command", resumeCmd))
 
 		if err := i.tmuxSession.RespawnPane(resumeCmd); err != nil {
-			log.Printf("[RESTART-DEBUG] Codex RespawnPane failed: %v", err)
+			sessionLog.Info("restart_codex_respawn_failed", slog.String("error", err.Error()))
 			return fmt.Errorf("failed to restart Codex session: %w", err)
 		}
 
@@ -2384,7 +2386,7 @@ func (i *Instance) Restart() error {
 			go i.detectCodexSessionAsync()
 		}
 
-		log.Printf("[RESTART-DEBUG] Codex RespawnPane succeeded")
+		sessionLog.Info("restart_codex_respawn_succeeded")
 		i.Status = StatusWaiting
 		return nil
 	}
@@ -2410,26 +2412,26 @@ func (i *Instance) Restart() error {
 			return err
 		}
 
-		log.Printf("[RESTART-DEBUG] Generic tool '%s' using respawn-pane with command: %s", i.Tool, resumeCmd)
+		sessionLog.Info("restart_generic_respawn", slog.String("tool", i.Tool), slog.String("command", resumeCmd))
 
 		if err := i.tmuxSession.RespawnPane(resumeCmd); err != nil {
-			log.Printf("[RESTART-DEBUG] Generic tool RespawnPane failed: %v", err)
+			sessionLog.Info("restart_generic_respawn_failed", slog.String("tool", i.Tool), slog.String("error", err.Error()))
 			return fmt.Errorf("failed to restart %s session: %w", i.Tool, err)
 		}
 
-		log.Printf("[RESTART-DEBUG] Generic tool RespawnPane succeeded")
+		sessionLog.Info("restart_generic_respawn_succeeded", slog.String("tool", i.Tool))
 		i.loadCustomPatternsFromConfig() // Reload custom patterns
 		i.Status = StatusWaiting
 		return nil
 	}
 
-	log.Printf("[MCP-DEBUG] Using fallback: recreate tmux session")
+	mcpLog.Debug("restart_fallback_recreate")
 
 	// Kill old tmux session to prevent orphans before recreating (#138)
 	if i.tmuxSession != nil && i.tmuxSession.Exists() {
-		log.Printf("[MCP-DEBUG] Killing old tmux session %s before fallback recreate", i.tmuxSession.Name)
+		mcpLog.Debug("restart_killing_old_session", slog.String("session_name", i.tmuxSession.Name))
 		if killErr := i.tmuxSession.Kill(); killErr != nil {
-			log.Printf("[MCP-DEBUG] Warning: failed to kill old tmux session: %v", killErr)
+			mcpLog.Warn("restart_kill_old_session_failed", slog.String("error", killErr.Error()))
 		}
 	}
 
@@ -2482,20 +2484,20 @@ func (i *Instance) Restart() error {
 	// Load custom patterns for status detection (for custom tools)
 	i.loadCustomPatternsFromConfig()
 
-	log.Printf("[MCP-DEBUG] Starting new tmux session with command: %s", command)
+	mcpLog.Debug("restart_starting_new_session", slog.String("command", command))
 
 	if err := i.tmuxSession.Start(command); err != nil {
-		log.Printf("[MCP-DEBUG] tmuxSession.Start() failed: %v", err)
+		mcpLog.Debug("restart_start_failed", slog.String("error", err.Error()))
 		i.Status = StatusError
 		return fmt.Errorf("failed to restart tmux session: %w", err)
 	}
 
-	log.Printf("[MCP-DEBUG] tmuxSession.Start() succeeded")
+	mcpLog.Debug("restart_start_succeeded")
 
 	// Set AGENTDECK_INSTANCE_ID for Claude hooks to identify this session
 	// This enables real-time status updates via Stop/SessionStart hooks
 	if err := i.tmuxSession.SetEnvironment("AGENTDECK_INSTANCE_ID", i.ID); err != nil {
-		log.Printf("Warning: failed to set AGENTDECK_INSTANCE_ID: %v", err)
+		sessionLog.Warn("set_instance_id_failed", slog.String("error", err.Error()))
 	}
 
 	// Re-capture MCPs after restart
@@ -2548,8 +2550,7 @@ func (i *Instance) buildClaudeResumeCommand() string {
 	// Check if session has actual conversation data
 	// If not, use --session-id instead of --resume to avoid "No conversation found" error
 	useResume := sessionHasConversationData(i.ClaudeSessionID, i.ProjectPath)
-	log.Printf("[SESSION-DATA] buildClaudeResumeCommand: sessionID=%s, path=%s, useResume=%v",
-		i.ClaudeSessionID, i.ProjectPath, useResume)
+	sessionLog.Debug("session_data_build_resume", slog.String("session_id", i.ClaudeSessionID), slog.String("path", i.ProjectPath), slog.Bool("use_resume", useResume))
 
 	// Build dangerous mode flag
 	dangerousFlag := ""
@@ -2572,7 +2573,7 @@ func (i *Instance) buildClaudeResumeCommand() string {
 // SetGeminiModel sets the Gemini model for this session and triggers a restart if running.
 func (i *Instance) SetGeminiModel(model string) error {
 	i.GeminiModel = model
-	log.Printf("[GEMINI-MODEL] Set model=%q for session %s (%s)", model, i.ID, i.Title)
+	sessionLog.Debug("gemini_model_set", slog.String("model", model), slog.String("session_id", i.ID), slog.String("title", i.Title))
 
 	// Restart if the session is running so it picks up the new model
 	if i.Exists() {
@@ -2753,7 +2754,7 @@ func (i *Instance) CreateForkedInstanceWithOptions(newTitle, newGroupPath string
 	if opts != nil {
 		if err := forked.SetClaudeOptions(opts); err != nil {
 			// Log but don't fail - options are not critical for fork
-			log.Printf("Warning: failed to set Claude options on forked session: %v", err)
+			sessionLog.Warn("set_claude_options_failed", slog.String("error", err.Error()))
 		}
 		// Copy transient worktree fields to the forked instance
 		if opts.WorktreePath != "" {
@@ -2963,20 +2964,20 @@ func (i *Instance) regenerateMCPConfig() error {
 			return nil
 		}
 		if err := WriteGlobalMCP(globalMCPs); err != nil {
-			log.Printf("[MCP-DEBUG] Failed to regenerate global MCP config: %v", err)
+			mcpLog.Debug("regen_global_mcp_failed", slog.String("error", err.Error()))
 			return fmt.Errorf("failed to regenerate global MCP config: %w", err)
 		}
-		log.Printf("[MCP-DEBUG] Regenerated global MCP config for %s with %d MCPs", i.Title, len(globalMCPs))
+		mcpLog.Debug("regen_global_mcp_succeeded", slog.String("title", i.Title), slog.Int("mcp_count", len(globalMCPs)))
 	case "user":
 		userMCPs := GetUserMCPNames()
 		if len(userMCPs) == 0 {
 			return nil
 		}
 		if err := WriteUserMCP(userMCPs); err != nil {
-			log.Printf("[MCP-DEBUG] Failed to regenerate user MCP config: %v", err)
+			mcpLog.Debug("regen_user_mcp_failed", slog.String("error", err.Error()))
 			return fmt.Errorf("failed to regenerate user MCP config: %w", err)
 		}
-		log.Printf("[MCP-DEBUG] Regenerated user MCP config for %s with %d MCPs", i.Title, len(userMCPs))
+		mcpLog.Debug("regen_user_mcp_succeeded", slog.String("title", i.Title), slog.Int("mcp_count", len(userMCPs)))
 	default:
 		localMCPs := mcpInfo.Local()
 		if len(localMCPs) == 0 {
@@ -2984,10 +2985,10 @@ func (i *Instance) regenerateMCPConfig() error {
 		}
 		// WriteMCPJsonFromConfig checks pool status and writes socket configs if pool is running
 		if err := WriteMCPJsonFromConfig(i.ProjectPath, localMCPs); err != nil {
-			log.Printf("[MCP-DEBUG] Failed to regenerate .mcp.json: %v", err)
+			mcpLog.Debug("regen_local_mcp_failed", slog.String("error", err.Error()))
 			return fmt.Errorf("failed to regenerate .mcp.json: %w", err)
 		}
-		log.Printf("[MCP-DEBUG] Regenerated .mcp.json for %s with %d MCPs", i.Title, len(localMCPs))
+		mcpLog.Debug("regen_local_mcp_succeeded", slog.String("title", i.Title), slog.Int("mcp_count", len(localMCPs)))
 	}
 	return nil
 }
@@ -3023,30 +3024,30 @@ func sessionHasConversationData(sessionID string, projectPath string) bool {
 	}
 
 	sessionFile := filepath.Join(configDir, "projects", encodedPath, sessionID+".jsonl")
-	log.Printf("[SESSION-DATA] Checking session file: %s", sessionFile)
+	sessionLog.Debug("session_data_checking_file", slog.String("file", sessionFile))
 
 	// Check if file exists
 	if _, err := os.Stat(sessionFile); os.IsNotExist(err) {
 		// File doesn't exist at expected location - try cross-project search
 		// This handles path hash mismatches (e.g., session created from different directory)
 		if fallbackPath := findSessionFileInAllProjects(sessionID); fallbackPath != "" {
-			log.Printf("[SESSION-DATA] Found session file via cross-project search: %s", fallbackPath)
+			sessionLog.Debug("session_data_cross_project_found", slog.String("path", fallbackPath))
 			sessionFile = fallbackPath
 		} else {
 			// File doesn't exist anywhere - use --session-id to create fresh session
 			// (there's nothing to resume if the file doesn't exist)
-			log.Printf("[SESSION-DATA] File does NOT exist → returning false (use --session-id)")
+			sessionLog.Debug("session_data_file_not_found", slog.String("result", "use_session_id"))
 			return false
 		}
 	}
 
-	log.Printf("[SESSION-DATA] File EXISTS, scanning for sessionId...")
+	sessionLog.Debug("session_data_file_exists", slog.String("file", sessionFile))
 
 	// Read file and search for "sessionId" field
 	file, err := os.Open(sessionFile)
 	if err != nil {
 		// Error opening - safe fallback to --resume
-		log.Printf("[SESSION-DATA] Error opening file: %v → returning true (safe fallback)", err)
+		sessionLog.Debug("session_data_open_error", slog.String("error", err.Error()), slog.String("fallback", "use_resume"))
 		return true
 	}
 	defer file.Close()
@@ -3061,19 +3062,19 @@ func sessionHasConversationData(sessionID string, projectPath string) bool {
 		line := scanner.Text()
 		// Simple string search - faster than JSON parsing
 		if strings.Contains(line, `"sessionId"`) {
-			log.Printf("[SESSION-DATA] Found sessionId → returning true (use --resume)")
+			sessionLog.Debug("session_data_found_session_id", slog.String("result", "use_resume"))
 			return true // Found conversation data
 		}
 	}
 
 	if err := scanner.Err(); err != nil {
 		// Error reading - safe fallback to --resume
-		log.Printf("[SESSION-DATA] Scanner error: %v → returning true (safe fallback)", err)
+		sessionLog.Debug("session_data_scanner_error", slog.String("error", err.Error()), slog.String("fallback", "use_resume"))
 		return true
 	}
 
 	// No sessionId found - session was never interacted with
-	log.Printf("[SESSION-DATA] No sessionId found in file → returning false (use --session-id)")
+	sessionLog.Debug("session_data_no_session_id", slog.String("result", "use_session_id"))
 	return false
 }
 

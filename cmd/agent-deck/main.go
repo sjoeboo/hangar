@@ -5,8 +5,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
-	"io"
-	"log"
+	"log/slog"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -21,12 +20,13 @@ import (
 	"github.com/muesli/termenv"
 
 	"github.com/asheshgoplani/agent-deck/internal/git"
+	"github.com/asheshgoplani/agent-deck/internal/logging"
 	"github.com/asheshgoplani/agent-deck/internal/session"
 	"github.com/asheshgoplani/agent-deck/internal/ui"
 	"github.com/asheshgoplani/agent-deck/internal/update"
 )
 
-const Version = "0.10.13"
+const Version = "0.10.12"
 
 // Table column widths for list command output
 const (
@@ -296,7 +296,7 @@ func main() {
 		}
 	}
 
-	// Set up signal handling for graceful lock cleanup
+	// Set up signal handling for graceful lock cleanup and crash dumps
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 	go func() {
@@ -305,27 +305,84 @@ func main() {
 		os.Exit(0)
 	}()
 
-	// Set up debug logging if AGENTDECK_DEBUG is set
-	// Logs go to ~/.agent-deck/debug.log to avoid interfering with TUI
-	// Uses O_APPEND for multi-instance safety (both instances can write to same log)
-	if os.Getenv("AGENTDECK_DEBUG") != "" {
-		if baseDir, err := session.GetAgentDeckDir(); err == nil {
-			logPath := filepath.Join(baseDir, "debug.log")
-			logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
-			if err == nil {
-				log.SetOutput(logFile)
-				log.SetFlags(log.Ltime | log.Lmicroseconds)
-				instanceType := "primary"
-				if !isPrimaryInstance {
-					instanceType = "secondary"
-				}
-				log.Printf("=== Agent Deck Instance %d Started (%s) ===", os.Getpid(), instanceType)
-				defer logFile.Close()
+	// Set up structured logging (JSONL format with rotation)
+	// When AGENTDECK_DEBUG is set, logs go to ~/.agent-deck/debug.log
+	// When not set, logs are discarded to avoid TUI interference
+	debugMode := os.Getenv("AGENTDECK_DEBUG") != ""
+	if baseDir, err := session.GetAgentDeckDir(); err == nil {
+		logCfg := logging.Config{
+			Debug:                 debugMode,
+			LogDir:                baseDir,
+			Level:                 "debug",
+			Format:                "json",
+			MaxSizeMB:             10,
+			MaxBackups:            5,
+			MaxAgeDays:            10,
+			Compress:              true,
+			RingBufferSize:        10 * 1024 * 1024,
+			AggregateIntervalSecs: 30,
+		}
+
+		// Override defaults from user config if available
+		if userCfg, err := session.LoadUserConfig(); err == nil {
+			ls := userCfg.Logs
+			if ls.DebugLevel != "" {
+				logCfg.Level = ls.DebugLevel
+			}
+			if ls.DebugFormat != "" {
+				logCfg.Format = ls.DebugFormat
+			}
+			if ls.DebugMaxMB > 0 {
+				logCfg.MaxSizeMB = ls.DebugMaxMB
+			}
+			if ls.DebugBackups > 0 {
+				logCfg.MaxBackups = ls.DebugBackups
+			}
+			if ls.DebugRetentionDays > 0 {
+				logCfg.MaxAgeDays = ls.DebugRetentionDays
+			}
+			if ls.DebugCompress {
+				logCfg.Compress = ls.DebugCompress
+			}
+			if ls.RingBufferMB > 0 {
+				logCfg.RingBufferSize = ls.RingBufferMB * 1024 * 1024
+			}
+			if ls.PprofEnabled {
+				logCfg.PprofEnabled = ls.PprofEnabled
+			}
+			if ls.AggregateIntervalS > 0 {
+				logCfg.AggregateIntervalSecs = ls.AggregateIntervalS
 			}
 		}
-	} else {
-		// Disable logging when not in debug mode to avoid TUI interference
-		log.SetOutput(io.Discard)
+
+		logging.Init(logCfg)
+		defer logging.Shutdown()
+
+		if debugMode {
+			instanceType := "primary"
+			if !isPrimaryInstance {
+				instanceType = "secondary"
+			}
+			logging.ForComponent(logging.CompUI).Info("instance_started",
+				slog.Int("pid", os.Getpid()),
+				slog.String("instance_type", instanceType))
+		}
+
+		// SIGUSR1 dumps the ring buffer for post-mortem debugging
+		usr1Chan := make(chan os.Signal, 1)
+		signal.Notify(usr1Chan, syscall.SIGUSR1)
+		go func() {
+			for range usr1Chan {
+				dumpPath := filepath.Join(baseDir, fmt.Sprintf("crash-dump-%d.jsonl", time.Now().Unix()))
+				if err := logging.DumpRingBuffer(dumpPath); err != nil {
+					logging.ForComponent(logging.CompUI).Error("crash_dump_failed",
+						slog.String("error", err.Error()))
+				} else {
+					logging.ForComponent(logging.CompUI).Info("crash_dump_written",
+						slog.String("path", dumpPath))
+				}
+			}
+		}()
 	}
 
 	// Start TUI with the specified profile

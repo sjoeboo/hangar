@@ -3,15 +3,18 @@ package session
 import (
 	"encoding/json"
 	"fmt"
-	"log"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/asheshgoplani/agent-deck/internal/logging"
 	"github.com/asheshgoplani/agent-deck/internal/tmux"
 )
+
+var storageLog = logging.ForComponent(logging.CompStorage)
 
 const (
 	// maxBackupGenerations is the number of rolling backups to keep
@@ -38,7 +41,7 @@ func expandTilde(path string) string {
 				return cleaned
 			}
 			// Path traversal detected - log and return original
-			log.Printf("Warning: path traversal detected in %q, ignoring expansion", path)
+			storageLog.Warn("path_traversal_detected", slog.String("path", path))
 		}
 	} else if path == "~" {
 		home, err := os.UserHomeDir()
@@ -126,14 +129,14 @@ func NewStorageWithProfile(profile string) (*Storage, error) {
 	// Run migration if needed (safe to call multiple times)
 	needsMigration, err := NeedsMigration()
 	if err != nil {
-		log.Printf("Warning: failed to check migration status: %v", err)
+		storageLog.Warn("migration_check_failed", slog.String("error", err.Error()))
 	} else if needsMigration {
 		result, err := MigrateToProfiles()
 		if err != nil {
 			return nil, fmt.Errorf("migration failed: %w", err)
 		}
 		if result.Migrated {
-			log.Printf("Migration: %s", result.Message)
+			storageLog.Info("migration_complete", slog.String("message", result.Message))
 		}
 	}
 
@@ -179,9 +182,9 @@ func (s *Storage) cleanupTempFiles() {
 	tmpPath := s.path + ".tmp"
 	if _, err := os.Stat(tmpPath); err == nil {
 		if err := os.Remove(tmpPath); err != nil {
-			log.Printf("Warning: failed to clean up temp file %s: %v", tmpPath, err)
+			storageLog.Warn("temp_file_cleanup_failed", slog.String("path", tmpPath), slog.String("error", err.Error()))
 		} else {
-			log.Printf("Cleaned up leftover temp file from previous session")
+			storageLog.Info("temp_file_cleaned_up")
 		}
 	}
 }
@@ -289,7 +292,7 @@ func (s *Storage) SaveWithGroups(instances []*Instance, groupTree *GroupTree) er
 	// This is critical for crash safety - without fsync, data could be lost
 	if err := syncFile(tmpPath); err != nil {
 		// Log but don't fail - atomic rename still provides some safety
-		log.Printf("Warning: fsync failed for %s: %v", tmpPath, err)
+		storageLog.Warn("fsync_failed", slog.String("path", tmpPath), slog.String("error", err.Error()))
 	}
 
 	// Step 3: Rotate backups before overwriting
@@ -368,14 +371,14 @@ func (s *Storage) rotateBackups() {
 		// Rename to shift
 		if _, err := os.Stat(oldPath); err == nil {
 			if err := os.Rename(oldPath, newPath); err != nil {
-				log.Printf("Warning: failed to rotate backup %s -> %s: %v", oldPath, newPath, err)
+				storageLog.Warn("backup_rotation_failed", slog.String("old_path", oldPath), slog.String("new_path", newPath), slog.String("error", err.Error()))
 			}
 		}
 	}
 
 	// Copy current file to .bak
 	if err := copyFile(s.path, bakPath); err != nil {
-		log.Printf("Warning: failed to create backup file %s: %v", bakPath, err)
+		storageLog.Warn("backup_creation_failed", slog.String("path", bakPath), slog.String("error", err.Error()))
 	}
 }
 
@@ -424,7 +427,7 @@ func (s *Storage) LoadWithGroups() ([]*Instance, []*GroupData, error) {
 
 	// Check if file exists
 	if _, err := os.Stat(s.path); os.IsNotExist(err) {
-		log.Printf("[STORAGE-DEBUG] LoadWithGroups: file does not exist (profile=%s, path=%s), returning empty instances", s.profile, s.path)
+		storageLog.Debug("load_file_not_found", slog.String("profile", s.profile), slog.String("path", s.path))
 		return []*Instance{}, nil, nil
 	}
 
@@ -432,12 +435,12 @@ func (s *Storage) LoadWithGroups() ([]*Instance, []*GroupData, error) {
 	data, err := s.loadFromFile(s.path)
 	if err != nil {
 		// Main file is corrupted - try to recover from backups
-		log.Printf("Warning: main storage file corrupted (%v), attempting recovery from backup", err)
+		storageLog.Warn("storage_file_corrupted", slog.String("error", err.Error()))
 		data, err = s.recoverFromBackups()
 		if err != nil {
 			return nil, nil, fmt.Errorf("failed to load and no valid backup found: %w", err)
 		}
-		log.Printf("Successfully recovered from backup")
+		storageLog.Info("recovered_from_backup")
 
 		// Save the recovered data back to main file
 		// (this will create a new backup of the corrupted file first)
@@ -480,11 +483,11 @@ func (s *Storage) recoverFromBackups() (*StorageData, error) {
 
 		data, err := s.loadFromFile(tryPath)
 		if err != nil {
-			log.Printf("Backup %s also corrupted: %v", tryPath, err)
+			storageLog.Warn("backup_also_corrupted", slog.String("path", tryPath), slog.String("error", err.Error()))
 			continue
 		}
 
-		log.Printf("Recovered data from backup: %s", tryPath)
+		storageLog.Info("recovered_from_backup_file", slog.String("path", tryPath))
 		return data, nil
 	}
 
@@ -505,7 +508,7 @@ func (s *Storage) convertToInstances(data *StorageData) ([]*Instance, []*GroupDa
 		if g.Path == DefaultGroupName {
 			data.Groups[i].Path = DefaultGroupPath
 			migratedGroups = true
-			log.Printf("Migration: Converted group path '%s' -> '%s'", DefaultGroupName, DefaultGroupPath)
+			storageLog.Info("group_path_migrated", slog.String("old_path", DefaultGroupName), slog.String("new_path", DefaultGroupPath))
 		}
 	}
 	for i, inst := range data.Instances {
@@ -515,7 +518,7 @@ func (s *Storage) convertToInstances(data *StorageData) ([]*Instance, []*GroupDa
 		}
 	}
 	if migratedGroups {
-		log.Printf("Migration: Updated default group paths from '%s' to '%s'", DefaultGroupName, DefaultGroupPath)
+		storageLog.Info("default_group_paths_migrated", slog.String("old_name", DefaultGroupName), slog.String("new_path", DefaultGroupPath))
 	}
 
 	// Convert to instances

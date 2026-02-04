@@ -2,10 +2,14 @@ package tmux
 
 import (
 	"fmt"
-	"log"
+	"log/slog"
 	"regexp"
 	"strings"
+
+	"github.com/asheshgoplani/agent-deck/internal/logging"
 )
+
+var patternLog = logging.ForComponent(logging.CompStatus)
 
 // RawPatterns holds string-form patterns before compilation.
 // Patterns prefixed with "re:" are compiled as regex; everything else uses strings.Contains.
@@ -127,7 +131,9 @@ func CompilePatterns(raw *RawPatterns) (*ResolvedPatterns, error) {
 		if strings.HasPrefix(p, "re:") {
 			re, err := regexp.Compile(p[3:])
 			if err != nil {
-				log.Printf("[PATTERNS] Warning: invalid busy regex %q: %v (skipped)", p, err)
+				patternLog.Warn("invalid_busy_regex",
+				slog.String("pattern", p),
+				slog.String("error", err.Error()))
 				continue
 			}
 			resolved.BusyRegexps = append(resolved.BusyRegexps, re)
@@ -141,7 +147,9 @@ func CompilePatterns(raw *RawPatterns) (*ResolvedPatterns, error) {
 		if strings.HasPrefix(p, "re:") {
 			re, err := regexp.Compile(p[3:])
 			if err != nil {
-				log.Printf("[PATTERNS] Warning: invalid prompt regex %q: %v (skipped)", p, err)
+				patternLog.Warn("invalid_prompt_regex",
+				slog.String("pattern", p),
+				slog.String("error", err.Error()))
 				continue
 			}
 			resolved.PromptRegexps = append(resolved.PromptRegexps, re)
@@ -162,7 +170,7 @@ func CompilePatterns(raw *RawPatterns) (*ResolvedPatterns, error) {
 		// ThinkingPattern: spinner + whimsical word + timing info
 		tp, err := regexp.Compile(spinnerCharClass + `\s*(?i)(` + wordsAlt + `)[^(]*\([^)]*\)`)
 		if err != nil {
-			log.Printf("[PATTERNS] Warning: failed to compile thinking pattern: %v", err)
+			patternLog.Warn("failed_compile_thinking_pattern", slog.String("error", err.Error()))
 		} else {
 			resolved.ThinkingPattern = tp
 		}
@@ -170,7 +178,7 @@ func CompilePatterns(raw *RawPatterns) (*ResolvedPatterns, error) {
 		// ThinkingPatternEllipsis: spinner + any text + unicode ellipsis + parens
 		tpe, err := regexp.Compile(spinnerCharClass + `\s*.+…\s*\([^)]*\)`)
 		if err != nil {
-			log.Printf("[PATTERNS] Warning: failed to compile thinking ellipsis pattern: %v", err)
+			patternLog.Warn("failed_compile_thinking_ellipsis_pattern", slog.String("error", err.Error()))
 		} else {
 			resolved.ThinkingPatternEllipsis = tpe
 		}
@@ -178,7 +186,7 @@ func CompilePatterns(raw *RawPatterns) (*ResolvedPatterns, error) {
 		// SpinnerActivePattern: spinner + any text + unicode ellipsis
 		sap, err := regexp.Compile(spinnerCharClass + `\s*.+…`)
 		if err != nil {
-			log.Printf("[PATTERNS] Warning: failed to compile spinner active pattern: %v", err)
+			patternLog.Warn("failed_compile_spinner_active_pattern", slog.String("error", err.Error()))
 		} else {
 			resolved.SpinnerActivePattern = sap
 		}

@@ -3,10 +3,14 @@ package mcppool
 import (
 	"context"
 	"fmt"
-	"log"
+	"log/slog"
 	"sync"
 	"time"
+
+	"github.com/asheshgoplani/agent-deck/internal/logging"
 )
+
+var httpPoolLog = logging.ForComponent(logging.CompHTTP)
 
 // HTTPPool manages a pool of HTTP MCP servers
 type HTTPPool struct {
@@ -74,7 +78,7 @@ func (p *HTTPPool) StopIfStartedByUs(name string) error {
 	}
 
 	if !server.StartedByUs() {
-		log.Printf("[HTTP-POOL] %s: External server, not stopping", name)
+		httpPoolLog.Info("external_server_skip_stop", slog.String("mcp", name))
 		return nil
 	}
 
@@ -127,7 +131,7 @@ func (p *HTTPPool) Shutdown() error {
 			wg.Add(1)
 			go func(n string, s *HTTPServer) {
 				defer wg.Done()
-				log.Printf("[HTTP-POOL] Stopping HTTP server: %s", n)
+				httpPoolLog.Info("server_stopping", slog.String("mcp", n))
 				_ = s.Stop()
 			}(name, server)
 		}
@@ -141,9 +145,9 @@ func (p *HTTPPool) Shutdown() error {
 
 	select {
 	case <-done:
-		log.Printf("[HTTP-POOL] All HTTP servers stopped")
+		httpPoolLog.Info("all_servers_stopped")
 	case <-time.After(10 * time.Second):
-		log.Printf("[HTTP-POOL] WARNING: Shutdown timed out")
+		httpPoolLog.Warn("shutdown_timeout")
 	}
 
 	return nil
@@ -165,7 +169,7 @@ func (p *HTTPPool) StartHealthMonitor() {
 			}
 		}
 	}()
-	log.Printf("[HTTP-POOL] Health monitor started (10s interval)")
+	httpPoolLog.Info("health_monitor_started", slog.String("interval", "10s"))
 }
 
 // restartFailedServers restarts any servers that have failed
@@ -190,11 +194,11 @@ func (p *HTTPPool) restartFailedServers() {
 		p.mu.RUnlock()
 
 		if server != nil {
-			log.Printf("[HTTP-POOL] Auto-restarting failed server: %s", name)
+			httpPoolLog.Info("auto_restart", slog.String("mcp", name))
 			if err := server.Restart(); err != nil {
-				log.Printf("[HTTP-POOL] Failed to restart %s: %v", name, err)
+				httpPoolLog.Error("restart_failed", slog.String("mcp", name), slog.String("error", err.Error()))
 			} else {
-				log.Printf("[HTTP-POOL] Successfully restarted %s", name)
+				httpPoolLog.Info("restart_success", slog.String("mcp", name))
 			}
 		}
 	}
@@ -248,7 +252,7 @@ func (p *HTTPPool) RegisterExternal(name, url string) error {
 	server.mu.Unlock()
 
 	p.servers[name] = server
-	log.Printf("[HTTP-POOL] Registered external HTTP server: %s at %s", name, url)
+	httpPoolLog.Info("external_server_registered", slog.String("mcp", name), slog.String("url", url))
 	return nil
 }
 

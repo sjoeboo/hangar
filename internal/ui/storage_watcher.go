@@ -2,14 +2,17 @@ package ui
 
 import (
 	"fmt"
-	"log"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"sync"
 	"time"
 
+	"github.com/asheshgoplani/agent-deck/internal/logging"
 	"github.com/fsnotify/fsnotify"
 )
+
+var watcherLog = logging.ForComponent(logging.CompStorage)
 
 // ignoreWindow is the time window after NotifySave during which file changes are ignored.
 // This prevents the watcher from triggering reload when the TUI itself saves.
@@ -157,13 +160,17 @@ func (sw *StorageWatcher) checkAndNotify() {
 			sw.lastModified = info.ModTime()
 			sw.modMu.Unlock()
 		}
-		log.Printf("[WATCHER-DEBUG] Ignoring own save (path=%s, within %v window)", sw.storagePath, ignoreWindow)
+		watcherLog.Debug("watcher_ignoring_own_save",
+			slog.String("path", sw.storagePath),
+			slog.Duration("window", ignoreWindow))
 		return
 	}
 
 	info, err := os.Stat(sw.storagePath)
 	if err != nil {
-		log.Printf("[WATCHER-DEBUG] File stat failed (path=%s, err=%v)", sw.storagePath, err)
+		watcherLog.Debug("watcher_file_stat_failed",
+			slog.String("path", sw.storagePath),
+			slog.String("error", err.Error()))
 		return // File might be temporarily gone during atomic rename
 	}
 
@@ -173,13 +180,15 @@ func (sw *StorageWatcher) checkAndNotify() {
 		sw.lastModified = modTime
 		sw.modMu.Unlock()
 
-		log.Printf("[WATCHER-DEBUG] File changed detected, triggering reload (path=%s, size=%d bytes)", sw.storagePath, info.Size())
+		watcherLog.Debug("watcher_file_changed",
+			slog.String("path", sw.storagePath),
+			slog.Int64("size_bytes", info.Size()))
 
 		// Non-blocking send (drop if channel full)
 		select {
 		case sw.reloadCh <- struct{}{}:
 		default:
-			log.Printf("[WATCHER-DEBUG] Reload channel full, dropping reload signal")
+			watcherLog.Debug("watcher_reload_channel_full")
 		}
 	} else {
 		sw.modMu.Unlock()

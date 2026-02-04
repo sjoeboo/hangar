@@ -2,12 +2,18 @@ package session
 
 import (
 	"context"
-	"log"
+	"log/slog"
 	"sync"
 	"time"
 
+	"github.com/asheshgoplani/agent-deck/internal/logging"
 	"github.com/asheshgoplani/agent-deck/internal/mcppool"
 	"github.com/asheshgoplani/agent-deck/internal/platform"
+)
+
+var (
+	poolMgrLog  = logging.ForComponent(logging.CompPool)
+	httpPoolLog = logging.ForComponent(logging.CompHTTP)
 )
 
 // Global MCP pool instances
@@ -22,17 +28,17 @@ func InitializeGlobalPool(ctx context.Context, config *UserConfig, sessions []*I
 	globalPoolMu.Lock()
 	defer globalPoolMu.Unlock()
 
-	log.Printf("[Pool] InitializeGlobalPool called with %d sessions", len(sessions))
+	poolMgrLog.Info("pool_init_start", slog.Int("session_count", len(sessions)))
 
 	// Return existing pool if already initialized
 	if globalPool != nil {
-		log.Printf("[Pool] Pool already initialized, returning existing")
+		poolMgrLog.Debug("pool_already_initialized")
 		return globalPool, nil
 	}
 
 	// Check if pool is enabled
 	if !config.MCPPool.Enabled {
-		log.Printf("[Pool] Pool disabled in config")
+		poolMgrLog.Info("pool_disabled")
 		return nil, nil // Pool disabled, not an error
 	}
 
@@ -40,16 +46,16 @@ func InitializeGlobalPool(ctx context.Context, config *UserConfig, sessions []*I
 	// WSL1 and Windows don't reliably support Unix domain sockets
 	detectedPlatform := platform.Detect()
 	if !platform.SupportsUnixSockets() {
-		log.Printf("[Pool] Platform '%s' detected - MCP socket pooling disabled", detectedPlatform)
-		log.Printf("[Pool] MCPs will use stdio mode (each session spawns its own MCP processes)")
+		poolMgrLog.Info("platform_detected", slog.String("platform", string(detectedPlatform)), slog.Bool("pooling_supported", false))
+		poolMgrLog.Info("pool_disabled_platform", slog.String("reason", "unix_sockets_unsupported"))
 		if detectedPlatform == platform.PlatformWSL1 {
-			log.Printf("[Pool] Tip: WSL2 supports socket pooling. Run 'wsl --set-version <distro> 2' to upgrade")
+			poolMgrLog.Info("platform_upgrade_hint", slog.String("tip", "WSL2 supports socket pooling. Run 'wsl --set-version <distro> 2' to upgrade"))
 		}
 		return nil, nil // Platform doesn't support sockets, not an error
 	}
 
-	log.Printf("[Pool] Platform '%s' detected - socket pooling supported", detectedPlatform)
-	log.Printf("[Pool] Pool enabled, creating pool...")
+	poolMgrLog.Info("platform_detected", slog.String("platform", string(detectedPlatform)), slog.Bool("pooling_supported", true))
+	poolMgrLog.Info("pool_creating")
 
 	// Create pool config
 	// FallbackStdio is forced to true for safety (Issue #36):
@@ -78,12 +84,12 @@ func InitializeGlobalPool(ctx context.Context, config *UserConfig, sessions []*I
 	// This allows multiple TUI instances to share the same pool
 	discovered := pool.DiscoverExistingSockets()
 	if discovered > 0 {
-		log.Printf("[Pool] Reusing %d sockets from another agent-deck instance", discovered)
+		poolMgrLog.Info("pool_sockets_reused", slog.Int("count", discovered))
 	}
 
 	// Get all available MCPs from config.toml
 	availableMCPs := GetAvailableMCPs()
-	log.Printf("[Pool] Available MCPs in config: %d", len(availableMCPs))
+	poolMgrLog.Info("pool_mcps_available", slog.Int("count", len(availableMCPs)))
 
 	// When pool_all = true, pool ALL available MCPs (not just those in use)
 	// This ensures any MCP can be attached via socket immediately
@@ -91,7 +97,7 @@ func InitializeGlobalPool(ctx context.Context, config *UserConfig, sessions []*I
 	skippedCount := 0
 	for mcpName, def := range availableMCPs {
 		shouldPool := pool.ShouldPool(mcpName)
-		log.Printf("[Pool] MCP '%s' - should pool: %v", mcpName, shouldPool)
+		poolMgrLog.Debug("pool_mcp_check", slog.String("mcp", mcpName), slog.Bool("should_pool", shouldPool))
 
 		if !shouldPool {
 			continue // Excluded or not in pool_mcps list
@@ -99,22 +105,22 @@ func InitializeGlobalPool(ctx context.Context, config *UserConfig, sessions []*I
 
 		// Skip if already running (discovered from another instance)
 		if pool.IsRunning(mcpName) {
-			log.Printf("[Pool] %s: already running (discovered from another instance), skipping", mcpName)
+			poolMgrLog.Debug("pool_mcp_already_running", slog.String("mcp", mcpName))
 			skippedCount++
 			continue
 		}
 
 		// Start socket proxy for this MCP
-		log.Printf("[Pool] Starting socket proxy for %s...", mcpName)
+		poolMgrLog.Info("pool_proxy_starting", slog.String("mcp", mcpName))
 		if err := pool.Start(mcpName, def.Command, def.Args, def.Env); err != nil {
-			log.Printf("[Pool] ✗ Failed to start socket proxy for %s: %v", mcpName, err)
+			poolMgrLog.Warn("pool_proxy_failed", slog.String("mcp", mcpName), slog.Any("error", err))
 		} else {
-			log.Printf("[Pool] ✓ Socket proxy started: %s", mcpName)
+			poolMgrLog.Info("pool_proxy_started", slog.String("mcp", mcpName))
 			startedCount++
 		}
 	}
 
-	log.Printf("[Pool] Started %d socket proxies, reused %d from other instance", startedCount, skippedCount)
+	poolMgrLog.Info("pool_init_complete", slog.Int("started", startedCount), slog.Int("reused", skippedCount))
 
 	// Start health monitor for auto-restart of failed proxies
 	pool.StartHealthMonitor()
@@ -126,22 +132,22 @@ func InitializeGlobalPool(ctx context.Context, config *UserConfig, sessions []*I
 	httpStarted := 0
 	for mcpName, def := range availableMCPs {
 		if def.HasAutoStartServer() {
-			log.Printf("[HTTP-Pool] Starting HTTP server for %s...", mcpName)
+			httpPoolLog.Info("http_server_starting", slog.String("mcp", mcpName))
 			timeout := time.Duration(def.Server.GetStartupTimeout()) * time.Millisecond
 			healthCheck := def.Server.HealthCheck
 			if healthCheck == "" {
 				healthCheck = def.URL
 			}
 			if err := httpPool.Start(mcpName, def.URL, healthCheck, def.Server.Command, def.Server.Args, def.Server.Env, timeout); err != nil {
-				log.Printf("[HTTP-Pool] ✗ Failed to start HTTP server for %s: %v", mcpName, err)
+				httpPoolLog.Warn("http_server_failed", slog.String("mcp", mcpName), slog.Any("error", err))
 			} else {
-				log.Printf("[HTTP-Pool] ✓ HTTP server started: %s at %s", mcpName, def.URL)
+				httpPoolLog.Info("http_server_started", slog.String("mcp", mcpName), slog.String("url", def.URL))
 				httpStarted++
 			}
 		}
 	}
 	if httpStarted > 0 {
-		log.Printf("[HTTP-Pool] Started %d HTTP servers", httpStarted)
+		httpPoolLog.Info("http_pool_init_complete", slog.Int("started", httpStarted))
 		httpPool.StartHealthMonitor()
 	}
 	globalHTTPPool = httpPool
@@ -183,7 +189,7 @@ func ShutdownGlobalPool(shouldShutdown bool) error {
 	// Shutdown socket pool
 	if globalPool != nil {
 		if shouldShutdown {
-			log.Printf("[Pool] Shutting down socket pool (killing MCP processes)")
+			poolMgrLog.Info("pool_shutdown", slog.String("action", "kill"))
 			err := globalPool.Shutdown()
 			globalPool = nil
 			if err != nil {
@@ -191,7 +197,7 @@ func ShutdownGlobalPool(shouldShutdown bool) error {
 			}
 		} else {
 			// Just disconnect - leave MCPs running for next instance
-			log.Printf("[Pool] Disconnecting from socket pool (leaving %d MCPs running in background)", globalPool.GetRunningCount())
+			poolMgrLog.Info("pool_disconnect", slog.Int("running_count", globalPool.GetRunningCount()))
 			globalPool = nil
 		}
 	}
@@ -199,14 +205,14 @@ func ShutdownGlobalPool(shouldShutdown bool) error {
 	// Shutdown HTTP pool
 	if globalHTTPPool != nil {
 		if shouldShutdown {
-			log.Printf("[HTTP-Pool] Shutting down HTTP pool (killing server processes)")
+			httpPoolLog.Info("http_pool_shutdown", slog.String("action", "kill"))
 			err := globalHTTPPool.Shutdown()
 			globalHTTPPool = nil
 			if err != nil {
 				return err
 			}
 		} else {
-			log.Printf("[HTTP-Pool] Disconnecting from HTTP pool (leaving %d servers running in background)", globalHTTPPool.GetRunningCount())
+			httpPoolLog.Info("http_pool_disconnect", slog.Int("running_count", globalHTTPPool.GetRunningCount()))
 			globalHTTPPool = nil
 		}
 	}
@@ -232,7 +238,7 @@ func StartHTTPServer(name string, def *MCPDef) error {
 
 	// Check if already running
 	if globalHTTPPool.IsRunning(name) {
-		log.Printf("[HTTP-Pool] %s: already running", name)
+		httpPoolLog.Debug("http_server_already_running", slog.String("mcp", name))
 		return nil
 	}
 
@@ -243,11 +249,11 @@ func StartHTTPServer(name string, def *MCPDef) error {
 		healthCheck = def.URL
 	}
 
-	log.Printf("[HTTP-Pool] Starting HTTP server for %s...", name)
+	httpPoolLog.Info("http_server_starting", slog.String("mcp", name))
 	if err := globalHTTPPool.Start(name, def.URL, healthCheck, def.Server.Command, def.Server.Args, def.Server.Env, timeout); err != nil {
 		return err
 	}
-	log.Printf("[HTTP-Pool] ✓ HTTP server started: %s at %s", name, def.URL)
+	httpPoolLog.Info("http_server_started", slog.String("mcp", name), slog.String("url", def.URL))
 	return nil
 }
 

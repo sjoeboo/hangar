@@ -133,6 +133,41 @@ type LogSettings struct {
 	// RemoveOrphans removes log files for sessions that no longer exist
 	// Default: true
 	RemoveOrphans bool `toml:"remove_orphans"`
+
+	// DebugLevel sets the minimum log level: "debug", "info", "warn", "error"
+	// Default: "info"
+	DebugLevel string `toml:"debug_level"`
+
+	// DebugFormat sets the log format: "json" (default) or "text"
+	DebugFormat string `toml:"debug_format"`
+
+	// DebugMaxMB is the max size in MB for debug.log before rotation
+	// Default: 10
+	DebugMaxMB int `toml:"debug_max_mb"`
+
+	// DebugBackups is the number of rotated debug.log files to keep
+	// Default: 5
+	DebugBackups int `toml:"debug_backups"`
+
+	// DebugRetentionDays is the number of days to keep rotated debug logs
+	// Default: 10
+	DebugRetentionDays int `toml:"debug_retention_days"`
+
+	// DebugCompress enables gzip compression for rotated debug logs
+	// Default: true
+	DebugCompress bool `toml:"debug_compress"`
+
+	// RingBufferMB is the in-memory ring buffer size in MB for crash dumps
+	// Default: 10
+	RingBufferMB int `toml:"ring_buffer_mb"`
+
+	// PprofEnabled starts a pprof server on localhost:6060 when debug mode is active
+	// Default: false
+	PprofEnabled bool `toml:"pprof_enabled"`
+
+	// AggregateIntervalS is the event aggregation flush interval in seconds
+	// Default: 30
+	AggregateIntervalS int `toml:"aggregate_interval_secs"`
 }
 
 // UpdateSettings defines auto-update configuration

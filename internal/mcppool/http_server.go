@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/exec"
@@ -12,7 +12,11 @@ import (
 	"sync"
 	"syscall"
 	"time"
+
+	"github.com/asheshgoplani/agent-deck/internal/logging"
 )
+
+var httpLog = logging.ForComponent(logging.CompHTTP)
 
 // HTTPServer manages an HTTP MCP server process
 type HTTPServer struct {
@@ -120,7 +124,7 @@ func (s *HTTPServer) Start() error {
 
 	// Check if URL is already reachable (external server)
 	if s.isURLReachable() {
-		log.Printf("[HTTP] %s: URL already reachable, using external server", s.name)
+		httpLog.Info("external_server_detected", slog.String("mcp", s.name))
 		s.status = StatusRunning
 		s.startedByUs = false
 		s.mu.Unlock()
@@ -174,7 +178,7 @@ func (s *HTTPServer) Start() error {
 		return fmt.Errorf("failed to start HTTP server: %w", err)
 	}
 
-	log.Printf("[HTTP] %s: Started server process (PID: %d)", s.name, s.process.Process.Pid)
+	httpLog.Info("server_process_started", slog.String("mcp", s.name), slog.Int("pid", s.process.Process.Pid))
 
 	// Monitor process exit in background
 	go s.monitorProcess()
@@ -194,7 +198,7 @@ func (s *HTTPServer) Start() error {
 	s.startedByUs = true
 	s.mu.Unlock()
 
-	log.Printf("[HTTP] %s: Server is ready at %s", s.name, s.url)
+	httpLog.Info("server_ready", slog.String("mcp", s.name), slog.String("url", s.url))
 	return nil
 }
 
@@ -219,16 +223,16 @@ func (s *HTTPServer) Stop() error {
 		select {
 		case err := <-done:
 			if err != nil {
-				log.Printf("[HTTP] %s: process exited with: %v", s.name, err)
+				httpLog.Warn("process_exit_error", slog.String("mcp", s.name), slog.String("error", err.Error()))
 			}
 		case <-time.After(5 * time.Second):
-			log.Printf("[HTTP] %s: Wait() timed out, force killing", s.name)
+			httpLog.Warn("process_wait_timeout", slog.String("mcp", s.name))
 			_ = s.process.Process.Kill()
 			<-done
 		}
-		log.Printf("[HTTP] %s: Stopped owned process", s.name)
+		httpLog.Info("process_stopped", slog.String("mcp", s.name))
 	} else if s.process == nil && !s.startedByUs {
-		log.Printf("[HTTP] %s: Disconnected from external server", s.name)
+		httpLog.Info("external_server_disconnected", slog.String("mcp", s.name))
 	}
 
 	// Close log writer
@@ -303,9 +307,9 @@ func (s *HTTPServer) monitorProcess() {
 
 	err := s.process.Wait()
 	if err != nil {
-		log.Printf("[HTTP] %s: Process exited with error: %v", s.name, err)
+		httpLog.Warn("process_exit_error", slog.String("mcp", s.name), slog.String("error", err.Error()))
 	} else {
-		log.Printf("[HTTP] %s: Process exited normally", s.name)
+		httpLog.Info("process_exited", slog.String("mcp", s.name))
 	}
 
 	s.mu.Lock()
@@ -320,7 +324,7 @@ func (s *HTTPServer) monitorProcess() {
 // Restart stops and restarts the server
 func (s *HTTPServer) Restart() error {
 	if err := s.Stop(); err != nil {
-		log.Printf("[HTTP] %s: Error during stop: %v", s.name, err)
+		httpLog.Error("stop_error", slog.String("mcp", s.name), slog.String("error", err.Error()))
 	}
 
 	// Create new context
