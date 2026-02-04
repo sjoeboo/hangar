@@ -535,18 +535,21 @@ func NewHomeWithProfileAndMode(profile string, isPrimary bool) *Home {
 	h.startLogWorkers()
 
 	// Initialize global search
+	// DISABLED: Global search opens 884+ directory watchers and loads 4.4 GB of JSONL
+	// content into memory, causing agent-deck to balloon to 6+ GB and get OOM-killed.
+	// TODO: Fix by limiting watched dirs and enforcing balanced tier for large datasets.
 	h.globalSearch = NewGlobalSearch()
-	claudeDir := session.GetClaudeConfigDir()
-	userConfig, _ := session.LoadUserConfig()
-	if userConfig != nil && userConfig.GlobalSearch.Enabled {
-		globalSearchIndex, err := session.NewGlobalSearchIndex(claudeDir, userConfig.GlobalSearch)
-		if err != nil {
-			uiLog.Warn("global_search_init_failed", slog.String("error", err.Error()))
-		} else {
-			h.globalSearchIndex = globalSearchIndex
-			h.globalSearch.SetIndex(globalSearchIndex)
-		}
-	}
+	// claudeDir := session.GetClaudeConfigDir()
+	// userConfig, _ := session.LoadUserConfig()
+	// if userConfig != nil && userConfig.GlobalSearch.Enabled {
+	// 	globalSearchIndex, err := session.NewGlobalSearchIndex(claudeDir, userConfig.GlobalSearch)
+	// 	if err != nil {
+	// 		uiLog.Warn("global_search_init_failed", slog.String("error", err.Error()))
+	// 	} else {
+	// 		h.globalSearchIndex = globalSearchIndex
+	// 		h.globalSearch.SetIndex(globalSearchIndex)
+	// 	}
+	// }
 
 	// Initialize MCP socket pool if enabled
 	// Note: Pool initialization happens AFTER loading sessions so we can discover MCPs in use

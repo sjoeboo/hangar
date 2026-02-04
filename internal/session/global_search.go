@@ -586,14 +586,17 @@ func NewGlobalSearchIndex(claudeDir string, config GlobalSearchSettings) (*Globa
 			searchLog.Warn("global_search_watch_failed", slog.String("error", err.Error()))
 		}
 
-		// Also watch subdirectories
-		_ = filepath.WalkDir(projectsDir, func(path string, d os.DirEntry, err error) error {
-			if err != nil || !d.IsDir() {
-				return nil
+		// Only watch project-level directories (depth 1 under projects/).
+		// Previously watched ALL subdirectories (884 dirs including tool-results/,
+		// subagents/, etc.) which leaked ~7000 kqueue file descriptors and caused
+		// agent-deck to balloon to 6+ GB RSS until macOS killed it.
+		// JSONL files only exist at the project level, not in subdirectories.
+		dirEntries, _ := os.ReadDir(projectsDir)
+		for _, de := range dirEntries {
+			if de.IsDir() {
+				_ = watcher.Add(filepath.Join(projectsDir, de.Name()))
 			}
-			_ = watcher.Add(path) // Ignore error - best effort watching
-			return nil
-		})
+		}
 	}
 
 	// Set loading state
@@ -616,7 +619,14 @@ func measureDataSize(projectsDir string, recentDays int) (int64, error) {
 	}
 
 	err := filepath.WalkDir(projectsDir, func(path string, d os.DirEntry, err error) error {
-		if err != nil || d.IsDir() {
+		if err != nil {
+			return nil
+		}
+		if d.IsDir() {
+			name := d.Name()
+			if name == "tool-results" || name == "subagents" {
+				return filepath.SkipDir
+			}
 			return nil
 		}
 		if !strings.HasSuffix(path, ".jsonl") {
@@ -650,7 +660,16 @@ func (idx *GlobalSearchIndex) initialLoad() {
 	includeContent := idx.tier == TierInstant
 
 	_ = filepath.WalkDir(projectsDir, func(path string, d os.DirEntry, err error) error {
-		if err != nil || d.IsDir() {
+		if err != nil {
+			return nil
+		}
+		if d.IsDir() {
+			// Skip subdirectories that never contain JSONL files.
+			// This avoids traversing thousands of tool-results/ and subagents/ dirs.
+			name := d.Name()
+			if name == "tool-results" || name == "subagents" {
+				return filepath.SkipDir
+			}
 			return nil
 		}
 		if !strings.HasSuffix(path, ".jsonl") {

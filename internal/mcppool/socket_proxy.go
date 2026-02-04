@@ -208,6 +208,11 @@ func (p *SocketProxy) Start() error {
 	return nil
 }
 
+// maxClientsPerProxy caps the number of concurrent client connections per MCP
+// socket proxy. Each client spawns a goroutine with a scanner buffer, so
+// unbounded connections (e.g., from reconnect loops) can leak gigabytes of RAM.
+const maxClientsPerProxy = 100
+
 func (p *SocketProxy) acceptConnections() {
 	clientCounter := 0
 	for {
@@ -222,6 +227,16 @@ func (p *SocketProxy) acceptConnections() {
 				proxyLog.Warn("accept_listener_error", slog.String("mcp", p.name), slog.String("error", err.Error()))
 				return
 			}
+		}
+
+		// Reject new connections if at capacity to prevent unbounded goroutine growth
+		p.clientsMu.RLock()
+		clientCount := len(p.clients)
+		p.clientsMu.RUnlock()
+		if clientCount >= maxClientsPerProxy {
+			proxyLog.Warn("max_clients_reached", slog.String("mcp", p.name), slog.Int("max", maxClientsPerProxy))
+			conn.Close()
+			continue
 		}
 
 		sessionID := fmt.Sprintf("%s-client-%d", p.name, clientCounter)

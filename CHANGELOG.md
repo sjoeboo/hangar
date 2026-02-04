@@ -5,6 +5,22 @@ All notable changes to Agent Deck will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.14] - 2026-02-04
+
+### Fixed
+
+- Fix critical OOM crash: Global Search was loading 4.4 GB of JSONL content into memory and opening 884 fsnotify directory watchers (7,900+ file descriptors), causing agent-deck to balloon to 6+ GB RSS until macOS killed it
+  - Temporarily disable Global Search at startup until memory-safe implementation is complete
+  - Optimize directory traversal to skip `tool-results/` and `subagents/` subdirectories (never contain JSONL files)
+  - Limit fsnotify watchers to project-level directories only (was recursively watching ALL subdirectories)
+- Add max client cap (100) per MCP socket proxy to prevent unbounded goroutine growth from reconnect loops
+  - Broken MCPs (e.g., `reddit-yilin` with 72 connects/30s) could spawn unlimited goroutines and scanner buffers
+
+### Changed
+
+- Global Search (`G` key) is temporarily disabled pending a memory-safe reimplementation
+  - Will be re-enabled once balanced tier is enforced for large datasets and memory limits are properly applied
+
 ## [0.10.13] - 2026-02-04
 
 ### Added
