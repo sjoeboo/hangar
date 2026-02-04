@@ -1140,6 +1140,16 @@ func (s *Session) RespawnPane(command string) error {
 		log.Printf("[RESPAWN] Pre-respawn process tree: %v", oldPIDs)
 	}
 
+	// Clear scrollback buffer BEFORE respawn to prevent stale content
+	// from previous conversation appearing when user attaches (#138).
+	clearTarget := s.Name + ":"
+	clearCmd := exec.Command("tmux", "clear-history", "-t", clearTarget)
+	if clearOut, clearErr := clearCmd.CombinedOutput(); clearErr != nil {
+		log.Printf("[RESPAWN] clear-history failed (non-fatal): %v, output: %s", clearErr, string(clearOut))
+	} else {
+		log.Printf("[RESPAWN] Cleared scrollback buffer for %s", s.Name)
+	}
+
 	// Build respawn-pane command
 	// -k: Kill current process
 	// -t: Target pane (session:window.pane format, use session: for active pane)

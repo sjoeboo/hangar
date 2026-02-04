@@ -2220,6 +2220,7 @@ func (h *Home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				// Refresh the loaded MCPs to match the new config
 				inst.CaptureLoadedMCPs()
 			}
+			h.invalidatePreviewCache(msg.sessionID)
 			// Save the updated session state (new tmux session name)
 			h.saveInstances()
 		}
@@ -2236,6 +2237,7 @@ func (h *Home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Refresh the loaded MCPs to match the new config
 		if msg.session != nil {
 			msg.session.CaptureLoadedMCPs()
+			h.invalidatePreviewCache(msg.session.ID)
 			h.saveInstances()
 			// NOTE: Do NOT delete from mcpLoadingSessions here!
 			// Animation continues until Claude is ready or timeout expires

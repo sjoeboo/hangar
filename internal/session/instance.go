@@ -2425,6 +2425,14 @@ func (i *Instance) Restart() error {
 
 	log.Printf("[MCP-DEBUG] Using fallback: recreate tmux session")
 
+	// Kill old tmux session to prevent orphans before recreating (#138)
+	if i.tmuxSession != nil && i.tmuxSession.Exists() {
+		log.Printf("[MCP-DEBUG] Killing old tmux session %s before fallback recreate", i.tmuxSession.Name)
+		if killErr := i.tmuxSession.Kill(); killErr != nil {
+			log.Printf("[MCP-DEBUG] Warning: failed to kill old tmux session: %v", killErr)
+		}
+	}
+
 	// Fallback: recreate tmux session (for dead sessions or unknown ID)
 	i.tmuxSession = tmux.NewSession(i.Title, i.ProjectPath)
 	i.tmuxSession.InstanceID = i.ID // Pass instance ID for activity hooks
