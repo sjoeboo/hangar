@@ -173,8 +173,12 @@ func (p *HTTPPool) restartFailedServers() {
 	p.mu.RLock()
 	var failedServers []string
 	for name, server := range p.servers {
-		// Only restart servers we started
-		if server.StartedByUs() && server.GetStatus() == StatusFailed {
+		// Only restart servers we started; skip permanently failed
+		status := server.GetStatus()
+		if status == StatusPermanentlyFailed {
+			continue
+		}
+		if server.StartedByUs() && status == StatusFailed {
 			failedServers = append(failedServers, name)
 		}
 	}

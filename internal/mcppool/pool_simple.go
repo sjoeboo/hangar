@@ -89,6 +89,12 @@ func (p *Pool) IsRunning(name string) bool {
 		return false
 	}
 
+	// Permanently failed proxies are never considered running
+	if proxy.GetStatus() == StatusPermanentlyFailed {
+		p.mu.RUnlock()
+		return false
+	}
+
 	// Double-check: verify the socket is actually alive (not just marked as running)
 	if proxy.GetStatus() == StatusRunning {
 		if !isSocketAliveCheck(proxy.socketPath) {
@@ -119,6 +125,11 @@ func (p *Pool) RestartProxy(name string) error {
 		return fmt.Errorf("proxy %s not found", name)
 	}
 
+	// Don't restart permanently failed proxies
+	if proxy.GetStatus() == StatusPermanentlyFailed {
+		return fmt.Errorf("proxy %s is permanently failed", name)
+	}
+
 	// Stop the old proxy (cleanup)
 	_ = proxy.Stop()
 	delete(p.proxies, name)
@@ -133,6 +144,8 @@ func (p *Pool) RestartProxy(name string) error {
 	}
 
 	if err := newProxy.Start(); err != nil {
+		// Clean up the failed proxy to avoid leaking its context/goroutines
+		_ = newProxy.Stop()
 		return fmt.Errorf("failed to start proxy: %w", err)
 	}
 
@@ -217,7 +230,26 @@ func (p *Pool) restartFailedProxies() {
 		if proxy.mcpProcess == nil {
 			continue
 		}
-		if proxy.GetStatus() == StatusFailed {
+		status := proxy.GetStatus()
+		// Skip permanently failed proxies
+		if status == StatusPermanentlyFailed {
+			continue
+		}
+		// Reset failure counters for proxies that have been healthy for 5+ minutes
+		if status == StatusRunning {
+			proxy.statusMu.RLock()
+			successSince := proxy.successSince
+			proxy.statusMu.RUnlock()
+			if !successSince.IsZero() && time.Since(successSince) > 5*time.Minute {
+				if proxy.totalFailures > 0 || proxy.restartCount > 0 {
+					log.Printf("[Pool] %s: healthy for 5+ min, resetting failure counters (was %d total failures)", name, proxy.totalFailures)
+					proxy.totalFailures = 0
+					proxy.restartCount = 0
+				}
+			}
+			continue
+		}
+		if status == StatusFailed {
 			failedProxies = append(failedProxies, name)
 		}
 	}
@@ -230,6 +262,11 @@ func (p *Pool) restartFailedProxies() {
 	}
 }
 
+// maxTotalRestartFailures is the maximum number of cumulative failures before
+// a proxy is permanently disabled. This prevents infinite restart loops for
+// broken MCPs (e.g., removed npm packages) from leaking memory.
+const maxTotalRestartFailures = 10
+
 // RestartProxyWithRateLimit restarts a proxy with rate limiting to prevent loops
 func (p *Pool) RestartProxyWithRateLimit(name string) error {
 	p.mu.Lock()
@@ -240,6 +277,18 @@ func (p *Pool) RestartProxyWithRateLimit(name string) error {
 		return fmt.Errorf("proxy %s not found", name)
 	}
 
+	// Already permanently failed, nothing to do
+	if proxy.GetStatus() == StatusPermanentlyFailed {
+		return fmt.Errorf("proxy %s is permanently failed", name)
+	}
+
+	// Check if we've exceeded the total failure limit
+	if proxy.totalFailures >= maxTotalRestartFailures {
+		log.Printf("[Pool] ✗ %s: permanently disabled after %d total failures (broken MCP?)", name, proxy.totalFailures)
+		proxy.SetStatus(StatusPermanentlyFailed)
+		return fmt.Errorf("proxy %s permanently disabled after %d failures", name, proxy.totalFailures)
+	}
+
 	// Rate limit: minimum 5 seconds between restarts, max 3 per minute
 	if time.Since(proxy.lastRestart) < 5*time.Second {
 		return fmt.Errorf("rate limited: last restart was %v ago", time.Since(proxy.lastRestart))
@@ -248,13 +297,14 @@ func (p *Pool) RestartProxyWithRateLimit(name string) error {
 		return fmt.Errorf("rate limited: %d restarts in last minute", proxy.restartCount)
 	}
 
-	log.Printf("[Pool] Auto-restarting failed proxy: %s", name)
+	log.Printf("[Pool] Auto-restarting failed proxy: %s (total failures: %d/%d)", name, proxy.totalFailures, maxTotalRestartFailures)
 
 	// Save config before stopping
 	command := proxy.command
 	args := proxy.args
 	env := proxy.env
 	prevRestartCount := proxy.restartCount
+	prevTotalFailures := proxy.totalFailures
 
 	// Stop and remove old proxy
 	_ = proxy.Stop()
@@ -268,11 +318,28 @@ func (p *Pool) RestartProxyWithRateLimit(name string) error {
 	}
 
 	if err := newProxy.Start(); err != nil {
+		// Clean up the failed proxy to avoid leaking its context/goroutines
+		_ = newProxy.Stop()
+
+		// Track the failure even though start failed - re-add to map so
+		// health monitor can see it and eventually mark it permanently failed
+		newProxy.totalFailures = prevTotalFailures + 1
+		newProxy.restartCount = prevRestartCount + 1
+		newProxy.lastRestart = time.Now()
+		if newProxy.totalFailures >= maxTotalRestartFailures {
+			log.Printf("[Pool] ✗ %s: permanently disabled after %d total failures", name, newProxy.totalFailures)
+			newProxy.SetStatus(StatusPermanentlyFailed)
+		} else {
+			newProxy.SetStatus(StatusFailed)
+		}
+		p.proxies[name] = newProxy
+
 		return fmt.Errorf("failed to start proxy: %w", err)
 	}
 
 	// Track restart history
 	newProxy.restartCount = prevRestartCount + 1
+	newProxy.totalFailures = prevTotalFailures
 	newProxy.lastRestart = time.Now()
 
 	p.proxies[name] = newProxy

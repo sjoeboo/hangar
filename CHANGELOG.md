@@ -5,6 +5,16 @@ All notable changes to Agent Deck will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.13] - 2026-02-04
+
+### Fixed
+
+- Fix MCP pool infinite restart loop causing 45 GB memory leak over 15 hours
+  - Add `StatusPermanentlyFailed` status: broken MCPs are disabled after 10 consecutive failures
+  - Fix leaked proxy context/goroutines when `Start()` fails during restart
+  - Reset failure counters after proxy is healthy for 5+ minutes (allows transient failure recovery)
+  - Skip permanently failed proxies in health monitor for both socket and HTTP pools
+
 ## [0.10.12] - 2026-02-04
 
 ### Fixed

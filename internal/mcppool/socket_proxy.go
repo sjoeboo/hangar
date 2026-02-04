@@ -44,8 +44,10 @@ type SocketProxy struct {
 
 	Status       ServerStatus
 	statusMu     sync.RWMutex // Protects Status field
-	lastRestart  time.Time    // For rate limiting restarts
-	restartCount int          // Track restart attempts
+	lastRestart   time.Time    // For rate limiting restarts
+	restartCount  int          // Track restart attempts
+	totalFailures int          // Cumulative failures across all restarts
+	successSince  time.Time    // When the proxy last became StatusRunning
 }
 
 // SetStatus safely updates the proxy status
@@ -196,6 +198,9 @@ func (p *SocketProxy) Start() error {
 	go p.broadcastResponses()
 
 	p.SetStatus(StatusRunning)
+	p.statusMu.Lock()
+	p.successSince = time.Now()
+	p.statusMu.Unlock()
 	return nil
 }
 
