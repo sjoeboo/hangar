@@ -2,6 +2,7 @@ package platform
 
 import (
 	"os"
+	"path/filepath"
 	"runtime"
 	"strings"
 )
@@ -154,4 +155,64 @@ func (p Platform) String() string {
 	default:
 		return "Unknown"
 	}
+}
+
+// CheckFsnotifySupport checks if a path's filesystem supports fsnotify events reliably.
+// Returns a warning message if on a problematic filesystem (9p, nfs, cifs, sshfs),
+// or an empty string if fsnotify should work normally.
+// This helps users understand why auto-reload might not work in WSL2 or network mounts.
+func CheckFsnotifySupport(path string) string {
+	// Only relevant on Linux (WSL2 uses 9p for Windows filesystem access)
+	if runtime.GOOS != "linux" {
+		return ""
+	}
+
+	absPath, err := filepath.Abs(path)
+	if err != nil {
+		return ""
+	}
+
+	mounts, err := os.ReadFile("/proc/mounts")
+	if err != nil {
+		return "" // Can't read mounts, assume OK
+	}
+
+	// Parse /proc/mounts to find filesystem type for the path
+	// Format: device mountpoint fstype options ...
+	// We need to find the longest matching mountpoint for our path
+	var matchedMount, matchedFsType string
+	for _, line := range strings.Split(string(mounts), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) < 3 {
+			continue
+		}
+		mountPoint := fields[1]
+		fsType := fields[2]
+
+		// Check if this mount contains our path (use longest match)
+		if strings.HasPrefix(absPath, mountPoint) {
+			if len(mountPoint) > len(matchedMount) {
+				matchedMount = mountPoint
+				matchedFsType = fsType
+			}
+		}
+	}
+
+	if matchedFsType == "" {
+		return ""
+	}
+
+	// Check for problematic filesystem types
+	switch {
+	case matchedFsType == "9p":
+		return "Storage on 9p mount (WSL2 Windows filesystem): fsnotify disabled. Use Ctrl+R to refresh."
+	case matchedFsType == "nfs" || matchedFsType == "nfs4":
+		return "Storage on NFS mount: fsnotify may be unreliable. Use Ctrl+R to refresh."
+	case matchedFsType == "cifs" || matchedFsType == "smbfs":
+		return "Storage on CIFS/SMB mount: fsnotify may be unreliable. Use Ctrl+R to refresh."
+	case strings.HasPrefix(matchedFsType, "fuse.sshfs"):
+		return "Storage on SSHFS mount: fsnotify disabled. Use Ctrl+R to refresh."
+	}
+
+	return ""
 }

@@ -637,6 +637,20 @@ func (s *Storage) GetUpdatedAt() (time.Time, error) {
 	return data.UpdatedAt, nil
 }
 
+// GetFileMtime returns the filesystem modification time of the storage file.
+// Unlike GetUpdatedAt which reads JSON content, this uses os.Stat for the filesystem mtime.
+// This is useful for detecting external changes when fsnotify may not work (e.g., on 9p/NFS).
+func (s *Storage) GetFileMtime() (time.Time, error) {
+	info, err := os.Stat(s.path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return time.Time{}, nil
+		}
+		return time.Time{}, err
+	}
+	return info.ModTime(), nil
+}
+
 // statusToString converts a Status enum to the string expected by tmux.ReconnectSessionWithStatus
 func statusToString(s Status) string {
 	switch s {

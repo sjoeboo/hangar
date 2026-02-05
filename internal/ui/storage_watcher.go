@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/asheshgoplani/agent-deck/internal/logging"
+	"github.com/asheshgoplani/agent-deck/internal/platform"
 	"github.com/fsnotify/fsnotify"
 )
 
@@ -33,6 +34,9 @@ type StorageWatcher struct {
 	// Tracks when TUI saved, to ignore self-triggered changes
 	lastSaveTime time.Time
 	saveMu       sync.RWMutex
+
+	// warning is set if fsnotify may not work reliably (e.g., 9p/NFS)
+	warning string
 }
 
 // NewStorageWatcher creates a watcher for the given storage file
@@ -74,12 +78,19 @@ func NewStorageWatcher(storagePath string) (*StorageWatcher, error) {
 		lastMod = info.ModTime()
 	}
 
+	// Check if filesystem supports fsnotify reliably
+	fsWarning := platform.CheckFsnotifySupport(resolvedPath)
+	if fsWarning != "" {
+		watcherLog.Warn("fsnotify_unreliable", slog.String("path", resolvedPath), slog.String("warning", fsWarning))
+	}
+
 	return &StorageWatcher{
 		watcher:      w,
 		storagePath:  resolvedPath, // Use pre-resolved path
 		lastModified: lastMod,
 		reloadCh:     make(chan struct{}, 1), // Buffered to prevent blocking
 		closeCh:      make(chan struct{}),
+		warning:      fsWarning,
 	}, nil
 }
 
@@ -206,6 +217,31 @@ func (sw *StorageWatcher) NotifySave() {
 	sw.saveMu.Lock()
 	sw.lastSaveTime = time.Now()
 	sw.saveMu.Unlock()
+}
+
+// TriggerReload sends a reload signal when external changes are detected via mtime check.
+// This is used as a fallback when fsnotify fails (e.g., on 9p/NFS filesystems).
+// Updates lastModified to prevent immediate re-trigger.
+func (sw *StorageWatcher) TriggerReload() {
+	// Update lastModified to current file mtime to prevent re-triggering
+	if info, err := os.Stat(sw.storagePath); err == nil {
+		sw.modMu.Lock()
+		sw.lastModified = info.ModTime()
+		sw.modMu.Unlock()
+	}
+	// Non-blocking send to reload channel
+	select {
+	case sw.reloadCh <- struct{}{}:
+		watcherLog.Debug("watcher_trigger_reload_mtime")
+	default:
+		watcherLog.Debug("watcher_trigger_reload_channel_full")
+	}
+}
+
+// Warning returns a warning message if the filesystem doesn't support fsnotify reliably.
+// Returns empty string if fsnotify should work normally.
+func (sw *StorageWatcher) Warning() string {
+	return sw.warning
 }
 
 // Close stops the watcher and releases resources. Safe to call multiple times.

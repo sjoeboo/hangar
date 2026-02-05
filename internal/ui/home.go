@@ -168,7 +168,8 @@ type Home struct {
 	initialLoading bool       // True until first loadSessionsMsg received (shows splash screen)
 	isQuitting     bool       // True when user pressed q, shows quitting splash
 	reloadVersion  uint64     // Incremented on each reload to prevent stale background saves
-	reloadMu       sync.Mutex // Protects reloadVersion and isReloading for thread-safe access
+	reloadMu       sync.Mutex // Protects reloadVersion, isReloading, and lastLoadMtime for thread-safe access
+	lastLoadMtime  time.Time  // File mtime when we last loaded (for external change detection)
 
 	// Preview cache (async fetching - View() must be pure, no blocking I/O)
 	previewCache      map[string]string    // sessionID -> cached preview content
@@ -211,6 +212,9 @@ type Home struct {
 
 	// Storage warning (shown if storage initialization failed)
 	storageWarning string
+
+	// Watcher warning (shown if fsnotify may not work, e.g., on 9p/NFS)
+	watcherWarning string
 
 	// Update notification (async check on startup)
 	updateInfo *update.UpdateInfo
@@ -315,6 +319,7 @@ type loadSessionsMsg struct {
 	restoreState *reloadState // Optional state to restore after reload
 	poolProxies  int          // Number of socket proxies started
 	poolError    error        // Pool initialization error
+	loadMtime    time.Time    // File mtime at load time (for external change detection)
 }
 
 type sessionCreatedMsg struct {
@@ -569,6 +574,10 @@ func NewHomeWithProfileAndMode(profile string, isPrimary bool) *Home {
 				uiLog.Warn("storage_watcher_init_failed", slog.String("error", err.Error()))
 			} else {
 				h.storageWatcher = watcher
+				// Capture fsnotify warning (e.g., 9p/NFS filesystem)
+				if warning := watcher.Warning(); warning != "" {
+					h.watcherWarning = warning
+				}
 				watcher.Start()
 			}
 		}
@@ -1012,8 +1021,11 @@ func (h *Home) loadSessions() tea.Msg {
 		return loadSessionsMsg{instances: []*session.Instance{}, err: fmt.Errorf("storage not initialized")}
 	}
 
+	// Capture file mtime BEFORE loading to detect external changes later
+	loadMtime, _ := h.storage.GetFileMtime()
+
 	instances, groups, err := h.storage.LoadWithGroups()
-	msg := loadSessionsMsg{instances: instances, groups: groups, err: err}
+	msg := loadSessionsMsg{instances: instances, groups: groups, err: err, loadMtime: loadMtime}
 
 	// Initialize pool AFTER sessions are loaded
 	userConfig, configErr := session.LoadUserConfig()
@@ -1846,9 +1858,12 @@ func (h *Home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return h, nil
 
 	case loadSessionsMsg:
-		// Clear loading indicators
+		// Clear loading indicators and store file mtime for external change detection
 		h.reloadMu.Lock()
 		h.isReloading = false
+		if !msg.loadMtime.IsZero() {
+			h.lastLoadMtime = msg.loadMtime
+		}
 		h.reloadMu.Unlock()
 		h.initialLoading = false // First load complete, hide splash
 
@@ -1970,7 +1985,10 @@ func (h *Home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// CRITICAL FIX: Skip processing during reload to prevent state corruption
 		// If we modify h.instances during reload, the loadSessionsMsg will overwrite
 		// our changes, but by then we've already modified groupTree inconsistently
-		if h.isReloading {
+		h.reloadMu.Lock()
+		reloading := h.isReloading
+		h.reloadMu.Unlock()
+		if reloading {
 			// The reload will provide fresh data - don't modify state now
 			uiLog.Debug("reload_skip_session_created")
 			return h, nil
@@ -2024,7 +2042,10 @@ func (h *Home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		// CRITICAL FIX: Skip processing during reload to prevent state corruption
-		if h.isReloading {
+		h.reloadMu.Lock()
+		reloading := h.isReloading
+		h.reloadMu.Unlock()
+		if reloading {
 			uiLog.Debug("reload_skip_session_forked")
 			return h, nil
 		}
@@ -2074,7 +2095,10 @@ func (h *Home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case sessionDeletedMsg:
 		// CRITICAL FIX: Skip processing during reload to prevent state corruption
-		if h.isReloading {
+		h.reloadMu.Lock()
+		reloading := h.isReloading
+		h.reloadMu.Unlock()
+		if reloading {
 			uiLog.Debug("reload_skip_session_deleted")
 			return h, nil
 		}
@@ -2130,7 +2154,10 @@ func (h *Home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return h, nil
 
 	case sessionRestoredMsg:
-		if h.isReloading {
+		h.reloadMu.Lock()
+		reloading := h.isReloading
+		h.reloadMu.Unlock()
+		if reloading {
 			uiLog.Debug("reload_skip_session_restored")
 			return h, nil
 		}
@@ -2310,6 +2337,8 @@ func (h *Home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		// Reload from disk
 		cmd := func() tea.Msg {
+			// Capture file mtime BEFORE loading to detect external changes later
+			loadMtime, _ := h.storage.GetFileMtime()
 			instances, groups, err := h.storage.LoadWithGroups()
 			uiLog.Debug("reload_load_with_groups", slog.Int("instances", len(instances)), slog.Any("error", err))
 			return loadSessionsMsg{
@@ -2317,6 +2346,7 @@ func (h *Home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				groups:       groups,
 				err:          err,
 				restoreState: &state, // Pass state to restore after load
+				loadMtime:    loadMtime,
 			}
 		}
 
@@ -4013,12 +4043,37 @@ func (h *Home) forceSaveInstances() {
 func (h *Home) saveInstancesWithForce(force bool) {
 	// Skip saving during reload to avoid overwriting external changes (CLI)
 	// Unless force=true for critical updates like detection results
-	if h.isReloading && !force {
+	h.reloadMu.Lock()
+	reloading := h.isReloading
+	h.reloadMu.Unlock()
+
+	if reloading && !force {
 		uiLog.Debug("save_skip_during_reload", slog.Bool("force", force))
 		return
 	}
-	if force && h.isReloading {
+	if force && reloading {
 		uiLog.Debug("save_force_during_reload")
+	}
+
+	// EXTERNAL CHANGE DETECTION: Check if file was modified since we last loaded.
+	// This catches external changes (e.g., from CLI) even when fsnotify fails
+	// (common on 9p/NFS filesystems in WSL2).
+	h.reloadMu.Lock()
+	ourLoadMtime := h.lastLoadMtime
+	h.reloadMu.Unlock()
+
+	if h.storage != nil && !ourLoadMtime.IsZero() {
+		currentMtime, err := h.storage.GetFileMtime()
+		if err == nil && !currentMtime.IsZero() && currentMtime.After(ourLoadMtime) {
+			uiLog.Warn("save_abort_external_change",
+				slog.Time("our_load", ourLoadMtime),
+				slog.Time("current_mtime", currentMtime))
+			// File was modified externally - trigger reload instead of overwriting
+			if h.storageWatcher != nil {
+				h.storageWatcher.TriggerReload()
+			}
+			return
+		}
 	}
 
 	if h.storage != nil {
@@ -4802,6 +4857,12 @@ func (h *Home) View() string {
 		warnStyle := lipgloss.NewStyle().Foreground(ColorYellow)
 		b.WriteString("\n")
 		b.WriteString(warnStyle.Render(h.storageWarning))
+	}
+
+	if h.watcherWarning != "" {
+		warnStyle := lipgloss.NewStyle().Foreground(ColorYellow)
+		b.WriteString("\n")
+		b.WriteString(warnStyle.Render("⚠ " + h.watcherWarning))
 	}
 
 	// CRITICAL: Use ensureExactHeight for robust, consistent output across all platforms
@@ -5729,7 +5790,10 @@ func (h *Home) renderHelpBarFull() string {
 
 	// Reload indicator
 	var reloadIndicator string
-	if h.isReloading {
+	h.reloadMu.Lock()
+	reloading := h.isReloading
+	h.reloadMu.Unlock()
+	if reloading {
 		reloadStyle := lipgloss.NewStyle().
 			Foreground(ColorYellow).
 			Bold(true)
