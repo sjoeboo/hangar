@@ -1175,6 +1175,15 @@ func handleRemove(profile string, args []string) {
 					}
 				}
 			}
+			// Clean up worktree directory if this is a worktree session
+			if inst.IsWorktree() {
+				if err := git.RemoveWorktree(inst.WorktreeRepoRoot, inst.WorktreePath, false); err != nil {
+					if !*jsonOutput {
+						fmt.Printf("Warning: failed to remove worktree: %v\n", err)
+					}
+				}
+				_ = git.PruneWorktrees(inst.WorktreeRepoRoot)
+			}
 		} else {
 			newInstances = append(newInstances, inst)
 		}

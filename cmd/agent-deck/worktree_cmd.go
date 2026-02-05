@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"os/exec"
 	"strings"
 
 	"github.com/asheshgoplani/agent-deck/internal/git"
@@ -25,6 +26,8 @@ func handleWorktree(profile string, args []string) {
 		handleWorktreeInfo(profile, args[1:])
 	case "cleanup":
 		handleWorktreeCleanup(profile, args[1:])
+	case "finish":
+		handleWorktreeFinish(profile, args[1:])
 	case "help", "-h", "--help":
 		printWorktreeUsage()
 	default:
@@ -43,6 +46,7 @@ func printWorktreeUsage() {
 	fmt.Println("Commands:")
 	fmt.Println("  list              List all worktrees in current repository")
 	fmt.Println("  info <session>    Show worktree info for a session")
+	fmt.Println("  finish <session>  Merge branch, remove worktree, and delete session")
 	fmt.Println("  cleanup [--force] Find and remove orphaned worktrees/sessions")
 	fmt.Println()
 	fmt.Println("Global Options:")
@@ -53,6 +57,9 @@ func printWorktreeUsage() {
 	fmt.Println("  agent-deck worktree list")
 	fmt.Println("  agent-deck worktree list --json")
 	fmt.Println("  agent-deck worktree info \"My Session\"")
+	fmt.Println("  agent-deck worktree finish \"My Session\"")
+	fmt.Println("  agent-deck worktree finish \"My Session\" --no-merge")
+	fmt.Println("  agent-deck worktree finish \"My Session\" --into develop")
 	fmt.Println("  agent-deck worktree cleanup")
 	fmt.Println("  agent-deck worktree cleanup --force")
 }
@@ -472,6 +479,217 @@ func handleWorktreeCleanup(profile string, args []string) {
 
 	fmt.Printf("\nCleanup complete: removed %d session(s), %d worktree(s)\n",
 		removedSessions, removedWorktrees)
+}
+
+// handleWorktreeFinish merges a worktree branch, removes the worktree, and deletes the session
+func handleWorktreeFinish(profile string, args []string) {
+	fs := flag.NewFlagSet("worktree finish", flag.ExitOnError)
+	into := fs.String("into", "", "Target branch to merge into (default: auto-detect)")
+	noMerge := fs.Bool("no-merge", false, "Skip merge (e.g. for PR workflows)")
+	keepBranch := fs.Bool("keep-branch", false, "Don't delete local branch after finish")
+	force := fs.Bool("force", false, "Skip safety checks and force branch deletion")
+	jsonOutput := fs.Bool("json", false, "Output as JSON")
+
+	fs.Usage = func() {
+		fmt.Println("Usage: agent-deck worktree finish <session> [options]")
+		fmt.Println()
+		fmt.Println("Merge a worktree branch, remove the worktree, and delete the session.")
+		fmt.Println()
+		fmt.Println("Arguments:")
+		fmt.Println("  session    Session title, ID prefix, or path")
+		fmt.Println()
+		fmt.Println("Options:")
+		fs.PrintDefaults()
+		fmt.Println()
+		fmt.Println("Examples:")
+		fmt.Println("  agent-deck worktree finish \"My Feature\"")
+		fmt.Println("  agent-deck worktree finish \"My Feature\" --into develop")
+		fmt.Println("  agent-deck worktree finish \"My Feature\" --no-merge")
+		fmt.Println("  agent-deck worktree finish \"My Feature\" --no-merge --force")
+	}
+
+	if err := fs.Parse(args); err != nil {
+		os.Exit(1)
+	}
+
+	identifier := fs.Arg(0)
+	out := NewCLIOutput(*jsonOutput, false)
+
+	if identifier == "" {
+		out.Error("session identifier is required", ErrCodeNotFound)
+		fmt.Println()
+		fs.Usage()
+		os.Exit(1)
+	}
+
+	// Load sessions
+	storage, instances, _, err := loadSessionData(profile)
+	if err != nil {
+		out.Error(fmt.Sprintf("failed to load sessions: %v", err), ErrCodeInvalidOperation)
+		os.Exit(1)
+	}
+
+	// Resolve session
+	inst, errMsg, errCode := ResolveSessionOrCurrent(identifier, instances)
+	if inst == nil {
+		out.Error(errMsg, errCode)
+		os.Exit(1)
+		return
+	}
+
+	// Validate it's a worktree session
+	if !inst.IsWorktree() {
+		out.Error(fmt.Sprintf("session '%s' is not in a worktree", inst.Title), ErrCodeInvalidOperation)
+		os.Exit(1)
+	}
+
+	repoRoot := inst.WorktreeRepoRoot
+	worktreePath := inst.WorktreePath
+	worktreeBranch := inst.WorktreeBranch
+
+	// Check for uncommitted changes
+	if !*force {
+		dirty, err := git.HasUncommittedChanges(worktreePath)
+		if err != nil {
+			// Worktree dir might be gone already
+			if _, statErr := os.Stat(worktreePath); os.IsNotExist(statErr) {
+				// Worktree directory is gone, skip the check
+				dirty = false
+			} else {
+				out.Error(fmt.Sprintf("failed to check worktree status: %v", err), ErrCodeInvalidOperation)
+				os.Exit(1)
+			}
+		}
+		if dirty {
+			out.Error("worktree has uncommitted changes (use --force to override)", ErrCodeInvalidOperation)
+			os.Exit(1)
+		}
+	}
+
+	// Determine target branch
+	targetBranch := *into
+	if targetBranch == "" && !*noMerge {
+		targetBranch, err = git.GetDefaultBranch(repoRoot)
+		if err != nil {
+			out.Error(fmt.Sprintf("could not determine target branch: %v\nUse --into <branch> to specify", err), ErrCodeInvalidOperation)
+			os.Exit(1)
+		}
+	}
+
+	// Validate target != source
+	if !*noMerge && targetBranch == worktreeBranch {
+		out.Error(fmt.Sprintf("cannot merge branch '%s' into itself", worktreeBranch), ErrCodeInvalidOperation)
+		os.Exit(1)
+	}
+
+	// Show summary and confirm
+	if !*force && !*jsonOutput {
+		fmt.Printf("Session:   %s\n", inst.Title)
+		fmt.Printf("Branch:    %s\n", worktreeBranch)
+		fmt.Printf("Worktree:  %s\n", FormatPath(worktreePath))
+		if *noMerge {
+			fmt.Printf("Merge:     skipped (--no-merge)\n")
+		} else {
+			fmt.Printf("Merge:     %s → %s\n", worktreeBranch, targetBranch)
+		}
+		if *keepBranch {
+			fmt.Printf("Branch:    kept (--keep-branch)\n")
+		} else {
+			fmt.Printf("Delete:    branch '%s' will be deleted\n", worktreeBranch)
+		}
+		fmt.Println()
+		fmt.Print("Proceed? [y/N]: ")
+
+		reader := bufio.NewReader(os.Stdin)
+		response, _ := reader.ReadString('\n')
+		response = strings.TrimSpace(strings.ToLower(response))
+		if response != "y" && response != "yes" {
+			fmt.Println("Aborted.")
+			return
+		}
+		fmt.Println()
+	}
+
+	// Step 1: Merge (if requested)
+	if !*noMerge {
+		fmt.Printf("Merging %s into %s...\n", worktreeBranch, targetBranch)
+
+		// Checkout target branch in main repo
+		cmd := exec.Command("git", "-C", repoRoot, "checkout", targetBranch)
+		checkoutOutput, err := cmd.CombinedOutput()
+		if err != nil {
+			out.Error(fmt.Sprintf("failed to checkout %s: %s", targetBranch, strings.TrimSpace(string(checkoutOutput))), ErrCodeInvalidOperation)
+			os.Exit(1)
+		}
+
+		// Merge the worktree branch
+		if err := git.MergeBranch(repoRoot, worktreeBranch); err != nil {
+			// Abort the merge to leave things clean
+			abortCmd := exec.Command("git", "-C", repoRoot, "merge", "--abort")
+			_ = abortCmd.Run()
+			out.Error(fmt.Sprintf("merge failed (aborted): %v", err), ErrCodeInvalidOperation)
+			os.Exit(1)
+		}
+		fmt.Printf("  %s Merged successfully\n", successSymbol)
+	}
+
+	// Step 2: Remove worktree
+	if _, statErr := os.Stat(worktreePath); !os.IsNotExist(statErr) {
+		fmt.Printf("Removing worktree at %s...\n", FormatPath(worktreePath))
+		if err := git.RemoveWorktree(repoRoot, worktreePath, *force); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to remove worktree: %v\n", err)
+		} else {
+			fmt.Printf("  %s Worktree removed\n", successSymbol)
+		}
+	}
+	_ = git.PruneWorktrees(repoRoot)
+
+	// Step 3: Delete branch (if not --keep-branch)
+	if !*keepBranch {
+		fmt.Printf("Deleting branch %s...\n", worktreeBranch)
+		if err := git.DeleteBranch(repoRoot, worktreeBranch, *force); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to delete branch: %v\n", err)
+		} else {
+			fmt.Printf("  %s Branch deleted\n", successSymbol)
+		}
+	}
+
+	// Step 4: Kill tmux session
+	if inst.Exists() {
+		if err := inst.Kill(); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to kill tmux session: %v\n", err)
+		}
+	}
+
+	// Step 5: Remove session from agent-deck
+	var remaining []*session.Instance
+	for _, i := range instances {
+		if i.ID != inst.ID {
+			remaining = append(remaining, i)
+		}
+	}
+	if err := saveSessionData(storage, remaining); err != nil {
+		out.Error(fmt.Sprintf("failed to save session data: %v", err), ErrCodeInvalidOperation)
+		os.Exit(1)
+	}
+
+	if *jsonOutput {
+		out.Print("", map[string]interface{}{
+			"success":        true,
+			"session":        inst.Title,
+			"session_id":     inst.ID,
+			"branch":         worktreeBranch,
+			"merged_into":    targetBranch,
+			"merged":         !*noMerge,
+			"branch_deleted": !*keepBranch,
+		})
+	} else {
+		fmt.Printf("\n%s Finished: session '%s' removed, worktree cleaned up", successSymbol, inst.Title)
+		if !*noMerge {
+			fmt.Printf(", branch merged into %s", targetBranch)
+		}
+		fmt.Println()
+	}
 }
 
 // truncateString truncates a string to maxLen, adding "..." if truncated

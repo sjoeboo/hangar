@@ -4377,8 +4377,15 @@ type sessionRestoredMsg struct {
 // deleteSession deletes a session
 func (h *Home) deleteSession(inst *session.Instance) tea.Cmd {
 	id := inst.ID
+	isWorktree := inst.IsWorktree()
+	worktreePath := inst.WorktreePath
+	worktreeRepoRoot := inst.WorktreeRepoRoot
 	return func() tea.Msg {
 		killErr := inst.Kill()
+		if isWorktree {
+			_ = git.RemoveWorktree(worktreeRepoRoot, worktreePath, false)
+			_ = git.PruneWorktrees(worktreeRepoRoot)
+		}
 		return sessionDeletedMsg{deletedID: id, killErr: killErr}
 	}
 }

@@ -726,3 +726,223 @@ func TestGenerateWorktreePath_EdgeCases(t *testing.T) {
 		}
 	})
 }
+
+func TestHasUncommittedChanges(t *testing.T) {
+	t.Run("clean repo returns false", func(t *testing.T) {
+		dir := t.TempDir()
+		createTestRepo(t, dir)
+
+		dirty, err := HasUncommittedChanges(dir)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if dirty {
+			t.Error("expected clean repo to have no uncommitted changes")
+		}
+	})
+
+	t.Run("modified file returns true", func(t *testing.T) {
+		dir := t.TempDir()
+		createTestRepo(t, dir)
+
+		// Modify an existing file
+		if err := os.WriteFile(filepath.Join(dir, "README.md"), []byte("modified"), 0644); err != nil {
+			t.Fatalf("failed to write file: %v", err)
+		}
+
+		dirty, err := HasUncommittedChanges(dir)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !dirty {
+			t.Error("expected modified repo to have uncommitted changes")
+		}
+	})
+
+	t.Run("untracked file returns true", func(t *testing.T) {
+		dir := t.TempDir()
+		createTestRepo(t, dir)
+
+		if err := os.WriteFile(filepath.Join(dir, "newfile.txt"), []byte("new"), 0644); err != nil {
+			t.Fatalf("failed to write file: %v", err)
+		}
+
+		dirty, err := HasUncommittedChanges(dir)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !dirty {
+			t.Error("expected repo with untracked file to have uncommitted changes")
+		}
+	})
+}
+
+func TestGetDefaultBranch(t *testing.T) {
+	t.Run("detects main branch", func(t *testing.T) {
+		dir := t.TempDir()
+		createTestRepo(t, dir)
+
+		branch, err := GetDefaultBranch(dir)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		// createTestRepo creates a repo with default branch (main or master)
+		if branch != "main" && branch != "master" {
+			t.Errorf("expected main or master, got %s", branch)
+		}
+	})
+
+	t.Run("returns error when no default branch exists", func(t *testing.T) {
+		dir := t.TempDir()
+		createTestRepo(t, dir)
+
+		// Rename the default branch to something non-standard
+		currentBranch, _ := GetCurrentBranch(dir)
+		cmd := exec.Command("git", "branch", "-m", currentBranch, "develop")
+		cmd.Dir = dir
+		if err := cmd.Run(); err != nil {
+			t.Fatalf("failed to rename branch: %v", err)
+		}
+
+		_, err := GetDefaultBranch(dir)
+		if err == nil {
+			t.Error("expected error when no main/master branch exists")
+		}
+	})
+}
+
+func TestDeleteBranch(t *testing.T) {
+	t.Run("deletes merged branch", func(t *testing.T) {
+		dir := t.TempDir()
+		createTestRepo(t, dir)
+		createBranch(t, dir, "to-delete")
+
+		err := DeleteBranch(dir, "to-delete", false)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		if BranchExists(dir, "to-delete") {
+			t.Error("branch should have been deleted")
+		}
+	})
+
+	t.Run("force deletes unmerged branch", func(t *testing.T) {
+		dir := t.TempDir()
+		createTestRepo(t, dir)
+
+		// Create branch with a unique commit
+		cmd := exec.Command("git", "checkout", "-b", "unmerged-branch")
+		cmd.Dir = dir
+		if err := cmd.Run(); err != nil {
+			t.Fatalf("failed to create branch: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "extra.txt"), []byte("extra"), 0644); err != nil {
+			t.Fatalf("failed to write file: %v", err)
+		}
+		cmd = exec.Command("git", "add", ".")
+		cmd.Dir = dir
+		_ = cmd.Run()
+		cmd = exec.Command("git", "commit", "-m", "unmerged commit")
+		cmd.Dir = dir
+		_ = cmd.Run()
+
+		// Switch back to default branch
+		defaultBranch, _ := GetCurrentBranch(dir)
+		if defaultBranch == "unmerged-branch" {
+			// Need to get the original branch name
+			cmd = exec.Command("git", "checkout", "-")
+			cmd.Dir = dir
+			if err := cmd.Run(); err != nil {
+				t.Fatalf("failed to checkout previous branch: %v", err)
+			}
+		}
+
+		// Regular delete should fail
+		err := DeleteBranch(dir, "unmerged-branch", false)
+		if err == nil {
+			t.Error("expected error deleting unmerged branch without force")
+		}
+
+		// Force delete should succeed
+		err = DeleteBranch(dir, "unmerged-branch", true)
+		if err != nil {
+			t.Fatalf("unexpected error with force delete: %v", err)
+		}
+
+		if BranchExists(dir, "unmerged-branch") {
+			t.Error("branch should have been force-deleted")
+		}
+	})
+}
+
+func TestMergeBranch(t *testing.T) {
+	t.Run("fast-forward merge succeeds", func(t *testing.T) {
+		dir := t.TempDir()
+		createTestRepo(t, dir)
+
+		// Create feature branch with a commit
+		cmd := exec.Command("git", "checkout", "-b", "feature-merge")
+		cmd.Dir = dir
+		if err := cmd.Run(); err != nil {
+			t.Fatalf("failed to create branch: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "feature.txt"), []byte("feature"), 0644); err != nil {
+			t.Fatalf("failed to write file: %v", err)
+		}
+		cmd = exec.Command("git", "add", ".")
+		cmd.Dir = dir
+		_ = cmd.Run()
+		cmd = exec.Command("git", "commit", "-m", "feature commit")
+		cmd.Dir = dir
+		_ = cmd.Run()
+
+		// Switch back to default branch
+		cmd = exec.Command("git", "checkout", "-")
+		cmd.Dir = dir
+		if err := cmd.Run(); err != nil {
+			t.Fatalf("failed to checkout: %v", err)
+		}
+
+		// Merge feature branch
+		err := MergeBranch(dir, "feature-merge")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		// Verify the file exists after merge
+		if _, err := os.Stat(filepath.Join(dir, "feature.txt")); os.IsNotExist(err) {
+			t.Error("merged file should exist")
+		}
+	})
+}
+
+func TestPruneWorktrees(t *testing.T) {
+	t.Run("prune after manually removing worktree dir", func(t *testing.T) {
+		dir := t.TempDir()
+		createTestRepo(t, dir)
+
+		worktreePath := filepath.Join(t.TempDir(), "worktree")
+		if err := CreateWorktree(dir, worktreePath, "prune-test"); err != nil {
+			t.Fatalf("failed to create worktree: %v", err)
+		}
+
+		// Manually remove the worktree directory (simulates it being deleted externally)
+		os.RemoveAll(worktreePath)
+
+		// Prune should clean up the stale reference
+		err := PruneWorktrees(dir)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		// After pruning, listing worktrees should show only the main one
+		worktrees, err := ListWorktrees(dir)
+		if err != nil {
+			t.Fatalf("failed to list worktrees: %v", err)
+		}
+		if len(worktrees) != 1 {
+			t.Errorf("expected 1 worktree after prune, got %d", len(worktrees))
+		}
+	})
+}

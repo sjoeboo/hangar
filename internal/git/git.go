@@ -342,3 +342,71 @@ func SanitizeBranchName(name string) string {
 
 	return sanitized
 }
+
+// HasUncommittedChanges checks if the repository at dir has uncommitted changes
+func HasUncommittedChanges(dir string) (bool, error) {
+	cmd := exec.Command("git", "-C", dir, "status", "--porcelain")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return false, fmt.Errorf("failed to check git status: %s: %w", strings.TrimSpace(string(output)), err)
+	}
+	return strings.TrimSpace(string(output)) != "", nil
+}
+
+// GetDefaultBranch returns the default branch name (e.g. "main" or "master") for the repo
+func GetDefaultBranch(repoDir string) (string, error) {
+	// Try symbolic-ref first (works when remote HEAD is set)
+	cmd := exec.Command("git", "-C", repoDir, "symbolic-ref", "refs/remotes/origin/HEAD")
+	output, err := cmd.Output()
+	if err == nil {
+		ref := strings.TrimSpace(string(output))
+		branch := strings.TrimPrefix(ref, "refs/remotes/origin/")
+		if branch != ref && branch != "" {
+			return branch, nil
+		}
+	}
+
+	// Fallback: check for common default branch names
+	if BranchExists(repoDir, "main") {
+		return "main", nil
+	}
+	if BranchExists(repoDir, "master") {
+		return "master", nil
+	}
+
+	return "", errors.New("could not determine default branch (no origin/HEAD, no main or master branch)")
+}
+
+// MergeBranch merges the given branch into the current branch of the repository
+func MergeBranch(repoDir, branchName string) error {
+	cmd := exec.Command("git", "-C", repoDir, "merge", branchName)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("merge failed: %s: %w", strings.TrimSpace(string(output)), err)
+	}
+	return nil
+}
+
+// DeleteBranch deletes a local branch. If force is true, uses -D (force delete).
+func DeleteBranch(repoDir, branchName string, force bool) error {
+	flag := "-d"
+	if force {
+		flag = "-D"
+	}
+	cmd := exec.Command("git", "-C", repoDir, "branch", flag, branchName)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("failed to delete branch: %s: %w", strings.TrimSpace(string(output)), err)
+	}
+	return nil
+}
+
+// PruneWorktrees removes stale worktree references
+func PruneWorktrees(repoDir string) error {
+	cmd := exec.Command("git", "-C", repoDir, "worktree", "prune")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("failed to prune worktrees: %s: %w", strings.TrimSpace(string(output)), err)
+	}
+	return nil
+}
