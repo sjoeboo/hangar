@@ -5,6 +5,14 @@ All notable changes to Agent Deck will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.19] - 2026-02-05
+
+### Fixed
+
+- Fix session rename not persisting (#141)
+  - `lastLoadMtime` was not updated after saves, causing mtime check to incorrectly abort subsequent saves
+  - Renames, reorders, and other non-force saves now persist correctly
+
 ## [0.10.18] - 2026-02-05
 
 ### Added
@@ -20,9 +28,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- Fix session rename not persisting (#141)
-  - `lastLoadMtime` was not updated after saves, causing mtime check to incorrectly abort subsequent saves
-  - Renames, reorders, and other non-force saves now persist correctly
 - Fix `ClaudeOptionsPanel.Blur()` not resetting focus state
   - `IsFocused()` now correctly returns false after blur
 
