@@ -5,6 +5,24 @@ All notable changes to Agent Deck will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.18] - 2026-02-05
+
+### Added
+
+- Add Codex CLI `--yolo` flag support (#142)
+  - Global config: `[codex] yolo_mode = true` in config.toml
+  - Per-session override in New Session dialog (checkbox)
+  - Flag preserved across session restarts
+  - Settings panel toggle for global default
+- Add unified `OptionsPanel` interface for tool-specific options (#143)
+  - New tools can add options by implementing interface + 1 case in `updateToolOptions()`
+  - Shared `renderCheckboxLine()` helper ensures visual consistency across panels
+
+### Fixed
+
+- Fix `ClaudeOptionsPanel.Blur()` not resetting focus state
+  - `IsFocused()` now correctly returns false after blur
+
 ## [0.10.17] - 2026-02-05
 
 ### Fixed
