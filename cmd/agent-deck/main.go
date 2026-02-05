@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"flag"
@@ -15,6 +16,8 @@ import (
 	"syscall"
 	"time"
 
+	"golang.org/x/term"
+
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/muesli/termenv"
@@ -26,7 +29,7 @@ import (
 	"github.com/asheshgoplani/agent-deck/internal/update"
 )
 
-const Version = "0.10.15"
+const Version = "0.10.16"
 
 // Table column widths for list command output
 const (
@@ -1568,10 +1571,12 @@ func handleUpdate(args []string) {
 		return
 	}
 
-	// Confirm update
+	// Confirm update - drain any buffered input first to avoid garbage
+	drainStdin()
 	fmt.Print("\nInstall update? [Y/n] ")
-	var response string
-	_, _ = fmt.Scanln(&response)
+	reader := bufio.NewReader(os.Stdin)
+	response, _ := reader.ReadString('\n')
+	response = strings.TrimSpace(response)
 	if response != "" && response != "y" && response != "Y" {
 		fmt.Println("Update cancelled.")
 		return
@@ -1601,6 +1606,34 @@ func displayChangelog(currentVersion, latestVersion string) {
 
 	if len(changes) > 0 {
 		fmt.Print(update.FormatChangelogForDisplay(changes))
+	}
+}
+
+// drainStdin discards any pending input in stdin to prevent garbage from being read
+// This is needed before prompts because ANSI escape sequences or user keypresses
+// may have buffered during the changelog display
+func drainStdin() {
+	fd := int(os.Stdin.Fd())
+	if !term.IsTerminal(fd) {
+		return
+	}
+
+	// Use TCIFLUSH via ioctl to flush the terminal input queue
+	// This is the proper Unix way to discard pending input
+	// TCIFLUSH = 0 (flush input), TCIOFLUSH = 2 (flush both)
+	// The syscall is: ioctl(fd, TCFLSH, TCIFLUSH)
+	// On macOS/Darwin, TCFLSH = 0x80047410 (from termios.h)
+	// On Linux, TCFLSH = 0x540B
+	const (
+		tcflshDarwin = 0x80047410
+		tcflshLinux  = 0x540B
+		tciflush     = 0 // flush input queue
+	)
+
+	// Try Darwin first, then Linux
+	_, _, errno := syscall.Syscall(syscall.SYS_IOCTL, uintptr(fd), tcflshDarwin, tciflush)
+	if errno != 0 {
+		_, _, _ = syscall.Syscall(syscall.SYS_IOCTL, uintptr(fd), tcflshLinux, tciflush)
 	}
 }
 
