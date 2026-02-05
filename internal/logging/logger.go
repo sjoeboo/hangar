@@ -1,6 +1,7 @@
 package logging
 
 import (
+	"context"
 	"io"
 	"log/slog"
 	"path/filepath"
@@ -159,8 +160,52 @@ func Logger() *slog.Logger {
 }
 
 // ForComponent returns a sub-logger with the component field set.
+// Uses a dynamicHandler so that loggers created before Init() (e.g., as
+// package-level vars) will correctly use the real handler once Init() runs.
 func ForComponent(name string) *slog.Logger {
-	return Logger().With(slog.String("component", name))
+	return slog.New(&dynamicHandler{
+		component: name,
+	})
+}
+
+// dynamicHandler implements slog.Handler by delegating to the current global
+// handler at log time. This fixes a critical bug where package-level component
+// loggers (var uiLog = logging.ForComponent("ui")) were created before
+// logging.Init() and permanently captured the discard handler, causing ALL
+// component debug/warn/error messages to be silently lost.
+type dynamicHandler struct {
+	component string
+	attrs     []slog.Attr
+	group     string
+}
+
+func (h *dynamicHandler) Enabled(ctx context.Context, level slog.Level) bool {
+	return Logger().Handler().Enabled(ctx, level)
+}
+
+func (h *dynamicHandler) Handle(ctx context.Context, r slog.Record) error {
+	handler := Logger().Handler()
+	// Apply component attribute
+	handler = handler.WithAttrs([]slog.Attr{slog.String("component", h.component)})
+	// Apply any additional attrs accumulated via WithAttrs()
+	if len(h.attrs) > 0 {
+		handler = handler.WithAttrs(h.attrs)
+	}
+	if h.group != "" {
+		handler = handler.WithGroup(h.group)
+	}
+	return handler.Handle(ctx, r)
+}
+
+func (h *dynamicHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
+	newAttrs := make([]slog.Attr, len(h.attrs)+len(attrs))
+	copy(newAttrs, h.attrs)
+	copy(newAttrs[len(h.attrs):], attrs)
+	return &dynamicHandler{component: h.component, attrs: newAttrs, group: h.group}
+}
+
+func (h *dynamicHandler) WithGroup(name string) slog.Handler {
+	return &dynamicHandler{component: h.component, attrs: h.attrs, group: name}
 }
 
 // Aggregate records a high-frequency event for batched logging.

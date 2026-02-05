@@ -266,6 +266,86 @@ func TestHomeRenameSessionComplete(t *testing.T) {
 	}
 }
 
+func TestHomeRenamePendingChangesSurviveReload(t *testing.T) {
+	home := NewHome()
+	home.width = 100
+	home.height = 30
+
+	// Create a test session
+	inst := session.NewInstance("original-name", "/tmp/project")
+	home.instancesMu.Lock()
+	home.instances = []*session.Instance{inst}
+	home.instanceByID[inst.ID] = inst
+	home.instancesMu.Unlock()
+	home.groupTree = session.NewGroupTree(home.instances)
+	home.rebuildFlatItems()
+
+	// Simulate a rename that stores a pending title change
+	home.pendingTitleChanges[inst.ID] = "renamed-title"
+
+	// Simulate a reload (loadSessionsMsg) with the OLD title from disk
+	reloadInst := session.NewInstance("original-name", "/tmp/project")
+	reloadInst.ID = inst.ID // Same session, old title
+
+	reloadMsg := loadSessionsMsg{
+		instances:    []*session.Instance{reloadInst},
+		groups:       nil,
+		restoreState: &reloadState{cursorSessionID: inst.ID},
+	}
+
+	model, _ := home.Update(reloadMsg)
+	h := model.(*Home)
+
+	// The pending rename should have been re-applied after reload
+	if h.instances[0].Title != "renamed-title" {
+		t.Errorf("Session title = %s, want renamed-title (pending rename should survive reload)", h.instances[0].Title)
+	}
+	// Pending changes should be cleared after re-application
+	if len(h.pendingTitleChanges) != 0 {
+		t.Errorf("pendingTitleChanges should be empty after re-application, got %d", len(h.pendingTitleChanges))
+	}
+}
+
+func TestHomeRenamePendingChangesNoop(t *testing.T) {
+	home := NewHome()
+	home.width = 100
+	home.height = 30
+
+	// Create a test session
+	inst := session.NewInstance("desired-name", "/tmp/project")
+	home.instancesMu.Lock()
+	home.instances = []*session.Instance{inst}
+	home.instanceByID[inst.ID] = inst
+	home.instancesMu.Unlock()
+	home.groupTree = session.NewGroupTree(home.instances)
+	home.rebuildFlatItems()
+
+	// Store a pending change that matches the current title (normal save succeeded)
+	home.pendingTitleChanges[inst.ID] = "desired-name"
+
+	// Reload with data that already has the correct title
+	reloadInst := session.NewInstance("desired-name", "/tmp/project")
+	reloadInst.ID = inst.ID
+
+	reloadMsg := loadSessionsMsg{
+		instances:    []*session.Instance{reloadInst},
+		groups:       nil,
+		restoreState: &reloadState{cursorSessionID: inst.ID},
+	}
+
+	model, _ := home.Update(reloadMsg)
+	h := model.(*Home)
+
+	// Title should still be correct
+	if h.instances[0].Title != "desired-name" {
+		t.Errorf("Session title = %s, want desired-name", h.instances[0].Title)
+	}
+	// Pending changes should be cleared (no re-application needed)
+	if len(h.pendingTitleChanges) != 0 {
+		t.Errorf("pendingTitleChanges should be empty, got %d", len(h.pendingTitleChanges))
+	}
+}
+
 func TestHomeGlobalSearchInitialized(t *testing.T) {
 	home := NewHome()
 	if home.globalSearch == nil {

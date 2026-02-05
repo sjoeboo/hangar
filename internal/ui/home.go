@@ -284,6 +284,11 @@ type Home struct {
 
 	// Undo delete stack (Chrome-style: Ctrl+Z restores in reverse order)
 	undoStack []deletedSessionEntry
+
+	// Pending title changes: survives reload races.
+	// When a rename save is skipped (isReloading=true), the title change is
+	// stored here and re-applied after the reload completes.
+	pendingTitleChanges map[string]string
 }
 
 // reloadState preserves UI state during storage reload
@@ -484,6 +489,7 @@ func NewHomeWithProfileAndMode(profile string, isPrimary bool) *Home {
 		boundKeys:            make(map[string]string),
 		isPrimaryInstance:    isPrimary,
 		undoStack:            make([]deletedSessionEntry, 0, 10),
+		pendingTitleChanges:  make(map[string]string),
 	}
 
 	// Initialize notification manager if enabled in config
@@ -1956,6 +1962,28 @@ func (h *Home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 			h.search.SetItems(h.instances)
+
+			// Re-apply pending title changes that were lost during reload.
+			// This happens when a rename's save was skipped (isReloading=true)
+			// and the reload replaced instances with stale disk data.
+			if len(h.pendingTitleChanges) > 0 {
+				applied := false
+				for id, title := range h.pendingTitleChanges {
+					if inst := h.getInstanceByID(id); inst != nil && inst.Title != title {
+						inst.Title = title
+						inst.SyncTmuxDisplayName()
+						applied = true
+						uiLog.Info("pending_rename_reapplied",
+							slog.String("session_id", id),
+							slog.String("title", title))
+					}
+				}
+				// Clear pending changes and persist if any were re-applied
+				h.pendingTitleChanges = make(map[string]string)
+				if applied {
+					h.forceSaveInstances()
+				}
+			}
 
 			// Restore state if provided (from auto-reload)
 			if msg.restoreState != nil {
@@ -3963,6 +3991,11 @@ func (h *Home) handleGroupDialogKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 					inst.Title = newName
 					inst.SyncTmuxDisplayName()
 				}
+				// Store pending title change so it survives reload races.
+				// If saveInstances() is skipped (isReloading=true), the reload
+				// replaces h.instances from disk, losing the in-memory rename.
+				// loadSessionsMsg re-applies pending changes after reload.
+				h.pendingTitleChanges[sessionID] = newName
 				// Invalidate preview cache since title changed
 				h.invalidatePreviewCache(sessionID)
 				h.rebuildFlatItems()
@@ -4168,6 +4201,10 @@ func (h *Home) saveInstancesWithForce(force bool) {
 				h.reloadMu.Lock()
 				h.lastLoadMtime = newMtime
 				h.reloadMu.Unlock()
+			}
+			// Clear pending title changes on successful save (rename was persisted)
+			if len(h.pendingTitleChanges) > 0 {
+				h.pendingTitleChanges = make(map[string]string)
 			}
 		}
 	}
