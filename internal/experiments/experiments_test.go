@@ -23,7 +23,11 @@ func TestMain(m *testing.M) {
 	os.Exit(code)
 }
 
-// cleanupTestSessions kills any tmux sessions created during testing
+// cleanupTestSessions kills any tmux sessions created during testing.
+// IMPORTANT: Only match specific known test artifacts, NOT broad patterns.
+// Broad patterns like HasPrefix("agentdeck_test") or Contains("test_") kill
+// real user sessions with "test" in their title. Each test already has
+// defer Kill() which handles cleanup reliably (runs on panic, Fatal, etc).
 func cleanupTestSessions() {
 	out, err := exec.Command("tmux", "list-sessions", "-F", "#{session_name}").Output()
 	if err != nil {
@@ -32,9 +36,7 @@ func cleanupTestSessions() {
 
 	sessions := strings.Split(strings.TrimSpace(string(out)), "\n")
 	for _, sess := range sessions {
-		if strings.Contains(sess, "Test-Skip-Regen") ||
-			strings.Contains(sess, "test_") ||
-			strings.HasPrefix(sess, "agentdeck_test") {
+		if strings.Contains(sess, "Test-Skip-Regen") {
 			_ = exec.Command("tmux", "kill-session", "-t", sess).Run()
 		}
 	}
