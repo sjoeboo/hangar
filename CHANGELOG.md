@@ -5,6 +5,23 @@ All notable changes to Agent Deck will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.20] - 2026-02-06
+
+### Added
+
+- Add `worktree finish` command to merge branch, remove worktree, and delete session in one step (#140)
+  - Flags: `--into`, `--no-merge`, `--keep-branch`, `--force`, `--json`
+  - Abort-safe: merge conflicts trigger `git merge --abort`, leaving everything intact
+- Auto-cleanup worktree directories when deleting worktree sessions (CLI `remove` and TUI `d` key)
+
+### Fixed
+
+- Fix orphaned MCP server processes (Playwright CPU leak) by killing entire process group
+  - Set `Setpgid=true` so grandchild processes (npx/uvx spawned) share a process group
+  - Shutdown now sends SIGTERM/SIGKILL to `-pid` (group) instead of just the parent
+- Fix test cleanup killing user sessions with "test" in their title
+- Fix session rename lost during reload race condition
+
 ## [0.10.19] - 2026-02-05
 
 ### Fixed
