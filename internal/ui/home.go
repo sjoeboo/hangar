@@ -4158,6 +4158,17 @@ func (h *Home) saveInstancesWithForce(force bool) {
 		// Save both instances and groups (including empty ones)
 		if err := h.storage.SaveWithGroups(instancesCopy, groupTreeCopy); err != nil {
 			h.setError(fmt.Errorf("failed to save: %w", err))
+		} else {
+			// CRITICAL FIX: Update lastLoadMtime after successful save.
+			// Without this, subsequent saves incorrectly detect the TUI's own previous
+			// save as an "external change" (currentMtime > stale lastLoadMtime) and abort.
+			// This caused session renames and other non-force saves to silently fail.
+			// See: https://github.com/asheshgoplani/agent-deck/issues/141
+			if newMtime, err := h.storage.GetFileMtime(); err == nil && !newMtime.IsZero() {
+				h.reloadMu.Lock()
+				h.lastLoadMtime = newMtime
+				h.reloadMu.Unlock()
+			}
 		}
 	}
 }

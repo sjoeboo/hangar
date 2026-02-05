@@ -20,6 +20,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Fix session rename not persisting (#141)
+  - `lastLoadMtime` was not updated after saves, causing mtime check to incorrectly abort subsequent saves
+  - Renames, reorders, and other non-force saves now persist correctly
 - Fix `ClaudeOptionsPanel.Blur()` not resetting focus state
   - `IsFocused()` now correctly returns false after blur
 
