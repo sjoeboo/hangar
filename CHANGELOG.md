@@ -5,6 +5,15 @@ All notable changes to Agent Deck will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.15] - 2026-02-05
+
+### Fixed
+
+- Fix TUI overwriting CLI changes to sessions.json (#139)
+  - Add mtime check before save: compares file mtime against when we last loaded, aborts save and triggers reload if external changes detected
+  - Fix TOCTOU race condition: `isReloading` flag now protected by mutex in all 6 read locations
+  - Add filesystem detection for WSL2/NFS: warns users when on 9p/NFS/CIFS/SSHFS mounts where fsnotify is unreliable
+
 ## [0.10.14] - 2026-02-04
 
 ### Fixed
