@@ -162,13 +162,19 @@ func (p *SocketProxy) Start() error {
 	}
 	p.mcpProcess.Env = cmdEnv
 
-	// Graceful shutdown: send SIGTERM on context cancel (instead of default SIGKILL).
-	// WaitDelay gives the process time to exit after SIGTERM before Go forcibly
+	// Create a new process group so grandchild processes (e.g., node spawned by npx,
+	// python spawned by uvx) can be killed together. Without this, killing npx leaves
+	// the actual MCP server process orphaned under PID 1.
+	p.mcpProcess.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+
+	// Graceful shutdown: send SIGTERM to the entire process group on context cancel.
+	// WaitDelay gives the group time to exit after SIGTERM before Go forcibly
 	// closes I/O pipes and sends SIGKILL. This prevents shutdown hangs when child
 	// processes (e.g., node spawned by npx) inherit stdout/stderr and keep Wait() blocked.
 	// See: https://github.com/golang/go/issues/50436
 	p.mcpProcess.Cancel = func() error {
-		return p.mcpProcess.Process.Signal(syscall.SIGTERM)
+		// Kill entire process group (negative PID) so grandchildren die too
+		return syscall.Kill(-p.mcpProcess.Process.Pid, syscall.SIGTERM)
 	}
 	p.mcpProcess.WaitDelay = 3 * time.Second
 
@@ -417,9 +423,9 @@ func (p *SocketProxy) Stop() error {
 				proxyLog.Warn("process_exit_error", slog.String("mcp", p.name), slog.String("error", err.Error()))
 			}
 		case <-time.After(5 * time.Second):
-			// Final safety net: force kill if Wait() somehow still blocks
+			// Final safety net: force kill entire process group if SIGTERM didn't work
 			proxyLog.Warn("process_wait_timeout", slog.String("mcp", p.name))
-			_ = p.mcpProcess.Process.Kill()
+			_ = syscall.Kill(-p.mcpProcess.Process.Pid, syscall.SIGKILL)
 			<-done // Wait must return after Kill
 		}
 		os.Remove(p.socketPath)
