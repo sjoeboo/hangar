@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -33,6 +34,7 @@ type ConfirmDialog struct {
 	pendingSessionPath      string
 	pendingSessionCommand   string
 	pendingSessionGroupPath string
+	pendingToolOptionsJSON  json.RawMessage // Generic tool options (claude, codex, etc.)
 }
 
 // NewConfirmDialog creates a new confirmation dialog
@@ -66,7 +68,7 @@ func (c *ConfirmDialog) ShowQuitWithPool(mcpCount int) {
 }
 
 // ShowCreateDirectory shows confirmation for creating a missing directory
-func (c *ConfirmDialog) ShowCreateDirectory(path, sessionName, command, groupPath string) {
+func (c *ConfirmDialog) ShowCreateDirectory(path, sessionName, command, groupPath string, toolOptionsJSON json.RawMessage) {
 	c.visible = true
 	c.confirmType = ConfirmCreateDirectory
 	c.targetID = path
@@ -75,11 +77,12 @@ func (c *ConfirmDialog) ShowCreateDirectory(path, sessionName, command, groupPat
 	c.pendingSessionPath = path
 	c.pendingSessionCommand = command
 	c.pendingSessionGroupPath = groupPath
+	c.pendingToolOptionsJSON = toolOptionsJSON
 }
 
 // GetPendingSession returns the pending session creation data
-func (c *ConfirmDialog) GetPendingSession() (name, path, command, groupPath string) {
-	return c.pendingSessionName, c.pendingSessionPath, c.pendingSessionCommand, c.pendingSessionGroupPath
+func (c *ConfirmDialog) GetPendingSession() (name, path, command, groupPath string, toolOptionsJSON json.RawMessage) {
+	return c.pendingSessionName, c.pendingSessionPath, c.pendingSessionCommand, c.pendingSessionGroupPath, c.pendingToolOptionsJSON
 }
 
 // Hide hides the dialog
