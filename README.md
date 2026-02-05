@@ -117,6 +117,7 @@ Multiple agents can work on the same repo without conflicts. Each worktree is an
 
 - `agent-deck add . -c claude --worktree feature/a --new-branch` creates a session in a new worktree
 - `agent-deck add . --worktree feature/b -b --location subdirectory` places the worktree under `.worktrees/` inside the repo
+- `agent-deck worktree finish "My Session"` merges the branch, removes the worktree, and deletes the session
 - `agent-deck worktree cleanup` finds and removes orphaned worktrees
 
 Configure the default worktree location in `~/.agent-deck/config.toml`:
