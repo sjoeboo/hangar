@@ -5,6 +5,17 @@ All notable changes to Agent Deck will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.17] - 2026-02-05
+
+### Fixed
+
+- Fix sessions disappearing after creation in TUI
+  - Critical saves (create, fork, delete, restore) now bypass mtime check that was incorrectly aborting saves
+  - Sessions created during reload are now properly persisted to JSON before triggering reload
+- Fix import function to recover orphaned agent-deck sessions
+  - Press `i` to import sessions that exist in tmux but are missing from sessions.json
+  - Recovered sessions are placed in a "Recovered" group for easy identification
+
 ## [0.10.16] - 2026-02-05
 
 ### Fixed

@@ -1982,15 +1982,24 @@ func (h *Home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return h, nil
 
 	case sessionCreatedMsg:
-		// CRITICAL FIX: Skip processing during reload to prevent state corruption
-		// If we modify h.instances during reload, the loadSessionsMsg will overwrite
-		// our changes, but by then we've already modified groupTree inconsistently
+		// Handle reload scenario: session was already started in tmux, we MUST save it to JSON
+		// even during reload, otherwise the session becomes orphaned (exists in tmux but not in storage)
 		h.reloadMu.Lock()
 		reloading := h.isReloading
 		h.reloadMu.Unlock()
-		if reloading {
-			// The reload will provide fresh data - don't modify state now
-			uiLog.Debug("reload_skip_session_created")
+		if reloading && msg.err == nil && msg.instance != nil {
+			// CRITICAL: Save the new session to JSON immediately to prevent orphaning
+			// Skip in-memory state update (reload will handle that), but persist to disk
+			uiLog.Debug("reload_save_session_created", slog.String("id", msg.instance.ID), slog.String("title", msg.instance.Title))
+			h.instancesMu.Lock()
+			h.instances = append(h.instances, msg.instance)
+			h.instancesMu.Unlock()
+			// Force save to persist the session even during reload
+			h.forceSaveInstances()
+			// Trigger another reload to pick up the new session in the UI
+			if h.storageWatcher != nil {
+				h.storageWatcher.TriggerReload()
+			}
 			return h, nil
 		}
 		if msg.err != nil {
@@ -2028,7 +2037,8 @@ func (h *Home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 			// Save both instances AND groups (critical fix: was losing groups!)
-			h.saveInstances()
+			// Use forceSave to bypass mtime check - new session creation MUST persist
+			h.forceSaveInstances()
 
 			// Start fetching preview for the new session
 			return h, h.fetchPreview(msg.instance)
@@ -2041,12 +2051,20 @@ func (h *Home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			delete(h.forkingSessions, msg.sourceID)
 		}
 
-		// CRITICAL FIX: Skip processing during reload to prevent state corruption
+		// Handle reload scenario: forked session was already started in tmux, we MUST save it
 		h.reloadMu.Lock()
 		reloading := h.isReloading
 		h.reloadMu.Unlock()
-		if reloading {
-			uiLog.Debug("reload_skip_session_forked")
+		if reloading && msg.err == nil && msg.instance != nil {
+			// CRITICAL: Save the forked session to JSON immediately to prevent orphaning
+			uiLog.Debug("reload_save_session_forked", slog.String("id", msg.instance.ID), slog.String("title", msg.instance.Title))
+			h.instancesMu.Lock()
+			h.instances = append(h.instances, msg.instance)
+			h.instancesMu.Unlock()
+			h.forceSaveInstances()
+			if h.storageWatcher != nil {
+				h.storageWatcher.TriggerReload()
+			}
 			return h, nil
 		}
 
@@ -2086,7 +2104,8 @@ func (h *Home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 			// Save both instances AND groups
-			h.saveInstances()
+			// Use forceSave to bypass mtime check - forked session MUST persist
+			h.forceSaveInstances()
 
 			// Start fetching preview for the forked session
 			return h, h.fetchPreview(msg.instance)
@@ -2145,7 +2164,8 @@ func (h *Home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Update search items
 		h.search.SetItems(h.instances)
 		// Save both instances AND groups (critical fix: was losing groups!)
-		h.saveInstances()
+		// Use forceSave to bypass mtime check - delete MUST persist
+		h.forceSaveInstances()
 
 		// Show undo hint (using setError as a transient message)
 		if deletedInstance != nil {
@@ -2196,7 +2216,8 @@ func (h *Home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 
-		h.saveInstances()
+		// Use forceSave to bypass mtime check - restore MUST persist
+		h.forceSaveInstances()
 		h.setError(fmt.Errorf("restored '%s'", msg.instance.Title))
 		return h, h.fetchPreview(msg.instance)
 
@@ -4058,21 +4079,25 @@ func (h *Home) saveInstancesWithForce(force bool) {
 	// EXTERNAL CHANGE DETECTION: Check if file was modified since we last loaded.
 	// This catches external changes (e.g., from CLI) even when fsnotify fails
 	// (common on 9p/NFS filesystems in WSL2).
-	h.reloadMu.Lock()
-	ourLoadMtime := h.lastLoadMtime
-	h.reloadMu.Unlock()
+	// NOTE: Skip this check when force=true because critical saves MUST happen
+	// (e.g., new session creation, fork, delete - these would lose data if skipped)
+	if !force {
+		h.reloadMu.Lock()
+		ourLoadMtime := h.lastLoadMtime
+		h.reloadMu.Unlock()
 
-	if h.storage != nil && !ourLoadMtime.IsZero() {
-		currentMtime, err := h.storage.GetFileMtime()
-		if err == nil && !currentMtime.IsZero() && currentMtime.After(ourLoadMtime) {
-			uiLog.Warn("save_abort_external_change",
-				slog.Time("our_load", ourLoadMtime),
-				slog.Time("current_mtime", currentMtime))
-			// File was modified externally - trigger reload instead of overwriting
-			if h.storageWatcher != nil {
-				h.storageWatcher.TriggerReload()
+		if h.storage != nil && !ourLoadMtime.IsZero() {
+			currentMtime, err := h.storage.GetFileMtime()
+			if err == nil && !currentMtime.IsZero() && currentMtime.After(ourLoadMtime) {
+				uiLog.Warn("save_abort_external_change",
+					slog.Time("our_load", ourLoadMtime),
+					slog.Time("current_mtime", currentMtime))
+				// File was modified externally - trigger reload instead of overwriting
+				if h.storageWatcher != nil {
+					h.storageWatcher.TriggerReload()
+				}
+				return
 			}
-			return
 		}
 	}
 
