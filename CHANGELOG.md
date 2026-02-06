@@ -5,6 +5,14 @@ All notable changes to Agent Deck will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.11.2] - 2026-02-06
+
+### Fixed
+
+- Enable notification bar on all instances, not just the primary
+  - Previously secondary instances had notifications disabled entirely
+  - All instances share the same SQLite state, so they produce identical bar content
+
 ## [0.11.1] - 2026-02-06
 
 ### Changed

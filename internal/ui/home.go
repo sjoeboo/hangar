@@ -507,9 +507,9 @@ func NewHomeWithProfileAndMode(profile string, isPrimary bool) *Home {
 	}
 
 	// Initialize notification manager if enabled in config
-	// Only primary instance manages the notification bar (prevents conflicts in multi-instance mode)
+	// All instances manage the notification bar (they share SQLite state, so produce identical output)
 	notifSettings := session.GetNotificationsSettings()
-	if notifSettings.Enabled && isPrimary {
+	if notifSettings.Enabled {
 		h.notificationsEnabled = true
 		h.notificationManager = session.NewNotificationManager(notifSettings.MaxShown)
 
@@ -933,27 +933,6 @@ func (h *Home) cleanupNotifications() {
 	}
 	h.boundKeys = make(map[string]string)
 	h.boundKeysMu.Unlock()
-}
-
-// enableNotifications activates notification bar management for this instance.
-// Called when this instance is elected primary via dynamic re-election.
-func (h *Home) enableNotifications() {
-	notifSettings := session.GetNotificationsSettings()
-	if !notifSettings.Enabled {
-		return
-	}
-	h.notificationsEnabled = true
-	if h.notificationManager == nil {
-		h.notificationManager = session.NewNotificationManager(notifSettings.MaxShown)
-	}
-	_ = tmux.InitializeStatusBarOptions()
-}
-
-// disableNotifications deactivates notification bar management for this instance.
-// Called when this instance loses primary status.
-func (h *Home) disableNotifications() {
-	h.cleanupNotifications()
-	h.notificationsEnabled = false
 }
 
 // getVisibleHeight returns the number of visible items in the session list
@@ -1644,22 +1623,13 @@ func (h *Home) backgroundStatusUpdate() {
 			}
 		}
 
-		// Dynamic primary re-election every ~10s (not every tick to reduce DB churn)
+		// Update primary status every ~10s (used for future coordination, not notifications)
 		if time.Since(h.lastPrimaryCheck) > 10*time.Second {
-			wasPrimary := h.isPrimaryInstance
 			isPrimary, electErr := db.ElectPrimary(30 * time.Second)
 			if electErr == nil {
 				h.isPrimaryInstance = isPrimary
 			}
 			h.lastPrimaryCheck = time.Now()
-
-			if !wasPrimary && isPrimary {
-				h.enableNotifications()
-				notifLog.Info("elected_primary")
-			} else if wasPrimary && !isPrimary {
-				h.disableNotifications()
-				notifLog.Info("lost_primary")
-			}
 		}
 	}
 
