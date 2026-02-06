@@ -5,6 +5,19 @@ All notable changes to Agent Deck will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.11.1] - 2026-02-06
+
+### Changed
+
+- Replace file-based lock with SQLite heartbeat-based primary election for multi-instance coordination
+  - Dynamic failover: if the primary instance crashes, a secondary takes over the notification bar within ~12 seconds
+  - Eliminates stale `.lock` files that required manual cleanup after crashes
+  - `ElectPrimary()` uses atomic SQLite transactions to prevent split-brain
+
+### Removed
+
+- Remove `acquireLock`, `releaseLock`, `getLockFilePath`, `isProcessRunning` (replaced by SQLite election)
+
 ## [0.11.0] - 2026-02-06
 
 ### Changed
