@@ -2013,40 +2013,6 @@ func TestSessionLogFile(t *testing.T) {
 	assert.True(t, strings.HasSuffix(logFile, ".log"))
 }
 
-func TestStartEnablesPipePaneLogging(t *testing.T) {
-	skipIfNoTmuxServer(t)
-
-	sess := NewSession("pipe-test", t.TempDir())
-	err := sess.Start("")
-	assert.NoError(t, err)
-	defer func() { _ = sess.Kill() }()
-
-	// Give pipe-pane time to initialize
-	time.Sleep(200 * time.Millisecond)
-
-	// Generate some output
-	_ = sess.SendKeys("echo 'pipe-pane test'")
-
-	// Poll for log file content instead of fixed sleep
-	logFile := sess.LogFile()
-	var content []byte
-	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) {
-		content, err = os.ReadFile(logFile)
-		if err == nil && strings.Contains(string(content), "pipe-pane test") {
-			break
-		}
-		time.Sleep(50 * time.Millisecond)
-	}
-
-	// Check log file exists and has content
-	assert.NoError(t, err, "Log file should exist")
-	assert.Contains(t, string(content), "pipe-pane test", "Log should contain output")
-
-	// Cleanup
-	os.Remove(logFile)
-}
-
 func TestSession_SetAndGetEnvironment(t *testing.T) {
 	skipIfNoTmuxServer(t)
 

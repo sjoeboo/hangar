@@ -45,18 +45,29 @@ var (
 // Call this ONCE per tick, then use Session.Exists() and Session.GetWindowActivity()
 // which read from cache. This reduces 30+ subprocess spawns to just 1 per tick cycle.
 //
+// Tries PipeManager first (zero subprocess), falls back to subprocess.
+//
 // NOTE: We use window_activity (not session_activity) because window_activity updates
 // when there's actual terminal output, while session_activity only updates on
 // session-level events. This is critical for detecting when Claude is actively working.
 func RefreshSessionCache() {
-	// Get both session name AND window activity timestamp in single call
-	// Using list-windows with -a flag to get all windows across all sessions
-	// window_activity updates on actual terminal output (Claude typing)
-	// session_activity does NOT update on terminal output, only session-level events
+	// Try control mode pipe first (zero subprocess)
+	if pm := GetPipeManager(); pm != nil {
+		if activities, err := pm.RefreshAllActivities(); err == nil && len(activities) > 0 {
+			sessionCacheMu.Lock()
+			sessionCacheData = activities
+			sessionCacheTime = time.Now()
+			sessionCacheMu.Unlock()
+			return
+		}
+		// Pipe failed: log it so we can verify zero subprocess usage
+		statusLog.Debug("refresh_cache_subprocess_fallback")
+	}
+
+	// Subprocess fallback: list-windows -a
 	cmd := exec.Command("tmux", "list-windows", "-a", "-F", "#{session_name}\t#{window_activity}")
 	output, err := cmd.Output()
 	if err != nil {
-		// tmux not running or error - clear cache
 		sessionCacheMu.Lock()
 		sessionCacheData = nil
 		sessionCacheTime = time.Time{}
@@ -363,7 +374,7 @@ type Session struct {
 	mu sync.Mutex
 
 	// PERFORMANCE: Lazy initialization flag
-	// When true, ConfigureStatusBar/EnableMouseMode/EnablePipePane have been run
+	// When true, ConfigureStatusBar/EnableMouseMode have been run
 	// Allows deferring non-essential tmux configuration until first attach
 	configured bool
 
@@ -460,7 +471,7 @@ func (s *Session) SetDetectPatterns(toolName string, detectPatterns []string) {
 	s.customDetectPatterns = detectPatterns
 }
 
-// LogFile returns the path to this session's pipe-pane log file
+// LogFile returns the path to this session's log file
 // Logs are stored in ~/.agent-deck/logs/<session-name>.log
 func (s *Session) LogFile() string {
 	homeDir, err := os.UserHomeDir()
@@ -500,7 +511,7 @@ func NewSession(name, workDir string) *Session {
 // This is used when loading sessions from storage - it properly initializes
 // all fields needed for status detection to work correctly
 //
-// Note: This runs immediate configuration (EnablePipePane, ConfigureStatusBar).
+// Note: This runs immediate configuration (ConfigureStatusBar).
 // For lazy loading during TUI startup, use ReconnectSessionLazy instead.
 func ReconnectSession(tmuxName, displayName, workDir, command string) *Session {
 	sess := &Session{
@@ -515,12 +526,8 @@ func ReconnectSession(tmuxName, displayName, workDir, command string) *Session {
 		// stateTracker and promptDetector will be created lazily on first status check
 	}
 
-	// Enable pipe-pane for event-driven status detection
+	// Configure existing sessions
 	if sess.Exists() {
-		if err := sess.EnablePipePane(); err != nil {
-			statusLog.Debug("pipe_pane_failed", slog.String("session", tmuxName), slog.String("error", err.Error()))
-		}
-		// Configure status bar for existing sessions
 		sess.ConfigureStatusBar()
 		sess.configured = true
 	}
@@ -561,20 +568,12 @@ func ReconnectSessionWithStatus(tmuxName, displayName, workDir, command string, 
 		sess.lastStableStatus = "waiting"
 	}
 
-	// Enable pipe-pane for event-driven status detection
-	// (Note: Also called in ReconnectSession, but we ensure it's enabled after state restoration)
-	if sess.Exists() {
-		if err := sess.EnablePipePane(); err != nil {
-			statusLog.Debug("pipe_pane_failed", slog.String("session", tmuxName), slog.String("error", err.Error()))
-		}
-	}
-
 	return sess
 }
 
 // ReconnectSessionLazy creates a Session object without running any tmux configuration.
 // PERFORMANCE: This is used during TUI startup to avoid subprocess overhead.
-// Non-essential configuration (EnableMouseMode, ConfigureStatusBar, EnablePipePane)
+// Non-essential configuration (EnableMouseMode, ConfigureStatusBar)
 // is deferred until first user interaction via EnsureConfigured().
 //
 // Use this for bulk session loading where immediate configuration is not needed.
@@ -632,9 +631,6 @@ func (s *Session) EnsureConfigured() {
 	}
 
 	// Run deferred configuration
-	if err := s.EnablePipePane(); err != nil {
-		statusLog.Debug("pipe_pane_failed", slog.String("session", s.DisplayName), slog.String("error", err.Error()))
-	}
 	s.ConfigureStatusBar()
 	_ = s.EnableMouseMode()
 
@@ -819,10 +815,11 @@ func (s *Session) Start(command string) error {
 		}
 	}
 
-	// Enable pipe-pane to log output for event-driven status detection
-	if err := s.EnablePipePane(); err != nil {
-		// Non-fatal: status detection will fall back to polling
-		statusLog.Debug("pipe_pane_failed", slog.String("session", s.Name), slog.String("error", err.Error()))
+	// Connect control mode pipe for event-driven status detection
+	if pm := GetPipeManager(); pm != nil {
+		if err := pm.Connect(s.Name); err != nil {
+			statusLog.Debug("control_pipe_connect_failed", slog.String("session", s.Name), slog.String("error", err.Error()))
+		}
 	}
 
 	// Note: We tried using tmux hooks for instant GREEN status detection:
@@ -843,7 +840,14 @@ func (s *Session) Exists() bool {
 		return exists
 	}
 
-	// Cache miss/stale - fall back to direct check (spawns subprocess)
+	// When PipeManager is active, check if we have a connected pipe for this session.
+	// If PipeManager is running but has no pipe for us, session likely doesn't exist.
+	// This avoids subprocess fallback when control pipes handle status detection.
+	if pm := GetPipeManager(); pm != nil {
+		return pm.IsConnected(s.Name)
+	}
+
+	// No PipeManager: fall back to direct check (spawns subprocess)
 	cmd := exec.Command("tmux", "has-session", "-t", s.Name)
 	return cmd.Run() == nil
 }
@@ -874,35 +878,6 @@ func (s *Session) ConfigureStatusBar() {
 		"set-option", "-t", s.Name, "status-right", rightStatus, ";",
 		"set-option", "-t", s.Name, "status-right-length", "80")
 	_ = cmd.Run()
-}
-
-// EnablePipePane enables tmux pipe-pane to stream output to a log file
-// This is used for event-driven status detection via fsnotify
-func (s *Session) EnablePipePane() error {
-	logFile := s.LogFile()
-
-	// Ensure log directory exists
-	logDir := filepath.Dir(logFile)
-	if err := os.MkdirAll(logDir, 0755); err != nil {
-		return fmt.Errorf("failed to create log dir: %w", err)
-	}
-
-	// Enable pipe-pane: stream pane output to log file
-	cmd := exec.Command("tmux", "pipe-pane", "-t", s.Name, "-o", fmt.Sprintf("cat >> '%s'", logFile))
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("failed to enable pipe-pane: %w", err)
-	}
-
-	return nil
-}
-
-// DisablePipePane disables pipe-pane logging
-func (s *Session) DisablePipePane() error {
-	cmd := exec.Command("tmux", "pipe-pane", "-t", s.Name)
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("failed to disable pipe-pane for %s: %w", s.Name, err)
-	}
-	return nil
 }
 
 // EnableMouseMode enables mouse scrolling, clipboard integration, and optimal settings
@@ -961,10 +936,12 @@ func (s *Session) EnableMouseMode() error {
 // processes actually die. tmux kill-session sends SIGHUP which some CLI
 // tools (e.g. Claude Code 2.1.27+) ignore, leaving orphan processes.
 func (s *Session) Kill() error {
-	// Disable pipe-pane first
-	_ = s.DisablePipePane()
+	// Disconnect control mode pipe
+	if pm := GetPipeManager(); pm != nil {
+		pm.Disconnect(s.Name)
+	}
 
-	// Remove log file
+	// Remove old log file if it exists (from pre-control-pipe era)
 	logFile := s.LogFile()
 	os.Remove(logFile) // Ignore errors
 
@@ -1192,6 +1169,14 @@ func (s *Session) RespawnPane(command string) error {
 		go s.ensureProcessesDead(oldPIDs, newPanePID)
 	}
 
+	// Reconnect control mode pipe (respawn changes the pane process)
+	if pm := GetPipeManager(); pm != nil {
+		pm.Disconnect(s.Name)
+		if err := pm.Connect(s.Name); err != nil {
+			statusLog.Debug("control_pipe_reconnect_failed", slog.String("session", s.Name), slog.String("error", err.Error()))
+		}
+	}
+
 	return nil
 }
 
@@ -1204,7 +1189,12 @@ func (s *Session) GetWindowActivity() (int64, error) {
 		return activity, nil
 	}
 
-	// Cache miss/stale - fall back to direct check (spawns subprocess)
+	// When PipeManager is active, route through pipe (zero subprocess)
+	if pm := GetPipeManager(); pm != nil {
+		return pm.GetWindowActivity(s.Name)
+	}
+
+	// No PipeManager: fall back to direct check (spawns subprocess)
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "tmux", "display-message", "-t", s.Name, "-p", "#{window_activity}")
@@ -1232,7 +1222,8 @@ func (s *Session) GetCachedWindowActivity() int64 {
 }
 
 // CapturePane captures the visible pane content.
-// Uses singleflight to deduplicate concurrent subprocess calls (TOCTOU fix).
+// Tries control mode pipe first (zero subprocess), falls back to subprocess.
+// Uses singleflight to deduplicate concurrent calls.
 func (s *Session) CapturePane() (string, error) {
 	// Fast path: return cached content if fresh
 	s.cacheMu.RLock()
@@ -1243,10 +1234,9 @@ func (s *Session) CapturePane() (string, error) {
 	}
 	s.cacheMu.RUnlock()
 
-	// Slow path: deduplicate concurrent subprocess calls via singleflight.
-	// Multiple goroutines hitting this point concurrently will share one subprocess.
+	// Slow path: deduplicate concurrent calls via singleflight.
 	v, err, _ := s.captureSf.Do("capture", func() (interface{}, error) {
-		// Double-check cache inside singleflight (another caller may have just populated it)
+		// Double-check cache inside singleflight
 		s.cacheMu.RLock()
 		if s.cacheContent != "" && time.Since(s.cacheTime) < 500*time.Millisecond {
 			content := s.cacheContent
@@ -1255,8 +1245,20 @@ func (s *Session) CapturePane() (string, error) {
 		}
 		s.cacheMu.RUnlock()
 
-		// -J joins wrapped lines and trims trailing spaces so hashes don't change on resize
-		// 3-second timeout prevents hung tmux calls from blocking the entire worker pool
+		// Try control mode pipe first (zero subprocess)
+		if pm := GetPipeManager(); pm != nil {
+			if content, pipeErr := pm.CapturePane(s.Name); pipeErr == nil {
+				s.cacheMu.Lock()
+				s.cacheContent = content
+				s.cacheTime = time.Now()
+				s.cacheMu.Unlock()
+				return content, nil
+			}
+			// Pipe failed: log it so we can verify zero subprocess usage
+			statusLog.Debug("capture_pane_subprocess_fallback", slog.String("session", s.Name))
+		}
+
+		// Subprocess fallback: -J joins wrapped lines, 3s timeout
 		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 		defer cancel()
 		cmd := exec.CommandContext(ctx, "tmux", "capture-pane", "-t", s.Name, "-p", "-J")
@@ -1567,6 +1569,15 @@ func (s *Session) GetStatus() (string, error) {
 				return "active", nil
 			}
 			if hasPrompt {
+				// Grace period: if session was recently GREEN (busy indicator found
+				// within last 5s), don't immediately flip to YELLOW. Between tool calls
+				// the spinner briefly disappears while the user's old input line (❯ ...)
+				// is still visible, causing false prompt detection.
+				if s.lastStableStatus == "active" && time.Since(s.stateTracker.lastChangeTime) < 5*time.Second {
+					statusLog.Debug("prompt_grace_period", slog.String("session", shortName), slog.Duration("since_busy", time.Since(s.stateTracker.lastChangeTime)))
+					return "active", nil
+				}
+
 				// Respect acknowledgment: if user already acknowledged (e.g. by attaching),
 				// keep idle status. The prompt is still visible but the user is looking at it.
 				if s.stateTracker.acknowledged {
@@ -1714,6 +1725,11 @@ func (s *Session) GetStatus() (string, error) {
 			return "active", nil
 		}
 		if captureErr == nil && s.hasPromptIndicator(content) {
+			// Grace period: don't flip to YELLOW if recently GREEN
+			if time.Since(s.stateTracker.lastChangeTime) < 5*time.Second {
+				statusLog.Debug("prompt_recheck_grace_period", slog.String("session", shortName))
+				return "active", nil
+			}
 			// Respect acknowledgment: if user already acknowledged (e.g. by attaching),
 			// keep idle status instead of forcing back to waiting.
 			if !s.stateTracker.acknowledged {
@@ -1880,19 +1896,6 @@ func (s *Session) ResetAcknowledged() {
 	s.stateTracker.acknowledged = false
 	s.stateTracker.waitingSince = time.Now() // Track when session became waiting for ordering
 	s.lastStableStatus = "waiting"
-}
-
-// SignalFileActivity signals that file output was detected (from LogWatcher)
-// This directly triggers GREEN status by updating the cooldown timer
-// Call this when pipe-pane log file is written to
-func (s *Session) SignalFileActivity() {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	s.ensureStateTrackerLocked()
-	s.stateTracker.lastChangeTime = time.Now()
-	s.stateTracker.acknowledged = false
-	s.lastStableStatus = "active"
 }
 
 // GetLastActivityTime returns when the session content last changed
@@ -2847,40 +2850,50 @@ func InitializeStatusBarOptions() error {
 // RefreshStatusBarImmediate forces an immediate status bar redraw for ALL connected clients.
 // This bypasses the status-interval timer (default 15s) for instant visual feedback.
 // Uses -S flag which only refreshes the status line (lightweight operation ~1-2ms per client).
+// Filters out control mode clients (from PipeManager) which don't have a visible status bar.
 func RefreshStatusBarImmediate() error {
-	// Get all connected clients
-	cmd := exec.Command("tmux", "list-clients", "-F", "#{client_name}")
+	// Get all connected clients, filtering out control mode clients
+	cmd := exec.Command("tmux", "list-clients", "-F", "#{client_name}\t#{client_control_mode}")
 	output, err := cmd.Output()
 	if err != nil {
-		// No clients connected or tmux not running - not an error
 		return nil
 	}
 
-	// Refresh each client's status bar
-	clients := strings.Split(strings.TrimSpace(string(output)), "\n")
-	for _, client := range clients {
-		if client != "" {
-			_ = exec.Command("tmux", "refresh-client", "-S", "-t", client).Run()
+	for _, line := range strings.Split(strings.TrimSpace(string(output)), "\n") {
+		parts := strings.SplitN(line, "\t", 2)
+		if len(parts) != 2 || parts[0] == "" {
+			continue
 		}
+		// Skip control mode clients (PipeManager pipes)
+		if parts[1] == "1" {
+			continue
+		}
+		_ = exec.Command("tmux", "refresh-client", "-S", "-t", parts[0]).Run()
 	}
 	return nil
 }
 
-// GetAttachedSessions returns the names of tmux sessions that have clients attached.
+// GetAttachedSessions returns the names of tmux sessions that have real clients attached.
 // Used to detect which session the user is currently viewing.
+// Filters out control mode clients (from PipeManager) which are not real user sessions.
 func GetAttachedSessions() ([]string, error) {
-	cmd := exec.Command("tmux", "list-clients", "-F", "#{session_name}")
+	cmd := exec.Command("tmux", "list-clients", "-F", "#{session_name}\t#{client_control_mode}")
 	output, err := cmd.Output()
 	if err != nil {
 		return nil, err
 	}
 
-	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
 	var sessions []string
-	for _, line := range lines {
-		if line != "" {
-			sessions = append(sessions, line)
+	for _, line := range strings.Split(strings.TrimSpace(string(output)), "\n") {
+		parts := strings.SplitN(line, "\t", 2)
+		if len(parts) != 2 || parts[0] == "" {
+			continue
 		}
+		// Skip control mode clients
+		if parts[1] == "1" {
+			continue
+		}
+		sessions = append(sessions, parts[0])
 	}
 	return sessions, nil
 }

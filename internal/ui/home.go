@@ -24,6 +24,7 @@ import (
 	"github.com/asheshgoplani/agent-deck/internal/git"
 	"github.com/asheshgoplani/agent-deck/internal/logging"
 	"github.com/asheshgoplani/agent-deck/internal/session"
+	"github.com/asheshgoplani/agent-deck/internal/statedb"
 	"github.com/asheshgoplani/agent-deck/internal/tmux"
 	"github.com/asheshgoplani/agent-deck/internal/update"
 )
@@ -43,6 +44,7 @@ var (
 	notifLog  = logging.ForComponent(logging.CompNotif)
 	mcpUILog  = logging.ForComponent(logging.CompMCP)
 	statusLog = logging.ForComponent(logging.CompStatus)
+	pipeUILog = logging.ForComponent("pipe")
 )
 
 const (
@@ -193,15 +195,12 @@ type Home struct {
 	statusTrigger    chan statusUpdateRequest // Triggers background status update
 	statusWorkerDone chan struct{}            // Signals worker has stopped
 
-	// PERFORMANCE: Worker pool for log-driven status updates (Priority 2)
-	// Caps the number of goroutines spawned for log file changes
-	logUpdateChan chan *session.Instance // Buffers status update requests from LogWatcher
+	// PERFORMANCE: Worker pool for output-driven status updates (Priority 2)
+	// Caps the number of goroutines spawned for %output events from control pipes
+	logUpdateChan chan *session.Instance // Buffers status update requests from PipeManager
 	logWorkerWg   sync.WaitGroup         // Tracks log worker goroutines for clean shutdown
 
-	// Event-driven status detection (Priority 2)
-	logWatcher *tmux.LogWatcher
-
-	// PERFORMANCE: Debounce log activity status updates
+	// PERFORMANCE: Debounce output activity status updates
 	lastLogActivity map[string]time.Time // sessionID -> last update time
 	logActivityMu   sync.Mutex           // Protects lastLogActivity map
 
@@ -234,6 +233,9 @@ type Home struct {
 	// Periodic log maintenance (prevents runaway log growth)
 	lastLogMaintenance time.Time
 	lastLogCheck       time.Time // Fast 10-second check for oversized logs
+
+	// SQLite heartbeat: tracks when we last cleaned dead instances
+	lastDeadInstanceCleanup time.Time
 
 	// User activity tracking for adaptive status updates
 	// PERFORMANCE: Only update statuses when user is actively interacting
@@ -443,6 +445,14 @@ func NewHomeWithProfileAndMode(profile string, isPrimary bool) *Home {
 		storage = nil
 	}
 
+	// Register this process's StateDB globally for cross-package status writes
+	if storage != nil {
+		if db := storage.GetDB(); db != nil {
+			statedb.SetGlobal(db)
+			_ = db.RegisterInstance(isPrimary)
+		}
+	}
+
 	// Get the actual profile name (could be resolved from env var or config)
 	actualProfile := session.DefaultProfile
 	if storage != nil {
@@ -504,41 +514,54 @@ func NewHomeWithProfileAndMode(profile string, isPrimary bool) *Home {
 		_ = tmux.InitializeStatusBarOptions()
 	}
 
-	// Initialize event-driven log watcher
-	logWatcher, err := tmux.NewLogWatcher(tmux.LogDir(), func(sessionName string) {
-		// Find session by tmux name and signal file activity
+	// Initialize event-driven status detection
+	// Output callback: invoked when PipeManager detects %output from a session
+	outputCallback := func(sessionName string) {
 		h.instancesMu.RLock()
 		for _, inst := range h.instances {
 			if inst.GetTmuxSession() != nil && inst.GetTmuxSession().Name == sessionName {
-				// PERFORMANCE: Debounce status updates from log events
-				// Only trigger update if it's been >500ms since last log-triggered update
 				h.logActivityMu.Lock()
 				lastUpdate := h.lastLogActivity[inst.ID]
 				if time.Since(lastUpdate) < 500*time.Millisecond {
 					h.logActivityMu.Unlock()
-					break // Too soon, skip this event
+					break
 				}
 				h.lastLogActivity[inst.ID] = time.Now()
 				h.logActivityMu.Unlock()
 
-				// Log file changed - queue status update (will check busy indicator)
-				// Uses buffered channel and worker pool to prevent goroutine leak
 				select {
 				case h.logUpdateChan <- inst:
 				default:
-					// Channel full, skip this update (another is likely already queued)
 				}
 				break
 			}
 		}
 		h.instancesMu.RUnlock()
-	})
-	if err != nil {
-		uiLog.Warn("log_watcher_init_failed", slog.String("error", err.Error()))
-	} else {
-		h.logWatcher = logWatcher
-		go h.logWatcher.Start()
 	}
+
+	// Control mode pipes: event-driven, zero-subprocess status detection
+	pm := tmux.NewPipeManager(h.ctx, outputCallback)
+	tmux.SetPipeManager(pm)
+
+	// Connect pipes for all existing running sessions in background
+	go func() {
+		time.Sleep(500 * time.Millisecond) // Let TUI render first
+		h.instancesMu.RLock()
+		instances := make([]*session.Instance, len(h.instances))
+		copy(instances, h.instances)
+		h.instancesMu.RUnlock()
+
+		for _, inst := range instances {
+			if ts := inst.GetTmuxSession(); ts != nil && ts.Exists() {
+				if err := pm.Connect(ts.Name); err != nil {
+					pipeUILog.Debug("startup_pipe_connect_failed",
+						slog.String("session", ts.Name),
+						slog.String("error", err.Error()))
+				}
+			}
+		}
+		pipeUILog.Debug("startup_pipes_connected", slog.Int("count", pm.ConnectedCount()))
+	}()
 
 	// Start background status worker (Priority 1C)
 	go h.statusWorker()
@@ -568,25 +591,15 @@ func NewHomeWithProfileAndMode(profile string, isPrimary bool) *Home {
 	// Pool will be initialized in Init() after sessions are loaded
 
 	// Initialize storage watcher for auto-reload
-	// Watches sessions.json for external changes (CLI commands) and triggers reload
-	// with state preservation to maintain cursor position and expanded groups
+	// Polls SQLite metadata for external changes (CLI commands, other instances)
+	// and triggers reload with state preservation
 	if storage != nil {
-		storagePath, err := session.GetStoragePathForProfile(actualProfile)
+		watcher, err := NewStorageWatcher(storage.GetDB())
 		if err != nil {
-			uiLog.Warn("storage_path_watcher_failed", slog.String("error", err.Error()))
-		} else {
-			watcher, err := NewStorageWatcher(storagePath)
-			if err != nil {
-				// Log warning but continue (fallback to manual refresh with Ctrl+R)
-				uiLog.Warn("storage_watcher_init_failed", slog.String("error", err.Error()))
-			} else {
-				h.storageWatcher = watcher
-				// Capture fsnotify warning (e.g., 9p/NFS filesystem)
-				if warning := watcher.Warning(); warning != "" {
-					h.watcherWarning = warning
-				}
-				watcher.Start()
-			}
+			uiLog.Warn("storage_watcher_init_failed", slog.String("error", err.Error()))
+		} else if watcher != nil {
+			h.storageWatcher = watcher
+			watcher.Start()
 		}
 	}
 
@@ -1448,7 +1461,7 @@ func (h *Home) startLogWorkers() {
 	}
 }
 
-// logWorker processes per-session status updates triggered by LogWatcher
+// logWorker processes per-session status updates triggered by PipeManager %output events
 func (h *Home) logWorker() {
 	defer h.logWorkerWg.Done()
 	for {
@@ -1516,16 +1529,32 @@ func (h *Home) backgroundStatusUpdate() {
 	}
 
 	// Update status for all instances in parallel (I/O bound: tmux subprocess calls)
+	// With PipeManager, skip sessions idle for >5s (no %output events = no status change)
 	statusStart := time.Now()
 	var statusChanged atomic.Bool
 	var slowMu sync.Mutex
 	var slowSessions []string
+	pm := tmux.GetPipeManager()
+	var skipped int
 
 	g := new(errgroup.Group)
 	g.SetLimit(10) // Pool of 10 workers (tmux server serializes, more doesn't help)
 
 	for _, inst := range instances {
 		inst := inst // capture loop variable
+
+		// Skip idle sessions when PipeManager knows they haven't produced output.
+		// Only skip if pipe is alive (otherwise we need UpdateStatus for Error detection).
+		if pm != nil {
+			if ts := inst.GetTmuxSession(); ts != nil && pm.IsConnected(ts.Name) {
+				lastOut := pm.LastOutputTime(ts.Name)
+				if !lastOut.IsZero() && time.Since(lastOut) > 5*time.Second {
+					skipped++
+					continue
+				}
+			}
+		}
+
 		g.Go(func() error {
 			oldStatus := inst.GetStatusThreadSafe()
 			instStart := time.Now()
@@ -1548,6 +1577,9 @@ func (h *Home) backgroundStatusUpdate() {
 	_ = g.Wait() // Errors are logged within each goroutine
 
 	statusDur := time.Since(statusStart)
+	if skipped > 0 {
+		perfLog.Debug("idle_sessions_skipped", slog.Int("skipped", skipped), slog.Int("checked", len(instances)-skipped))
+	}
 	if statusDur > 500*time.Millisecond {
 		perfLog.Info("slow_status_loop", slog.Duration("duration", statusDur), slog.Int("sessions", len(instances)))
 		slowMu.Lock()
@@ -1560,6 +1592,32 @@ func (h *Home) backgroundStatusUpdate() {
 	// Invalidate cache if status changed
 	if statusChanged.Load() {
 		h.cachedStatusCounts.valid.Store(false)
+	}
+
+	// SQLite sync: heartbeat, status writes, ack reads (enables multi-instance coordination)
+	if db := statedb.GetGlobal(); db != nil {
+		// Heartbeat: mark this process as alive
+		_ = db.Heartbeat()
+
+		// Clean dead instances every ~20s (not every tick)
+		if time.Since(h.lastDeadInstanceCleanup) > 20*time.Second {
+			_ = db.CleanDeadInstances(30 * time.Second)
+			h.lastDeadInstanceCleanup = time.Now()
+		}
+
+		// Write current status for each instance so other TUI instances stay in sync
+		for _, inst := range instances {
+			_ = db.WriteStatus(inst.ID, string(inst.GetStatusThreadSafe()), inst.Tool)
+		}
+
+		// Read acknowledgments from SQLite (picks up acks from other instances)
+		if ackStatuses, err := db.ReadAllStatuses(); err == nil {
+			for _, inst := range instances {
+				if s, ok := ackStatuses[inst.ID]; ok && s.Acknowledged {
+					inst.SetAcknowledgedFromShared(true)
+				}
+			}
+		}
 	}
 
 	// Always sync notification bar - must check for signal file (Ctrl+b N acknowledgments)
@@ -1619,6 +1677,10 @@ func (h *Home) syncNotificationsBackground() {
 		if inst, ok := h.instanceByID[sessionToAcknowledgeID]; ok {
 			if ts := inst.GetTmuxSession(); ts != nil {
 				ts.Acknowledge()
+				// Persist ack to SQLite so other instances see it
+				if db := statedb.GetGlobal(); db != nil {
+					_ = db.SetAcknowledged(inst.ID, true)
+				}
 				_ = inst.UpdateStatus()
 				notifLog.Debug("session_acknowledged", slog.String("title", inst.Title), slog.String("status", string(inst.Status)))
 			}
@@ -2664,17 +2726,19 @@ func (h *Home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			h.lastCachePrune = time.Now()
 			h.pruneAnalyticsCache()
 
-			// Prune LogWatcher rate limiters for sessions no longer tracked
-			if h.logWatcher != nil {
-				activeNames := make(map[string]bool)
+			// Prune dead pipes and connect new sessions
+			if pm := tmux.GetPipeManager(); pm != nil {
 				h.instancesMu.RLock()
 				for _, inst := range h.instances {
-					if ts := inst.GetTmuxSession(); ts != nil {
-						activeNames[ts.Name] = true
+					if ts := inst.GetTmuxSession(); ts != nil && ts.Exists() {
+						if !pm.IsConnected(ts.Name) {
+							go func(name string) {
+								_ = pm.Connect(name)
+							}(ts.Name)
+						}
 					}
 				}
 				h.instancesMu.RUnlock()
-				h.logWatcher.PruneLimiters(activeNames)
 			}
 		}
 
@@ -3845,8 +3909,10 @@ func (h *Home) performFinalShutdown(shutdownPool bool) tea.Cmd {
 			uiLog.Warn("log_workers_stop_timeout")
 		}
 
-		if h.logWatcher != nil {
-			h.logWatcher.Close()
+		// Close PipeManager (shuts down all control mode pipes)
+		if pm := tmux.GetPipeManager(); pm != nil {
+			pm.Close()
+			tmux.SetPipeManager(nil)
 		}
 		// Close storage watcher
 		if h.storageWatcher != nil {
@@ -3859,6 +3925,10 @@ func (h *Home) performFinalShutdown(shutdownPool bool) tea.Cmd {
 		// Shutdown or disconnect from MCP pool based on user choice
 		if err := session.ShutdownGlobalPool(shutdownPool); err != nil {
 			mcpUILog.Warn("pool_shutdown_error", slog.String("error", err.Error()))
+		}
+		// Unregister this instance from the heartbeat table
+		if db := statedb.GetGlobal(); db != nil {
+			_ = db.UnregisterInstance()
 		}
 		// Clean up notification bar (clear tmux status bars and unbind keys)
 		h.cleanupNotifications()
@@ -4422,7 +4492,7 @@ func (h *Home) attachSession(inst *session.Instance) tea.Cmd {
 	}
 
 	// PERFORMANCE: Ensure tmux session is configured on first attach
-	// This runs deferred EnablePipePane, ConfigureStatusBar, EnableMouseMode
+	// This runs deferred ConfigureStatusBar, EnableMouseMode
 	// which were skipped during lazy loading for TUI startup performance
 	tmuxSess.EnsureConfigured()
 
@@ -4472,6 +4542,10 @@ skipSave:
 	// - Detach just lets polling take over naturally
 	if inst.GetStatusThreadSafe() == session.StatusWaiting {
 		tmuxSess.Acknowledge()
+		// Persist ack to SQLite so other instances see it
+		if db := statedb.GetGlobal(); db != nil {
+			_ = db.SetAcknowledged(inst.ID, true)
+		}
 		statusLog.Debug("acknowledged_on_attach", slog.String("title", inst.Title))
 	}
 

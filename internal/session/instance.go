@@ -2889,6 +2889,15 @@ func (i *Instance) GetTmuxSession() *tmux.Session {
 	return i.tmuxSession
 }
 
+// SetAcknowledgedFromShared applies an acknowledgment from another TUI instance
+// (read from SQLite). This transitions a YELLOW (waiting) session to GRAY (idle)
+// without requiring the user to interact with this specific TUI instance.
+func (i *Instance) SetAcknowledgedFromShared(ack bool) {
+	if ack && i.tmuxSession != nil {
+		i.tmuxSession.Acknowledge()
+	}
+}
+
 // SyncTmuxDisplayName updates the tmux status bar to reflect the current title.
 func (i *Instance) SyncTmuxDisplayName() {
 	if tmuxSess := i.GetTmuxSession(); tmuxSess != nil && tmuxSess.Exists() {

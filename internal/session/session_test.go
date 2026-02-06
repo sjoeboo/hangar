@@ -2,7 +2,6 @@ package session
 
 import (
 	"os"
-	"path/filepath"
 	"testing"
 )
 
@@ -39,16 +38,7 @@ func TestGenerateID(t *testing.T) {
 }
 
 func TestStorageSaveLoad(t *testing.T) {
-	// Create temp directory for test
-	tmpDir, err := os.MkdirTemp("", "agent-deck-test")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer os.RemoveAll(tmpDir)
-
-	storage := &Storage{
-		path: filepath.Join(tmpDir, "sessions.json"),
-	}
+	storage := newTestStorage(t)
 
 	// Create test instances
 	instances := []*Instance{
@@ -57,14 +47,14 @@ func TestStorageSaveLoad(t *testing.T) {
 	}
 
 	// Save
-	err = storage.Save(instances)
+	err := storage.Save(instances)
 	if err != nil {
 		t.Fatalf("Save failed: %v", err)
 	}
 
-	// Verify file exists
-	if _, err := os.Stat(storage.path); os.IsNotExist(err) {
-		t.Fatal("sessions.json was not created")
+	// Verify db file exists
+	if _, err := os.Stat(storage.dbPath); os.IsNotExist(err) {
+		t.Fatal("state.db was not created")
 	}
 
 	// Load
@@ -79,16 +69,7 @@ func TestStorageSaveLoad(t *testing.T) {
 }
 
 func TestOpenCodeFieldsSerialization(t *testing.T) {
-	// Create temp directory for test
-	tmpDir, err := os.MkdirTemp("", "agent-deck-opencode-test")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer os.RemoveAll(tmpDir)
-
-	storage := &Storage{
-		path: filepath.Join(tmpDir, "sessions.json"),
-	}
+	storage := newTestStorage(t)
 
 	// Create test instance with OpenCode fields populated
 	inst := NewInstance("opencode-test", "/tmp/opencode-project")
@@ -98,7 +79,7 @@ func TestOpenCodeFieldsSerialization(t *testing.T) {
 	instances := []*Instance{inst}
 
 	// Save
-	err = storage.Save(instances)
+	err := storage.Save(instances)
 	if err != nil {
 		t.Fatalf("Save failed: %v", err)
 	}

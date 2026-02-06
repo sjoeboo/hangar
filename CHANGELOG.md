@@ -5,6 +5,29 @@ All notable changes to Agent Deck will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.11.0] - 2026-02-06
+
+### Changed
+
+- Replace `sessions.json` with SQLite (`state.db`) as the single source of truth
+  - WAL mode for concurrent multi-instance reads/writes without corruption
+  - Auto-migrates existing `sessions.json` on first run (renamed to `.migrated` as backup)
+  - Removes fragile full-file JSON rewrites, backup rotation, and fsnotify dependency
+  - Tool-specific data stored as JSON blob in `tool_data` column for schema flexibility
+- Replace fsnotify-based storage watcher with SQLite metadata polling
+  - Simpler, works reliably on all filesystems (9p, NFS, WSL)
+  - 2-second poll interval using `metadata.last_modified` timestamp
+- Replace tmux rate limiter and watcher with control mode pipes (PipeManager)
+  - Event-driven status detection via `tmux -C` control mode
+  - Zero-subprocess architecture: no more `tmux capture-pane` for idle sessions
+
+### Added
+
+- Add `internal/statedb` package: SQLite wrapper with CRUD, heartbeat, status sync, and change detection
+- Add cross-instance acknowledgment sync via SQLite (ack in instance A visible in instance B)
+- Add instance heartbeat table for tracking alive TUI processes
+- Add `StatusSettings` in user config (reserved for future status detection settings)
+
 ## [0.10.20] - 2026-02-06
 
 ### Added

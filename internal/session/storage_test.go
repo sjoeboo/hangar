@@ -1,26 +1,34 @@
 package session
 
 import (
-	"os"
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/asheshgoplani/agent-deck/internal/statedb"
 )
+
+// newTestStorage creates a Storage backed by an in-memory-like temp dir SQLite database.
+func newTestStorage(t *testing.T) *Storage {
+	t.Helper()
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, "state.db")
+	db, err := statedb.Open(dbPath)
+	if err != nil {
+		t.Fatalf("failed to open test db: %v", err)
+	}
+	if err := db.Migrate(); err != nil {
+		t.Fatalf("failed to migrate test db: %v", err)
+	}
+	t.Cleanup(func() { db.Close() })
+	return &Storage{db: db, dbPath: dbPath, profile: "_test"}
+}
 
 // TestStorageUpdatedAtTimestamp verifies that SaveWithGroups sets the UpdatedAt timestamp
 // and GetUpdatedAt() returns it correctly.
 func TestStorageUpdatedAtTimestamp(t *testing.T) {
-	// Create temporary directory for test
-	tmpDir := t.TempDir()
-	storagePath := filepath.Join(tmpDir, "sessions.json")
+	s := newTestStorage(t)
 
-	// Create storage instance
-	s := &Storage{
-		path:    storagePath,
-		profile: "_test",
-	}
-
-	// Create test data
 	instances := []*Instance{
 		{
 			ID:          "test-1",
@@ -36,14 +44,14 @@ func TestStorageUpdatedAtTimestamp(t *testing.T) {
 
 	// Save data
 	beforeSave := time.Now()
-	time.Sleep(10 * time.Millisecond) // Small delay to ensure timestamp differs
+	time.Sleep(10 * time.Millisecond)
 
 	err := s.SaveWithGroups(instances, nil)
 	if err != nil {
 		t.Fatalf("SaveWithGroups failed: %v", err)
 	}
 
-	time.Sleep(10 * time.Millisecond) // Small delay to ensure timestamp differs
+	time.Sleep(10 * time.Millisecond)
 	afterSave := time.Now()
 
 	// Get the updated timestamp
@@ -85,38 +93,23 @@ func TestStorageUpdatedAtTimestamp(t *testing.T) {
 	}
 }
 
-// TestGetUpdatedAtNoFile verifies behavior when storage file doesn't exist
-func TestGetUpdatedAtNoFile(t *testing.T) {
-	tmpDir := t.TempDir()
-	storagePath := filepath.Join(tmpDir, "nonexistent.json")
+// TestGetUpdatedAtEmpty verifies behavior when no data has been saved
+func TestGetUpdatedAtEmpty(t *testing.T) {
+	s := newTestStorage(t)
 
-	s := &Storage{
-		path:    storagePath,
-		profile: "_test",
+	updatedAt, err := s.GetUpdatedAt()
+	if err != nil {
+		t.Errorf("Unexpected error: %v", err)
 	}
-
-	_, err := s.GetUpdatedAt()
-	if err == nil {
-		t.Error("Expected error when file doesn't exist, got nil")
-	}
-	if !os.IsNotExist(err) {
-		t.Errorf("Expected IsNotExist error, got: %v", err)
+	if !updatedAt.IsZero() {
+		t.Errorf("Expected zero time for empty db, got %v", updatedAt)
 	}
 }
 
 // TestLoadLite verifies that LoadLite returns raw InstanceData without tmux initialization
 func TestLoadLite(t *testing.T) {
-	// Create temporary directory for test
-	tmpDir := t.TempDir()
-	storagePath := filepath.Join(tmpDir, "sessions.json")
+	s := newTestStorage(t)
 
-	// Create storage instance
-	s := &Storage{
-		path:    storagePath,
-		profile: "_test",
-	}
-
-	// Create test data with tmux session name
 	instances := []*Instance{
 		{
 			ID:          "test-1",
@@ -140,29 +133,20 @@ func TestLoadLite(t *testing.T) {
 		},
 	}
 
-	// Set tmux session names manually (simulating what Storage.convertToInstances would set)
-	// In production, this would be set by tmux.NewSession
-	instances[0].tmuxSession = nil // Simulate no tmux connection
-	instances[1].tmuxSession = nil
-
-	// Save data
 	err := s.SaveWithGroups(instances, nil)
 	if err != nil {
 		t.Fatalf("SaveWithGroups failed: %v", err)
 	}
 
-	// LoadLite should return raw InstanceData without tmux initialization
 	instData, groupData, err := s.LoadLite()
 	if err != nil {
 		t.Fatalf("LoadLite failed: %v", err)
 	}
 
-	// Verify we got the right number of instances
 	if len(instData) != 2 {
 		t.Errorf("Expected 2 instances, got %d", len(instData))
 	}
 
-	// Verify instance data is correct
 	if instData[0].ID != "test-1" {
 		t.Errorf("Expected first instance ID 'test-1', got '%s'", instData[0].ID)
 	}
@@ -180,25 +164,18 @@ func TestLoadLite(t *testing.T) {
 		t.Errorf("Expected second instance tool 'gemini', got '%s'", instData[1].Tool)
 	}
 
-	// Groups should be empty or nil since we didn't create any
 	if len(groupData) != 0 {
 		t.Errorf("Expected 0 groups, got %d", len(groupData))
 	}
 }
 
-// TestLoadLiteNoFile verifies LoadLite returns empty slice when file doesn't exist
-func TestLoadLiteNoFile(t *testing.T) {
-	tmpDir := t.TempDir()
-	storagePath := filepath.Join(tmpDir, "nonexistent.json")
-
-	s := &Storage{
-		path:    storagePath,
-		profile: "_test",
-	}
+// TestLoadLiteEmptyDB verifies LoadLite returns empty slice when database is empty
+func TestLoadLiteEmptyDB(t *testing.T) {
+	s := newTestStorage(t)
 
 	instData, groupData, err := s.LoadLite()
 	if err != nil {
-		t.Errorf("LoadLite should not return error for non-existent file, got: %v", err)
+		t.Errorf("LoadLite should not return error for empty db, got: %v", err)
 	}
 	if len(instData) != 0 {
 		t.Errorf("Expected empty instances, got %d", len(instData))

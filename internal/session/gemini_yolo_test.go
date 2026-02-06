@@ -216,13 +216,7 @@ func TestInstance_buildGeminiCommand_YoloFlag(t *testing.T) {
 
 // TestInstance_GeminiYoloMode_Persistence tests that GeminiYoloMode persists through save/load
 func TestInstance_GeminiYoloMode_Persistence(t *testing.T) {
-	tmpDir := t.TempDir()
-	storagePath := filepath.Join(tmpDir, "sessions.json")
-
-	s := &Storage{
-		path:    storagePath,
-		profile: "_test",
-	}
+	s := newTestStorage(t)
 
 	tests := []struct {
 		name              string

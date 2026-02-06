@@ -80,6 +80,9 @@ type UserConfig struct {
 
 	// Maintenance defines automatic maintenance worker settings
 	Maintenance MaintenanceSettings `toml:"maintenance"`
+
+	// Status defines session status detection settings
+	Status StatusSettings `toml:"status"`
 }
 
 // MCPPoolSettings defines HTTP MCP pool configuration
@@ -610,6 +613,12 @@ func (m *MCPDef) HasAutoStartServer() bool {
 	return m.IsHTTP() && m.Server != nil && m.Server.Command != ""
 }
 
+// StatusSettings controls session status detection behavior
+type StatusSettings struct {
+	// Reserved for future status detection settings.
+	// Control mode pipes are always enabled (no longer configurable).
+}
+
 // MaintenanceSettings controls the automatic maintenance worker
 type MaintenanceSettings struct {
 	// Enabled enables the maintenance worker (default: false)
@@ -1087,6 +1096,15 @@ func GetMaintenanceSettings() MaintenanceSettings {
 		return MaintenanceSettings{Enabled: false}
 	}
 	return config.Maintenance
+}
+
+// GetStatusSettings returns status detection settings with defaults applied.
+func GetStatusSettings() StatusSettings {
+	config, err := LoadUserConfig()
+	if err != nil || config == nil {
+		return StatusSettings{}
+	}
+	return config.Status
 }
 
 // GetInstanceSettings returns instance behavior settings
