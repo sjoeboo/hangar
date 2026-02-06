@@ -494,6 +494,66 @@ func (s *StateDB) AliveInstanceCount() (int, error) {
 	return count, err
 }
 
+// --- Primary Election ---
+
+// ElectPrimary attempts to make this instance the primary.
+// Returns true if this instance is now (or already was) the primary.
+// Uses a transaction to atomically clear stale primaries and claim if available.
+func (s *StateDB) ElectPrimary(timeout time.Duration) (bool, error) {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return false, fmt.Errorf("statedb: begin elect: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	cutoff := time.Now().Add(-timeout).Unix()
+
+	// Clear is_primary for any heartbeat older than timeout (stale primary)
+	if _, err := tx.Exec(
+		"UPDATE instance_heartbeats SET is_primary = 0 WHERE heartbeat < ? AND is_primary = 1",
+		cutoff,
+	); err != nil {
+		return false, fmt.Errorf("statedb: clear stale primary: %w", err)
+	}
+
+	// Check if any alive instance already has is_primary=1
+	var existingPID int
+	err = tx.QueryRow(
+		"SELECT pid FROM instance_heartbeats WHERE is_primary = 1 AND heartbeat >= ? LIMIT 1",
+		cutoff,
+	).Scan(&existingPID)
+
+	if err == nil {
+		// An alive primary exists
+		if err := tx.Commit(); err != nil {
+			return false, fmt.Errorf("statedb: commit elect: %w", err)
+		}
+		return existingPID == s.pid, nil
+	}
+
+	// No alive primary exists: claim it
+	if _, err := tx.Exec(
+		"UPDATE instance_heartbeats SET is_primary = 1 WHERE pid = ?",
+		s.pid,
+	); err != nil {
+		return false, fmt.Errorf("statedb: claim primary: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return false, fmt.Errorf("statedb: commit elect: %w", err)
+	}
+	return true, nil
+}
+
+// ResignPrimary clears the is_primary flag for this process.
+func (s *StateDB) ResignPrimary() error {
+	_, err := s.db.Exec(
+		"UPDATE instance_heartbeats SET is_primary = 0 WHERE pid = ?",
+		s.pid,
+	)
+	return err
+}
+
 // --- Metadata ---
 
 // SetMeta sets a key-value pair in the metadata table.

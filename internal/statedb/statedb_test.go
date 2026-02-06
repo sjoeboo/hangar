@@ -449,6 +449,142 @@ func TestMetadata(t *testing.T) {
 	}
 }
 
+func TestElectPrimary_FirstInstance(t *testing.T) {
+	db := newTestDB(t)
+
+	// Register and elect
+	if err := db.RegisterInstance(false); err != nil {
+		t.Fatalf("RegisterInstance: %v", err)
+	}
+	isPrimary, err := db.ElectPrimary(30 * time.Second)
+	if err != nil {
+		t.Fatalf("ElectPrimary: %v", err)
+	}
+	if !isPrimary {
+		t.Error("First instance should become primary")
+	}
+
+	// Calling again should still return true (already primary)
+	isPrimary, err = db.ElectPrimary(30 * time.Second)
+	if err != nil {
+		t.Fatalf("ElectPrimary (repeat): %v", err)
+	}
+	if !isPrimary {
+		t.Error("Should still be primary on repeat call")
+	}
+}
+
+func TestElectPrimary_SecondInstance(t *testing.T) {
+	db := newTestDB(t)
+
+	// Simulate first instance (PID 10001) as primary with fresh heartbeat
+	now := time.Now().Unix()
+	_, err := db.DB().Exec(
+		"INSERT INTO instance_heartbeats (pid, started, heartbeat, is_primary) VALUES (?, ?, ?, ?)",
+		10001, now, now, 1,
+	)
+	if err != nil {
+		t.Fatalf("Insert primary: %v", err)
+	}
+
+	// Register our process (not primary yet)
+	if err := db.RegisterInstance(false); err != nil {
+		t.Fatalf("RegisterInstance: %v", err)
+	}
+
+	// Try to elect: should fail because PID 10001 is alive and primary
+	isPrimary, err := db.ElectPrimary(30 * time.Second)
+	if err != nil {
+		t.Fatalf("ElectPrimary: %v", err)
+	}
+	if isPrimary {
+		t.Error("Second instance should NOT become primary while first is alive")
+	}
+}
+
+func TestElectPrimary_Failover(t *testing.T) {
+	db := newTestDB(t)
+
+	// Simulate a stale primary (heartbeat 2 minutes ago)
+	stale := time.Now().Add(-2 * time.Minute).Unix()
+	_, err := db.DB().Exec(
+		"INSERT INTO instance_heartbeats (pid, started, heartbeat, is_primary) VALUES (?, ?, ?, ?)",
+		10001, stale, stale, 1,
+	)
+	if err != nil {
+		t.Fatalf("Insert stale primary: %v", err)
+	}
+
+	// Register our process
+	if err := db.RegisterInstance(false); err != nil {
+		t.Fatalf("RegisterInstance: %v", err)
+	}
+
+	// Elect: stale primary should be cleared, we should become primary
+	isPrimary, err := db.ElectPrimary(30 * time.Second)
+	if err != nil {
+		t.Fatalf("ElectPrimary: %v", err)
+	}
+	if !isPrimary {
+		t.Error("Should become primary after stale primary is cleared")
+	}
+
+	// Verify the stale PID is no longer primary
+	var stalePrimary int
+	err = db.DB().QueryRow(
+		"SELECT is_primary FROM instance_heartbeats WHERE pid = 10001",
+	).Scan(&stalePrimary)
+	if err != nil {
+		t.Fatalf("Query stale PID: %v", err)
+	}
+	if stalePrimary != 0 {
+		t.Error("Stale PID should have is_primary=0")
+	}
+}
+
+func TestResignPrimary(t *testing.T) {
+	db := newTestDB(t)
+
+	// Register and elect
+	if err := db.RegisterInstance(false); err != nil {
+		t.Fatalf("RegisterInstance: %v", err)
+	}
+	isPrimary, err := db.ElectPrimary(30 * time.Second)
+	if err != nil {
+		t.Fatalf("ElectPrimary: %v", err)
+	}
+	if !isPrimary {
+		t.Fatal("Should be primary")
+	}
+
+	// Resign
+	if err := db.ResignPrimary(); err != nil {
+		t.Fatalf("ResignPrimary: %v", err)
+	}
+
+	// Verify we're no longer primary
+	var isPrim int
+	err = db.DB().QueryRow(
+		"SELECT is_primary FROM instance_heartbeats WHERE pid = ?",
+		db.pid,
+	).Scan(&isPrim)
+	if err != nil {
+		t.Fatalf("Query: %v", err)
+	}
+	if isPrim != 0 {
+		t.Error("Should not be primary after resign")
+	}
+
+	// Re-elect should work since no primary exists
+	isPrimary, err = db.ElectPrimary(30 * time.Second)
+	if err != nil {
+		t.Fatalf("ElectPrimary after resign: %v", err)
+	}
+	if !isPrimary {
+		t.Error("Should become primary again after resign")
+	}
+}
+
 func TestGlobalSingleton(t *testing.T) {
 	// Initially nil
 	if GetGlobal() != nil {

@@ -236,6 +236,8 @@ type Home struct {
 
 	// SQLite heartbeat: tracks when we last cleaned dead instances
 	lastDeadInstanceCleanup time.Time
+	// SQLite primary election: tracks when we last checked for primary re-election
+	lastPrimaryCheck time.Time
 
 	// User activity tracking for adaptive status updates
 	// PERFORMANCE: Only update statuses when user is actively interacting
@@ -445,8 +447,10 @@ func NewHomeWithProfileAndMode(profile string, isPrimary bool) *Home {
 		storage = nil
 	}
 
-	// Register this process's StateDB globally for cross-package status writes
-	if storage != nil {
+	// Ensure StateDB global is set for cross-package status writes.
+	// Primary registration and election happen in main.go before NewHome is called.
+	// This fallback handles CLI paths (e.g., NewHomeWithProfile) that skip main.go setup.
+	if storage != nil && statedb.GetGlobal() == nil {
 		if db := storage.GetDB(); db != nil {
 			statedb.SetGlobal(db)
 			_ = db.RegisterInstance(isPrimary)
@@ -929,6 +933,27 @@ func (h *Home) cleanupNotifications() {
 	}
 	h.boundKeys = make(map[string]string)
 	h.boundKeysMu.Unlock()
+}
+
+// enableNotifications activates notification bar management for this instance.
+// Called when this instance is elected primary via dynamic re-election.
+func (h *Home) enableNotifications() {
+	notifSettings := session.GetNotificationsSettings()
+	if !notifSettings.Enabled {
+		return
+	}
+	h.notificationsEnabled = true
+	if h.notificationManager == nil {
+		h.notificationManager = session.NewNotificationManager(notifSettings.MaxShown)
+	}
+	_ = tmux.InitializeStatusBarOptions()
+}
+
+// disableNotifications deactivates notification bar management for this instance.
+// Called when this instance loses primary status.
+func (h *Home) disableNotifications() {
+	h.cleanupNotifications()
+	h.notificationsEnabled = false
 }
 
 // getVisibleHeight returns the number of visible items in the session list
@@ -1616,6 +1641,24 @@ func (h *Home) backgroundStatusUpdate() {
 				if s, ok := ackStatuses[inst.ID]; ok && s.Acknowledged {
 					inst.SetAcknowledgedFromShared(true)
 				}
+			}
+		}
+
+		// Dynamic primary re-election every ~10s (not every tick to reduce DB churn)
+		if time.Since(h.lastPrimaryCheck) > 10*time.Second {
+			wasPrimary := h.isPrimaryInstance
+			isPrimary, electErr := db.ElectPrimary(30 * time.Second)
+			if electErr == nil {
+				h.isPrimaryInstance = isPrimary
+			}
+			h.lastPrimaryCheck = time.Now()
+
+			if !wasPrimary && isPrimary {
+				h.enableNotifications()
+				notifLog.Info("elected_primary")
+			} else if wasPrimary && !isPrimary {
+				h.disableNotifications()
+				notifLog.Info("lost_primary")
 			}
 		}
 	}
@@ -3926,8 +3969,9 @@ func (h *Home) performFinalShutdown(shutdownPool bool) tea.Cmd {
 		if err := session.ShutdownGlobalPool(shutdownPool); err != nil {
 			mcpUILog.Warn("pool_shutdown_error", slog.String("error", err.Error()))
 		}
-		// Unregister this instance from the heartbeat table
+		// Release primary claim and unregister from the heartbeat table
 		if db := statedb.GetGlobal(); db != nil {
+			_ = db.ResignPrimary()
 			_ = db.UnregisterInstance()
 		}
 		// Clean up notification bar (clear tmux status bars and unbind keys)
