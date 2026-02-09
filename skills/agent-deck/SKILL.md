@@ -8,7 +8,7 @@ compatibility: claude, opencode
 
 Terminal session manager for AI coding agents. Built with Go + Bubble Tea.
 
-**Version:** 0.8.98 | **Repo:** [github.com/asheshgoplani/agent-deck](https://github.com/asheshgoplani/agent-deck)
+**Version:** 0.8.98 | **Repo:** [github.com/asheshgoplani/agent-deck](https://github.com/asheshgoplani/agent-deck) | **Discord:** [discord.gg/e4xSs6NBN8](https://discord.gg/e4xSs6NBN8)
 
 ## Script Path Resolution (IMPORTANT)
 
@@ -286,6 +286,11 @@ See [config-reference.md](references/config-reference.md) for all options.
 | Session shows error | `agent-deck session start <name>` |
 | MCPs not loading | `agent-deck session restart <name>` |
 | Flag not working | Put flags BEFORE arguments: `-m "msg" name` not `name -m "msg"` |
+
+### Get Help
+
+- **Discord:** [discord.gg/e4xSs6NBN8](https://discord.gg/e4xSs6NBN8) for quick questions and community support
+- **GitHub Issues:** For bug reports and feature requests
 
 ### Report a Bug
 

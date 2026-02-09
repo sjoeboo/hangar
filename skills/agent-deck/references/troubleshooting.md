@@ -183,6 +183,7 @@ Use this template:
 - Check for responses on your issue
 - Test any suggested fixes
 - Update issue with results
+- Join [Discord](https://discord.gg/e4xSs6NBN8) for quick help and community support
 
 ## Recovery
 
