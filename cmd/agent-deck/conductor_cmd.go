@@ -747,10 +747,6 @@ func handleConductorList(profile string, args []string) {
 	var err error
 
 	targetProfile := *filterProfile
-	if targetProfile == "" && profile != "" {
-		// If -p flag was used at the global level, only pass it as filter if --profile was also specified
-		// Otherwise list all conductors
-	}
 
 	if targetProfile != "" {
 		conductors, err = session.ListConductorsForProfile(targetProfile)
