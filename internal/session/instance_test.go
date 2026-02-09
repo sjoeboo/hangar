@@ -1707,3 +1707,77 @@ func TestRegenerate_MCPConfig_InvalidatesCache(t *testing.T) {
 			"(cache should have been invalidated), got: %v", localNames2)
 	}
 }
+
+// setupConfigForTest writes a config.toml and primes the cache.
+func setupConfigForTest(t *testing.T, configContent string) func() {
+	t.Helper()
+	tempDir := t.TempDir()
+	originalHome := os.Getenv("HOME")
+	os.Setenv("HOME", tempDir)
+
+	agentDeckDir := filepath.Join(tempDir, ".agent-deck")
+	_ = os.MkdirAll(agentDeckDir, 0700)
+	configPath := filepath.Join(agentDeckDir, "config.toml")
+	if err := os.WriteFile(configPath, []byte(configContent), 0600); err != nil {
+		t.Fatalf("Failed to write config: %v", err)
+	}
+	ClearUserConfigCache()
+
+	return func() {
+		os.Setenv("HOME", originalHome)
+		ClearUserConfigCache()
+	}
+}
+
+func TestBuildClaudeExtraFlags_DangerousMode(t *testing.T) {
+	cleanup := setupConfigForTest(t, `
+[claude]
+dangerous_mode = true
+`)
+	defer cleanup()
+
+	inst := &Instance{Tool: "claude"}
+	flags := inst.buildClaudeExtraFlags(nil)
+
+	if !strings.Contains(flags, "--dangerously-skip-permissions") {
+		t.Errorf("expected --dangerously-skip-permissions, got %q", flags)
+	}
+}
+
+func TestBuildClaudeExtraFlags_AllowDangerousMode(t *testing.T) {
+	cleanup := setupConfigForTest(t, `
+[claude]
+dangerous_mode = false
+allow_dangerous_mode = true
+`)
+	defer cleanup()
+
+	inst := &Instance{Tool: "claude"}
+	flags := inst.buildClaudeExtraFlags(nil)
+
+	if !strings.Contains(flags, "--allow-dangerously-skip-permissions") {
+		t.Errorf("expected --allow-dangerously-skip-permissions, got %q", flags)
+	}
+	if strings.Contains(flags, " --dangerously-skip-permissions") {
+		t.Errorf("should not contain --dangerously-skip-permissions, got %q", flags)
+	}
+}
+
+func TestBuildClaudeExtraFlags_DangerousWinsOverAllow(t *testing.T) {
+	cleanup := setupConfigForTest(t, `
+[claude]
+dangerous_mode = true
+allow_dangerous_mode = true
+`)
+	defer cleanup()
+
+	inst := &Instance{Tool: "claude"}
+	flags := inst.buildClaudeExtraFlags(nil)
+
+	if !strings.Contains(flags, "--dangerously-skip-permissions") {
+		t.Errorf("expected --dangerously-skip-permissions, got %q", flags)
+	}
+	if strings.Contains(flags, "--allow-dangerously-skip-permissions") {
+		t.Errorf("dangerous_mode should take precedence, got %q", flags)
+	}
+}

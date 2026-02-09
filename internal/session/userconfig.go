@@ -381,17 +381,22 @@ type ClaudeSettings struct {
 	// Power users typically want this enabled for faster iteration
 	DangerousMode *bool `toml:"dangerous_mode"`
 
+	// AllowDangerousMode enables --allow-dangerously-skip-permissions flag
+	// This unlocks bypass as an option without activating it by default.
+	// Ignored when dangerous_mode is true (the stronger flag takes precedence).
+	// Default: false
+	AllowDangerousMode bool `toml:"allow_dangerous_mode"`
+
 	// EnvFile is a .env file specific to Claude sessions
 	// Sourced AFTER global [shell].env_files
 	// Path can be absolute, ~ for home, or relative to session working directory
 	EnvFile string `toml:"env_file"`
 }
 
-// GetDangerousMode returns whether dangerous mode is enabled, defaulting to true
-// This provides a safe getter that handles the nil case (config not set)
+// GetDangerousMode returns whether dangerous mode is enabled, defaulting to false
 func (c *ClaudeSettings) GetDangerousMode() bool {
 	if c.DangerousMode == nil {
-		return true // Default: ON for power users
+		return false
 	}
 	return *c.DangerousMode
 }
