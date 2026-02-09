@@ -572,6 +572,39 @@ max_shown = 8
 	}
 }
 
+func TestClaudeSettings_AllowDangerousMode_TOML(t *testing.T) {
+	tmpDir := t.TempDir()
+	configContent := `
+[claude]
+dangerous_mode = false
+allow_dangerous_mode = true
+`
+	configPath := filepath.Join(tmpDir, "config.toml")
+	if err := os.WriteFile(configPath, []byte(configContent), 0600); err != nil {
+		t.Fatalf("Failed to write config file: %v", err)
+	}
+
+	var config UserConfig
+	_, err := toml.DecodeFile(configPath, &config)
+	if err != nil {
+		t.Fatalf("Failed to decode: %v", err)
+	}
+
+	if config.Claude.GetDangerousMode() {
+		t.Error("Expected dangerous_mode false")
+	}
+	if !config.Claude.AllowDangerousMode {
+		t.Error("Expected allow_dangerous_mode true")
+	}
+}
+
+func TestClaudeSettings_AllowDangerousMode_Default(t *testing.T) {
+	var config UserConfig
+	if config.Claude.AllowDangerousMode {
+		t.Error("allow_dangerous_mode should default to false")
+	}
+}
+
 func TestGetNotificationsSettings_PartialConfig(t *testing.T) {
 	// Test that missing fields get defaults
 	tempDir := t.TempDir()

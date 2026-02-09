@@ -1707,3 +1707,52 @@ func TestRegenerate_MCPConfig_InvalidatesCache(t *testing.T) {
 			"(cache should have been invalidated), got: %v", localNames2)
 	}
 }
+
+func TestBuildClaudeExtraFlags_DangerousMode(t *testing.T) {
+	inst := &Instance{Tool: "claude"}
+	opts := &ClaudeOptions{SkipPermissions: true}
+	flags := inst.buildClaudeExtraFlags(opts)
+
+	if !strings.Contains(flags, "--dangerously-skip-permissions") {
+		t.Errorf("expected --dangerously-skip-permissions, got %q", flags)
+	}
+}
+
+func TestBuildClaudeExtraFlags_AllowDangerousMode(t *testing.T) {
+	inst := &Instance{Tool: "claude"}
+	opts := &ClaudeOptions{SkipPermissions: false, AllowSkipPermissions: true}
+	flags := inst.buildClaudeExtraFlags(opts)
+
+	if !strings.Contains(flags, "--allow-dangerously-skip-permissions") {
+		t.Errorf("expected --allow-dangerously-skip-permissions, got %q", flags)
+	}
+	if strings.Contains(flags, " --dangerously-skip-permissions") {
+		t.Errorf("should not contain --dangerously-skip-permissions, got %q", flags)
+	}
+}
+
+func TestBuildClaudeExtraFlags_DangerousWinsOverAllow(t *testing.T) {
+	inst := &Instance{Tool: "claude"}
+	opts := &ClaudeOptions{SkipPermissions: true, AllowSkipPermissions: true}
+	flags := inst.buildClaudeExtraFlags(opts)
+
+	if !strings.Contains(flags, "--dangerously-skip-permissions") {
+		t.Errorf("expected --dangerously-skip-permissions, got %q", flags)
+	}
+	if strings.Contains(flags, "--allow-dangerously-skip-permissions") {
+		t.Errorf("dangerous_mode should take precedence, got %q", flags)
+	}
+}
+
+func TestBuildClaudeExtraFlags_NilOpts(t *testing.T) {
+	inst := &Instance{Tool: "claude"}
+	flags := inst.buildClaudeExtraFlags(nil)
+
+	// With nil opts, no permission flags should be added
+	if strings.Contains(flags, "--dangerously-skip-permissions") {
+		t.Errorf("nil opts should not add permission flags, got %q", flags)
+	}
+	if strings.Contains(flags, "--allow-dangerously-skip-permissions") {
+		t.Errorf("nil opts should not add permission flags, got %q", flags)
+	}
+}

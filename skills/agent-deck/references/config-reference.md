@@ -26,14 +26,16 @@ Claude Code integration settings.
 
 ```toml
 [claude]
-config_dir = "~/.claude-work"   # Path to Claude config directory
-dangerous_mode = true           # Enable --dangerously-skip-permissions
+config_dir = "~/.claude-work"      # Path to Claude config directory
+dangerous_mode = true              # Enable --dangerously-skip-permissions
+allow_dangerous_mode = false       # Enable --allow-dangerously-skip-permissions
 ```
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
 | `config_dir` | string | `~/.claude` | Claude config directory. Override with `CLAUDE_CONFIG_DIR` env. |
-| `dangerous_mode` | bool | `false` | Skip Claude permission dialogs. Required for automation. |
+| `dangerous_mode` | bool | `false` | Adds `--dangerously-skip-permissions`. Forces bypass on. Takes precedence over `allow_dangerous_mode`. |
+| `allow_dangerous_mode` | bool | `false` | Adds `--allow-dangerously-skip-permissions`. Unlocks bypass as an option without activating it. Ignored when `dangerous_mode` is true. |
 
 ## [codex] Section
 

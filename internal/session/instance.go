@@ -432,6 +432,8 @@ func (i *Instance) buildClaudeExtraFlags(opts *ClaudeOptions) string {
 	if opts != nil {
 		if opts.SkipPermissions {
 			flags = append(flags, "--dangerously-skip-permissions")
+		} else if opts.AllowSkipPermissions {
+			flags = append(flags, "--allow-dangerously-skip-permissions")
 		}
 		if opts.UseChrome {
 			flags = append(flags, "--chrome")
@@ -2562,21 +2564,26 @@ func (i *Instance) buildClaudeResumeCommand() string {
 		configDirPrefix = fmt.Sprintf("CLAUDE_CONFIG_DIR=%s ", configDir)
 	}
 
-	// Check if dangerous mode is enabled in user config
-	dangerousMode := false
-	if userConfig, err := LoadUserConfig(); err == nil && userConfig != nil {
-		dangerousMode = userConfig.Claude.GetDangerousMode()
+	// Get per-session permission settings (falls back to config if not persisted)
+	opts := i.GetClaudeOptions()
+	if opts == nil {
+		userConfig, _ := LoadUserConfig()
+		opts = NewClaudeOptions(userConfig)
 	}
+	dangerousMode := opts.SkipPermissions
+	allowDangerousMode := opts.AllowSkipPermissions
 
 	// Check if session has actual conversation data
 	// If not, use --session-id instead of --resume to avoid "No conversation found" error
 	useResume := sessionHasConversationData(i.ClaudeSessionID, i.ProjectPath)
 	sessionLog.Debug("session_data_build_resume", slog.String("session_id", i.ClaudeSessionID), slog.String("path", i.ProjectPath), slog.Bool("use_resume", useResume))
 
-	// Build dangerous mode flag
+	// Build dangerous mode flag (--dangerously-skip-permissions wins over --allow-...)
 	dangerousFlag := ""
 	if dangerousMode {
 		dangerousFlag = " --dangerously-skip-permissions"
+	} else if allowDangerousMode {
+		dangerousFlag = " --allow-dangerously-skip-permissions"
 	}
 
 	// Build the command with tmux environment update

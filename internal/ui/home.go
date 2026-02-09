@@ -3056,12 +3056,9 @@ func (h *Home) createSessionFromGlobalSearch(result *GlobalSearchResult) tea.Cmd
 		inst := session.NewInstanceWithGroupAndTool(title, projectPath, h.getCurrentGroupPath(), "claude")
 		inst.ClaudeSessionID = result.SessionID
 
-		// Build resume command with config dir and dangerous mode
+		// Build resume command with config dir and permission flags
 		userConfig, _ := session.LoadUserConfig()
-		dangerousMode := false
-		if userConfig != nil {
-			dangerousMode = userConfig.Claude.GetDangerousMode()
-		}
+		opts := session.NewClaudeOptions(userConfig)
 
 		// Build command - only set CLAUDE_CONFIG_DIR if explicitly configured
 		// If not explicit, let the tmux shell's environment handle it
@@ -3074,10 +3071,15 @@ func (h *Home) createSessionFromGlobalSearch(result *GlobalSearchResult) tea.Cmd
 		}
 		cmdBuilder.WriteString("claude --resume ")
 		cmdBuilder.WriteString(result.SessionID)
-		if dangerousMode {
+		if opts.SkipPermissions {
 			cmdBuilder.WriteString(" --dangerously-skip-permissions")
+		} else if opts.AllowSkipPermissions {
+			cmdBuilder.WriteString(" --allow-dangerously-skip-permissions")
 		}
 		inst.Command = cmdBuilder.String()
+
+		// Persist options so restarts use per-session settings
+		_ = inst.SetClaudeOptions(opts)
 
 		// Start the session
 		if err := inst.Start(); err != nil {
