@@ -303,6 +303,57 @@ func (s *Storage) SaveWithGroups(instances []*Instance, groupTree *GroupTree) er
 	return nil
 }
 
+// DeleteInstance removes a single instance from the database by ID.
+// This ensures the row is immediately removed, preventing resurrection on reload.
+func (s *Storage) DeleteInstance(id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.db == nil {
+		return fmt.Errorf("storage database not initialized")
+	}
+
+	if err := s.db.DeleteInstance(id); err != nil {
+		return fmt.Errorf("failed to delete instance %s: %w", id, err)
+	}
+
+	_ = s.db.Touch()
+	return nil
+}
+
+// SaveGroupsOnly persists only the groups table to SQLite.
+// This is a lightweight save for visual state like group expanded/collapsed.
+// It does NOT call Touch() to avoid triggering StorageWatcher reloads on other instances.
+func (s *Storage) SaveGroupsOnly(groupTree *GroupTree) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.db == nil {
+		return fmt.Errorf("storage database not initialized")
+	}
+
+	if groupTree == nil {
+		return nil
+	}
+
+	groupRows := make([]*statedb.GroupRow, 0, len(groupTree.GroupList))
+	for _, g := range groupTree.GroupList {
+		groupRows = append(groupRows, &statedb.GroupRow{
+			Path:        g.Path,
+			Name:        g.Name,
+			Expanded:    g.Expanded,
+			Order:       g.Order,
+			DefaultPath: g.DefaultPath,
+		})
+	}
+
+	if err := s.db.SaveGroups(groupRows); err != nil {
+		return fmt.Errorf("failed to save groups: %w", err)
+	}
+
+	return nil
+}
+
 // Load reads instances from SQLite
 func (s *Storage) Load() ([]*Instance, error) {
 	instances, _, err := s.LoadWithGroups()
@@ -471,21 +522,6 @@ func (s *Storage) LoadWithGroups() ([]*Instance, []*GroupData, error) {
 	}
 
 	return s.convertToInstances(data)
-}
-
-// GetStoragePathForProfile returns the path to the sessions.json file for a specific profile.
-// Kept for backward compatibility (StorageWatcher, CLI commands that check file existence).
-func GetStoragePathForProfile(profile string) (string, error) {
-	if profile == "" {
-		profile = DefaultProfile
-	}
-
-	profileDir, err := GetProfileDir(profile)
-	if err != nil {
-		return "", err
-	}
-
-	return filepath.Join(profileDir, "sessions.json"), nil
 }
 
 // GetDBPathForProfile returns the path to the state.db file for a specific profile.

@@ -29,7 +29,7 @@ import (
 	"github.com/asheshgoplani/agent-deck/internal/update"
 )
 
-const Version = "0.11.2"
+const Version = "0.11.3"
 
 // Table column widths for list command output
 const (
@@ -276,27 +276,26 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Create storage early to register instance and elect primary via SQLite
-	// This replaces the old lock file mechanism with heartbeat-based primary election
-	isPrimaryInstance := true
+	// Create storage early to register instance via SQLite
 	earlyStorage, err := session.NewStorageWithProfile(profile)
 	if err == nil {
 		if db := earlyStorage.GetDB(); db != nil {
 			statedb.SetGlobal(db)
 			_ = db.RegisterInstance(false)
-			isPrimary, electErr := db.ElectPrimary(30 * time.Second)
-			if electErr == nil {
-				isPrimaryInstance = isPrimary
-			}
 		}
 	}
 
-	// Check if multiple instances are allowed
+	// Check if multiple instances are allowed (uses primary election as single-instance gate)
 	instanceSettings := session.GetInstanceSettings()
-	if !instanceSettings.GetAllowMultiple() && !isPrimaryInstance {
-		fmt.Println("Error: agent-deck is already running for this profile")
-		fmt.Println("Set [instances] allow_multiple = true in config.toml to allow multiple instances")
-		os.Exit(1)
+	if !instanceSettings.GetAllowMultiple() {
+		if db := statedb.GetGlobal(); db != nil {
+			isFirst, electErr := db.ElectPrimary(30 * time.Second)
+			if electErr == nil && !isFirst {
+				fmt.Println("Error: agent-deck is already running for this profile")
+				fmt.Println("Set [instances] allow_multiple = true in config.toml to allow multiple instances")
+				os.Exit(1)
+			}
+		}
 	}
 
 	// Set up signal handling for graceful shutdown and crash dumps
@@ -365,13 +364,8 @@ func main() {
 		defer logging.Shutdown()
 
 		if debugMode {
-			instanceType := "primary"
-			if !isPrimaryInstance {
-				instanceType = "secondary"
-			}
 			logging.ForComponent(logging.CompUI).Info("instance_started",
-				slog.Int("pid", os.Getpid()),
-				slog.String("instance_type", instanceType))
+				slog.Int("pid", os.Getpid()))
 		}
 
 		// SIGUSR1 dumps the ring buffer for post-mortem debugging
@@ -392,8 +386,7 @@ func main() {
 	}
 
 	// Start TUI with the specified profile
-	// Pass isPrimaryInstance to control notification bar management
-	homeModel := ui.NewHomeWithProfileAndMode(profile, isPrimaryInstance)
+	homeModel := ui.NewHomeWithProfileAndMode(profile)
 	p := tea.NewProgram(
 		homeModel,
 		tea.WithAltScreen(),
@@ -577,6 +570,9 @@ func handleAdd(profile string, args []string) {
 		return nil
 	})
 
+	// Resume session flag
+	resumeSession := fs.String("resume-session", "", "Claude session ID to resume (skips new session creation)")
+
 	fs.Usage = func() {
 		fmt.Println("Usage: agent-deck add [path] [options]")
 		fmt.Println()
@@ -731,6 +727,15 @@ func handleAdd(profile string, args []string) {
 	sessionCommand := mergeFlags(*command, *commandShort)
 	sessionParent := mergeFlags(*parent, *parentShort)
 
+	// Validate --resume-session requires Claude
+	if *resumeSession != "" {
+		tool := detectTool(sessionCommand)
+		if tool != "claude" {
+			fmt.Println("Error: --resume-session only works with Claude sessions (-c claude)")
+			os.Exit(1)
+		}
+	}
+
 	// Default title to folder name
 	if sessionTitle == "" {
 		sessionTitle = filepath.Base(path)
@@ -818,6 +823,23 @@ func handleAdd(profile string, args []string) {
 		newInstance.WorktreeBranch = wtBranch
 	}
 
+	// Handle --resume-session: set Claude session ID and resume mode
+	if *resumeSession != "" {
+		newInstance.ClaudeSessionID = *resumeSession
+		newInstance.ClaudeDetectedAt = time.Now()
+
+		opts := newInstance.GetClaudeOptions()
+		if opts == nil {
+			userConfig, _ := session.LoadUserConfig()
+			opts = session.NewClaudeOptions(userConfig)
+		}
+		opts.SessionMode = "resume"
+		opts.ResumeSessionID = *resumeSession
+		if err := newInstance.SetClaudeOptions(opts); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to set resume options: %v\n", err)
+		}
+	}
+
 	// Add to instances
 	instances = append(instances, newInstance)
 
@@ -878,6 +900,9 @@ func handleAdd(profile string, args []string) {
 		humanLines = append(humanLines, fmt.Sprintf("  Worktree: %s (branch: %s)", worktreePath, wtBranch))
 		humanLines = append(humanLines, fmt.Sprintf("  Repo:    %s", worktreeRepoRoot))
 	}
+	if *resumeSession != "" {
+		humanLines = append(humanLines, fmt.Sprintf("  Resume:  %s", *resumeSession))
+	}
 	humanLines = append(humanLines, "")
 	humanLines = append(humanLines, "Next steps:")
 	humanLines = append(humanLines, fmt.Sprintf("  agent-deck session start %s   # Start the session", sessionTitle))
@@ -907,6 +932,9 @@ func handleAdd(profile string, args []string) {
 		jsonData["worktree_path"] = worktreePath
 		jsonData["worktree_branch"] = wtBranch
 		jsonData["worktree_repo_root"] = worktreeRepoRoot
+	}
+	if *resumeSession != "" {
+		jsonData["resume_session"] = *resumeSession
 	}
 
 	out.Success(humanLines[0], jsonData)
@@ -1874,9 +1902,18 @@ func handleUninstall(args []string) {
 		if entries, err := os.ReadDir(profilesDir); err == nil {
 			for _, entry := range entries {
 				if entry.IsDir() {
-					profileCount++
-					sessionsFile := filepath.Join(profilesDir, entry.Name(), "sessions.json")
-					if data, err := os.ReadFile(sessionsFile); err == nil {
+					// Check for state.db (SQLite, v0.11.0+) or sessions.json (legacy)
+					dbFile := filepath.Join(profilesDir, entry.Name(), "state.db")
+					jsonFile := filepath.Join(profilesDir, entry.Name(), "sessions.json")
+					if _, err := os.Stat(dbFile); err == nil {
+						profileCount++
+						if s, err := session.NewStorageWithProfile(entry.Name()); err == nil {
+							if instances, _, err := s.LoadWithGroups(); err == nil {
+								sessionCount += len(instances)
+							}
+						}
+					} else if data, err := os.ReadFile(jsonFile); err == nil {
+						profileCount++
 						sessionCount += strings.Count(string(data), `"id"`)
 					}
 				}

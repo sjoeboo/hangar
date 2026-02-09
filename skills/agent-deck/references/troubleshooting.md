@@ -188,17 +188,19 @@ Use this template:
 
 ### Session Metadata Lost
 
-Backups at:
+Data stored in SQLite:
 ```bash
-~/.agent-deck/profiles/default/sessions.json.bak
-~/.agent-deck/profiles/default/sessions.json.bak.1
-~/.agent-deck/profiles/default/sessions.json.bak.2
+~/.agent-deck/profiles/default/state.db
 ```
 
-Restore:
+Recovery (if state.db is corrupted):
 ```bash
-cp ~/.agent-deck/profiles/default/sessions.json.bak \
+# If sessions.json.migrated still exists, delete state.db and restart.
+# agent-deck will auto-migrate from the .migrated file.
+rm ~/.agent-deck/profiles/default/state.db
+mv ~/.agent-deck/profiles/default/sessions.json.migrated \
    ~/.agent-deck/profiles/default/sessions.json
+# Restart agent-deck to trigger auto-migration into a fresh state.db
 ```
 
 ### tmux Sessions Lost

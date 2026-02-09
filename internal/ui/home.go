@@ -236,8 +236,6 @@ type Home struct {
 
 	// SQLite heartbeat: tracks when we last cleaned dead instances
 	lastDeadInstanceCleanup time.Time
-	// SQLite primary election: tracks when we last checked for primary re-election
-	lastPrimaryCheck time.Time
 
 	// User activity tracking for adaptive status updates
 	// PERFORMANCE: Only update statuses when user is actively interacting
@@ -275,11 +273,6 @@ type Home struct {
 	maintenanceMsg     string
 	maintenanceMsgTime time.Time
 
-	// Multi-instance support
-	// When AllowMultiple is enabled, only the primary instance (first to start) manages
-	// the notification bar and key bindings. Secondary instances are read-only for those.
-	isPrimaryInstance bool
-
 	// Cursor sync: track last notification bar switch during attach
 	// When user switches sessions via Ctrl+b N while attached (tea.Exec),
 	// we record the target session ID so cursor can follow after detach
@@ -293,6 +286,10 @@ type Home struct {
 	// When a rename save is skipped (isReloading=true), the title change is
 	// stored here and re-applied after the reload completes.
 	pendingTitleChanges map[string]string
+
+	// UI state persistence across restarts
+	pendingCursorRestore *uiState // Consumed on first loadSessionsMsg to restore cursor
+	uiStateSaveTicks     int      // Counter for periodic UI state saves in tick handler
 }
 
 // reloadState preserves UI state during storage reload
@@ -301,6 +298,14 @@ type reloadState struct {
 	cursorGroupPath string          // Path of group at cursor (if cursor on group)
 	expandedGroups  map[string]bool // Expanded group paths
 	viewOffset      int             // Scroll position
+}
+
+// uiState persists cursor, preview mode, and status filter across restarts
+type uiState struct {
+	CursorSessionID string `json:"cursor_session_id,omitempty"`
+	CursorGroupPath string `json:"cursor_group_path,omitempty"`
+	PreviewMode     int    `json:"preview_mode"`
+	StatusFilter    string `json:"status_filter,omitempty"`
 }
 
 // deletedSessionEntry holds a deleted session for undo restore
@@ -347,7 +352,7 @@ type refreshMsg struct{}
 
 type statusUpdateMsg struct{} // Triggers immediate status update without reloading
 
-// storageChangedMsg signals that sessions.json was modified externally
+// storageChangedMsg signals that state.db was modified externally
 type storageChangedMsg struct{}
 
 // openCodeDetectionCompleteMsg signals that OpenCode session detection finished
@@ -425,17 +430,14 @@ func NewHome() *Home {
 	return NewHomeWithProfile("")
 }
 
-// NewHomeWithProfile creates a new home model with the specified profile as the primary instance.
-// This is the default constructor for backward compatibility.
+// NewHomeWithProfile creates a new home model with the specified profile.
 func NewHomeWithProfile(profile string) *Home {
-	return NewHomeWithProfileAndMode(profile, true)
+	return NewHomeWithProfileAndMode(profile)
 }
 
-// NewHomeWithProfileAndMode creates a new Home with the specified profile and instance mode.
-// isPrimary controls whether this instance manages the notification bar:
-//   - true: Primary instance - manages notification bar, key bindings, signal file
-//   - false: Secondary instance - read-only for notifications, full functionality otherwise
-func NewHomeWithProfileAndMode(profile string, isPrimary bool) *Home {
+// NewHomeWithProfileAndMode creates a new Home with the specified profile.
+// All instances manage the notification bar equally via shared SQLite state.
+func NewHomeWithProfileAndMode(profile string) *Home {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	var storageWarning string
@@ -448,12 +450,12 @@ func NewHomeWithProfileAndMode(profile string, isPrimary bool) *Home {
 	}
 
 	// Ensure StateDB global is set for cross-package status writes.
-	// Primary registration and election happen in main.go before NewHome is called.
+	// Registration and election happen in main.go before NewHome is called.
 	// This fallback handles CLI paths (e.g., NewHomeWithProfile) that skip main.go setup.
 	if storage != nil && statedb.GetGlobal() == nil {
 		if db := storage.GetDB(); db != nil {
 			statedb.SetGlobal(db)
-			_ = db.RegisterInstance(isPrimary)
+			_ = db.RegisterInstance(false)
 		}
 	}
 
@@ -501,10 +503,12 @@ func NewHomeWithProfileAndMode(profile string, isPrimary bool) *Home {
 		statusWorkerDone:     make(chan struct{}),
 		logUpdateChan:        make(chan *session.Instance, 100), // Buffered to absorb bursts
 		boundKeys:            make(map[string]string),
-		isPrimaryInstance:    isPrimary,
 		undoStack:            make([]deletedSessionEntry, 0, 10),
 		pendingTitleChanges:  make(map[string]string),
 	}
+
+	// Restore persisted UI state (preview mode, status filter, cursor position)
+	h.loadUIState()
 
 	// Initialize notification manager if enabled in config
 	// All instances manage the notification bar (they share SQLite state, so produce identical output)
@@ -1623,14 +1627,6 @@ func (h *Home) backgroundStatusUpdate() {
 			}
 		}
 
-		// Update primary status every ~10s (used for future coordination, not notifications)
-		if time.Since(h.lastPrimaryCheck) > 10*time.Second {
-			isPrimary, electErr := db.ElectPrimary(30 * time.Second)
-			if electErr == nil {
-				h.isPrimaryInstance = isPrimary
-			}
-			h.lastPrimaryCheck = time.Now()
-		}
 	}
 
 	// Always sync notification bar - must check for signal file (Ctrl+b N acknowledgments)
@@ -2066,6 +2062,31 @@ func (h *Home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				h.syncViewport()
 			} else {
 				h.rebuildFlatItems()
+				// Restore cursor from persisted UI state (initial load only)
+				if h.pendingCursorRestore != nil {
+					restored := false
+					if h.pendingCursorRestore.CursorSessionID != "" {
+						for i, item := range h.flatItems {
+							if item.Type == session.ItemTypeSession &&
+								item.Session != nil &&
+								item.Session.ID == h.pendingCursorRestore.CursorSessionID {
+								h.cursor = i
+								restored = true
+								break
+							}
+						}
+					}
+					if !restored && h.pendingCursorRestore.CursorGroupPath != "" {
+						for i, item := range h.flatItems {
+							if item.Type == session.ItemTypeGroup && item.Path == h.pendingCursorRestore.CursorGroupPath {
+								h.cursor = i
+								break
+							}
+						}
+					}
+					h.pendingCursorRestore = nil
+					h.syncViewport()
+				}
 				// Save after dedup to persist any ID changes (initial load only)
 				h.saveInstances()
 			}
@@ -2267,6 +2288,10 @@ func (h *Home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		h.rebuildFlatItems()
 		// Update search items
 		h.search.SetItems(h.instances)
+		// Explicitly delete from database to prevent resurrection on reload
+		if err := h.storage.DeleteInstance(msg.deletedID); err != nil {
+			uiLog.Warn("delete_instance_db_err", slog.String("id", msg.deletedID), slog.String("err", err.Error()))
+		}
 		// Save both instances AND groups (critical fix: was losing groups!)
 		// Use forceSave to bypass mtime check - delete MUST persist
 		h.forceSaveInstances()
@@ -2722,6 +2747,13 @@ func (h *Home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		// Update animation frame for launching spinner (8 frames, cycles every tick)
 		h.animationFrame = (h.animationFrame + 1) % 8
+
+		// Periodic UI state save (every 5 ticks = ~10 seconds)
+		h.uiStateSaveTicks++
+		if h.uiStateSaveTicks >= 5 {
+			h.uiStateSaveTicks = 0
+			h.saveUIState()
+		}
 
 		// Fast log size check every 10 seconds (catches runaway logs before they cause issues)
 		// This is much faster than full maintenance - just checks file sizes
@@ -3321,6 +3353,7 @@ func (h *Home) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 						break
 					}
 				}
+				h.saveGroupState()
 			}
 		}
 		return h, nil
@@ -3339,6 +3372,7 @@ func (h *Home) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 						break
 					}
 				}
+				h.saveGroupState()
 			}
 		}
 		return h, nil
@@ -3347,6 +3381,7 @@ func (h *Home) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// Collapse group
 		if h.cursor < len(h.flatItems) {
 			item := h.flatItems[h.cursor]
+			collapsed := false
 			if item.Type == session.ItemTypeGroup {
 				groupPath := item.Path
 				h.groupTree.CollapseGroup(groupPath)
@@ -3357,6 +3392,7 @@ func (h *Home) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 						break
 					}
 				}
+				collapsed = true
 			} else if item.Type == session.ItemTypeSession {
 				// Move cursor to parent group
 				h.groupTree.CollapseGroup(item.Path)
@@ -3368,6 +3404,10 @@ func (h *Home) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 						break
 					}
 				}
+				collapsed = true
+			}
+			if collapsed {
+				h.saveGroupState()
 			}
 		}
 		return h, nil
@@ -3946,6 +3986,8 @@ func (h *Home) performFinalShutdown(shutdownPool bool) tea.Cmd {
 		}
 		// Clean up notification bar (clear tmux status bars and unbind keys)
 		h.cleanupNotifications()
+		// Save UI state (cursor, preview mode, filter) before saving instances
+		h.saveUIState()
 		// Save both instances AND groups on quit (critical fix: was losing groups!)
 		h.saveInstances()
 
@@ -4230,9 +4272,9 @@ func (h *Home) saveInstancesWithForce(force bool) {
 	}
 
 	if h.storage != nil {
-		// DEFENSIVE CHECK: Verify we're saving to the correct profile's file
+		// DEFENSIVE CHECK: Verify we're saving to the correct profile's database
 		// This prevents catastrophic cross-profile contamination
-		expectedPath, err := session.GetStoragePathForProfile(h.profile)
+		expectedPath, err := session.GetDBPathForProfile(h.profile)
 		if err != nil {
 			uiLog.Warn("save_expected_path_failed", slog.String("profile", h.profile), slog.String("error", err.Error()))
 			return
@@ -4292,6 +4334,87 @@ func (h *Home) saveInstancesWithForce(force bool) {
 			}
 		}
 	}
+}
+
+// saveGroupState saves only group expanded/collapsed state to SQLite.
+// This is lightweight (no Touch, no StorageWatcher trigger) and safe to call after every toggle.
+func (h *Home) saveGroupState() {
+	if h.storage == nil || h.groupTree == nil {
+		return
+	}
+	groupTreeCopy := h.groupTree.ShallowCopyForSave()
+	if err := h.storage.SaveGroupsOnly(groupTreeCopy); err != nil {
+		uiLog.Warn("save_group_state_failed", slog.String("error", err.Error()))
+	}
+}
+
+// saveUIState persists cursor position, preview mode, and status filter to SQLite metadata.
+func (h *Home) saveUIState() {
+	if h.storage == nil {
+		return
+	}
+	db := h.storage.GetDB()
+	if db == nil {
+		return
+	}
+
+	state := uiState{
+		PreviewMode:  int(h.previewMode),
+		StatusFilter: string(h.statusFilter),
+	}
+
+	// Capture cursor position
+	if h.cursor >= 0 && h.cursor < len(h.flatItems) {
+		item := h.flatItems[h.cursor]
+		switch item.Type {
+		case session.ItemTypeSession:
+			if item.Session != nil {
+				state.CursorSessionID = item.Session.ID
+			}
+		case session.ItemTypeGroup:
+			state.CursorGroupPath = item.Path
+		}
+	}
+
+	data, err := json.Marshal(state)
+	if err != nil {
+		uiLog.Warn("save_ui_state_marshal_failed", slog.String("error", err.Error()))
+		return
+	}
+	if err := db.SetMeta("ui_state", string(data)); err != nil {
+		uiLog.Warn("save_ui_state_failed", slog.String("error", err.Error()))
+	}
+}
+
+// loadUIState reads persisted UI state from SQLite metadata.
+// Preview mode and status filter are applied immediately.
+// Cursor position is stored in pendingCursorRestore for deferred application after initial load.
+func (h *Home) loadUIState() {
+	if h.storage == nil {
+		return
+	}
+	db := h.storage.GetDB()
+	if db == nil {
+		return
+	}
+
+	val, err := db.GetMeta("ui_state")
+	if err != nil || val == "" {
+		return
+	}
+
+	var state uiState
+	if err := json.Unmarshal([]byte(val), &state); err != nil {
+		uiLog.Warn("load_ui_state_unmarshal_failed", slog.String("error", err.Error()))
+		return
+	}
+
+	// Apply preview mode and status filter immediately
+	h.previewMode = PreviewMode(state.PreviewMode)
+	h.statusFilter = session.Status(state.StatusFilter)
+
+	// Defer cursor restoration until flatItems are populated
+	h.pendingCursorRestore = &state
 }
 
 // getUsedClaudeSessionIDs returns a map of all Claude session IDs currently in use

@@ -259,7 +259,7 @@ func (t *GroupTree) rebuildGroupList() {
 		return pathI < pathJ
 	})
 	// Note: Do NOT reassign Order values here - this would destroy user-customized
-	// order stored in sessions.json. Order values are set:
+	// order stored in state.db. Order values are set:
 	// 1. When loaded from storage (preserved)
 	// 2. When creating new groups (Order = len(GroupList))
 	// 3. When manually reordering with K/J keys (MoveGroupUp/Down)

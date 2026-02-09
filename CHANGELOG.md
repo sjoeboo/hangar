@@ -5,6 +5,29 @@ All notable changes to Agent Deck will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.11.3] - 2026-02-09
+
+### Fixed
+
+- Fix deleted sessions reappearing after reload or app restart
+  - `SaveInstances()` now deletes stale rows from SQLite within the same transaction
+  - Added explicit `DeleteInstance()` call in the delete handler as a safeguard
+  - Root cause: `INSERT OR REPLACE` never removed deleted session rows from the database
+- Update profile detection to check for `state.db` (SQLite) in addition to legacy `sessions.json`
+- Update uninstall script to count sessions from SQLite instead of JSON
+
+### Added
+
+- Persist UI state (cursor position, preview mode, status filter) across restarts via SQLite metadata
+- Save group expanded/collapsed state immediately on toggle
+- Discord badge and link in README
+
+### Changed
+
+- Simplify multi-instance coordination: remove periodic primary re-election from background worker
+- Create new profiles with SQLite directly instead of empty `sessions.json`
+- Update troubleshooting docs for SQLite-based recovery
+
 ## [0.11.2] - 2026-02-06
 
 ### Fixed

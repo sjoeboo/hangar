@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -243,12 +244,32 @@ func (s *StateDB) SaveInstance(inst *InstanceRow) error {
 }
 
 // SaveInstances inserts or replaces multiple instances in a single transaction.
+// It also removes any rows from the database that are not in the provided list,
+// ensuring deleted sessions don't reappear on reload.
 func (s *StateDB) SaveInstances(insts []*InstanceRow) error {
 	tx, err := s.db.Begin()
 	if err != nil {
 		return err
 	}
 	defer func() { _ = tx.Rollback() }()
+
+	// Delete rows not in the new list to prevent deleted sessions from reappearing.
+	if len(insts) == 0 {
+		if _, err := tx.Exec("DELETE FROM instances"); err != nil {
+			return err
+		}
+	} else {
+		placeholders := make([]string, len(insts))
+		args := make([]any, len(insts))
+		for i, inst := range insts {
+			placeholders[i] = "?"
+			args[i] = inst.ID
+		}
+		query := "DELETE FROM instances WHERE id NOT IN (" + strings.Join(placeholders, ",") + ")"
+		if _, err := tx.Exec(query, args...); err != nil {
+			return err
+		}
+	}
 
 	stmt, err := tx.Prepare(`
 		INSERT OR REPLACE INTO instances (
