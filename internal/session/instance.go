@@ -430,17 +430,13 @@ func (i *Instance) buildClaudeExtraFlags(opts *ClaudeOptions) string {
 
 	// Options-level flags
 	if opts != nil {
+		if opts.SkipPermissions {
+			flags = append(flags, "--dangerously-skip-permissions")
+		} else if opts.AllowSkipPermissions {
+			flags = append(flags, "--allow-dangerously-skip-permissions")
+		}
 		if opts.UseChrome {
 			flags = append(flags, "--chrome")
-		}
-	}
-
-	// Permission flags from live config (so changes apply without recreating sessions)
-	if userConfig, err := LoadUserConfig(); err == nil && userConfig != nil {
-		if userConfig.Claude.GetDangerousMode() {
-			flags = append(flags, "--dangerously-skip-permissions")
-		} else if userConfig.Claude.AllowDangerousMode {
-			flags = append(flags, "--allow-dangerously-skip-permissions")
 		}
 	}
 
@@ -2568,13 +2564,14 @@ func (i *Instance) buildClaudeResumeCommand() string {
 		configDirPrefix = fmt.Sprintf("CLAUDE_CONFIG_DIR=%s ", configDir)
 	}
 
-	// Check permission settings from user config
-	dangerousMode := false
-	allowDangerousMode := false
-	if userConfig, err := LoadUserConfig(); err == nil && userConfig != nil {
-		dangerousMode = userConfig.Claude.GetDangerousMode()
-		allowDangerousMode = userConfig.Claude.AllowDangerousMode
+	// Get per-session permission settings (falls back to config if not persisted)
+	opts := i.GetClaudeOptions()
+	if opts == nil {
+		userConfig, _ := LoadUserConfig()
+		opts = NewClaudeOptions(userConfig)
 	}
+	dangerousMode := opts.SkipPermissions
+	allowDangerousMode := opts.AllowSkipPermissions
 
 	// Check if session has actual conversation data
 	// If not, use --session-id instead of --resume to avoid "No conversation found" error

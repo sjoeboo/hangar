@@ -393,10 +393,11 @@ type ClaudeSettings struct {
 	EnvFile string `toml:"env_file"`
 }
 
-// GetDangerousMode returns whether dangerous mode is enabled, defaulting to false
+// GetDangerousMode returns whether dangerous mode is enabled, defaulting to true
+// Power users (the primary audience) typically want this enabled for faster iteration
 func (c *ClaudeSettings) GetDangerousMode() bool {
 	if c.DangerousMode == nil {
-		return false
+		return true
 	}
 	return *c.DangerousMode
 }

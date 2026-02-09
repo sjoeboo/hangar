@@ -76,6 +76,21 @@ func TestClaudeOptions_ToArgs(t *testing.T) {
 			},
 			expected: []string{"-c", "--dangerously-skip-permissions", "--chrome"},
 		},
+		{
+			name: "allow skip permissions only",
+			opts: ClaudeOptions{
+				AllowSkipPermissions: true,
+			},
+			expected: []string{"--allow-dangerously-skip-permissions"},
+		},
+		{
+			name: "skip permissions takes precedence over allow",
+			opts: ClaudeOptions{
+				SkipPermissions:      true,
+				AllowSkipPermissions: true,
+			},
+			expected: []string{"--dangerously-skip-permissions"},
+		},
 	}
 
 	for _, tt := range tests {
@@ -128,6 +143,21 @@ func TestClaudeOptions_ToArgsForFork(t *testing.T) {
 			},
 			expected: []string{"--dangerously-skip-permissions", "--chrome"},
 		},
+		{
+			name: "allow skip permissions for fork",
+			opts: ClaudeOptions{
+				AllowSkipPermissions: true,
+			},
+			expected: []string{"--allow-dangerously-skip-permissions"},
+		},
+		{
+			name: "skip permissions takes precedence for fork",
+			opts: ClaudeOptions{
+				SkipPermissions:      true,
+				AllowSkipPermissions: true,
+			},
+			expected: []string{"--dangerously-skip-permissions"},
+		},
 	}
 
 	for _, tt := range tests {
@@ -167,6 +197,41 @@ func TestNewClaudeOptions_NilConfig(t *testing.T) {
 	}
 	if opts.SkipPermissions {
 		t.Error("expected SkipPermissions=false when config is nil")
+	}
+	if opts.AllowSkipPermissions {
+		t.Error("expected AllowSkipPermissions=false when config is nil")
+	}
+}
+
+func TestNewClaudeOptions_AllowDangerousMode(t *testing.T) {
+	dangerousModeFalse := false
+	config := &UserConfig{
+		Claude: ClaudeSettings{
+			DangerousMode:      &dangerousModeFalse,
+			AllowDangerousMode: true,
+		},
+	}
+
+	opts := NewClaudeOptions(config)
+
+	if opts.SkipPermissions {
+		t.Error("expected SkipPermissions=false when dangerous_mode=false")
+	}
+	if !opts.AllowSkipPermissions {
+		t.Error("expected AllowSkipPermissions=true when allow_dangerous_mode=true")
+	}
+}
+
+func TestNewClaudeOptions_DefaultDangerousMode(t *testing.T) {
+	// With nil DangerousMode (default=true), SkipPermissions should be true
+	config := &UserConfig{
+		Claude: ClaudeSettings{},
+	}
+
+	opts := NewClaudeOptions(config)
+
+	if !opts.SkipPermissions {
+		t.Error("expected SkipPermissions=true when dangerous_mode is nil (default=true)")
 	}
 }
 
@@ -411,6 +476,30 @@ func TestCodexOptions_RoundTrip_NilYolo(t *testing.T) {
 
 	if restored.YoloMode != nil {
 		t.Errorf("expected YoloMode=nil after roundtrip, got %v", *restored.YoloMode)
+	}
+}
+
+func TestClaudeOptions_RoundTrip_AllowSkipPermissions(t *testing.T) {
+	original := &ClaudeOptions{
+		SessionMode:          "new",
+		AllowSkipPermissions: true,
+	}
+
+	data, err := MarshalToolOptions(original)
+	if err != nil {
+		t.Fatalf("MarshalToolOptions failed: %v", err)
+	}
+
+	restored, err := UnmarshalClaudeOptions(data)
+	if err != nil {
+		t.Fatalf("UnmarshalClaudeOptions failed: %v", err)
+	}
+
+	if !restored.AllowSkipPermissions {
+		t.Error("expected AllowSkipPermissions=true after roundtrip")
+	}
+	if restored.SkipPermissions {
+		t.Error("expected SkipPermissions=false after roundtrip")
 	}
 }
 

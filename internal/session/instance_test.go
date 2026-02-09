@@ -1708,36 +1708,10 @@ func TestRegenerate_MCPConfig_InvalidatesCache(t *testing.T) {
 	}
 }
 
-// setupConfigForTest writes a config.toml and primes the cache.
-func setupConfigForTest(t *testing.T, configContent string) func() {
-	t.Helper()
-	tempDir := t.TempDir()
-	originalHome := os.Getenv("HOME")
-	os.Setenv("HOME", tempDir)
-
-	agentDeckDir := filepath.Join(tempDir, ".agent-deck")
-	_ = os.MkdirAll(agentDeckDir, 0700)
-	configPath := filepath.Join(agentDeckDir, "config.toml")
-	if err := os.WriteFile(configPath, []byte(configContent), 0600); err != nil {
-		t.Fatalf("Failed to write config: %v", err)
-	}
-	ClearUserConfigCache()
-
-	return func() {
-		os.Setenv("HOME", originalHome)
-		ClearUserConfigCache()
-	}
-}
-
 func TestBuildClaudeExtraFlags_DangerousMode(t *testing.T) {
-	cleanup := setupConfigForTest(t, `
-[claude]
-dangerous_mode = true
-`)
-	defer cleanup()
-
 	inst := &Instance{Tool: "claude"}
-	flags := inst.buildClaudeExtraFlags(nil)
+	opts := &ClaudeOptions{SkipPermissions: true}
+	flags := inst.buildClaudeExtraFlags(opts)
 
 	if !strings.Contains(flags, "--dangerously-skip-permissions") {
 		t.Errorf("expected --dangerously-skip-permissions, got %q", flags)
@@ -1745,15 +1719,9 @@ dangerous_mode = true
 }
 
 func TestBuildClaudeExtraFlags_AllowDangerousMode(t *testing.T) {
-	cleanup := setupConfigForTest(t, `
-[claude]
-dangerous_mode = false
-allow_dangerous_mode = true
-`)
-	defer cleanup()
-
 	inst := &Instance{Tool: "claude"}
-	flags := inst.buildClaudeExtraFlags(nil)
+	opts := &ClaudeOptions{SkipPermissions: false, AllowSkipPermissions: true}
+	flags := inst.buildClaudeExtraFlags(opts)
 
 	if !strings.Contains(flags, "--allow-dangerously-skip-permissions") {
 		t.Errorf("expected --allow-dangerously-skip-permissions, got %q", flags)
@@ -1764,20 +1732,27 @@ allow_dangerous_mode = true
 }
 
 func TestBuildClaudeExtraFlags_DangerousWinsOverAllow(t *testing.T) {
-	cleanup := setupConfigForTest(t, `
-[claude]
-dangerous_mode = true
-allow_dangerous_mode = true
-`)
-	defer cleanup()
-
 	inst := &Instance{Tool: "claude"}
-	flags := inst.buildClaudeExtraFlags(nil)
+	opts := &ClaudeOptions{SkipPermissions: true, AllowSkipPermissions: true}
+	flags := inst.buildClaudeExtraFlags(opts)
 
 	if !strings.Contains(flags, "--dangerously-skip-permissions") {
 		t.Errorf("expected --dangerously-skip-permissions, got %q", flags)
 	}
 	if strings.Contains(flags, "--allow-dangerously-skip-permissions") {
 		t.Errorf("dangerous_mode should take precedence, got %q", flags)
+	}
+}
+
+func TestBuildClaudeExtraFlags_NilOpts(t *testing.T) {
+	inst := &Instance{Tool: "claude"}
+	flags := inst.buildClaudeExtraFlags(nil)
+
+	// With nil opts, no permission flags should be added
+	if strings.Contains(flags, "--dangerously-skip-permissions") {
+		t.Errorf("nil opts should not add permission flags, got %q", flags)
+	}
+	if strings.Contains(flags, "--allow-dangerously-skip-permissions") {
+		t.Errorf("nil opts should not add permission flags, got %q", flags)
 	}
 }

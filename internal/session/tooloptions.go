@@ -22,6 +22,9 @@ type ClaudeOptions struct {
 	ResumeSessionID string `json:"resume_session_id,omitempty"`
 	// SkipPermissions adds --dangerously-skip-permissions flag
 	SkipPermissions bool `json:"skip_permissions,omitempty"`
+	// AllowSkipPermissions adds --allow-dangerously-skip-permissions flag
+	// Only used when SkipPermissions is false (SkipPermissions takes precedence)
+	AllowSkipPermissions bool `json:"allow_skip_permissions,omitempty"`
 	// UseChrome adds --chrome flag
 	UseChrome bool `json:"use_chrome,omitempty"`
 
@@ -52,9 +55,11 @@ func (o *ClaudeOptions) ToArgs() []string {
 	}
 	// "new" or empty = default behavior, no special flag
 
-	// Boolean flags
+	// Permission flags (mutually exclusive, SkipPermissions takes precedence)
 	if o.SkipPermissions {
 		args = append(args, "--dangerously-skip-permissions")
+	} else if o.AllowSkipPermissions {
+		args = append(args, "--allow-dangerously-skip-permissions")
 	}
 	if o.UseChrome {
 		args = append(args, "--chrome")
@@ -70,6 +75,8 @@ func (o *ClaudeOptions) ToArgsForFork() []string {
 
 	if o.SkipPermissions {
 		args = append(args, "--dangerously-skip-permissions")
+	} else if o.AllowSkipPermissions {
+		args = append(args, "--allow-dangerously-skip-permissions")
 	}
 	if o.UseChrome {
 		args = append(args, "--chrome")
@@ -85,6 +92,7 @@ func NewClaudeOptions(config *UserConfig) *ClaudeOptions {
 	}
 	if config != nil {
 		opts.SkipPermissions = config.Claude.GetDangerousMode()
+		opts.AllowSkipPermissions = config.Claude.AllowDangerousMode
 	}
 	return opts
 }
