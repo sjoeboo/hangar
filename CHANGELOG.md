@@ -5,6 +5,16 @@ All notable changes to Agent Deck will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.11.4] - 2026-02-09
+
+### Added
+
+- Add `allow_dangerous_mode` option to `[claude]` config section
+  - Passes `--allow-dangerously-skip-permissions` to Claude (opt-in bypass mode)
+  - `dangerous_mode = true` takes precedence when both are set
+  - Based on contribution by @daniel-shimon (#152), with architectural fixes (#153)
+- New permission flag persists per-session across fork and restart operations
+
 ## [0.11.3] - 2026-02-09
 
 ### Fixed
