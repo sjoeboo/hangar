@@ -821,11 +821,8 @@ func (s *Session) Start(command string) error {
 			escapedCmd := strings.ReplaceAll(command, "'", "'\"'\"'")
 			cmdToSend = fmt.Sprintf("bash -c '%s'", escapedCmd)
 		}
-		if err := s.SendKeys(cmdToSend); err != nil {
+		if err := s.SendKeysAndEnter(cmdToSend); err != nil {
 			return fmt.Errorf("failed to send command: %w", err)
-		}
-		if err := s.SendEnter(); err != nil {
-			return fmt.Errorf("failed to send enter: %w", err)
 		}
 	}
 
@@ -2335,6 +2332,18 @@ func (s *Session) SendEnter() error {
 	return cmd.Run()
 }
 
+// SendKeysAndEnter sends literal text followed by Enter atomically in a single
+// tmux subprocess. Uses tmux command chaining (;) to eliminate the race condition
+// where two separate send-keys calls can be separated by OS scheduling delays.
+// See: tmux#1185, tmux#1517, tmux#1778
+func (s *Session) SendKeysAndEnter(keys string) error {
+	s.invalidateCache()
+	cmd := exec.Command("tmux",
+		"send-keys", "-l", "-t", s.Name, "--", keys, ";",
+		"send-keys", "-t", s.Name, "Enter")
+	return cmd.Run()
+}
+
 // SendKeysChunked sends large content to the tmux session in chunks to avoid
 // tmux/OS buffer limits. Content ≤4KB is sent directly via SendKeys.
 // Larger content is split at newline boundaries with a short delay between chunks.
@@ -2565,12 +2574,7 @@ func (s *Session) IsClaudeRunning() bool {
 
 // SendCommand sends a command to the tmux session and presses Enter
 func (s *Session) SendCommand(command string) error {
-	// Send the command text
-	if err := s.SendKeys(command); err != nil {
-		return err
-	}
-	// Press Enter to execute
-	return s.SendEnter()
+	return s.SendKeysAndEnter(command)
 }
 
 // GetWorkDir returns the current working directory of the tmux pane

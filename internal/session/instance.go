@@ -404,7 +404,7 @@ func (i *Instance) buildClaudeCommandWithMessage(baseCommand, message string) st
 					`tmux set-environment CLAUDE_SESSION_ID "$session_id"; `+
 					`(sleep 2; SESSION_NAME=$(tmux display-message -p '#S'); `+
 					`while ! tmux capture-pane -p -t "$SESSION_NAME" | tail -5 | grep -qE "^>"; do sleep 0.2; done; `+
-					`tmux send-keys -l -t "$SESSION_NAME" '%s'; tmux send-keys -t "$SESSION_NAME" Enter) & `+
+					`tmux send-keys -l -t "$SESSION_NAME" -- '%s' \\; send-keys -t "$SESSION_NAME" Enter) & `+
 					`%sclaude --session-id "$session_id"%s`,
 				escapedMsg,
 				bashExportPrefix, extraFlags)
@@ -1253,8 +1253,6 @@ func (i *Instance) sendMessageWhenReady(message string) error {
 		return fmt.Errorf("tmux session not initialized")
 	}
 
-	sessionName := i.tmuxSession.Name
-
 	// Track state transitions: we need to see "active" before accepting "waiting"
 	// This ensures we don't send the message during initial startup (false "waiting")
 	sawActive := false
@@ -1292,16 +1290,9 @@ func (i *Instance) sendMessageWhenReady(message string) error {
 			// Small delay to ensure UI is fully rendered
 			time.Sleep(300 * time.Millisecond)
 
-			// Send the message using tmux send-keys
-			// -l flag for literal text, then Enter separately
-			cmd := exec.Command("tmux", "send-keys", "-l", "-t", sessionName, message)
-			if err := cmd.Run(); err != nil {
+			// Send message atomically (text + Enter in single tmux invocation)
+			if err := i.tmuxSession.SendKeysAndEnter(message); err != nil {
 				return fmt.Errorf("failed to send message: %w", err)
-			}
-
-			cmd = exec.Command("tmux", "send-keys", "-t", sessionName, "Enter")
-			if err := cmd.Run(); err != nil {
-				return fmt.Errorf("failed to send Enter: %w", err)
 			}
 
 			return nil

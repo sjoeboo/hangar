@@ -5,6 +5,14 @@ All notable changes to Agent Deck will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.12.2] - 2026-02-10
+
+### Fixed
+
+- Fix `session send` intermittently dropping Enter key (and sometimes text) due to tmux race condition between two separate `send-keys` process invocations (tmux#1185, tmux#1517, tmux#1778)
+- Fix all 6 send-keys + Enter code paths to use atomic tmux command chaining (`;`) in a single subprocess
+- Add retry with verification to CLI `session send` for resilience under heavy load or SSH latency
+
 ## [0.12.1] - 2026-02-10
 
 ### Fixed

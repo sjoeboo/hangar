@@ -1323,21 +1323,10 @@ func handleSessionSend(profile string, args []string) {
 		}
 	}
 
-	// Send message via tmux
-	tmuxName := tmuxSess.Name
-	cmd := exec.Command("tmux", "send-keys", "-l", "-t", tmuxName, message)
-	if err := cmd.Run(); err != nil {
+	// Send message atomically (text + Enter in single tmux invocation)
+	// with retry to handle rare cases where Enter is still dropped
+	if err := sendWithRetry(tmuxSess, message); err != nil {
 		out.Error(fmt.Sprintf("failed to send message: %v", err), ErrCodeInvalidOperation)
-		os.Exit(1)
-	}
-
-	// Small delay for Ink-based TUIs (Codex) to process text before Enter
-	time.Sleep(100 * time.Millisecond)
-
-	// Send Enter
-	cmd = exec.Command("tmux", "send-keys", "-t", tmuxName, "Enter")
-	if err := cmd.Run(); err != nil {
-		out.Error(fmt.Sprintf("failed to send Enter: %v", err), ErrCodeInvalidOperation)
 		os.Exit(1)
 	}
 
@@ -1347,6 +1336,32 @@ func handleSessionSend(profile string, args []string) {
 		"session_title": inst.Title,
 		"message":       message,
 	})
+}
+
+// sendWithRetry sends a message atomically and retries Enter if the agent
+// doesn't start processing within a reasonable time.
+func sendWithRetry(tmuxSess *tmux.Session, message string) error {
+	if err := tmuxSess.SendKeysAndEnter(message); err != nil {
+		return fmt.Errorf("failed to send message: %w", err)
+	}
+
+	// Verify: check if agent transitions to "active" (processing).
+	// If not, the Enter may have been lost; retry just the Enter key.
+	const maxRetries = 2
+	const checkDelay = 500 * time.Millisecond
+
+	for retry := 0; retry < maxRetries; retry++ {
+		time.Sleep(checkDelay)
+		status, err := tmuxSess.GetStatus()
+		if err == nil && status == "active" {
+			return nil // Agent is processing
+		}
+		// Retry just the Enter key
+		_ = tmuxSess.SendEnter()
+	}
+	// Best effort: don't fail even if verification is inconclusive
+	// (agent might process fast enough that we miss the "active" window)
+	return nil
 }
 
 // waitForAgentReady waits for Claude/Gemini/other agents to be ready for input
