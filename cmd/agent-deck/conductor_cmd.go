@@ -242,19 +242,20 @@ func handleConductorSetup(profile string, args []string) {
 		newInst.Command = "claude"
 		instances = append(instances, newInst)
 
-		groupTree := session.NewGroupTreeWithGroups(instances, groups)
-		conductorGroup := groupTree.CreateGroup("conductor")
-		conductorGroup.Order = -1 // Pin conductor group to the top
-
-		if err := storage.SaveWithGroups(instances, groupTree); err != nil {
-			fmt.Fprintf(os.Stderr, "Error saving session for %s: %v\n", profile, err)
-			os.Exit(1)
-		}
-
 		sessionID = newInst.ID
 		if !*jsonOutput {
 			fmt.Printf("  [ok] Session '%s' registered (ID: %s)\n", sessionTitle, newInst.ID[:8])
 		}
+	}
+
+	// Always ensure conductor group is pinned to top
+	groupTree := session.NewGroupTreeWithGroups(instances, groups)
+	conductorGroup := groupTree.CreateGroup("conductor")
+	conductorGroup.Order = -1
+
+	if err := storage.SaveWithGroups(instances, groupTree); err != nil {
+		fmt.Fprintf(os.Stderr, "Error saving session for %s: %v\n", profile, err)
+		os.Exit(1)
 	}
 
 	// Step 6: Install Telegram bridge (only if Telegram is configured)
