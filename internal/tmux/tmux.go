@@ -1970,7 +1970,11 @@ func (s *Session) hasBusyIndicatorResolved(content string) bool {
 		shortName = shortName[:12]
 	}
 
-	lastLines := lastNLines(content, 25)
+	// Use last 10 lines (not 25). The status line is always within ~7 lines
+	// of the bottom. A wider window picks up conversation history text that
+	// can contain spinner-like patterns (e.g. discussing "✳ Cooking…"),
+	// causing false GREEN detection.
+	lastLines := lastNLines(content, 10)
 	recentContent := strings.ToLower(strings.Join(lastLines, "\n"))
 
 	// 1. Spinner active pattern: most common for Claude 2.1.25+ ("✳ Gusting…")
@@ -2061,7 +2065,7 @@ func (s *Session) hasBusyIndicatorLegacy(content string) bool {
 		shortName = shortName[:12]
 	}
 
-	lastLines := lastNLines(content, 25)
+	lastLines := lastNLines(content, 10)
 	recentContent := strings.ToLower(strings.Join(lastLines, "\n"))
 
 	if strings.Contains(recentContent, "ctrl+c to interrupt") {
