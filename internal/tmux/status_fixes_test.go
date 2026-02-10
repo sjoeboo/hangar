@@ -13,6 +13,7 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+	"time"
 )
 
 // =============================================================================
@@ -931,5 +932,103 @@ func TestClaudeCode2125_DynamicStatusPattern(t *testing.T) {
 		if got != tt.want {
 			t.Errorf("dynamicStatusPattern.MatchString(%q) = %v, want %v", tt.input, got, tt.want)
 		}
+	}
+}
+
+// =============================================================================
+// BENCHMARKS: Status Detection Performance Baselines
+// =============================================================================
+// Run with: go test -bench=. -benchmem ./internal/tmux/...
+
+// realisticClaudeContent simulates a typical Claude Code terminal pane capture
+// with mixed output, spinner status, and prompt elements.
+var realisticClaudeContent = `Some previous output from Claude Code
+Here is the implementation of the requested feature:
+
+` + "```" + `go
+func main() {
+    fmt.Println("Hello, world!")
+}
+` + "```" + `
+
+I've made the following changes:
+1. Added the main function
+2. Imported fmt package
+
+✳ Cooking… (12s · ↑ 200 tokens)
+──────────────────────────────────────────────────────────────
+❯
+──────────────────────────────────────────────────────────────`
+
+var realisticClaudeDoneContent = `Here is the implementation of the requested feature:
+
+` + "```" + `go
+func main() {
+    fmt.Println("Hello, world!")
+}
+` + "```" + `
+
+I've made the following changes:
+1. Added the main function
+2. Imported fmt package
+
+✻ Cooked for 32s
+
+──────────────────────────────────────────────────────────────
+❯
+──────────────────────────────────────────────────────────────`
+
+func BenchmarkNormalizeContent(b *testing.B) {
+	sess := NewSession("bench-normalize", "/tmp")
+	sess.Command = "claude"
+
+	b.ResetTimer()
+	for b.Loop() {
+		_ = sess.normalizeContent(realisticClaudeContent)
+	}
+}
+
+func BenchmarkHasBusyIndicator(b *testing.B) {
+	sess := NewSession("bench-busy", "/tmp")
+	sess.Command = "claude"
+
+	b.Run("active_spinner", func(b *testing.B) {
+		for b.Loop() {
+			_ = sess.hasBusyIndicator(realisticClaudeContent)
+		}
+	})
+
+	b.Run("done_no_spinner", func(b *testing.B) {
+		for b.Loop() {
+			_ = sess.hasBusyIndicator(realisticClaudeDoneContent)
+		}
+	})
+}
+
+func BenchmarkHasPromptIndicator(b *testing.B) {
+	sess := NewSession("bench-prompt", "/tmp")
+	sess.Command = "claude"
+
+	b.Run("with_prompt", func(b *testing.B) {
+		for b.Loop() {
+			_ = sess.hasPromptIndicator(realisticClaudeDoneContent)
+		}
+	})
+
+	b.Run("no_prompt_active", func(b *testing.B) {
+		for b.Loop() {
+			_ = sess.hasPromptIndicator(realisticClaudeContent)
+		}
+	})
+}
+
+// =============================================================================
+// VALIDATION 8.0: Grace Period Constant
+// =============================================================================
+
+func TestGracePeriodConstant(t *testing.T) {
+	// Verify the grace period constant is 3 seconds (optimized from 5s)
+	if greenToWaitingGracePeriod != 3*time.Second {
+		t.Errorf("greenToWaitingGracePeriod = %v, want 3s", greenToWaitingGracePeriod)
 	}
 }

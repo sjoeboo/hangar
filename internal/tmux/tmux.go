@@ -416,6 +416,10 @@ type Session struct {
 	// When non-nil, hasBusyIndicator and normalizeContent use these instead of hardcoded values
 	resolvedPatterns *ResolvedPatterns
 
+	// Cached PromptDetector (avoids allocating a new one on every hasPromptIndicator call)
+	cachedPromptDetector     *PromptDetector
+	cachedPromptDetectorTool string
+
 	// Environment variable cache (reduces tmux show-environment subprocess spawns)
 	envCache   map[string]envCacheEntry
 	envCacheMu sync.RWMutex
@@ -1481,6 +1485,12 @@ func (s *Session) AcknowledgeWithSnapshot() {
 //
 // 4. Check cooldown → GREEN if within
 // 5. Cooldown expired → YELLOW or GRAY based on acknowledged
+
+// greenToWaitingGracePeriod is the time after the last busy indicator before
+// transitioning from GREEN to YELLOW. Prevents false YELLOW flashes between
+// tool calls where the spinner briefly disappears.
+const greenToWaitingGracePeriod = 3 * time.Second
+
 func (s *Session) GetStatus() (string, error) {
 	shortName := s.DisplayName
 	if len(shortName) > 12 {
@@ -1556,13 +1566,6 @@ func (s *Session) GetStatus() (string, error) {
 			}
 			statusLog.Debug("needs_busy_check", slog.String("session", shortName), slog.Bool("busy", isExplicitlyBusy), slog.String("last_line", lastLine))
 
-			// Update content hash for spike detection (used later to confirm real activity)
-			cleanContent := s.normalizeContent(content)
-			currentHash := s.hashContent(cleanContent)
-			if currentHash != "" {
-				s.stateTracker.lastHash = currentHash
-			}
-
 			// Check for prompt indicators (AskUserQuestion, permission dialogs, etc.)
 			// Prompt detection takes priority over busy indicator because Claude can
 			// show spinner/status text alongside an interactive question UI.
@@ -1579,12 +1582,22 @@ func (s *Session) GetStatus() (string, error) {
 				statusLog.Debug("busy_indicator_active", slog.String("session", shortName))
 				return "active", nil
 			}
+
+			// Update content hash for spike detection (deferred until after early return above).
+			// The 500ms CapturePane cache means the spike path gets the same content,
+			// so we store the normalized result once and reuse it via cachedNormContent.
+			cleanContent := s.normalizeContent(content)
+			currentHash := s.hashContent(cleanContent)
+			if currentHash != "" {
+				s.stateTracker.lastHash = currentHash
+			}
+
 			if hasPrompt {
 				// Grace period: if session was recently GREEN (busy indicator found
 				// within last 5s), don't immediately flip to YELLOW. Between tool calls
 				// the spinner briefly disappears while the user's old input line (❯ ...)
 				// is still visible, causing false prompt detection.
-				if s.lastStableStatus == "active" && time.Since(s.stateTracker.lastChangeTime) < 5*time.Second {
+				if s.lastStableStatus == "active" && time.Since(s.stateTracker.lastChangeTime) < greenToWaitingGracePeriod {
 					statusLog.Debug("prompt_grace_period", slog.String("session", shortName), slog.Duration("since_busy", time.Since(s.stateTracker.lastChangeTime)))
 					return "active", nil
 				}
@@ -1667,13 +1680,6 @@ func (s *Session) GetStatus() (string, error) {
 					// Check for explicit busy indicator (spinner, "ctrl+c to interrupt")
 					isExplicitlyBusy := s.hasBusyIndicator(content)
 
-					// Update content hash for tracking (but NOT used for GREEN decision)
-					cleanContent := s.normalizeContent(content)
-					currentHash := s.hashContent(cleanContent)
-					if currentHash != "" {
-						s.stateTracker.lastHash = currentHash
-					}
-
 					// Only GREEN if explicit busy indicator found
 					// Content hash changes alone are NOT reliable - cursor blinks,
 					// terminal redraws, and status bar updates can cause hash changes
@@ -1685,6 +1691,13 @@ func (s *Session) GetStatus() (string, error) {
 						s.lastStableStatus = "active"
 						statusLog.Debug("sustained_confirmed", slog.String("session", shortName))
 						return "active", nil
+					}
+
+					// Not busy - update hash for tracking (deferred past the early return above)
+					cleanContent := s.normalizeContent(content)
+					currentHash := s.hashContent(cleanContent)
+					if currentHash != "" {
+						s.stateTracker.lastHash = currentHash
 					}
 
 					// No busy indicator - spike was false positive (cursor blink, status bar, etc.)
@@ -1737,7 +1750,7 @@ func (s *Session) GetStatus() (string, error) {
 		}
 		if captureErr == nil && s.hasPromptIndicator(content) {
 			// Grace period: don't flip to YELLOW if recently GREEN
-			if time.Since(s.stateTracker.lastChangeTime) < 5*time.Second {
+			if time.Since(s.stateTracker.lastChangeTime) < greenToWaitingGracePeriod {
 				statusLog.Debug("prompt_recheck_grace_period", slog.String("session", shortName))
 				return "active", nil
 			}
@@ -1944,6 +1957,12 @@ func (s *Session) hasBusyIndicator(content string) bool {
 
 // hasBusyIndicatorResolved uses compiled ResolvedPatterns for busy detection.
 // This is the configurable path: patterns come from DefaultRawPatterns + user config.toml overrides.
+//
+// Detection order is optimized for modern Claude Code (2.1.25+):
+//  1. SpinnerActivePattern (most common: "✳ Gusting…")
+//  2. Spinner chars in last 5 lines (braille spinners)
+//  3. Regex-based patterns (re: prefixed busy patterns)
+//  4. String-based patterns (legacy fallback: "ctrl+c to interrupt")
 func (s *Session) hasBusyIndicatorResolved(content string) bool {
 	patterns := s.resolvedPatterns
 	shortName := s.DisplayName
@@ -1951,40 +1970,16 @@ func (s *Session) hasBusyIndicatorResolved(content string) bool {
 		shortName = shortName[:12]
 	}
 
-	lines := strings.Split(content, "\n")
-	for len(lines) > 0 && strings.TrimSpace(lines[len(lines)-1]) == "" {
-		lines = lines[:len(lines)-1]
-	}
-	start := len(lines) - 25
-	if start < 0 {
-		start = 0
-	}
-	lastLines := lines[start:]
+	lastLines := lastNLines(content, 25)
 	recentContent := strings.ToLower(strings.Join(lastLines, "\n"))
 
-	// String-based busy indicators
-	for _, pat := range patterns.BusyStrings {
-		if strings.Contains(recentContent, strings.ToLower(pat)) {
-			statusLog.Debug("busy_reason_pattern", slog.String("session", shortName), slog.String("pattern", pat))
-			return true
-		}
-	}
-
-	// Regex-based busy indicators
-	for _, re := range patterns.BusyRegexps {
-		if re.MatchString(recentContent) {
-			statusLog.Debug("busy_reason_regex", slog.String("session", shortName), slog.String("regex", re.String()))
-			return true
-		}
-	}
-
-	// Spinner active pattern (built from whimsical words + spinner chars)
+	// 1. Spinner active pattern: most common for Claude 2.1.25+ ("✳ Gusting…")
 	if patterns.SpinnerActivePattern != nil && patterns.SpinnerActivePattern.MatchString(recentContent) {
 		statusLog.Debug("busy_reason_spinner", slog.String("session", shortName))
 		return true
 	}
 
-	// Spinner characters in last 5 lines (keep box-drawing skip logic)
+	// 2. Spinner characters in last 5 lines (braille spinners, box-drawing lines skipped)
 	if len(patterns.SpinnerChars) > 0 {
 		last5 := lastLines
 		if len(last5) > 5 {
@@ -2000,6 +1995,22 @@ func (s *Session) hasBusyIndicatorResolved(content string) bool {
 					return true
 				}
 			}
+		}
+	}
+
+	// 3. Regex-based busy indicators (re: prefixed patterns)
+	for _, re := range patterns.BusyRegexps {
+		if re.MatchString(recentContent) {
+			statusLog.Debug("busy_reason_regex", slog.String("session", shortName), slog.String("regex", re.String()))
+			return true
+		}
+	}
+
+	// 4. String-based busy indicators (legacy fallback)
+	for _, pat := range patterns.BusyStrings {
+		if strings.Contains(recentContent, strings.ToLower(pat)) {
+			statusLog.Debug("busy_reason_pattern", slog.String("session", shortName), slog.String("pattern", pat))
+			return true
 		}
 	}
 
@@ -2034,8 +2045,12 @@ func (s *Session) hasPromptIndicator(content string) bool {
 	if tool == "" {
 		return false
 	}
-	detector := NewPromptDetector(tool)
-	return detector.HasPrompt(content)
+	// Reuse cached detector if tool hasn't changed (avoids allocation per call)
+	if s.cachedPromptDetector == nil || s.cachedPromptDetectorTool != tool {
+		s.cachedPromptDetector = NewPromptDetector(tool)
+		s.cachedPromptDetectorTool = tool
+	}
+	return s.cachedPromptDetector.HasPrompt(content)
 }
 
 // hasBusyIndicatorLegacy is the original hardcoded busy detection logic.
@@ -2046,17 +2061,7 @@ func (s *Session) hasBusyIndicatorLegacy(content string) bool {
 		shortName = shortName[:12]
 	}
 
-	// Get last 25 lines for analysis, skipping trailing blank lines
-	lines := strings.Split(content, "\n")
-	for len(lines) > 0 && strings.TrimSpace(lines[len(lines)-1]) == "" {
-		lines = lines[:len(lines)-1]
-	}
-
-	start := len(lines) - 25
-	if start < 0 {
-		start = 0
-	}
-	lastLines := lines[start:]
+	lastLines := lastNLines(content, 25)
 	recentContent := strings.ToLower(strings.Join(lastLines, "\n"))
 
 	if strings.Contains(recentContent, "ctrl+c to interrupt") {
@@ -2115,6 +2120,20 @@ func (s *Session) hasBusyIndicatorLegacy(content string) bool {
 	}
 
 	return false
+}
+
+// lastNLines splits content into lines, trims trailing blank lines, and returns
+// the last n lines. Used by busy/prompt detection to focus on recent terminal output.
+func lastNLines(content string, n int) []string {
+	lines := strings.Split(content, "\n")
+	for len(lines) > 0 && strings.TrimSpace(lines[len(lines)-1]) == "" {
+		lines = lines[:len(lines)-1]
+	}
+	start := len(lines) - n
+	if start < 0 {
+		start = 0
+	}
+	return lines[start:]
 }
 
 // startsWithBoxDrawing checks if a line starts with box-drawing characters (UI borders).
@@ -2194,6 +2213,9 @@ var (
 	// Time patterns like "12:34" or "12:34:56" that change every second
 	// Gemini and other tools show timestamps that cause hash changes
 	timePattern = regexp.MustCompile(`\b\d{1,2}:\d{2}(?::\d{2})?\b`)
+
+	// Collapses runs of 3+ newlines to 2 newlines (one blank line)
+	blankLinesPattern = regexp.MustCompile(`\n{3,}`)
 )
 
 // claudeWhimsicalWords contains all 90 whimsical "thinking" words used by Claude Code
@@ -2242,10 +2264,8 @@ func (s *Session) normalizeContent(content string) string {
 	result = stripControlChars(result)
 
 	// Strip spinner characters that animate and cause hash changes
-	// Use the centralized SpinnerRuneSet which includes all normalization chars
-	for _, r := range SpinnerRuneSet() {
-		result = strings.ReplaceAll(result, string(r), "")
-	}
+	// Single-pass O(n) removal using map lookup instead of 16 sequential ReplaceAll calls
+	result = StripSpinnerRunes(result)
 
 	// Strip dynamic time/token counters that change every second
 	result = dynamicStatusPattern.ReplaceAllString(result, "(STATUS)")
@@ -2288,9 +2308,7 @@ func (s *Session) normalizeContent(content string) string {
 
 // normalizeBlankLines collapses runs of 3+ newlines to 2 newlines (one blank line)
 func normalizeBlankLines(content string) string {
-	// Match 3 or more consecutive newlines and replace with 2
-	re := regexp.MustCompile(`\n{3,}`)
-	return re.ReplaceAllString(content, "\n\n")
+	return blankLinesPattern.ReplaceAllString(content, "\n\n")
 }
 
 // stripControlChars removes all ASCII control characters except for tab, newline,

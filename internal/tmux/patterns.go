@@ -41,9 +41,8 @@ func DefaultRawPatterns(toolName string) *RawPatterns {
 	case "claude":
 		return &RawPatterns{
 			BusyPatterns: []string{
-				"ctrl+c to interrupt",
-				"esc to interrupt",
-				`re:[·✳✽✶✻✢]\s*.+…`, // Claude 2.1.25+ active spinner with unicode ellipsis
+				`re:[·✳✽✶✻✢]\s*.+…`,   // PRIMARY: spinner + ellipsis (Claude 2.1.25+)
+				"ctrl+c to interrupt", // SECONDARY: explicit busy text (older Claude)
 			},
 			SpinnerChars:   defaultSpinnerChars(),
 			WhimsicalWords: defaultWhimsicalWords(),
@@ -247,6 +246,28 @@ func MergeRawPatterns(defaults, overrides, extras *RawPatterns) *RawPatterns {
 	}
 
 	return result
+}
+
+// spinnerRuneMap is a lookup table for O(1) spinner rune detection.
+// Built once at init from SpinnerRuneSet() for use in single-pass stripping.
+var spinnerRuneMap map[rune]bool
+
+func init() {
+	spinnerRuneMap = make(map[rune]bool, len(SpinnerRuneSet()))
+	for _, r := range SpinnerRuneSet() {
+		spinnerRuneMap[r] = true
+	}
+}
+
+// StripSpinnerRunes removes all spinner characters in a single O(n) pass
+// using strings.Map, replacing 16 sequential strings.ReplaceAll calls.
+func StripSpinnerRunes(s string) string {
+	return strings.Map(func(r rune) rune {
+		if spinnerRuneMap[r] {
+			return -1 // drop the rune
+		}
+		return r
+	}, s)
 }
 
 func copySlice(s []string) []string {
