@@ -111,6 +111,7 @@ func (h *HelpOverlay) View() string {
 			title: "SESSIONS",
 			items: [][2]string{
 				{"n", "New session"},
+				{"N", "Quick create (auto name, smart defaults)"},
 				{"r", "Rename session"},
 				{"Shift+R", "Restart session"},
 				{"d", "Delete session"},

@@ -3658,6 +3658,10 @@ func (h *Home) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		h.newDialog.ShowInGroup(groupPath, groupName, defaultPath)
 		return h, nil
 
+	case "N":
+		// Quick create: auto-generated name, smart defaults from group context
+		return h, h.quickCreateSession()
+
 	case "d":
 		// Show confirmation dialog before deletion (prevents accidental deletion)
 		if h.cursor < len(h.flatItems) {
@@ -4523,6 +4527,101 @@ func (h *Home) quickForkSession(source *session.Instance) tea.Cmd {
 	title := source.Title + " (fork)"
 	groupPath := source.GroupPath
 	return h.forkSessionCmd(source, title, groupPath)
+}
+
+// quickCreateSession creates a session instantly with auto-generated name and smart defaults.
+// Defaults are inherited from the most recent session in the current group.
+func (h *Home) quickCreateSession() tea.Cmd {
+	// Resolve group from cursor position
+	groupPath := h.getCurrentGroupPath()
+	if groupPath == "" {
+		groupPath = session.DefaultGroupPath
+	}
+
+	// Resolve path: group default → most recent session in group → cwd
+	projectPath := h.getDefaultPathForGroup(groupPath)
+	if projectPath == "" {
+		projectPath = h.mostRecentPathInGroup(groupPath)
+	}
+	if projectPath == "" {
+		var err error
+		projectPath, err = os.Getwd()
+		if err != nil {
+			return func() tea.Msg {
+				return sessionCreatedMsg{err: fmt.Errorf("cannot determine project path: %w", err)}
+			}
+		}
+	}
+
+	// Resolve tool + options from most recent session in group
+	tool := ""
+	command := ""
+	var toolOptionsJSON json.RawMessage
+	geminiYoloMode := false
+
+	h.instancesMu.RLock()
+	var mostRecent *session.Instance
+	for _, inst := range h.instances {
+		if inst.GroupPath == groupPath {
+			if mostRecent == nil || inst.CreatedAt.After(mostRecent.CreatedAt) {
+				mostRecent = inst
+			}
+		}
+	}
+	if mostRecent != nil {
+		tool = mostRecent.Tool
+		command = mostRecent.Command
+		if len(mostRecent.ToolOptionsJSON) > 0 {
+			toolOptionsJSON = mostRecent.ToolOptionsJSON
+		}
+		if mostRecent.GeminiYoloMode != nil && *mostRecent.GeminiYoloMode {
+			geminiYoloMode = true
+		}
+	}
+	h.instancesMu.RUnlock()
+
+	// Fall back to user's configured default tool
+	if tool == "" {
+		tool = session.GetDefaultTool()
+	}
+	if tool == "" {
+		tool = "claude"
+	}
+	// Ensure command matches tool if not inherited
+	if command == "" {
+		command = tool
+	}
+
+	// Generate unique name
+	h.instancesMu.RLock()
+	name := session.GenerateUniqueSessionName(h.instances, groupPath)
+	h.instancesMu.RUnlock()
+
+	return h.createSessionInGroupWithWorktreeAndOptions(
+		name, projectPath, command, groupPath,
+		"", "", "", // no worktree
+		geminiYoloMode, toolOptionsJSON,
+	)
+}
+
+// mostRecentPathInGroup returns the project path of the most recently created
+// session in the given group, or empty string if no sessions exist.
+func (h *Home) mostRecentPathInGroup(groupPath string) string {
+	h.instancesMu.RLock()
+	defer h.instancesMu.RUnlock()
+
+	var mostRecent *session.Instance
+	for _, inst := range h.instances {
+		if inst.GroupPath == groupPath && inst.ProjectPath != "" {
+			if mostRecent == nil || inst.CreatedAt.After(mostRecent.CreatedAt) {
+				mostRecent = inst
+			}
+		}
+	}
+	if mostRecent != nil {
+		return mostRecent.ProjectPath
+	}
+	return ""
 }
 
 // forkSessionWithDialog opens the fork dialog to customize title and group
@@ -5903,13 +6002,13 @@ func (h *Home) renderHelpBarMinimal() string {
 	// Context-specific keys (left side)
 	var contextKeys string
 	if len(h.flatItems) == 0 {
-		contextKeys = keyStyle.Render("n") + " " + keyStyle.Render("i") + " " + keyStyle.Render("g")
+		contextKeys = keyStyle.Render("n") + " " + keyStyle.Render("N") + " " + keyStyle.Render("i") + " " + keyStyle.Render("g")
 	} else if h.cursor < len(h.flatItems) {
 		item := h.flatItems[h.cursor]
 		if item.Type == session.ItemTypeGroup {
-			contextKeys = keyStyle.Render("⏎") + " " + keyStyle.Render("n") + " " + keyStyle.Render("g")
+			contextKeys = keyStyle.Render("⏎") + " " + keyStyle.Render("n") + " " + keyStyle.Render("N") + " " + keyStyle.Render("g")
 		} else {
-			contextKeys = keyStyle.Render("⏎") + " " + keyStyle.Render("n") + " " + keyStyle.Render("R")
+			contextKeys = keyStyle.Render("⏎") + " " + keyStyle.Render("n") + " " + keyStyle.Render("N") + " " + keyStyle.Render("R")
 			if item.Session != nil && item.Session.CanFork() {
 				contextKeys += " " + keyStyle.Render("f")
 			}
@@ -5952,7 +6051,7 @@ func (h *Home) renderHelpBarCompact() string {
 	var contextHints []string
 	if len(h.flatItems) == 0 {
 		contextHints = []string{
-			h.helpKeyShort("n", "New"),
+			h.helpKeyShort("n/N", "New"),
 			h.helpKeyShort("i", "Import"),
 		}
 	} else if h.cursor < len(h.flatItems) {
@@ -5960,12 +6059,12 @@ func (h *Home) renderHelpBarCompact() string {
 		if item.Type == session.ItemTypeGroup {
 			contextHints = []string{
 				h.helpKeyShort("⏎", "Toggle"),
-				h.helpKeyShort("n", "New"),
+				h.helpKeyShort("n/N", "New"),
 			}
 		} else {
 			contextHints = []string{
 				h.helpKeyShort("⏎", "Attach"),
-				h.helpKeyShort("n", "New"),
+				h.helpKeyShort("n/N", "New"),
 				h.helpKeyShort("R", "Restart"),
 			}
 			if item.Session != nil && item.Session.CanFork() {
@@ -6043,7 +6142,7 @@ func (h *Home) renderHelpBarFull() string {
 	if len(h.flatItems) == 0 {
 		contextTitle = "Empty"
 		primaryHints = []string{
-			h.helpKey("n", "New"),
+			h.helpKey("n/N", "New/Quick"),
 			h.helpKey("i", "Import"),
 			h.helpKey("g", "Group"),
 		}
@@ -6053,7 +6152,7 @@ func (h *Home) renderHelpBarFull() string {
 			contextTitle = "Group"
 			primaryHints = []string{
 				h.helpKey("Tab", "Toggle"),
-				h.helpKey("n", "New"),
+				h.helpKey("n/N", "New/Quick"),
 				h.helpKey("g", "Group"),
 			}
 			secondaryHints = []string{
@@ -6064,7 +6163,7 @@ func (h *Home) renderHelpBarFull() string {
 			contextTitle = "Session"
 			primaryHints = []string{
 				h.helpKey("Enter", "Attach"),
-				h.helpKey("n", "New"),
+				h.helpKey("n/N", "New/Quick"),
 				h.helpKey("g", "Group"),
 				h.helpKey("R", "Restart"),
 			}

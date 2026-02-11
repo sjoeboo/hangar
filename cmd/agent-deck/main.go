@@ -29,7 +29,7 @@ import (
 	"github.com/asheshgoplani/agent-deck/internal/update"
 )
 
-const Version = "0.12.3"
+const Version = "0.13.0"
 
 // Table column widths for list command output
 const (
@@ -556,6 +556,8 @@ func handleAdd(profile string, args []string) {
 	wrapper := fs.String("wrapper", "", "Wrapper command (use {command} to include tool command, e.g., 'nvim +\"terminal {command}\"')")
 	parent := fs.String("parent", "", "Parent session (creates sub-session, inherits group)")
 	parentShort := fs.String("p", "", "Parent session (short)")
+	quickCreate := fs.Bool("quick", false, "Auto-generate session name (adjective-noun)")
+	quickCreateShort := fs.Bool("Q", false, "Auto-generate session name (short)")
 	jsonOutput := fs.Bool("json", false, "Output as JSON")
 	quiet := fs.Bool("quiet", false, "Minimal output")
 	quietShort := fs.Bool("q", false, "Minimal output (short)")
@@ -597,6 +599,7 @@ func handleAdd(profile string, args []string) {
 		fmt.Println("  agent-deck add -t \"Sub-task\" --parent \"Main Project\"  # Create sub-session")
 		fmt.Println("  agent-deck add -t \"Research\" -c claude --mcp memory --mcp sequential-thinking /tmp/x")
 		fmt.Println("  agent-deck add -c opencode --wrapper \"nvim +'terminal {command}' +'startinsert'\" .")
+		fmt.Println("  agent-deck add --quick -c claude .   # Auto-generated name")
 		fmt.Println()
 		fmt.Println("Worktree Examples:")
 		fmt.Println("  agent-deck add -w feature/login .    # Create worktree for existing branch")
@@ -779,8 +782,12 @@ func handleAdd(profile string, args []string) {
 
 	// Track if user provided explicit title or we auto-generated from folder name
 	userProvidedTitle := (mergeFlags(*title, *titleShort) != "")
+	isQuick := *quickCreate || *quickCreateShort
 
-	if !userProvidedTitle {
+	if isQuick && !userProvidedTitle {
+		// Quick mode: use auto-generated adjective-noun name
+		sessionTitle = session.GenerateUniqueSessionName(instances, sessionGroup)
+	} else if !userProvidedTitle {
 		// User didn't provide title - auto-generate unique title for this path
 		sessionTitle = generateUniqueTitle(instances, sessionTitle, path)
 	} else {

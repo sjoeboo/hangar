@@ -5,6 +5,15 @@ All notable changes to Agent Deck will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.13.0] - 2026-02-11
+
+### Added
+
+- Add quick session creation with `Shift+N` hotkey: instant session with auto-generated name and smart defaults (#161)
+- Add Docker-style name generator (adjective-noun) with ~10,000 unique combinations
+- Add `--quick` / `-Q` flag to `agent-deck add` CLI for auto-named sessions
+- Smart defaults: inherits tool, options, and path from most recent session in the group
+
 ## [0.12.3] - 2026-02-11
 
 ### Fixed
