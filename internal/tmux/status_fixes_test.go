@@ -1032,3 +1032,392 @@ func TestGracePeriodConstant(t *testing.T) {
 		t.Errorf("greenToWaitingGracePeriod = %v, want 3s", greenToWaitingGracePeriod)
 	}
 }
+
+// =============================================================================
+// VALIDATION 9.0: Spinner Movement Detection
+// =============================================================================
+// Core idea: Instead of just checking if a spinner char EXISTS, track whether
+// the spinner char CHANGES between polls. If it changes → spinner is animating
+// → Claude is alive. If it stays the same for N polls → spinner is stuck/frozen
+// → Claude may have crashed (see: github.com/anthropics/claude-code/issues/20572)
+//
+// Claude's spinner cycles at ~80-125ms. With 2s polling, we capture a different
+// char each time if it's alive. Same char across 5 polls (10s) is 0.1% chance
+// by coincidence → almost certainly stuck.
+
+// findSpinnerInContent extracts the first spinner character found in the last
+// N lines of terminal content. Returns the char and the full line it was found on.
+func findSpinnerInContent(content string, spinnerChars []string) (char string, line string, found bool) {
+	lines := strings.Split(content, "\n")
+	// Check last 10 lines (status line is always near bottom)
+	start := len(lines) - 10
+	if start < 0 {
+		start = 0
+	}
+	for i := len(lines) - 1; i >= start; i-- {
+		trimmed := strings.TrimSpace(lines[i])
+		if trimmed == "" {
+			continue
+		}
+		// Skip box-drawing lines (UI borders)
+		if startsWithBoxDrawing(lines[i]) {
+			continue
+		}
+		for _, ch := range spinnerChars {
+			if strings.Contains(lines[i], ch) {
+				return ch, lines[i], true
+			}
+		}
+	}
+	return "", "", false
+}
+
+func TestFindSpinnerInContent(t *testing.T) {
+	spinners := []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏", "✳", "✽", "✶", "✢"}
+
+	tests := []struct {
+		name      string
+		content   string
+		wantChar  string
+		wantFound bool
+	}{
+		{
+			name: "modern Claude active with asterisk spinner",
+			content: `Some output from Claude...
+
+✳ Gusting… (35s · ↑ 673 tokens)
+──────────────────────────────────────────────────────────────
+❯
+──────────────────────────────────────────────────────────────`,
+			wantChar:  "✳",
+			wantFound: true,
+		},
+		{
+			name: "different asterisk spinner",
+			content: `Some output from Claude...
+
+✽ Metamorphosing… (33s · ↑ 144 tokens)
+──────────────────────────────────────────────────────────────
+❯`,
+			wantChar:  "✽",
+			wantFound: true,
+		},
+		{
+			name: "braille spinner",
+			content: `Working on something
+⠙ Processing request...
+❯`,
+			wantChar:  "⠙",
+			wantFound: true,
+		},
+		{
+			name: "done state - ✻ is NOT in spinner list (excluded intentionally)",
+			content: `✻ Churned for 4m 47s
+
+──────────────────────────────────────────────────────────────
+❯
+──────────────────────────────────────────────────────────────`,
+			wantChar:  "",
+			wantFound: false,
+		},
+		{
+			name: "no spinner - just prompt",
+			content: `Some output here.
+
+──────────────────────────────────────────────────────────────
+❯
+──────────────────────────────────────────────────────────────`,
+			wantChar:  "",
+			wantFound: false,
+		},
+		{
+			name: "spinner in box-drawing line should be skipped",
+			content: `│ ✳ some content in a box
+──────────────────────────────────────────────────────────────
+❯`,
+			wantChar:  "",
+			wantFound: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			char, line, found := findSpinnerInContent(tt.content, spinners)
+			if found != tt.wantFound {
+				t.Errorf("found = %v, want %v", found, tt.wantFound)
+			}
+			if char != tt.wantChar {
+				t.Errorf("char = %q, want %q", char, tt.wantChar)
+			}
+			if found {
+				t.Logf("Found spinner %q in line: %q", char, line)
+			}
+		})
+	}
+}
+
+// SpinnerMovementTracker tracks whether the spinner is animating (changing
+// between polls) or stuck (same char for too long).
+type SpinnerMovementTracker struct {
+	lastChar       string    // spinner char seen on previous poll
+	lastLine       string    // full spinner line on previous poll
+	unchangedSince time.Time // when we first saw this same char
+	unchangedCount int       // consecutive polls with same char
+	staleThreshold int       // how many same-char polls before stale (default: 5 = 10s)
+}
+
+func NewSpinnerMovementTracker() *SpinnerMovementTracker {
+	return &SpinnerMovementTracker{
+		staleThreshold: 5, // 5 polls × 2s = 10 seconds
+	}
+}
+
+// Update records the current spinner state and returns whether the spinner
+// is considered alive (moving) or stale (stuck).
+//
+// Returns:
+//   - moving: true if spinner is animating (char changed or not yet stale)
+//   - stale: true if spinner has been the same char for too long
+func (smt *SpinnerMovementTracker) Update(char string, line string) (moving bool, stale bool) {
+	now := time.Now()
+
+	if char == "" {
+		// No spinner found, reset tracker
+		smt.lastChar = ""
+		smt.lastLine = ""
+		smt.unchangedCount = 0
+		smt.unchangedSince = time.Time{}
+		return false, false
+	}
+
+	if smt.lastChar == "" {
+		// First time seeing a spinner
+		smt.lastChar = char
+		smt.lastLine = line
+		smt.unchangedSince = now
+		smt.unchangedCount = 1
+		return true, false // give benefit of the doubt on first sighting
+	}
+
+	// Compare with previous poll
+	if char != smt.lastChar || line != smt.lastLine {
+		// Spinner changed! It's alive.
+		smt.lastChar = char
+		smt.lastLine = line
+		smt.unchangedSince = now
+		smt.unchangedCount = 1
+		return true, false
+	}
+
+	// Same char AND same line as last time
+	smt.unchangedCount++
+
+	if smt.unchangedCount >= smt.staleThreshold {
+		return false, true // stale: same for too long
+	}
+
+	// Same char but hasn't hit threshold yet, still trust it
+	return true, false
+}
+
+func TestSpinnerMovementTracker_Normal(t *testing.T) {
+	smt := NewSpinnerMovementTracker()
+
+	// Simulate normal Claude operation: spinner cycles through chars
+	spinnerSequence := []struct {
+		char string
+		line string
+	}{
+		{"✳", "✳ Gusting… (5s · ↑ 100 tokens)"},
+		{"✽", "✽ Gusting… (7s · ↑ 150 tokens)"},
+		{"✶", "✶ Gusting… (9s · ↑ 200 tokens)"},
+		{"✢", "✢ Gusting… (11s · ↑ 250 tokens)"},
+		{"✳", "✳ Gusting… (13s · ↑ 300 tokens)"},
+	}
+
+	for i, s := range spinnerSequence {
+		moving, stale := smt.Update(s.char, s.line)
+		t.Logf("Poll %d: char=%s moving=%v stale=%v", i+1, s.char, moving, stale)
+		if !moving {
+			t.Errorf("Poll %d: expected moving=true (spinner is cycling)", i+1)
+		}
+		if stale {
+			t.Errorf("Poll %d: expected stale=false (spinner is cycling)", i+1)
+		}
+	}
+}
+
+func TestSpinnerMovementTracker_Stuck(t *testing.T) {
+	smt := NewSpinnerMovementTracker()
+
+	// Simulate Claude crash: spinner stays on same char
+	stuckLine := "✳ Gusting… (5s · ↑ 100 tokens)"
+
+	for i := 1; i <= 7; i++ {
+		moving, stale := smt.Update("✳", stuckLine)
+		t.Logf("Poll %d: moving=%v stale=%v unchangedCount=%d", i, moving, stale, smt.unchangedCount)
+
+		if i < 5 {
+			// First 4 polls: still trusting it (threshold=5)
+			if !moving {
+				t.Errorf("Poll %d: expected moving=true (under threshold)", i)
+			}
+			if stale {
+				t.Errorf("Poll %d: expected stale=false (under threshold)", i)
+			}
+		} else {
+			// Poll 5+: stale!
+			if moving {
+				t.Errorf("Poll %d: expected moving=false (over threshold)", i)
+			}
+			if !stale {
+				t.Errorf("Poll %d: expected stale=true (over threshold)", i)
+			}
+		}
+	}
+}
+
+func TestSpinnerMovementTracker_RecoverAfterStale(t *testing.T) {
+	smt := NewSpinnerMovementTracker()
+
+	// Claude stuck for a while
+	stuckLine := "✳ Gusting… (5s · ↑ 100 tokens)"
+	for i := 0; i < 6; i++ {
+		smt.Update("✳", stuckLine)
+	}
+
+	// Verify it's stale
+	moving, stale := smt.Update("✳", stuckLine)
+	if moving || !stale {
+		t.Fatal("Expected stale state")
+	}
+
+	// Now Claude recovers (different spinner char!)
+	moving, stale = smt.Update("✽", "✽ Gusting… (45s · ↑ 500 tokens)")
+	t.Logf("After recovery: moving=%v stale=%v", moving, stale)
+	if !moving {
+		t.Error("Expected moving=true after recovery")
+	}
+	if stale {
+		t.Error("Expected stale=false after recovery")
+	}
+}
+
+func TestSpinnerMovementTracker_SameCharDifferentLine(t *testing.T) {
+	smt := NewSpinnerMovementTracker()
+
+	// Even if spinner char is the same, the LINE content changes (timing, tokens)
+	// This should count as movement because the screen IS changing
+	polls := []string{
+		"✳ Gusting… (5s · ↑ 100 tokens)",
+		"✳ Gusting… (7s · ↑ 150 tokens)", // same char but different line!
+		"✳ Gusting… (9s · ↑ 200 tokens)",
+	}
+
+	for i, line := range polls {
+		moving, stale := smt.Update("✳", line)
+		t.Logf("Poll %d: line=%q moving=%v stale=%v", i+1, line, moving, stale)
+		if !moving {
+			t.Errorf("Poll %d: expected moving=true (line content changed)", i+1)
+		}
+		if stale {
+			t.Errorf("Poll %d: expected stale=false", i+1)
+		}
+	}
+}
+
+func TestSpinnerMovementTracker_NoSpinner(t *testing.T) {
+	smt := NewSpinnerMovementTracker()
+
+	// No spinner found
+	moving, stale := smt.Update("", "")
+	if moving {
+		t.Error("Expected moving=false when no spinner")
+	}
+	if stale {
+		t.Error("Expected stale=false when no spinner")
+	}
+}
+
+func TestSpinnerMovementTracker_DisappearsAfterActive(t *testing.T) {
+	smt := NewSpinnerMovementTracker()
+
+	// Spinner was active
+	smt.Update("✳", "✳ Gusting… (5s · ↑ 100 tokens)")
+	smt.Update("✽", "✽ Gusting… (7s · ↑ 150 tokens)")
+
+	// Spinner disappears (Claude done)
+	moving, stale := smt.Update("", "")
+	t.Logf("After disappear: moving=%v stale=%v lastChar=%q", moving, stale, smt.lastChar)
+	if moving {
+		t.Error("Expected moving=false when spinner gone")
+	}
+	if stale {
+		t.Error("Expected stale=false when spinner gone (it just disappeared, not stuck)")
+	}
+	if smt.lastChar != "" {
+		t.Error("Expected lastChar reset to empty")
+	}
+}
+
+// TestSpinnerMovement_EndToEnd_Simulation simulates a full Claude session:
+// start → active (spinner cycling) → stuck → recovery → done
+func TestSpinnerMovement_EndToEnd_Simulation(t *testing.T) {
+	smt := NewSpinnerMovementTracker()
+	spinners := []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏", "✳", "✽", "✶", "✢"}
+
+	type event struct {
+		content    string
+		wantMoving bool
+		wantStale  bool
+		desc       string
+	}
+
+	events := []event{
+		// Phase 1: Claude starts working
+		{"✳ Gusting… (1s · ↑ 50 tokens)\n❯", true, false, "start working"},
+		{"✽ Gusting… (3s · ↑ 100 tokens)\n❯", true, false, "spinner cycling"},
+		{"✶ Gusting… (5s · ↑ 150 tokens)\n❯", true, false, "spinner cycling"},
+		{"✢ Gusting… (7s · ↑ 200 tokens)\n❯", true, false, "spinner cycling"},
+
+		// Phase 2: Claude freezes (issue #20572 deadlock)
+		// Note: poll 4 above was the 1st sighting of ✢ (count=1)
+		{"✢ Gusting… (7s · ↑ 200 tokens)\n❯", true, false, "same 2/5"},
+		{"✢ Gusting… (7s · ↑ 200 tokens)\n❯", true, false, "same 3/5"},
+		{"✢ Gusting… (7s · ↑ 200 tokens)\n❯", true, false, "same 4/5 (last chance)"},
+		{"✢ Gusting… (7s · ↑ 200 tokens)\n❯", false, true, "same 5/5 → STALE!"},
+		{"✢ Gusting… (7s · ↑ 200 tokens)\n❯", false, true, "still stale"},
+		{"✢ Gusting… (7s · ↑ 200 tokens)\n❯", false, true, "still stale 2"},
+
+		// Phase 3: User kills and restarts, Claude recovers
+		{"✳ Working… (1s · ↑ 10 tokens)\n❯", true, false, "recovered!"},
+		{"✽ Working… (3s · ↑ 60 tokens)\n❯", true, false, "spinner cycling again"},
+
+		// Phase 4: Claude finishes
+		{"✻ Worked for 54s\n\n❯", false, false, "done (no active spinner)"},
+	}
+
+	for i, ev := range events {
+		char, line, found := findSpinnerInContent(ev.content, spinners)
+		if !found {
+			char = ""
+			line = ""
+		}
+		moving, stale := smt.Update(char, line)
+
+		status := "OK"
+		if moving != ev.wantMoving || stale != ev.wantStale {
+			status = "FAIL"
+		}
+
+		t.Logf("[%s] Poll %2d %-25s char=%-3q moving=%-5v stale=%-5v",
+			status, i+1, ev.desc, char, moving, stale)
+
+		if moving != ev.wantMoving {
+			t.Errorf("Poll %d (%s): moving=%v, want %v", i+1, ev.desc, moving, ev.wantMoving)
+		}
+		if stale != ev.wantStale {
+			t.Errorf("Poll %d (%s): stale=%v, want %v", i+1, ev.desc, stale, ev.wantStale)
+		}
+	}
+}

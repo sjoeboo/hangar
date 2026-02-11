@@ -5,6 +5,15 @@ All notable changes to Agent Deck will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.12.3] - 2026-02-11
+
+### Fixed
+
+- Fix busy detection window reduced from 25 to 10 lines for faster status transitions
+- Fix conductor group permanently pinned to top of group list
+- Optimize status detection pipeline for faster green/yellow transitions
+- Add spinner movement detection tests for stuck spinner validation
+
 ## [0.12.2] - 2026-02-10
 
 ### Fixed
