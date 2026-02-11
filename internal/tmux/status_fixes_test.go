@@ -1036,41 +1036,10 @@ func TestGracePeriodConstant(t *testing.T) {
 // =============================================================================
 // VALIDATION 9.0: Spinner Movement Detection
 // =============================================================================
-// Core idea: Instead of just checking if a spinner char EXISTS, track whether
-// the spinner char CHANGES between polls. If it changes → spinner is animating
-// → Claude is alive. If it stays the same for N polls → spinner is stuck/frozen
-// → Claude may have crashed (see: github.com/anthropics/claude-code/issues/20572)
-//
-// Claude's spinner cycles at ~80-125ms. With 2s polling, we capture a different
-// char each time if it's alive. Same char across 5 polls (10s) is 0.1% chance
-// by coincidence → almost certainly stuck.
-
-// findSpinnerInContent extracts the first spinner character found in the last
-// N lines of terminal content. Returns the char and the full line it was found on.
-func findSpinnerInContent(content string, spinnerChars []string) (char string, line string, found bool) {
-	lines := strings.Split(content, "\n")
-	// Check last 10 lines (status line is always near bottom)
-	start := len(lines) - 10
-	if start < 0 {
-		start = 0
-	}
-	for i := len(lines) - 1; i >= start; i-- {
-		trimmed := strings.TrimSpace(lines[i])
-		if trimmed == "" {
-			continue
-		}
-		// Skip box-drawing lines (UI borders)
-		if startsWithBoxDrawing(lines[i]) {
-			continue
-		}
-		for _, ch := range spinnerChars {
-			if strings.Contains(lines[i], ch) {
-				return ch, lines[i], true
-			}
-		}
-	}
-	return "", "", false
-}
+// Tests for findSpinnerInContent() and SpinnerMovementTracker (defined in tmux.go).
+// Core idea: track whether the spinner char CHANGES between polls.
+// If it changes → spinner is animating → Claude is alive.
+// If it stays the same for N polls → spinner is stuck/frozen.
 
 func TestFindSpinnerInContent(t *testing.T) {
 	spinners := []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏", "✳", "✽", "✶", "✢"}
@@ -1154,70 +1123,6 @@ func TestFindSpinnerInContent(t *testing.T) {
 			}
 		})
 	}
-}
-
-// SpinnerMovementTracker tracks whether the spinner is animating (changing
-// between polls) or stuck (same char for too long).
-type SpinnerMovementTracker struct {
-	lastChar       string    // spinner char seen on previous poll
-	lastLine       string    // full spinner line on previous poll
-	unchangedSince time.Time // when we first saw this same char
-	unchangedCount int       // consecutive polls with same char
-	staleThreshold int       // how many same-char polls before stale (default: 5 = 10s)
-}
-
-func NewSpinnerMovementTracker() *SpinnerMovementTracker {
-	return &SpinnerMovementTracker{
-		staleThreshold: 5, // 5 polls × 2s = 10 seconds
-	}
-}
-
-// Update records the current spinner state and returns whether the spinner
-// is considered alive (moving) or stale (stuck).
-//
-// Returns:
-//   - moving: true if spinner is animating (char changed or not yet stale)
-//   - stale: true if spinner has been the same char for too long
-func (smt *SpinnerMovementTracker) Update(char string, line string) (moving bool, stale bool) {
-	now := time.Now()
-
-	if char == "" {
-		// No spinner found, reset tracker
-		smt.lastChar = ""
-		smt.lastLine = ""
-		smt.unchangedCount = 0
-		smt.unchangedSince = time.Time{}
-		return false, false
-	}
-
-	if smt.lastChar == "" {
-		// First time seeing a spinner
-		smt.lastChar = char
-		smt.lastLine = line
-		smt.unchangedSince = now
-		smt.unchangedCount = 1
-		return true, false // give benefit of the doubt on first sighting
-	}
-
-	// Compare with previous poll
-	if char != smt.lastChar || line != smt.lastLine {
-		// Spinner changed! It's alive.
-		smt.lastChar = char
-		smt.lastLine = line
-		smt.unchangedSince = now
-		smt.unchangedCount = 1
-		return true, false
-	}
-
-	// Same char AND same line as last time
-	smt.unchangedCount++
-
-	if smt.unchangedCount >= smt.staleThreshold {
-		return false, true // stale: same for too long
-	}
-
-	// Same char but hasn't hit threshold yet, still trust it
-	return true, false
 }
 
 func TestSpinnerMovementTracker_Normal(t *testing.T) {

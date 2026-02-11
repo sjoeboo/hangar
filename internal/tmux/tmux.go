@@ -357,6 +357,103 @@ type StateTracker struct {
 	// Non-blocking spike detection: track changes across tick cycles
 	activityCheckStart  time.Time // When we started tracking for sustained activity
 	activityChangeCount int       // How many timestamp changes seen in current window
+
+	// Spinner movement tracking: detects frozen/stuck spinners
+	spinnerTracker *SpinnerMovementTracker
+}
+
+// SpinnerMovementTracker tracks whether the spinner is animating (changing
+// between polls) or stuck (same char for too long). A frozen spinner indicates
+// Claude may have crashed (see: github.com/anthropics/claude-code/issues/20572).
+type SpinnerMovementTracker struct {
+	lastChar       string    // spinner char seen on previous poll
+	lastLine       string    // full spinner line on previous poll
+	unchangedSince time.Time // when we first saw this same char
+	unchangedCount int       // consecutive polls with same char
+	staleThreshold int       // how many same-char polls before stale (default: 5 = 10s)
+}
+
+// NewSpinnerMovementTracker creates a tracker with default stale threshold of 5 polls (10s).
+func NewSpinnerMovementTracker() *SpinnerMovementTracker {
+	return &SpinnerMovementTracker{
+		staleThreshold: 5, // 5 polls × 2s = 10 seconds
+	}
+}
+
+// Update records the current spinner state and returns whether the spinner
+// is considered alive (moving) or stale (stuck).
+//
+// Returns:
+//   - moving: true if spinner is animating (char changed or not yet stale)
+//   - stale: true if spinner has been the same char for too long
+func (smt *SpinnerMovementTracker) Update(char string, line string) (moving bool, stale bool) {
+	now := time.Now()
+
+	if char == "" {
+		// No spinner found, reset tracker
+		smt.lastChar = ""
+		smt.lastLine = ""
+		smt.unchangedCount = 0
+		smt.unchangedSince = time.Time{}
+		return false, false
+	}
+
+	if smt.lastChar == "" {
+		// First time seeing a spinner
+		smt.lastChar = char
+		smt.lastLine = line
+		smt.unchangedSince = now
+		smt.unchangedCount = 1
+		return true, false // give benefit of the doubt on first sighting
+	}
+
+	// Compare with previous poll
+	if char != smt.lastChar || line != smt.lastLine {
+		// Spinner changed! It's alive.
+		smt.lastChar = char
+		smt.lastLine = line
+		smt.unchangedSince = now
+		smt.unchangedCount = 1
+		return true, false
+	}
+
+	// Same char AND same line as last time
+	smt.unchangedCount++
+
+	if smt.unchangedCount >= smt.staleThreshold {
+		return false, true // stale: same for too long
+	}
+
+	// Same char but hasn't hit threshold yet, still trust it
+	return true, false
+}
+
+// findSpinnerInContent extracts the first spinner character found in the last
+// N lines of terminal content. Returns the char and the full line it was found on.
+// Skips box-drawing lines (UI borders) and empty lines.
+func findSpinnerInContent(content string, spinnerChars []string) (char string, line string, found bool) {
+	lines := strings.Split(content, "\n")
+	// Check last 10 lines (status line is always near bottom)
+	start := len(lines) - 10
+	if start < 0 {
+		start = 0
+	}
+	for i := len(lines) - 1; i >= start; i-- {
+		trimmed := strings.TrimSpace(lines[i])
+		if trimmed == "" {
+			continue
+		}
+		// Skip box-drawing lines (UI borders)
+		if startsWithBoxDrawing(lines[i]) {
+			continue
+		}
+		for _, ch := range spinnerChars {
+			if strings.Contains(lines[i], ch) {
+				return ch, lines[i], true
+			}
+		}
+	}
+	return "", "", false
 }
 
 // Session represents a tmux session
@@ -450,7 +547,12 @@ func (s *Session) ensureStateTrackerLocked() {
 			lastHash:       "",
 			lastChangeTime: time.Now(),
 			acknowledged:   false,
+			spinnerTracker: NewSpinnerMovementTracker(),
 		}
+	}
+	// Ensure spinnerTracker exists even for older StateTrackers
+	if s.stateTracker.spinnerTracker == nil {
+		s.stateTracker.spinnerTracker = NewSpinnerMovementTracker()
 	}
 }
 
@@ -1627,6 +1729,7 @@ func (s *Session) GetStatus() (string, error) {
 			acknowledged:          false, // Start unacknowledged so stopped sessions show YELLOW
 			lastActivityTimestamp: currentTS,
 			waitingSince:          now, // Track when session became waiting
+			spinnerTracker:        NewSpinnerMovementTracker(),
 		}
 		s.lastStableStatus = "waiting"
 		statusLog.Debug("init_waiting", slog.String("session", shortName))
@@ -1955,70 +2058,106 @@ func (s *Session) hasBusyIndicator(content string) bool {
 	return s.hasBusyIndicatorLegacy(content)
 }
 
-// hasBusyIndicatorResolved uses compiled ResolvedPatterns for busy detection.
-// This is the configurable path: patterns come from DefaultRawPatterns + user config.toml overrides.
+// hasBusyIndicatorResolved uses spinner MOVEMENT detection for busy state.
 //
-// Detection order is optimized for modern Claude Code (2.1.25+):
-//  1. SpinnerActivePattern (most common: "✳ Gusting…")
-//  2. Spinner chars in last 5 lines (braille spinners)
-//  3. Regex-based patterns (re: prefixed busy patterns)
-//  4. String-based patterns (legacy fallback: "ctrl+c to interrupt")
+// Instead of pattern matching (regex, word lists, string presence), this tracks
+// whether the spinner character is CHANGING between polls. If it changes, Claude
+// is alive. If the same char persists for 5+ polls (10s), the spinner is frozen
+// and Claude has likely crashed (see: github.com/anthropics/claude-code/issues/20572).
+//
+// The SpinnerMovementTracker lives on the StateTracker so it persists across polls.
 func (s *Session) hasBusyIndicatorResolved(content string) bool {
-	patterns := s.resolvedPatterns
 	shortName := s.DisplayName
 	if len(shortName) > 12 {
 		shortName = shortName[:12]
 	}
 
-	// Use last 10 lines (not 25). The status line is always within ~7 lines
-	// of the bottom. A wider window picks up conversation history text that
-	// can contain spinner-like patterns (e.g. discussing "✳ Cooking…"),
-	// causing false GREEN detection.
-	lastLines := lastNLines(content, 10)
-	recentContent := strings.ToLower(strings.Join(lastLines, "\n"))
-
-	// 1. Spinner active pattern: most common for Claude 2.1.25+ ("✳ Gusting…")
-	if patterns.SpinnerActivePattern != nil && patterns.SpinnerActivePattern.MatchString(recentContent) {
-		statusLog.Debug("busy_reason_spinner", slog.String("session", shortName))
-		return true
+	// Get spinner chars from resolved patterns, fallback to defaults
+	spinnerChars := defaultSpinnerChars()
+	if s.resolvedPatterns != nil && len(s.resolvedPatterns.SpinnerChars) > 0 {
+		spinnerChars = s.resolvedPatterns.SpinnerChars
 	}
 
-	// 2. Spinner characters in last 5 lines (braille spinners, box-drawing lines skipped)
-	if len(patterns.SpinnerChars) > 0 {
-		last5 := lastLines
-		if len(last5) > 5 {
-			last5 = last5[len(last5)-5:]
-		}
-		for _, line := range last5 {
-			if startsWithBoxDrawing(line) {
-				continue
-			}
-			for _, ch := range patterns.SpinnerChars {
-				if strings.Contains(line, ch) {
-					statusLog.Debug("busy_reason_spinner_char", slog.String("session", shortName), slog.String("char", ch))
-					return true
-				}
-			}
-		}
+	// Find spinner in terminal content
+	char, line, found := findSpinnerInContent(content, spinnerChars)
+
+	// Get or create spinner tracker
+	s.ensureStateTrackerLocked()
+	tracker := s.stateTracker.spinnerTracker
+
+	if !found {
+		// No spinner on screen: not busy
+		tracker.Update("", "")
+		statusLog.Debug("busy_no_spinner", slog.String("session", shortName))
+		return false
 	}
 
-	// 3. Regex-based busy indicators (re: prefixed patterns)
-	for _, re := range patterns.BusyRegexps {
-		if re.MatchString(recentContent) {
-			statusLog.Debug("busy_reason_regex", slog.String("session", shortName), slog.String("regex", re.String()))
-			return true
-		}
+	// Spinner found: check if it's moving
+	moving, stale := tracker.Update(char, line)
+
+	if stale {
+		statusLog.Debug("busy_spinner_stale", slog.String("session", shortName),
+			slog.String("char", char), slog.Int("count", tracker.unchangedCount))
+		return false // spinner frozen = not really busy
 	}
 
-	// 4. String-based busy indicators (legacy fallback)
-	for _, pat := range patterns.BusyStrings {
-		if strings.Contains(recentContent, strings.ToLower(pat)) {
-			statusLog.Debug("busy_reason_pattern", slog.String("session", shortName), slog.String("pattern", pat))
-			return true
-		}
+	if moving {
+		statusLog.Debug("busy_spinner_moving", slog.String("session", shortName),
+			slog.String("char", char), slog.Int("count", tracker.unchangedCount))
+		return true // spinner animating = busy
 	}
 
 	return false
+
+	// OLD PATTERN-BASED DETECTION (commented out for spinner-only experiment):
+	//
+	// patterns := s.resolvedPatterns
+	//
+	// lastLines := lastNLines(content, 10)
+	// recentContent := strings.ToLower(strings.Join(lastLines, "\n"))
+	//
+	// // 1. Spinner active pattern: most common for Claude 2.1.25+ ("✳ Gusting…")
+	// if patterns.SpinnerActivePattern != nil && patterns.SpinnerActivePattern.MatchString(recentContent) {
+	// 	statusLog.Debug("busy_reason_spinner", slog.String("session", shortName))
+	// 	return true
+	// }
+	//
+	// // 2. Spinner characters in last 5 lines (braille spinners, box-drawing lines skipped)
+	// if len(patterns.SpinnerChars) > 0 {
+	// 	last5 := lastLines
+	// 	if len(last5) > 5 {
+	// 		last5 = last5[len(last5)-5:]
+	// 	}
+	// 	for _, line := range last5 {
+	// 		if startsWithBoxDrawing(line) {
+	// 			continue
+	// 		}
+	// 		for _, ch := range patterns.SpinnerChars {
+	// 			if strings.Contains(line, ch) {
+	// 				statusLog.Debug("busy_reason_spinner_char", slog.String("session", shortName), slog.String("char", ch))
+	// 				return true
+	// 			}
+	// 		}
+	// 	}
+	// }
+	//
+	// // 3. Regex-based busy indicators (re: prefixed patterns)
+	// for _, re := range patterns.BusyRegexps {
+	// 	if re.MatchString(recentContent) {
+	// 		statusLog.Debug("busy_reason_regex", slog.String("session", shortName), slog.String("regex", re.String()))
+	// 		return true
+	// 	}
+	// }
+	//
+	// // 4. String-based busy indicators (legacy fallback)
+	// for _, pat := range patterns.BusyStrings {
+	// 	if strings.Contains(recentContent, strings.ToLower(pat)) {
+	// 		statusLog.Debug("busy_reason_pattern", slog.String("session", shortName), slog.String("pattern", pat))
+	// 		return true
+	// 	}
+	// }
+	//
+	// return false
 }
 
 // hasPromptIndicator checks if the terminal shows a prompt waiting for user input.
