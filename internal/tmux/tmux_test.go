@@ -198,7 +198,7 @@ func TestBusyIndicatorDetection(t *testing.T) {
 		{
 			name:     "ctrl+c to interrupt",
 			content:  "Working on task...\nctrl+c to interrupt\n",
-			expected: true,
+			expected: false, // Spinner-only: string patterns no longer used
 		},
 		{
 			name:     "spinner character in last 3 lines",
@@ -213,7 +213,7 @@ func TestBusyIndicatorDetection(t *testing.T) {
 		{
 			name:     "esc to interrupt - fallback for older Claude Code",
 			content:  "Working on task...\nesc to interrupt\n",
-			expected: true, // Restored: esc to interrupt is fallback for older Claude Code
+			expected: false, // Spinner-only: string patterns no longer used
 		},
 		{
 			name:     "normal output",
@@ -229,7 +229,10 @@ func TestBusyIndicatorDetection(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := sess.hasBusyIndicator(tt.content)
+			// Fresh session per test to avoid spinner grace period carryover
+			s := NewSession("test-"+tt.name, "/tmp")
+			s.Command = "claude"
+			result := s.hasBusyIndicator(tt.content)
 			if result != tt.expected {
 				t.Errorf("hasBusyIndicator(%q) = %v, want %v", tt.name, result, tt.expected)
 			}

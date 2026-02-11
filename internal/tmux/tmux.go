@@ -358,74 +358,38 @@ type StateTracker struct {
 	activityCheckStart  time.Time // When we started tracking for sustained activity
 	activityChangeCount int       // How many timestamp changes seen in current window
 
-	// Spinner movement tracking: detects frozen/stuck spinners
-	spinnerTracker *SpinnerMovementTracker
+	// Spinner activity tracking: grace period between tool calls
+	spinnerTracker *SpinnerActivityTracker
 }
 
-// SpinnerMovementTracker tracks whether the spinner is animating (changing
-// between polls) or stuck (same char for too long). A frozen spinner indicates
-// Claude may have crashed (see: github.com/anthropics/claude-code/issues/20572).
-type SpinnerMovementTracker struct {
-	lastChar       string    // spinner char seen on previous poll
-	lastLine       string    // full spinner line on previous poll
-	unchangedSince time.Time // when we first saw this same char
-	unchangedCount int       // consecutive polls with same char
-	staleThreshold int       // how many same-char polls before stale (default: 5 = 10s)
-}
-
-// NewSpinnerMovementTracker creates a tracker with default stale threshold of 5 polls (10s).
-func NewSpinnerMovementTracker() *SpinnerMovementTracker {
-	return &SpinnerMovementTracker{
-		staleThreshold: 5, // 5 polls × 2s = 10 seconds
-	}
-}
-
-// Update records the current spinner state and returns whether the spinner
-// is considered alive (moving) or stale (stuck).
+// SpinnerActivityTracker tracks when the spinner was last detected on screen.
+// Used for the grace period between tool calls where the spinner briefly disappears.
 //
-// Returns:
-//   - moving: true if spinner is animating (char changed or not yet stale)
-//   - stale: true if spinner has been the same char for too long
-func (smt *SpinnerMovementTracker) Update(char string, line string) (moving bool, stale bool) {
-	now := time.Now()
+// This is intentionally simple: spinner PRESENCE from the curated char set
+// (which excludes ✻ done marker and · non-spinner) is the reliable signal.
+// No movement tracking needed because the char set itself distinguishes active vs done.
+type SpinnerActivityTracker struct {
+	lastBusyTime time.Time     // when spinner was last detected on screen
+	gracePeriod  time.Duration // how long to stay busy after spinner disappears (default: 6s)
+}
 
-	if char == "" {
-		// No spinner found, reset tracker
-		smt.lastChar = ""
-		smt.lastLine = ""
-		smt.unchangedCount = 0
-		smt.unchangedSince = time.Time{}
-		return false, false
+// NewSpinnerActivityTracker creates a tracker with default grace period.
+func NewSpinnerActivityTracker() *SpinnerActivityTracker {
+	return &SpinnerActivityTracker{
+		gracePeriod: 6 * time.Second, // cover 3 polls (2s each) of spinner absence
 	}
+}
 
-	if smt.lastChar == "" {
-		// First time seeing a spinner
-		smt.lastChar = char
-		smt.lastLine = line
-		smt.unchangedSince = now
-		smt.unchangedCount = 1
-		return true, false // give benefit of the doubt on first sighting
-	}
+// MarkBusy records that an active spinner char is currently visible on screen.
+func (sat *SpinnerActivityTracker) MarkBusy() {
+	sat.lastBusyTime = time.Now()
+}
 
-	// Compare with previous poll
-	if char != smt.lastChar || line != smt.lastLine {
-		// Spinner changed! It's alive.
-		smt.lastChar = char
-		smt.lastLine = line
-		smt.unchangedSince = now
-		smt.unchangedCount = 1
-		return true, false
-	}
-
-	// Same char AND same line as last time
-	smt.unchangedCount++
-
-	if smt.unchangedCount >= smt.staleThreshold {
-		return false, true // stale: same for too long
-	}
-
-	// Same char but hasn't hit threshold yet, still trust it
-	return true, false
+// InGracePeriod returns true if an active spinner was visible recently.
+// This covers the brief gap between tool calls where the spinner disappears
+// before the next tool starts.
+func (sat *SpinnerActivityTracker) InGracePeriod() bool {
+	return !sat.lastBusyTime.IsZero() && time.Since(sat.lastBusyTime) < sat.gracePeriod
 }
 
 // findSpinnerInContent extracts the first spinner character found in the last
@@ -547,12 +511,12 @@ func (s *Session) ensureStateTrackerLocked() {
 			lastHash:       "",
 			lastChangeTime: time.Now(),
 			acknowledged:   false,
-			spinnerTracker: NewSpinnerMovementTracker(),
+			spinnerTracker: NewSpinnerActivityTracker(),
 		}
 	}
 	// Ensure spinnerTracker exists even for older StateTrackers
 	if s.stateTracker.spinnerTracker == nil {
-		s.stateTracker.spinnerTracker = NewSpinnerMovementTracker()
+		s.stateTracker.spinnerTracker = NewSpinnerActivityTracker()
 	}
 }
 
@@ -1588,11 +1552,6 @@ func (s *Session) AcknowledgeWithSnapshot() {
 // 4. Check cooldown → GREEN if within
 // 5. Cooldown expired → YELLOW or GRAY based on acknowledged
 
-// greenToWaitingGracePeriod is the time after the last busy indicator before
-// transitioning from GREEN to YELLOW. Prevents false YELLOW flashes between
-// tool calls where the spinner briefly disappears.
-const greenToWaitingGracePeriod = 3 * time.Second
-
 func (s *Session) GetStatus() (string, error) {
 	shortName := s.DisplayName
 	if len(shortName) > 12 {
@@ -1669,14 +1628,11 @@ func (s *Session) GetStatus() (string, error) {
 			statusLog.Debug("needs_busy_check", slog.String("session", shortName), slog.Bool("busy", isExplicitlyBusy), slog.String("last_line", lastLine))
 
 			// Check for prompt indicators (AskUserQuestion, permission dialogs, etc.)
-			// Prompt detection takes priority over busy indicator because Claude can
-			// show spinner/status text alongside an interactive question UI.
-			hasPrompt := s.hasPromptIndicator(content)
-
-			// GREEN only if explicit busy indicator found AND no prompt is showing
-			// Content hash changes alone should NOT trigger GREEN here - they must
-			// go through spike detection (2+ changes in 1s) to filter cursor blinks
-			if isExplicitlyBusy && !hasPrompt {
+			// BUSY indicator is AUTHORITATIVE: if spinner is active (or in grace period),
+			// return GREEN immediately. Prompt detection must NOT override this because
+			// the ❯ prompt from the user's previous input is always visible and causes
+			// false "waiting" detection during tool transitions.
+			if isExplicitlyBusy {
 				s.stateTracker.lastChangeTime = time.Now()
 				s.stateTracker.acknowledged = false
 				s.stateTracker.lastActivityTimestamp = currentTS
@@ -1694,28 +1650,21 @@ func (s *Session) GetStatus() (string, error) {
 				s.stateTracker.lastHash = currentHash
 			}
 
+			// Not busy. Check for prompt indicators to distinguish YELLOW vs fall-through.
+			hasPrompt := s.hasPromptIndicator(content)
 			if hasPrompt {
-				// Grace period: if session was recently GREEN (busy indicator found
-				// within last 5s), don't immediately flip to YELLOW. Between tool calls
-				// the spinner briefly disappears while the user's old input line (❯ ...)
-				// is still visible, causing false prompt detection.
-				if s.lastStableStatus == "active" && time.Since(s.stateTracker.lastChangeTime) < greenToWaitingGracePeriod {
-					statusLog.Debug("prompt_grace_period", slog.String("session", shortName), slog.Duration("since_busy", time.Since(s.stateTracker.lastChangeTime)))
-					return "active", nil
-				}
-
 				// Respect acknowledgment: if user already acknowledged (e.g. by attaching),
 				// keep idle status. The prompt is still visible but the user is looking at it.
 				if s.stateTracker.acknowledged {
 					s.lastStableStatus = "idle"
-					statusLog.Debug("prompt_detected_idle", slog.String("session", shortName), slog.Bool("busy", isExplicitlyBusy))
+					statusLog.Debug("prompt_detected_idle", slog.String("session", shortName))
 					return "idle", nil
 				}
 				if s.lastStableStatus != "waiting" {
 					s.stateTracker.waitingSince = time.Now()
 				}
 				s.lastStableStatus = "waiting"
-				statusLog.Debug("prompt_detected_waiting", slog.String("session", shortName), slog.Bool("busy", isExplicitlyBusy))
+				statusLog.Debug("prompt_detected_waiting", slog.String("session", shortName))
 				return "waiting", nil
 			}
 		}
@@ -1729,7 +1678,7 @@ func (s *Session) GetStatus() (string, error) {
 			acknowledged:          false, // Start unacknowledged so stopped sessions show YELLOW
 			lastActivityTimestamp: currentTS,
 			waitingSince:          now, // Track when session became waiting
-			spinnerTracker:        NewSpinnerMovementTracker(),
+			spinnerTracker:        NewSpinnerActivityTracker(),
 		}
 		s.lastStableStatus = "waiting"
 		statusLog.Debug("init_waiting", slog.String("session", shortName))
@@ -1847,18 +1796,14 @@ func (s *Session) GetStatus() (string, error) {
 		s.mu.Unlock()
 		content, captureErr := s.CapturePane()
 		s.mu.Lock()
-		if captureErr == nil && s.hasBusyIndicator(content) && !s.hasPromptIndicator(content) {
+		if captureErr == nil && s.hasBusyIndicator(content) {
+			// Busy indicator is authoritative (includes spinner grace period)
+			s.stateTracker.lastChangeTime = time.Now()
 			statusLog.Debug("still_busy", slog.String("session", shortName))
 			return "active", nil
 		}
 		if captureErr == nil && s.hasPromptIndicator(content) {
-			// Grace period: don't flip to YELLOW if recently GREEN
-			if time.Since(s.stateTracker.lastChangeTime) < greenToWaitingGracePeriod {
-				statusLog.Debug("prompt_recheck_grace_period", slog.String("session", shortName))
-				return "active", nil
-			}
-			// Respect acknowledgment: if user already acknowledged (e.g. by attaching),
-			// keep idle status instead of forcing back to waiting.
+			// Not busy, but prompt visible. Transition to waiting/idle.
 			if !s.stateTracker.acknowledged {
 				if s.lastStableStatus != "waiting" {
 					s.stateTracker.waitingSince = time.Now()
@@ -2050,12 +1995,10 @@ func (s *Session) GetWaitingSince() time.Time {
 }
 
 // hasBusyIndicator checks if the terminal shows explicit busy indicators.
-// Uses configurable ResolvedPatterns when available, otherwise falls back to legacy hardcoded logic.
+// Now uses spinner movement detection for all paths (experiment).
 func (s *Session) hasBusyIndicator(content string) bool {
-	if s.resolvedPatterns != nil {
-		return s.hasBusyIndicatorResolved(content)
-	}
-	return s.hasBusyIndicatorLegacy(content)
+	// Always use spinner movement detection regardless of resolvedPatterns
+	return s.hasBusyIndicatorResolved(content)
 }
 
 // hasBusyIndicatorResolved uses spinner MOVEMENT detection for busy state.
@@ -2065,7 +2008,15 @@ func (s *Session) hasBusyIndicator(content string) bool {
 // is alive. If the same char persists for 5+ polls (10s), the spinner is frozen
 // and Claude has likely crashed (see: github.com/anthropics/claude-code/issues/20572).
 //
-// The SpinnerMovementTracker lives on the StateTracker so it persists across polls.
+// The SpinnerActivityTracker lives on the StateTracker so it persists across polls.
+//
+// Detection logic:
+//   - Spinner char from active set (⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏✳✽✶✢) found → BUSY
+//   - No spinner but was visible within last 6s → BUSY (grace period for tool transitions)
+//   - No spinner and grace expired → NOT BUSY
+//
+// The active spinner char set excludes ✻ (done marker) and · (non-spinner),
+// so presence alone reliably distinguishes active vs done states.
 func (s *Session) hasBusyIndicatorResolved(content string) bool {
 	shortName := s.DisplayName
 	if len(shortName) > 12 {
@@ -2079,85 +2030,55 @@ func (s *Session) hasBusyIndicatorResolved(content string) bool {
 	}
 
 	// Find spinner in terminal content
-	char, line, found := findSpinnerInContent(content, spinnerChars)
+	char, _, found := findSpinnerInContent(content, spinnerChars)
 
 	// Get or create spinner tracker
 	s.ensureStateTrackerLocked()
 	tracker := s.stateTracker.spinnerTracker
 
-	if !found {
-		// No spinner on screen: not busy
-		tracker.Update("", "")
-		statusLog.Debug("busy_no_spinner", slog.String("session", shortName))
-		return false
+	if found {
+		// Active spinner char on screen = Claude is working
+		tracker.MarkBusy()
+		statusLog.Debug("busy_spinner_found", slog.String("session", shortName), slog.String("char", char))
+		return true
 	}
 
-	// Spinner found: check if it's moving
-	moving, stale := tracker.Update(char, line)
-
-	if stale {
-		statusLog.Debug("busy_spinner_stale", slog.String("session", shortName),
-			slog.String("char", char), slog.Int("count", tracker.unchangedCount))
-		return false // spinner frozen = not really busy
+	// No active spinner char found. Check BusyPatterns (regex + string) which
+	// catch additional signals:
+	//   - Regex [·✳✽✶✻✢]\s*.+… matches ALL spinner chars (including · and ✻
+	//     which cycle through during active processing) by requiring the unicode
+	//     ellipsis … to distinguish active from done states
+	//   - String "ctrl+c to interrupt" for older Claude versions
+	if s.resolvedPatterns != nil {
+		recentLines := lastNLines(content, 25)
+		recentContent := strings.Join(recentLines, "\n")
+		for _, re := range s.resolvedPatterns.BusyRegexps {
+			if re.MatchString(recentContent) {
+				tracker.MarkBusy()
+				statusLog.Debug("busy_pattern_match", slog.String("session", shortName), slog.String("pattern", re.String()))
+				return true
+			}
+		}
+		lowerContent := strings.ToLower(recentContent)
+		for _, str := range s.resolvedPatterns.BusyStrings {
+			if strings.Contains(lowerContent, strings.ToLower(str)) {
+				tracker.MarkBusy()
+				statusLog.Debug("busy_string_match", slog.String("session", shortName), slog.String("pattern", str))
+				return true
+			}
+		}
 	}
 
-	if moving {
-		statusLog.Debug("busy_spinner_moving", slog.String("session", shortName),
-			slog.String("char", char), slog.Int("count", tracker.unchangedCount))
-		return true // spinner animating = busy
+	// No busy signal. Check grace period: between tool calls the spinner
+	// briefly disappears. If it was visible recently, stay busy.
+	if tracker.InGracePeriod() {
+		statusLog.Debug("busy_spinner_grace", slog.String("session", shortName),
+			slog.Duration("since_busy", time.Since(tracker.lastBusyTime)))
+		return true
 	}
 
+	statusLog.Debug("busy_no_spinner", slog.String("session", shortName))
 	return false
-
-	// OLD PATTERN-BASED DETECTION (commented out for spinner-only experiment):
-	//
-	// patterns := s.resolvedPatterns
-	//
-	// lastLines := lastNLines(content, 10)
-	// recentContent := strings.ToLower(strings.Join(lastLines, "\n"))
-	//
-	// // 1. Spinner active pattern: most common for Claude 2.1.25+ ("✳ Gusting…")
-	// if patterns.SpinnerActivePattern != nil && patterns.SpinnerActivePattern.MatchString(recentContent) {
-	// 	statusLog.Debug("busy_reason_spinner", slog.String("session", shortName))
-	// 	return true
-	// }
-	//
-	// // 2. Spinner characters in last 5 lines (braille spinners, box-drawing lines skipped)
-	// if len(patterns.SpinnerChars) > 0 {
-	// 	last5 := lastLines
-	// 	if len(last5) > 5 {
-	// 		last5 = last5[len(last5)-5:]
-	// 	}
-	// 	for _, line := range last5 {
-	// 		if startsWithBoxDrawing(line) {
-	// 			continue
-	// 		}
-	// 		for _, ch := range patterns.SpinnerChars {
-	// 			if strings.Contains(line, ch) {
-	// 				statusLog.Debug("busy_reason_spinner_char", slog.String("session", shortName), slog.String("char", ch))
-	// 				return true
-	// 			}
-	// 		}
-	// 	}
-	// }
-	//
-	// // 3. Regex-based busy indicators (re: prefixed patterns)
-	// for _, re := range patterns.BusyRegexps {
-	// 	if re.MatchString(recentContent) {
-	// 		statusLog.Debug("busy_reason_regex", slog.String("session", shortName), slog.String("regex", re.String()))
-	// 		return true
-	// 	}
-	// }
-	//
-	// // 4. String-based busy indicators (legacy fallback)
-	// for _, pat := range patterns.BusyStrings {
-	// 	if strings.Contains(recentContent, strings.ToLower(pat)) {
-	// 		statusLog.Debug("busy_reason_pattern", slog.String("session", shortName), slog.String("pattern", pat))
-	// 		return true
-	// 	}
-	// }
-	//
-	// return false
 }
 
 // hasPromptIndicator checks if the terminal shows a prompt waiting for user input.
@@ -2194,75 +2115,6 @@ func (s *Session) hasPromptIndicator(content string) bool {
 		s.cachedPromptDetectorTool = tool
 	}
 	return s.cachedPromptDetector.HasPrompt(content)
-}
-
-// hasBusyIndicatorLegacy is the original hardcoded busy detection logic.
-// Used as fallback when resolvedPatterns is nil (safety net during migration).
-func (s *Session) hasBusyIndicatorLegacy(content string) bool {
-	shortName := s.DisplayName
-	if len(shortName) > 12 {
-		shortName = shortName[:12]
-	}
-
-	lastLines := lastNLines(content, 10)
-	recentContent := strings.ToLower(strings.Join(lastLines, "\n"))
-
-	if strings.Contains(recentContent, "ctrl+c to interrupt") {
-		statusLog.Debug("busy_reason_ctrl_c", slog.String("session", shortName))
-		return true
-	}
-
-	if claudeSpinnerActivePattern.MatchString(recentContent) {
-		statusLog.Debug("busy_reason_claude_spinner", slog.String("session", shortName))
-		return true
-	}
-
-	if strings.Contains(recentContent, "esc to interrupt") {
-		statusLog.Debug("busy_reason_esc_interrupt", slog.String("session", shortName))
-		return true
-	}
-
-	if strings.Contains(recentContent, "esc to cancel") {
-		statusLog.Debug("busy_reason_esc_cancel", slog.String("session", shortName))
-		return true
-	}
-
-	if strings.Contains(recentContent, "esc interrupt") {
-		statusLog.Debug("busy_reason_esc_opencode", slog.String("session", shortName))
-		return true
-	}
-
-	if len(s.customBusyPatterns) > 0 {
-		for _, pattern := range s.customBusyPatterns {
-			if strings.Contains(recentContent, strings.ToLower(pattern)) {
-				statusLog.Debug("busy_reason_custom_pattern", slog.String("session", shortName), slog.String("pattern", pattern))
-				return true
-			}
-		}
-	}
-
-	spinnerChars := []string{
-		"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏",
-		"✳", "✽", "✶", "✢",
-	}
-	last5 := lastLines
-	if len(last5) > 5 {
-		last5 = last5[len(last5)-5:]
-	}
-
-	for _, line := range last5 {
-		if startsWithBoxDrawing(line) {
-			continue
-		}
-		for _, spinner := range spinnerChars {
-			if strings.Contains(line, spinner) {
-				statusLog.Debug("busy_reason_spinner_char", slog.String("session", shortName), slog.String("char", spinner))
-				return true
-			}
-		}
-	}
-
-	return false
 }
 
 // lastNLines splits content into lines, trims trailing blank lines, and returns

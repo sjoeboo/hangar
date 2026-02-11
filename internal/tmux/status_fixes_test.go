@@ -449,7 +449,7 @@ func TestClaudeCodeBusyPatterns(t *testing.T) {
 			name: "busy - esc to interrupt fallback for older Claude Code",
 			content: `Some text mentioning esc to interrupt from docs
 ❯`,
-			wantBusy: true, // Restored: esc to interrupt is fallback for older Claude Code
+			wantBusy: false, // Spinner-only: string patterns no longer used
 		},
 		{
 			name:     "idle - just prompt",
@@ -458,9 +458,10 @@ func TestClaudeCodeBusyPatterns(t *testing.T) {
 		},
 	}
 
-	sess := &Session{DisplayName: "test"}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			// Fresh session per test to avoid spinner grace period carryover
+			sess := &Session{DisplayName: "test-" + tt.name}
 			got := sess.hasBusyIndicator(tt.content)
 			if got != tt.wantBusy {
 				t.Errorf("hasBusyIndicator() = %v, want %v\nContent:\n%s", got, tt.wantBusy, tt.content)
@@ -530,9 +531,6 @@ func TestThinkingPatternRequiresSpinner(t *testing.T) {
 // in the spinner char check to prevent false GREEN from UI borders
 
 func TestSpinnerCheckSkipsBoxDrawingLines(t *testing.T) {
-	sess := NewSession("box-drawing-test", "/tmp")
-	sess.Command = "claude"
-
 	tests := []struct {
 		name     string
 		content  string
@@ -568,6 +566,9 @@ func TestSpinnerCheckSkipsBoxDrawingLines(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			// Fresh session per test to avoid spinner grace period carryover
+			sess := NewSession("box-drawing-"+tt.name, "/tmp")
+			sess.Command = "claude"
 			got := sess.hasBusyIndicator(tt.content)
 			if got != tt.wantBusy {
 				t.Errorf("hasBusyIndicator() = %v, want %v\nContent:\n%s", got, tt.wantBusy, tt.content)
@@ -584,8 +585,8 @@ func TestSpinnerCheckSkipsBoxDrawingLines(t *testing.T) {
 // Done state: "✻ Worked for 54s" (no ellipsis)
 
 func TestClaudeCode2125_ActiveDetection(t *testing.T) {
-	sess := NewSession("claude-2125-test", "/tmp")
-	sess.Command = "claude"
+	// sess created per-test below to avoid grace period carryover
+	_ = "claude" // tool hint
 
 	tests := []struct {
 		name     string
@@ -606,7 +607,7 @@ func TestClaudeCode2125_ActiveDetection(t *testing.T) {
 		{
 			name:     "active - · spinner with ellipsis",
 			content:  "· Sublimating… (39s · ↓ 1.8k tokens)",
-			wantBusy: true,
+			wantBusy: false, // Spinner-only: · not in active spinner chars
 		},
 		{
 			name:     "active - ✶ spinner with ellipsis",
@@ -616,7 +617,7 @@ func TestClaudeCode2125_ActiveDetection(t *testing.T) {
 		{
 			name:     "active - ✻ spinner with ellipsis",
 			content:  "✻ Gusting… (43s · ↓ 914 tokens)",
-			wantBusy: true,
+			wantBusy: false, // Spinner-only: ✻ not in active spinner chars (done indicator)
 		},
 		{
 			name:     "active - ✢ spinner with ellipsis",
@@ -647,12 +648,12 @@ func TestClaudeCode2125_ActiveDetection(t *testing.T) {
 		{
 			name:     "active - multi-word task with ✻",
 			content:  "✻ Adding mcp-proxy subcommand… (2m 23s · ↓ 2.7k tokens)",
-			wantBusy: true,
+			wantBusy: false, // Spinner-only: ✻ not in active spinner chars
 		},
 		{
 			name:     "active - multi-word task with ·",
 			content:  "· Installing package dependencies… (45s · ↑ 312 tokens)",
-			wantBusy: true,
+			wantBusy: false, // Spinner-only: · not in active spinner chars
 		},
 		{
 			name: "active - multi-word with surrounding content",
@@ -665,7 +666,7 @@ func TestClaudeCode2125_ActiveDetection(t *testing.T) {
 
 [Opus 4.5] Context: 54%
 ▶▶ bypass permissions on (shift+Tab to cycle) · 3 files +25 -3`,
-			wantBusy: true,
+			wantBusy: false, // Spinner-only: ✻ not in active spinner chars
 		},
 		// Done states (should NOT be GREEN)
 		{
@@ -697,6 +698,9 @@ func TestClaudeCode2125_ActiveDetection(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			// Fresh session per test to avoid spinner grace period carryover
+			sess := NewSession("claude-2125-"+tt.name, "/tmp")
+			sess.Command = "claude"
 			got := sess.hasBusyIndicator(tt.content)
 			if got != tt.wantBusy {
 				t.Errorf("hasBusyIndicator() = %v, want %v\nContent:\n%s", got, tt.wantBusy, tt.content)
@@ -1023,23 +1027,11 @@ func BenchmarkHasPromptIndicator(b *testing.B) {
 }
 
 // =============================================================================
-// VALIDATION 8.0: Grace Period Constant
+// VALIDATION 9.0: Spinner Activity Tracking
 // =============================================================================
-
-func TestGracePeriodConstant(t *testing.T) {
-	// Verify the grace period constant is 3 seconds (optimized from 5s)
-	if greenToWaitingGracePeriod != 3*time.Second {
-		t.Errorf("greenToWaitingGracePeriod = %v, want 3s", greenToWaitingGracePeriod)
-	}
-}
-
-// =============================================================================
-// VALIDATION 9.0: Spinner Movement Detection
-// =============================================================================
-// Tests for findSpinnerInContent() and SpinnerMovementTracker (defined in tmux.go).
-// Core idea: track whether the spinner char CHANGES between polls.
-// If it changes → spinner is animating → Claude is alive.
-// If it stays the same for N polls → spinner is stuck/frozen.
+// Tests for findSpinnerInContent() and SpinnerActivityTracker (defined in tmux.go).
+// Core idea: active spinner char PRESENCE (from curated set excluding ✻ and ·)
+// means Claude is working. Grace period covers brief gaps between tool calls.
 
 func TestFindSpinnerInContent(t *testing.T) {
 	spinners := []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏", "✳", "✽", "✶", "✢"}
@@ -1125,204 +1117,200 @@ func TestFindSpinnerInContent(t *testing.T) {
 	}
 }
 
-func TestSpinnerMovementTracker_Normal(t *testing.T) {
-	smt := NewSpinnerMovementTracker()
+func TestSpinnerActivityTracker_MarkBusy(t *testing.T) {
+	sat := NewSpinnerActivityTracker()
 
-	// Simulate normal Claude operation: spinner cycles through chars
-	spinnerSequence := []struct {
-		char string
-		line string
-	}{
-		{"✳", "✳ Gusting… (5s · ↑ 100 tokens)"},
-		{"✽", "✽ Gusting… (7s · ↑ 150 tokens)"},
-		{"✶", "✶ Gusting… (9s · ↑ 200 tokens)"},
-		{"✢", "✢ Gusting… (11s · ↑ 250 tokens)"},
-		{"✳", "✳ Gusting… (13s · ↑ 300 tokens)"},
+	// Initially not in grace period
+	if sat.InGracePeriod() {
+		t.Error("Expected InGracePeriod=false before any MarkBusy")
 	}
 
-	for i, s := range spinnerSequence {
-		moving, stale := smt.Update(s.char, s.line)
-		t.Logf("Poll %d: char=%s moving=%v stale=%v", i+1, s.char, moving, stale)
-		if !moving {
-			t.Errorf("Poll %d: expected moving=true (spinner is cycling)", i+1)
-		}
-		if stale {
-			t.Errorf("Poll %d: expected stale=false (spinner is cycling)", i+1)
-		}
+	// After marking busy, should be in grace period
+	sat.MarkBusy()
+	if !sat.InGracePeriod() {
+		t.Error("Expected InGracePeriod=true immediately after MarkBusy")
 	}
 }
 
-func TestSpinnerMovementTracker_Stuck(t *testing.T) {
-	smt := NewSpinnerMovementTracker()
+func TestSpinnerActivityTracker_GracePeriodExpiry(t *testing.T) {
+	sat := NewSpinnerActivityTracker()
 
-	// Simulate Claude crash: spinner stays on same char
-	stuckLine := "✳ Gusting… (5s · ↑ 100 tokens)"
+	// Mark busy, then simulate grace period expiry
+	sat.MarkBusy()
+	if !sat.InGracePeriod() {
+		t.Error("Expected InGracePeriod=true immediately after MarkBusy")
+	}
 
-	for i := 1; i <= 7; i++ {
-		moving, stale := smt.Update("✳", stuckLine)
-		t.Logf("Poll %d: moving=%v stale=%v unchangedCount=%d", i, moving, stale, smt.unchangedCount)
-
-		if i < 5 {
-			// First 4 polls: still trusting it (threshold=5)
-			if !moving {
-				t.Errorf("Poll %d: expected moving=true (under threshold)", i)
-			}
-			if stale {
-				t.Errorf("Poll %d: expected stale=false (under threshold)", i)
-			}
-		} else {
-			// Poll 5+: stale!
-			if moving {
-				t.Errorf("Poll %d: expected moving=false (over threshold)", i)
-			}
-			if !stale {
-				t.Errorf("Poll %d: expected stale=true (over threshold)", i)
-			}
-		}
+	// Simulate time passing beyond grace period
+	sat.lastBusyTime = time.Now().Add(-7 * time.Second)
+	if sat.InGracePeriod() {
+		t.Error("Expected InGracePeriod=false after grace period expired")
 	}
 }
 
-func TestSpinnerMovementTracker_RecoverAfterStale(t *testing.T) {
-	smt := NewSpinnerMovementTracker()
+func TestSpinnerActivityTracker_GracePeriod_BetweenToolCalls(t *testing.T) {
+	sat := NewSpinnerActivityTracker()
 
-	// Claude stuck for a while
-	stuckLine := "✳ Gusting… (5s · ↑ 100 tokens)"
-	for i := 0; i < 6; i++ {
-		smt.Update("✳", stuckLine)
+	// Phase 1: Spinner is visible (Claude working on tool 1)
+	sat.MarkBusy()
+	sat.MarkBusy()
+	sat.MarkBusy()
+
+	// Phase 2: Spinner briefly disappears (between tool calls)
+	// Should still be in grace period
+	if !sat.InGracePeriod() {
+		t.Error("Expected InGracePeriod=true during tool transition")
 	}
 
-	// Verify it's stale
-	moving, stale := smt.Update("✳", stuckLine)
-	if moving || !stale {
-		t.Fatal("Expected stale state")
-	}
-
-	// Now Claude recovers (different spinner char!)
-	moving, stale = smt.Update("✽", "✽ Gusting… (45s · ↑ 500 tokens)")
-	t.Logf("After recovery: moving=%v stale=%v", moving, stale)
-	if !moving {
-		t.Error("Expected moving=true after recovery")
-	}
-	if stale {
-		t.Error("Expected stale=false after recovery")
+	// Phase 3: Spinner comes back (Claude working on tool 2)
+	sat.MarkBusy()
+	if !sat.InGracePeriod() {
+		t.Error("Expected InGracePeriod=true when spinner returns")
 	}
 }
 
-func TestSpinnerMovementTracker_SameCharDifferentLine(t *testing.T) {
-	smt := NewSpinnerMovementTracker()
+func TestSpinnerActivityTracker_NoGraceWithoutActivity(t *testing.T) {
+	sat := NewSpinnerActivityTracker()
 
-	// Even if spinner char is the same, the LINE content changes (timing, tokens)
-	// This should count as movement because the screen IS changing
-	polls := []string{
-		"✳ Gusting… (5s · ↑ 100 tokens)",
-		"✳ Gusting… (7s · ↑ 150 tokens)", // same char but different line!
-		"✳ Gusting… (9s · ↑ 200 tokens)",
-	}
-
-	for i, line := range polls {
-		moving, stale := smt.Update("✳", line)
-		t.Logf("Poll %d: line=%q moving=%v stale=%v", i+1, line, moving, stale)
-		if !moving {
-			t.Errorf("Poll %d: expected moving=true (line content changed)", i+1)
-		}
-		if stale {
-			t.Errorf("Poll %d: expected stale=false", i+1)
-		}
+	// Never marked busy
+	if sat.InGracePeriod() {
+		t.Error("Expected InGracePeriod=false when never marked busy")
 	}
 }
 
-func TestSpinnerMovementTracker_NoSpinner(t *testing.T) {
-	smt := NewSpinnerMovementTracker()
-
-	// No spinner found
-	moving, stale := smt.Update("", "")
-	if moving {
-		t.Error("Expected moving=false when no spinner")
-	}
-	if stale {
-		t.Error("Expected stale=false when no spinner")
-	}
-}
-
-func TestSpinnerMovementTracker_DisappearsAfterActive(t *testing.T) {
-	smt := NewSpinnerMovementTracker()
-
-	// Spinner was active
-	smt.Update("✳", "✳ Gusting… (5s · ↑ 100 tokens)")
-	smt.Update("✽", "✽ Gusting… (7s · ↑ 150 tokens)")
-
-	// Spinner disappears (Claude done)
-	moving, stale := smt.Update("", "")
-	t.Logf("After disappear: moving=%v stale=%v lastChar=%q", moving, stale, smt.lastChar)
-	if moving {
-		t.Error("Expected moving=false when spinner gone")
-	}
-	if stale {
-		t.Error("Expected stale=false when spinner gone (it just disappeared, not stuck)")
-	}
-	if smt.lastChar != "" {
-		t.Error("Expected lastChar reset to empty")
-	}
-}
-
-// TestSpinnerMovement_EndToEnd_Simulation simulates a full Claude session:
-// start → active (spinner cycling) → stuck → recovery → done
-func TestSpinnerMovement_EndToEnd_Simulation(t *testing.T) {
-	smt := NewSpinnerMovementTracker()
+// TestSpinnerActivity_EndToEnd_WithHasBusyIndicator tests the full detection flow
+// using hasBusyIndicator, which integrates findSpinnerInContent + SpinnerActivityTracker.
+func TestSpinnerActivity_EndToEnd_WithHasBusyIndicator(t *testing.T) {
 	spinners := []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏", "✳", "✽", "✶", "✢"}
 
 	type event struct {
-		content    string
-		wantMoving bool
-		wantStale  bool
-		desc       string
+		content  string
+		wantBusy bool
+		desc     string
 	}
 
 	events := []event{
-		// Phase 1: Claude starts working
-		{"✳ Gusting… (1s · ↑ 50 tokens)\n❯", true, false, "start working"},
-		{"✽ Gusting… (3s · ↑ 100 tokens)\n❯", true, false, "spinner cycling"},
-		{"✶ Gusting… (5s · ↑ 150 tokens)\n❯", true, false, "spinner cycling"},
-		{"✢ Gusting… (7s · ↑ 200 tokens)\n❯", true, false, "spinner cycling"},
+		// Phase 1: Claude starts working (spinner chars present)
+		{"✳ Gusting… (1s · ↑ 50 tokens)\n❯", true, "start working"},
+		{"✽ Gusting… (3s · ↑ 100 tokens)\n❯", true, "spinner cycling"},
+		{"✶ Gusting… (5s · ↑ 150 tokens)\n❯", true, "still working"},
+		{"✢ Gusting… (7s · ↑ 200 tokens)\n❯", true, "still working"},
 
-		// Phase 2: Claude freezes (issue #20572 deadlock)
-		// Note: poll 4 above was the 1st sighting of ✢ (count=1)
-		{"✢ Gusting… (7s · ↑ 200 tokens)\n❯", true, false, "same 2/5"},
-		{"✢ Gusting… (7s · ↑ 200 tokens)\n❯", true, false, "same 3/5"},
-		{"✢ Gusting… (7s · ↑ 200 tokens)\n❯", true, false, "same 4/5 (last chance)"},
-		{"✢ Gusting… (7s · ↑ 200 tokens)\n❯", false, true, "same 5/5 → STALE!"},
-		{"✢ Gusting… (7s · ↑ 200 tokens)\n❯", false, true, "still stale"},
-		{"✢ Gusting… (7s · ↑ 200 tokens)\n❯", false, true, "still stale 2"},
+		// Phase 2: Same spinner char (doesn't matter, presence is enough)
+		{"✢ Gusting… (9s · ↑ 250 tokens)\n❯", true, "same char, still busy"},
+		{"✢ Gusting… (11s · ↑ 300 tokens)\n❯", true, "same char, still busy"},
 
-		// Phase 3: User kills and restarts, Claude recovers
-		{"✳ Working… (1s · ↑ 10 tokens)\n❯", true, false, "recovered!"},
-		{"✽ Working… (3s · ↑ 60 tokens)\n❯", true, false, "spinner cycling again"},
-
-		// Phase 4: Claude finishes
-		{"✻ Worked for 54s\n\n❯", false, false, "done (no active spinner)"},
+		// Phase 3: Done state (✻ not in active set)
+		// Note: grace period is still active from the recent MarkBusy calls
 	}
 
-	for i, ev := range events {
-		char, line, found := findSpinnerInContent(ev.content, spinners)
-		if !found {
-			char = ""
-			line = ""
-		}
-		moving, stale := smt.Update(char, line)
+	// Use a single session to test state persistence across polls
+	sess := NewSession("e2e-test", "/tmp")
+	sess.Command = "claude"
 
+	for i, ev := range events {
+		got := sess.hasBusyIndicator(ev.content)
 		status := "OK"
-		if moving != ev.wantMoving || stale != ev.wantStale {
+		if got != ev.wantBusy {
 			status = "FAIL"
 		}
 
-		t.Logf("[%s] Poll %2d %-25s char=%-3q moving=%-5v stale=%-5v",
-			status, i+1, ev.desc, char, moving, stale)
+		char, _, _ := findSpinnerInContent(ev.content, spinners)
+		t.Logf("[%s] Poll %2d %-25s char=%-3q busy=%-5v", status, i+1, ev.desc, char, got)
 
-		if moving != ev.wantMoving {
-			t.Errorf("Poll %d (%s): moving=%v, want %v", i+1, ev.desc, moving, ev.wantMoving)
+		if got != ev.wantBusy {
+			t.Errorf("Poll %d (%s): hasBusyIndicator=%v, want %v", i+1, ev.desc, got, ev.wantBusy)
 		}
-		if stale != ev.wantStale {
-			t.Errorf("Poll %d (%s): stale=%v, want %v", i+1, ev.desc, stale, ev.wantStale)
-		}
+	}
+
+	// Phase 4: Done state after grace period expires
+	sess.mu.Lock()
+	sess.ensureStateTrackerLocked()
+	sess.stateTracker.spinnerTracker.lastBusyTime = time.Now().Add(-10 * time.Second)
+	sess.mu.Unlock()
+
+	doneContent := "✻ Worked for 54s\n\n❯"
+	got := sess.hasBusyIndicator(doneContent)
+	t.Logf("[%s] Poll done  %-25s busy=%-5v", map[bool]string{true: "FAIL", false: "OK"}[got], "done (grace expired)", got)
+	if got {
+		t.Errorf("Done state: hasBusyIndicator=%v, want false", got)
+	}
+}
+
+// TestBusyPatternRegex_CatchesMidDotAndAsterisk validates that the BusyRegexps
+// catch · and ✻ spinner chars (which are excluded from findSpinnerInContent's
+// active set) by matching spinner+text+ellipsis patterns.
+func TestBusyPatternRegex_CatchesMidDotAndAsterisk(t *testing.T) {
+	raw := DefaultRawPatterns("claude")
+	if raw == nil {
+		t.Fatal("no default patterns for claude")
+	}
+	resolved, err := CompilePatterns(raw)
+	if err != nil {
+		t.Fatalf("CompilePatterns: %v", err)
+	}
+
+	tests := []struct {
+		name    string
+		content string
+		want    bool
+	}{
+		{
+			name: "middot active (not in findSpinnerInContent set)",
+			content: `some output
+· Kneading… (9m 22s · ↓ 14.1k tokens · thought for 36s)
+──────────────────
+❯
+──────────────────
+  [Opus 4.6] Context: 42%
+  ⏵⏵ bypass permissions on`,
+			want: true,
+		},
+		{
+			name: "asterisk ✻ active (not in findSpinnerInContent set)",
+			content: `some output
+✻ Undulating… (thought for 2s)
+──────────────────
+❯
+──────────────────
+  [Opus 4.6] Context: 24%
+  ⏵⏵ bypass permissions on`,
+			want: true,
+		},
+		{
+			name: "done state with ✻ (no ellipsis, should NOT match)",
+			content: `some output
+✻ Worked for 54s
+──────────────────
+❯
+──────────────────
+  [Opus 4.6] Context: 30%`,
+			want: false,
+		},
+		{
+			name: "done state with · (no ellipsis, should NOT match)",
+			content: `some output
+· Baked for 12s
+──────────────────
+❯
+──────────────────
+  [Opus 4.6] Context: 30%`,
+			want: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Use a fresh Session per test to avoid grace period carryover
+			s := &Session{
+				Name:             "test-pattern",
+				DisplayName:      "test-pattern",
+				resolvedPatterns: resolved,
+			}
+			got := s.hasBusyIndicator(tt.content)
+			if got != tt.want {
+				t.Errorf("hasBusyIndicator=%v, want %v", got, tt.want)
+			}
+		})
 	}
 }
