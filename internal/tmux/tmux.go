@@ -2713,7 +2713,7 @@ func (s *Session) SendKeys(keys string) error {
 	// The -l flag makes tmux treat the string as literal text, not key names
 	// This prevents issues like "Enter" being interpreted as the Enter key
 	// and provides a layer of safety against tmux special sequences
-	cmd := exec.Command("tmux", "send-keys", "-l", "-t", s.Name, keys)
+	cmd := exec.Command("tmux", "send-keys", "-l", "-t", s.Name, "--", keys)
 	return cmd.Run()
 }
 
@@ -2724,16 +2724,21 @@ func (s *Session) SendEnter() error {
 	return cmd.Run()
 }
 
-// SendKeysAndEnter sends literal text followed by Enter atomically in a single
-// tmux subprocess. Uses tmux command chaining (;) to eliminate the race condition
-// where two separate send-keys calls can be separated by OS scheduling delays.
-// See: tmux#1185, tmux#1517, tmux#1778
+// SendKeysAndEnter sends literal text followed by Enter as two separate tmux
+// calls with a short delay between them. The delay is necessary because tmux
+// 3.2+ wraps send-keys -l in bracketed paste sequences (\e[200~...\e[201~).
+// Without the delay, Enter arrives in the same PTY buffer as the paste-end
+// marker and gets swallowed by async TUI frameworks (Ink/Node.js, curses).
 func (s *Session) SendKeysAndEnter(keys string) error {
 	s.invalidateCache()
-	cmd := exec.Command("tmux",
-		"send-keys", "-l", "-t", s.Name, "--", keys, ";",
-		"send-keys", "-t", s.Name, "Enter")
-	return cmd.Run()
+	if err := s.SendKeys(keys); err != nil {
+		return err
+	}
+	// Delay for TUI apps (Ink, curses) to finish processing bracketed paste
+	// before Enter arrives. Without this, tmux 3.2+ paste sequences cause
+	// the immediately-following Enter to be swallowed by the paste handler.
+	time.Sleep(100 * time.Millisecond)
+	return s.SendEnter()
 }
 
 // SendKeysChunked sends large content to the tmux session in chunks to avoid
