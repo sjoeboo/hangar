@@ -353,6 +353,7 @@ type StateTracker struct {
 	acknowledgedAt        time.Time // When acknowledged was set (for grace period)
 	lastActivityTimestamp int64     // tmux window_activity timestamp for spike detection
 	waitingSince          time.Time // When session transitioned to waiting status
+	promptNoBusyCount     int       // consecutive prompt-visible polls with no busy signal while active
 
 	// Non-blocking spike detection: track changes across tick cycles
 	activityCheckStart  time.Time // When we started tracking for sustained activity
@@ -420,6 +421,16 @@ func findSpinnerInContent(content string, spinnerChars []string) (char string, l
 	return "", "", false
 }
 
+// isBrailleSpinnerChar returns true for the classic 10-frame braille spinner.
+func isBrailleSpinnerChar(ch string) bool {
+	switch ch {
+	case "⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏":
+		return true
+	default:
+		return false
+	}
+}
+
 // Session represents a tmux session
 // NOTE: All mutable fields are protected by mu. The Bubble Tea event loop is single-threaded,
 // but we use mutex protection for defensive programming and future-proofing.
@@ -430,6 +441,7 @@ type Session struct {
 	Command     string
 	Created     time.Time
 	InstanceID  string // Agent-deck instance ID for hook callbacks
+	startupAt   time.Time
 
 	// mu protects all mutable fields below from concurrent access
 	mu sync.Mutex
@@ -491,7 +503,10 @@ type envCacheEntry struct {
 	time  time.Time
 }
 
-const envCacheTTL = 30 * time.Second
+const (
+	envCacheTTL        = 30 * time.Second
+	startupStateWindow = 2 * time.Minute
+)
 
 // invalidateCache clears the CapturePane cache.
 // MUST be called after any action that might change terminal content.
@@ -518,6 +533,36 @@ func (s *Session) ensureStateTrackerLocked() {
 	if s.stateTracker.spinnerTracker == nil {
 		s.stateTracker.spinnerTracker = NewSpinnerActivityTracker()
 	}
+}
+
+// shouldHoldActiveOnPromptLocked applies a small hysteresis when a session was
+// recently active but current capture shows prompt with no busy signal.
+// This avoids active <-> waiting flicker from transient capture misses.
+// MUST be called with s.mu held.
+func (s *Session) shouldHoldActiveOnPromptLocked() bool {
+	if s.stateTracker == nil || s.lastStableStatus != "active" {
+		return false
+	}
+	const promptNoBusyHoldPolls = 2
+	if s.stateTracker.promptNoBusyCount < promptNoBusyHoldPolls {
+		s.stateTracker.promptNoBusyCount++
+		return true
+	}
+	return false
+}
+
+// resetPromptNoBusyHoldLocked clears prompt-no-busy hysteresis counters.
+// MUST be called with s.mu held.
+func (s *Session) resetPromptNoBusyHoldLocked() {
+	if s.stateTracker != nil {
+		s.stateTracker.promptNoBusyCount = 0
+	}
+}
+
+// inStartupWindowLocked returns true when the session is still in its startup phase.
+// MUST be called with s.mu held.
+func (s *Session) inStartupWindowLocked() bool {
+	return !s.startupAt.IsZero() && time.Since(s.startupAt) < startupStateWindow
 }
 
 // SetCustomPatterns sets custom patterns for generic tool support
@@ -577,6 +622,7 @@ func NewSession(name, workDir string) *Session {
 		DisplayName:      name,
 		WorkDir:          workDir,
 		Created:          time.Now(),
+		startupAt:        time.Now(),
 		lastStableStatus: "waiting",
 		toolDetectExpiry: 30 * time.Second, // Re-detect tool every 30 seconds
 		// stateTracker and promptDetector will be created lazily on first status check
@@ -596,6 +642,7 @@ func ReconnectSession(tmuxName, displayName, workDir, command string) *Session {
 		WorkDir:          workDir,
 		Command:          command,
 		Created:          time.Now(), // Approximate - we don't persist this
+		startupAt:        time.Time{},
 		lastStableStatus: "waiting",
 		toolDetectExpiry: 30 * time.Second,
 		configured:       false, // Will be set to true after configuration
@@ -661,6 +708,7 @@ func ReconnectSessionLazy(tmuxName, displayName, workDir, command string, previo
 		WorkDir:          workDir,
 		Command:          command,
 		Created:          time.Now(), // Approximate - we don't persist this
+		startupAt:        time.Time{},
 		lastStableStatus: "waiting",
 		toolDetectExpiry: 30 * time.Second,
 		configured:       false, // Explicitly mark as not configured
@@ -802,6 +850,14 @@ func sanitizeName(name string) string {
 func (s *Session) Start(command string) error {
 	s.Command = command
 	s.invalidateCache()
+	s.Created = time.Now()
+	s.startupAt = s.Created
+	s.mu.Lock()
+	s.lastStableStatus = "waiting"
+	s.stateTracker = nil
+	s.cachedPromptDetector = nil
+	s.cachedPromptDetectorTool = ""
+	s.mu.Unlock()
 
 	// Check if session already exists (shouldn't happen with unique IDs, but handle gracefully)
 	if s.Exists() {
@@ -921,14 +977,14 @@ func (s *Session) Exists() bool {
 		return exists
 	}
 
-	// When PipeManager is active, check if we have a connected pipe for this session.
-	// If PipeManager is running but has no pipe for us, session likely doesn't exist.
-	// This avoids subprocess fallback when control pipes handle status detection.
+	// If PipeManager has a live control connection, the session definitely exists.
 	if pm := GetPipeManager(); pm != nil {
-		return pm.IsConnected(s.Name)
+		if pm.IsConnected(s.Name) {
+			return true
+		}
 	}
 
-	// No PipeManager: fall back to direct check (spawns subprocess)
+	// Cache is stale and no live pipe: fall back to direct tmux check.
 	cmd := exec.Command("tmux", "has-session", "-t", s.Name)
 	return cmd.Run() == nil
 }
@@ -1258,6 +1314,15 @@ func (s *Session) RespawnPane(command string) error {
 		}
 	}
 
+	// Reset startup/status trackers so GetStatus can classify the fresh process correctly.
+	s.mu.Lock()
+	s.startupAt = time.Now()
+	s.lastStableStatus = "waiting"
+	s.stateTracker = nil
+	s.cachedPromptDetector = nil
+	s.cachedPromptDetectorTool = ""
+	s.mu.Unlock()
+
 	return nil
 }
 
@@ -1491,6 +1556,29 @@ func (s *Session) DetectTool() string {
 	return detectedTool
 }
 
+func matchesDetectPatterns(content string, patterns []string) bool {
+	if len(patterns) == 0 {
+		return false
+	}
+
+	for _, p := range patterns {
+		pattern := strings.TrimPrefix(p, "re:")
+
+		if re, err := regexp.Compile(pattern); err == nil {
+			if re.MatchString(content) {
+				return true
+			}
+			continue
+		}
+
+		if strings.Contains(strings.ToLower(content), strings.ToLower(pattern)) {
+			return true
+		}
+	}
+
+	return false
+}
+
 // ForceDetectTool forces a re-detection of the tool, ignoring cache
 func (s *Session) ForceDetectTool() string {
 	s.mu.Lock()
@@ -1635,8 +1723,10 @@ func (s *Session) GetStatus() (string, error) {
 			if isExplicitlyBusy {
 				s.stateTracker.lastChangeTime = time.Now()
 				s.stateTracker.acknowledged = false
+				s.resetPromptNoBusyHoldLocked()
 				s.stateTracker.lastActivityTimestamp = currentTS
 				s.lastStableStatus = "active"
+				s.startupAt = time.Time{}
 				statusLog.Debug("busy_indicator_active", slog.String("session", shortName))
 				return "active", nil
 			}
@@ -1647,6 +1737,10 @@ func (s *Session) GetStatus() (string, error) {
 			cleanContent := s.normalizeContent(content)
 			currentHash := s.hashContent(cleanContent)
 			if currentHash != "" {
+				// Keep the content hash for diagnostics/fallback logic only.
+				// Do NOT clear acknowledgment on hash changes: dynamic footer text
+				// (timers, context counters, redraws) can mutate content without any
+				// real new work and causes idle -> waiting flapping.
 				s.stateTracker.lastHash = currentHash
 			}
 
@@ -1656,17 +1750,38 @@ func (s *Session) GetStatus() (string, error) {
 				// Respect acknowledgment: if user already acknowledged (e.g. by attaching),
 				// keep idle status. The prompt is still visible but the user is looking at it.
 				if s.stateTracker.acknowledged {
+					s.resetPromptNoBusyHoldLocked()
 					s.lastStableStatus = "idle"
+					s.startupAt = time.Time{}
 					statusLog.Debug("prompt_detected_idle", slog.String("session", shortName))
 					return "idle", nil
 				}
+				if s.shouldHoldActiveOnPromptLocked() {
+					s.startupAt = time.Time{}
+					statusLog.Debug("prompt_no_busy_hold_active",
+						slog.String("session", shortName),
+						slog.Int("count", s.stateTracker.promptNoBusyCount))
+					return "active", nil
+				}
+				s.resetPromptNoBusyHoldLocked()
 				if s.lastStableStatus != "waiting" {
 					s.stateTracker.waitingSince = time.Now()
 				}
 				s.lastStableStatus = "waiting"
+				s.startupAt = time.Time{}
 				statusLog.Debug("prompt_detected_waiting", slog.String("session", shortName))
 				return "waiting", nil
 			}
+
+			// During startup there may be a long period with neither spinner nor prompt.
+			// Keep this as STARTING to avoid premature waiting/idle transitions.
+			if s.inStartupWindowLocked() {
+				s.resetPromptNoBusyHoldLocked()
+				s.lastStableStatus = "starting"
+				statusLog.Debug("startup_no_prompt_or_busy", slog.String("session", shortName))
+				return "starting", nil
+			}
+			s.resetPromptNoBusyHoldLocked()
 		}
 	}
 
@@ -1680,6 +1795,11 @@ func (s *Session) GetStatus() (string, error) {
 			waitingSince:          now, // Track when session became waiting
 			spinnerTracker:        NewSpinnerActivityTracker(),
 		}
+		if s.inStartupWindowLocked() {
+			s.lastStableStatus = "starting"
+			statusLog.Debug("init_starting", slog.String("session", shortName))
+			return "starting", nil
+		}
 		s.lastStableStatus = "waiting"
 		statusLog.Debug("init_waiting", slog.String("session", shortName))
 		return "waiting", nil
@@ -1688,6 +1808,11 @@ func (s *Session) GetStatus() (string, error) {
 	// Restored session (lastActivityTimestamp == 0)
 	if s.stateTracker.lastActivityTimestamp == 0 {
 		s.stateTracker.lastActivityTimestamp = currentTS
+		if s.inStartupWindowLocked() {
+			s.lastStableStatus = "starting"
+			statusLog.Debug("restored_starting", slog.String("session", shortName))
+			return "starting", nil
+		}
 		if s.stateTracker.acknowledged {
 			s.lastStableStatus = "idle"
 			statusLog.Debug("restored_idle", slog.String("session", shortName))
@@ -1738,9 +1863,11 @@ func (s *Session) GetStatus() (string, error) {
 					if isExplicitlyBusy {
 						s.stateTracker.lastChangeTime = now
 						s.stateTracker.acknowledged = false
+						s.resetPromptNoBusyHoldLocked()
 						s.stateTracker.activityCheckStart = time.Time{} // Reset window
 						s.stateTracker.activityChangeCount = 0
 						s.lastStableStatus = "active"
+						s.startupAt = time.Time{}
 						statusLog.Debug("sustained_confirmed", slog.String("session", shortName))
 						return "active", nil
 					}
@@ -1749,7 +1876,39 @@ func (s *Session) GetStatus() (string, error) {
 					cleanContent := s.normalizeContent(content)
 					currentHash := s.hashContent(cleanContent)
 					if currentHash != "" {
+						// Hash changes alone are not enough to clear acknowledgment.
 						s.stateTracker.lastHash = currentHash
+					}
+
+					if s.hasPromptIndicator(content) {
+						if s.stateTracker.acknowledged {
+							s.resetPromptNoBusyHoldLocked()
+							s.lastStableStatus = "idle"
+							s.startupAt = time.Time{}
+							statusLog.Debug("sustained_prompt_idle", slog.String("session", shortName))
+							s.stateTracker.activityCheckStart = time.Time{}
+							s.stateTracker.activityChangeCount = 0
+							return "idle", nil
+						}
+						if s.shouldHoldActiveOnPromptLocked() {
+							s.startupAt = time.Time{}
+							statusLog.Debug("sustained_prompt_hold_active",
+								slog.String("session", shortName),
+								slog.Int("count", s.stateTracker.promptNoBusyCount))
+							s.stateTracker.activityCheckStart = time.Time{}
+							s.stateTracker.activityChangeCount = 0
+							return "active", nil
+						}
+						s.resetPromptNoBusyHoldLocked()
+						if s.lastStableStatus != "waiting" {
+							s.stateTracker.waitingSince = time.Now()
+						}
+						s.lastStableStatus = "waiting"
+						s.startupAt = time.Time{}
+						statusLog.Debug("sustained_prompt_waiting", slog.String("session", shortName))
+						s.stateTracker.activityCheckStart = time.Time{}
+						s.stateTracker.activityChangeCount = 0
+						return "waiting", nil
 					}
 
 					// No busy indicator - spike was false positive (cursor blink, status bar, etc.)
@@ -1797,22 +1956,34 @@ func (s *Session) GetStatus() (string, error) {
 		content, captureErr := s.CapturePane()
 		s.mu.Lock()
 		if captureErr == nil && s.hasBusyIndicator(content) {
-			// Busy indicator is authoritative (includes spinner grace period)
-			s.stateTracker.lastChangeTime = time.Now()
+			// Busy indicator is authoritative (includes spinner grace period).
+			s.resetPromptNoBusyHoldLocked()
+			s.startupAt = time.Time{}
 			statusLog.Debug("still_busy", slog.String("session", shortName))
 			return "active", nil
 		}
 		if captureErr == nil && s.hasPromptIndicator(content) {
 			// Not busy, but prompt visible. Transition to waiting/idle.
 			if !s.stateTracker.acknowledged {
+				if s.shouldHoldActiveOnPromptLocked() {
+					s.startupAt = time.Time{}
+					statusLog.Debug("prompt_recheck_hold_active",
+						slog.String("session", shortName),
+						slog.Int("count", s.stateTracker.promptNoBusyCount))
+					return "active", nil
+				}
+				s.resetPromptNoBusyHoldLocked()
 				if s.lastStableStatus != "waiting" {
 					s.stateTracker.waitingSince = time.Now()
 				}
 				s.lastStableStatus = "waiting"
+				s.startupAt = time.Time{}
 				statusLog.Debug("prompt_recheck_waiting", slog.String("session", shortName))
 				return "waiting", nil
 			}
+			s.resetPromptNoBusyHoldLocked()
 			s.lastStableStatus = "idle"
+			s.startupAt = time.Time{}
 			statusLog.Debug("prompt_recheck_idle", slog.String("session", shortName))
 			return "idle", nil
 		}
@@ -1821,15 +1992,25 @@ func (s *Session) GetStatus() (string, error) {
 
 	// No busy indicator found - check acknowledged state
 	if s.stateTracker.acknowledged {
+		s.resetPromptNoBusyHoldLocked()
 		s.lastStableStatus = "idle"
+		s.startupAt = time.Time{}
 		statusLog.Debug("idle_acknowledged", slog.String("session", shortName))
 		return "idle", nil
 	}
+	if s.inStartupWindowLocked() {
+		s.resetPromptNoBusyHoldLocked()
+		s.lastStableStatus = "starting"
+		statusLog.Debug("startup_pending", slog.String("session", shortName))
+		return "starting", nil
+	}
+	s.resetPromptNoBusyHoldLocked()
 	// Track when we transition to waiting (not already waiting)
 	if s.lastStableStatus != "waiting" {
 		s.stateTracker.waitingSince = time.Now()
 	}
 	s.lastStableStatus = "waiting"
+	s.startupAt = time.Time{}
 	statusLog.Debug("waiting_not_acknowledged", slog.String("session", shortName))
 	return "waiting", nil
 }
@@ -1861,29 +2042,48 @@ func (s *Session) getStatusFallback() (string, error) {
 		return "inactive", nil
 	}
 
-	// Check prompt first - prompt overrides busy indicator
-	if s.hasPromptIndicator(content) {
-		s.mu.Lock()
-		defer s.mu.Unlock()
-		s.ensureStateTrackerLocked()
-		s.stateTracker.acknowledged = false
-		if s.lastStableStatus != "waiting" {
-			s.stateTracker.waitingSince = time.Now()
-		}
-		s.lastStableStatus = "waiting"
-		statusLog.Debug("fallback_waiting_prompt", slog.String("session", shortName))
-		return "waiting", nil
-	}
-
+	// Keep precedence aligned with the main path:
+	// 1) busy (authoritative), 2) prompt, 3) waiting/idle.
 	if s.hasBusyIndicator(content) {
 		s.mu.Lock()
 		defer s.mu.Unlock()
 		s.ensureStateTrackerLocked()
 		s.stateTracker.lastChangeTime = time.Now()
 		s.stateTracker.acknowledged = false
+		s.resetPromptNoBusyHoldLocked()
 		s.lastStableStatus = "active"
+		s.startupAt = time.Time{}
 		statusLog.Debug("fallback_active", slog.String("session", shortName))
 		return "active", nil
+	}
+
+	if s.hasPromptIndicator(content) {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		s.ensureStateTrackerLocked()
+		if s.stateTracker.acknowledged {
+			s.resetPromptNoBusyHoldLocked()
+			s.lastStableStatus = "idle"
+			s.startupAt = time.Time{}
+			statusLog.Debug("fallback_idle_prompt_ack", slog.String("session", shortName))
+			return "idle", nil
+		}
+		if s.shouldHoldActiveOnPromptLocked() {
+			s.startupAt = time.Time{}
+			statusLog.Debug("fallback_prompt_hold_active",
+				slog.String("session", shortName),
+				slog.Int("count", s.stateTracker.promptNoBusyCount))
+			return "active", nil
+		}
+		s.resetPromptNoBusyHoldLocked()
+		s.stateTracker.acknowledged = false
+		if s.lastStableStatus != "waiting" {
+			s.stateTracker.waitingSince = time.Now()
+		}
+		s.lastStableStatus = "waiting"
+		s.startupAt = time.Time{}
+		statusLog.Debug("fallback_waiting_prompt", slog.String("session", shortName))
+		return "waiting", nil
 	}
 
 	cleanContent := s.normalizeContent(content)
@@ -1903,6 +2103,11 @@ func (s *Session) getStatusFallback() (string, error) {
 			acknowledged:   false, // Start unacknowledged so stopped sessions show YELLOW
 			waitingSince:   now,   // Track when session became waiting
 		}
+		if s.inStartupWindowLocked() {
+			s.lastStableStatus = "starting"
+			statusLog.Debug("fallback_init_starting", slog.String("session", shortName))
+			return "starting", nil
+		}
 		s.lastStableStatus = "waiting"
 		statusLog.Debug("fallback_init_waiting", slog.String("session", shortName))
 		return "waiting", nil
@@ -1910,8 +2115,14 @@ func (s *Session) getStatusFallback() (string, error) {
 
 	if s.stateTracker.lastHash == "" {
 		s.stateTracker.lastHash = currentHash
+		if s.inStartupWindowLocked() {
+			s.lastStableStatus = "starting"
+			statusLog.Debug("fallback_restored_starting", slog.String("session", shortName))
+			return "starting", nil
+		}
 		if s.stateTracker.acknowledged {
 			s.lastStableStatus = "idle"
+			s.startupAt = time.Time{}
 			statusLog.Debug("fallback_restored_idle", slog.String("session", shortName))
 			return "idle", nil
 		}
@@ -1919,6 +2130,7 @@ func (s *Session) getStatusFallback() (string, error) {
 			s.stateTracker.waitingSince = time.Now()
 		}
 		s.lastStableStatus = "waiting"
+		s.startupAt = time.Time{}
 		statusLog.Debug("fallback_restored_waiting", slog.String("session", shortName))
 		return "waiting", nil
 	}
@@ -1934,14 +2146,21 @@ func (s *Session) getStatusFallback() (string, error) {
 	// No busy indicator found - check acknowledged state
 	if s.stateTracker.acknowledged {
 		s.lastStableStatus = "idle"
+		s.startupAt = time.Time{}
 		statusLog.Debug("fallback_idle_acknowledged", slog.String("session", shortName))
 		return "idle", nil
+	}
+	if s.inStartupWindowLocked() {
+		s.lastStableStatus = "starting"
+		statusLog.Debug("fallback_starting_pending", slog.String("session", shortName))
+		return "starting", nil
 	}
 	// Track when we transition to waiting (not already waiting)
 	if s.lastStableStatus != "waiting" {
 		s.stateTracker.waitingSince = time.Now()
 	}
 	s.lastStableStatus = "waiting"
+	s.startupAt = time.Time{}
 	statusLog.Debug("fallback_waiting_not_acknowledged", slog.String("session", shortName))
 	return "waiting", nil
 }
@@ -1954,6 +2173,7 @@ func (s *Session) Acknowledge() {
 
 	s.ensureStateTrackerLocked()
 	s.stateTracker.acknowledged = true
+	s.resetPromptNoBusyHoldLocked()
 	s.lastStableStatus = "idle"
 }
 
@@ -1966,8 +2186,34 @@ func (s *Session) ResetAcknowledged() {
 
 	s.ensureStateTrackerLocked()
 	s.stateTracker.acknowledged = false
+	s.resetPromptNoBusyHoldLocked()
 	s.stateTracker.waitingSince = time.Now() // Track when session became waiting for ordering
 	s.lastStableStatus = "waiting"
+}
+
+// ApplySharedAcknowledged applies acknowledgment state replicated from SQLite.
+// Unlike Acknowledge/ResetAcknowledged, this only synchronizes the ack flag and
+// does not force an immediate status transition. GetStatus() will naturally map
+// to waiting/idle on the next poll based on busy/prompt conditions.
+func (s *Session) ApplySharedAcknowledged(ack bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.stateTracker == nil {
+		// No local state yet; ack=false is already the default behavior.
+		if !ack {
+			return
+		}
+		s.ensureStateTrackerLocked()
+	} else if s.stateTracker.spinnerTracker == nil {
+		s.stateTracker.spinnerTracker = NewSpinnerActivityTracker()
+	}
+
+	s.stateTracker.acknowledged = ack
+	s.resetPromptNoBusyHoldLocked()
+	if ack {
+		s.stateTracker.acknowledgedAt = time.Now()
+	}
 }
 
 // GetLastActivityTime returns when the session content last changed
@@ -2001,58 +2247,131 @@ func (s *Session) hasBusyIndicator(content string) bool {
 	return s.hasBusyIndicatorResolved(content)
 }
 
-// hasBusyIndicatorResolved uses spinner MOVEMENT detection for busy state.
+var defaultResolvedPatternsCache sync.Map // map[string]*ResolvedPatterns
+
+func inferToolFromSessionFields(detected, custom, command string) string {
+	if detected != "" {
+		return strings.ToLower(detected)
+	}
+	if custom != "" {
+		return strings.ToLower(custom)
+	}
+	cmd := strings.ToLower(command)
+	switch {
+	case strings.Contains(cmd, "claude"):
+		return "claude"
+	case strings.Contains(cmd, "gemini"):
+		return "gemini"
+	case strings.Contains(cmd, "opencode"), strings.Contains(cmd, "open code"):
+		return "opencode"
+	case strings.Contains(cmd, "codex"):
+		return "codex"
+	default:
+		return ""
+	}
+}
+
+func defaultResolvedPatternsForTool(tool string) *ResolvedPatterns {
+	tool = strings.ToLower(strings.TrimSpace(tool))
+	if tool == "" {
+		return nil
+	}
+	if cached, ok := defaultResolvedPatternsCache.Load(tool); ok {
+		if rp, ok := cached.(*ResolvedPatterns); ok {
+			return rp
+		}
+	}
+
+	raw := DefaultRawPatterns(tool)
+	if raw == nil {
+		return nil
+	}
+	resolved, err := CompilePatterns(raw)
+	if err != nil {
+		return nil
+	}
+	if actual, loaded := defaultResolvedPatternsCache.LoadOrStore(tool, resolved); loaded {
+		if rp, ok := actual.(*ResolvedPatterns); ok {
+			return rp
+		}
+	}
+	return resolved
+}
+
+func hasInterruptBusyContext(lines []string, phrase string, spinnerChars []string) bool {
+	phrase = strings.ToLower(strings.TrimSpace(phrase))
+	if phrase == "" {
+		return false
+	}
+
+	for _, line := range lines {
+		clean := strings.ToLower(strings.TrimSpace(StripANSI(line)))
+		if !strings.Contains(clean, phrase) {
+			continue
+		}
+
+		// Exact interrupt prompt line (older tool variants).
+		if clean == phrase {
+			return true
+		}
+
+		// Common busy-line context for Claude/Gemini style status lines.
+		if strings.Contains(clean, "(") ||
+			strings.Contains(clean, "tokens") ||
+			strings.Contains(clean, "thinking") ||
+			strings.Contains(clean, "…") ||
+			strings.Contains(clean, "·") {
+			return true
+		}
+
+		// Spinner char present on same line is also sufficient.
+		for _, ch := range spinnerChars {
+			if strings.Contains(clean, strings.ToLower(ch)) {
+				return true
+			}
+		}
+	}
+
+	return false
+}
+
+// hasBusyIndicatorResolved detects active work with a pattern-first strategy:
+//  1. Busy regex/string patterns (tool-specific, e.g. Claude ellipsis/interrupt lines)
+//  2. Spinner fallback (strict for Claude; permissive for other tools)
+//  3. Grace period between tool-call transitions
 //
-// Instead of pattern matching (regex, word lists, string presence), this tracks
-// whether the spinner character is CHANGING between polls. If it changes, Claude
-// is alive. If the same char persists for 5+ polls (10s), the spinner is frozen
-// and Claude has likely crashed (see: github.com/anthropics/claude-code/issues/20572).
-//
-// The SpinnerActivityTracker lives on the StateTracker so it persists across polls.
-//
-// Detection logic:
-//   - Spinner char from active set (⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏✳✽✶✢) found → BUSY
-//   - No spinner but was visible within last 6s → BUSY (grace period for tool transitions)
-//   - No spinner and grace expired → NOT BUSY
-//
-// The active spinner char set excludes ✻ (done marker) and · (non-spinner),
-// so presence alone reliably distinguishes active vs done states.
+// This avoids false GREEN from decorative symbols or status/footer redraws.
 func (s *Session) hasBusyIndicatorResolved(content string) bool {
 	shortName := s.DisplayName
 	if len(shortName) > 12 {
 		shortName = shortName[:12]
 	}
 
-	// Get spinner chars from resolved patterns, fallback to defaults
+	tool := inferToolFromSessionFields(s.detectedTool, s.customToolName, s.Command)
+	patterns := s.resolvedPatterns
+	if patterns == nil {
+		patterns = defaultResolvedPatternsForTool(tool)
+	}
+
+	// Get spinner chars from resolved/default patterns, fallback to defaults
 	spinnerChars := defaultSpinnerChars()
-	if s.resolvedPatterns != nil && len(s.resolvedPatterns.SpinnerChars) > 0 {
-		spinnerChars = s.resolvedPatterns.SpinnerChars
+	if patterns != nil && len(patterns.SpinnerChars) > 0 {
+		spinnerChars = patterns.SpinnerChars
 	}
 
 	// Find spinner in terminal content
-	char, _, found := findSpinnerInContent(content, spinnerChars)
+	char, spinnerLine, found := findSpinnerInContent(content, spinnerChars)
 
 	// Get or create spinner tracker
 	s.ensureStateTrackerLocked()
 	tracker := s.stateTracker.spinnerTracker
 
-	if found {
-		// Active spinner char on screen = Claude is working
-		tracker.MarkBusy()
-		statusLog.Debug("busy_spinner_found", slog.String("session", shortName), slog.String("char", char))
-		return true
-	}
-
-	// No active spinner char found. Check BusyPatterns (regex + string) which
-	// catch additional signals:
-	//   - Regex [·✳✽✶✻✢]\s*.+… matches ALL spinner chars (including · and ✻
-	//     which cycle through during active processing) by requiring the unicode
-	//     ellipsis … to distinguish active from done states
-	//   - String "ctrl+c to interrupt" for older Claude versions
-	if s.resolvedPatterns != nil {
+	// BusyPatterns (regex + string) are authoritative because they capture
+	// real active-line semantics for each tool.
+	if patterns != nil {
 		recentLines := lastNLines(content, 25)
 		recentContent := strings.Join(recentLines, "\n")
-		for _, re := range s.resolvedPatterns.BusyRegexps {
+		for _, re := range patterns.BusyRegexps {
 			if re.MatchString(recentContent) {
 				tracker.MarkBusy()
 				statusLog.Debug("busy_pattern_match", slog.String("session", shortName), slog.String("pattern", re.String()))
@@ -2060,13 +2379,39 @@ func (s *Session) hasBusyIndicatorResolved(content string) bool {
 			}
 		}
 		lowerContent := strings.ToLower(recentContent)
-		for _, str := range s.resolvedPatterns.BusyStrings {
-			if strings.Contains(lowerContent, strings.ToLower(str)) {
-				tracker.MarkBusy()
-				statusLog.Debug("busy_string_match", slog.String("session", shortName), slog.String("pattern", str))
-				return true
+		for _, str := range patterns.BusyStrings {
+			lowerStr := strings.ToLower(str)
+			if !strings.Contains(lowerContent, lowerStr) {
+				continue
 			}
+			if strings.Contains(lowerStr, "interrupt") &&
+				!hasInterruptBusyContext(recentLines, lowerStr, spinnerChars) {
+				statusLog.Debug("busy_string_ignored_no_context",
+					slog.String("session", shortName),
+					slog.String("pattern", str))
+				continue
+			}
+			tracker.MarkBusy()
+			statusLog.Debug("busy_string_match", slog.String("session", shortName), slog.String("pattern", str))
+			return true
 		}
+	}
+	isClaude := strings.EqualFold(tool, "claude")
+
+	if found {
+		// For Claude, braille spinner frames are authoritative.
+		// Asterisk-style frames can appear in non-active contexts, so require context.
+		lineClean := StripANSI(spinnerLine)
+		lineLower := strings.ToLower(lineClean)
+		hasActiveContext := strings.Contains(lineClean, "…") || strings.Contains(lineLower, "interrupt")
+		if !isClaude || isBrailleSpinnerChar(char) || hasActiveContext {
+			tracker.MarkBusy()
+			statusLog.Debug("busy_spinner_found", slog.String("session", shortName), slog.String("char", char))
+			return true
+		}
+		statusLog.Debug("busy_spinner_ignored_no_active_context",
+			slog.String("session", shortName),
+			slog.String("char", char))
 	}
 
 	// No busy signal. Check grace period: between tool calls the spinner
@@ -2089,21 +2434,27 @@ func (s *Session) hasBusyIndicatorResolved(content string) bool {
 // NOTE: This method reads s.detectedTool and s.customToolName without locking.
 // Callers in GetStatus() already hold s.mu, so we must not re-lock.
 func (s *Session) hasPromptIndicator(content string) bool {
-	tool := s.detectedTool
-	if tool == "" {
-		tool = s.customToolName
+	tool := inferToolFromSessionFields(s.detectedTool, s.customToolName, s.Command)
+	patterns := s.resolvedPatterns
+	if patterns == nil {
+		patterns = defaultResolvedPatternsForTool(tool)
 	}
-	if tool == "" {
-		// Try to infer from Command field (no lock needed, set at creation)
-		cmd := strings.ToLower(s.Command)
-		if strings.Contains(cmd, "claude") {
-			tool = "claude"
-		} else if strings.Contains(cmd, "gemini") {
-			tool = "gemini"
-		} else if strings.Contains(cmd, "opencode") {
-			tool = "opencode"
-		} else if strings.Contains(cmd, "codex") {
-			tool = "codex"
+
+	// Configured prompt patterns are checked first so custom tool definitions and
+	// per-tool overrides can participate in waiting-state detection.
+	if patterns != nil {
+		recentLines := lastNLines(content, 25)
+		recentContent := strings.Join(recentLines, "\n")
+		for _, re := range patterns.PromptRegexps {
+			if re.MatchString(recentContent) {
+				return true
+			}
+		}
+		lowerContent := strings.ToLower(recentContent)
+		for _, str := range patterns.PromptStrings {
+			if strings.Contains(lowerContent, strings.ToLower(str)) {
+				return true
+			}
 		}
 	}
 	if tool == "" {

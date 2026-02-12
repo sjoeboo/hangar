@@ -186,10 +186,7 @@ func TestBusyIndicatorDetection(t *testing.T) {
 	sess := NewSession("test", "/tmp")
 	sess.Command = "claude"
 
-	// NOTE: This test validates the SIMPLIFIED busy detection (2026-01)
-	// Primary indicator: "ctrl+c to interrupt"
-	// Backup indicator: Spinner characters in last 3 lines only
-	// REMOVED: "esc to interrupt", whimsical words + tokens pattern
+	// Busy detection should recognize explicit interrupt lines and spinner activity.
 	tests := []struct {
 		name     string
 		content  string
@@ -198,7 +195,7 @@ func TestBusyIndicatorDetection(t *testing.T) {
 		{
 			name:     "ctrl+c to interrupt",
 			content:  "Working on task...\nctrl+c to interrupt\n",
-			expected: false, // Spinner-only: string patterns no longer used
+			expected: true,
 		},
 		{
 			name:     "spinner character in last 3 lines",
@@ -213,7 +210,7 @@ func TestBusyIndicatorDetection(t *testing.T) {
 		{
 			name:     "esc to interrupt - fallback for older Claude Code",
 			content:  "Working on task...\nesc to interrupt\n",
-			expected: false, // Spinner-only: string patterns no longer used
+			expected: true,
 		},
 		{
 			name:     "normal output",
@@ -1435,6 +1432,11 @@ func TestStatusFlickerOnInvisibleCharsIntegration(t *testing.T) {
 	// Wait for session to be ready
 	time.Sleep(100 * time.Millisecond)
 
+	// Clear startup window so session doesn't stay in "starting" state
+	session.mu.Lock()
+	session.startupAt = time.Time{}
+	session.mu.Unlock()
+
 	// Helper to send content to the pane
 	sendToPane := func(content string) {
 		cmd := fmt.Sprintf("clear && printf -- %q", content)
@@ -1898,9 +1900,7 @@ func TestGetWindowActivity(t *testing.T) {
 
 // TestIsSustainedActivity verifies spike detection logic
 func TestIsSustainedActivity(t *testing.T) {
-	if _, err := exec.LookPath("tmux"); err != nil {
-		t.Skip("tmux not available")
-	}
+	skipIfNoTmuxServer(t)
 	sess := NewSession("sustained-test", t.TempDir())
 	err := sess.Start("")
 	assert.NoError(t, err)
