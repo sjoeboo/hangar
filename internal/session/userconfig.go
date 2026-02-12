@@ -652,11 +652,26 @@ func (m *MCPDef) HasAutoStartServer() bool {
 // Example config.toml:
 //
 //	[tmux]
+//	inject_status_line = false
 //	options = { "allow-passthrough" = "all", "history-limit" = "50000" }
 type TmuxSettings struct {
+	// InjectStatusLine controls whether agent-deck injects a custom status line
+	// into new tmux sessions. When false, the tmux status bar is not modified,
+	// allowing users to use their own tmux status line configuration.
+	// Default: true (nil = use default true)
+	InjectStatusLine *bool `toml:"inject_status_line"`
+
 	// Options is a map of tmux option names to values.
 	// These are passed to `tmux set-option -t <session>` after defaults.
 	Options map[string]string `toml:"options"`
+}
+
+// GetInjectStatusLine returns whether to inject status line, defaulting to true
+func (t TmuxSettings) GetInjectStatusLine() bool {
+	if t.InjectStatusLine == nil {
+		return true
+	}
+	return *t.InjectStatusLine
 }
 
 type StatusSettings struct {
@@ -1337,6 +1352,16 @@ auto_cleanup = true
 # "global" writes to Claude profile config (profile-wide)
 # "user" writes to ~/.claude.json (all profiles)
 # mcp_default_scope = "local"
+
+# Tmux session settings
+# Controls how agent-deck configures tmux sessions
+# [tmux]
+# inject_status_line controls whether agent-deck sets up a custom tmux status bar
+# When false, your existing tmux status line configuration is preserved
+# Default: true (agent-deck injects its own status bar with session info)
+# inject_status_line = false
+# Override tmux options applied to every session (applied after defaults)
+# options = { "allow-passthrough" = "all", "history-limit" = "50000" }
 
 # ============================================================================
 # MCP Server Definitions

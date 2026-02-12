@@ -496,6 +496,11 @@ type Session struct {
 	// Environment variable cache (reduces tmux show-environment subprocess spawns)
 	envCache   map[string]envCacheEntry
 	envCacheMu sync.RWMutex
+
+	// injectStatusLine controls whether ConfigureStatusBar actually modifies tmux.
+	// When false, the status bar configuration is skipped entirely.
+	// Default: true (set via SetInjectStatusLine from user config)
+	injectStatusLine bool
 }
 
 type envCacheEntry struct {
@@ -592,6 +597,14 @@ func (s *Session) SetDetectPatterns(toolName string, detectPatterns []string) {
 	s.customDetectPatterns = detectPatterns
 }
 
+// SetInjectStatusLine controls whether ConfigureStatusBar modifies tmux settings.
+// When set to false, the status bar is left unchanged, preserving user's tmux config.
+func (s *Session) SetInjectStatusLine(inject bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.injectStatusLine = inject
+}
+
 // LogFile returns the path to this session's log file
 // Logs are stored in ~/.agent-deck/logs/<session-name>.log
 func (s *Session) LogFile() string {
@@ -625,6 +638,7 @@ func NewSession(name, workDir string) *Session {
 		startupAt:        time.Now(),
 		lastStableStatus: "waiting",
 		toolDetectExpiry: 30 * time.Second, // Re-detect tool every 30 seconds
+		injectStatusLine: true,             // Default: inject status bar
 		// stateTracker and promptDetector will be created lazily on first status check
 	}
 }
@@ -645,6 +659,7 @@ func ReconnectSession(tmuxName, displayName, workDir, command string) *Session {
 		startupAt:        time.Time{},
 		lastStableStatus: "waiting",
 		toolDetectExpiry: 30 * time.Second,
+		injectStatusLine: true,  // Default: inject status bar
 		configured:       false, // Will be set to true after configuration
 		// stateTracker and promptDetector will be created lazily on first status check
 	}
@@ -711,6 +726,7 @@ func ReconnectSessionLazy(tmuxName, displayName, workDir, command string, previo
 		startupAt:        time.Time{},
 		lastStableStatus: "waiting",
 		toolDetectExpiry: 30 * time.Second,
+		injectStatusLine: true,  // Default: inject status bar
 		configured:       false, // Explicitly mark as not configured
 	}
 
@@ -994,6 +1010,11 @@ func (s *Session) Exists() bool {
 // NOTE: status-left is reserved for the notification bar showing waiting sessions
 // This function only configures status-right to avoid overwriting notification bar
 func (s *Session) ConfigureStatusBar() {
+	// Skip status bar injection if disabled by user config
+	if !s.injectStatusLine {
+		return
+	}
+
 	// Get short folder name from WorkDir
 	folderName := filepath.Base(s.WorkDir)
 	if folderName == "" || folderName == "." {

@@ -69,6 +69,35 @@ func TestNewSessionUniqueness(t *testing.T) {
 	}
 }
 
+func TestSession_InjectStatusLine_Default(t *testing.T) {
+	// NewSession should default to true
+	sess := NewSession("test", "/tmp")
+	// The default is true; ConfigureStatusBar should proceed normally
+	// We just verify the setter/getter work without panic
+	sess.SetInjectStatusLine(true)
+}
+
+func TestSession_SetInjectStatusLine(t *testing.T) {
+	sess := NewSession("test", "/tmp")
+
+	// Set to false - ConfigureStatusBar should be a no-op
+	sess.SetInjectStatusLine(false)
+
+	// Should not panic even when session doesn't exist in tmux
+	sess.ConfigureStatusBar()
+
+	// Set back to true
+	sess.SetInjectStatusLine(true)
+}
+
+func TestSession_InjectStatusLine_ReconnectSession(t *testing.T) {
+	sess := ReconnectSessionLazy("test_sess", "Test", "/tmp", "echo hi", "waiting")
+	// Default should be true
+	// Set to false and verify ConfigureStatusBar is skipped
+	sess.SetInjectStatusLine(false)
+	sess.ConfigureStatusBar() // Should be no-op, no error
+}
+
 func TestSessionPrefix(t *testing.T) {
 	if SessionPrefix != "agentdeck_" {
 		t.Errorf("SessionPrefix = %s, want agentdeck_", SessionPrefix)

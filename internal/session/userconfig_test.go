@@ -635,3 +635,79 @@ enabled = true
 		t.Errorf("GetNotificationsSettings MaxShown: should default to 6, got %d", settings.MaxShown)
 	}
 }
+
+func TestGetTmuxSettings_InjectStatusLine_Default(t *testing.T) {
+	// Default (no config) should return true
+	tempDir := t.TempDir()
+	originalHome := os.Getenv("HOME")
+	os.Setenv("HOME", tempDir)
+	defer os.Setenv("HOME", originalHome)
+	ClearUserConfigCache()
+
+	agentDeckDir := filepath.Join(tempDir, ".agent-deck")
+	_ = os.MkdirAll(agentDeckDir, 0700)
+
+	// Empty config file
+	configPath := filepath.Join(agentDeckDir, "config.toml")
+	if err := os.WriteFile(configPath, []byte(""), 0644); err != nil {
+		t.Fatalf("Failed to write config: %v", err)
+	}
+	ClearUserConfigCache()
+
+	settings := GetTmuxSettings()
+	if !settings.GetInjectStatusLine() {
+		t.Error("GetInjectStatusLine should default to true when not set")
+	}
+}
+
+func TestGetTmuxSettings_InjectStatusLine_False(t *testing.T) {
+	tempDir := t.TempDir()
+	originalHome := os.Getenv("HOME")
+	os.Setenv("HOME", tempDir)
+	defer os.Setenv("HOME", originalHome)
+	ClearUserConfigCache()
+
+	agentDeckDir := filepath.Join(tempDir, ".agent-deck")
+	_ = os.MkdirAll(agentDeckDir, 0700)
+
+	configPath := filepath.Join(agentDeckDir, "config.toml")
+	configContent := `
+[tmux]
+inject_status_line = false
+`
+	if err := os.WriteFile(configPath, []byte(configContent), 0644); err != nil {
+		t.Fatalf("Failed to write config: %v", err)
+	}
+	ClearUserConfigCache()
+
+	settings := GetTmuxSettings()
+	if settings.GetInjectStatusLine() {
+		t.Error("GetInjectStatusLine should be false when set to false")
+	}
+}
+
+func TestGetTmuxSettings_InjectStatusLine_True(t *testing.T) {
+	tempDir := t.TempDir()
+	originalHome := os.Getenv("HOME")
+	os.Setenv("HOME", tempDir)
+	defer os.Setenv("HOME", originalHome)
+	ClearUserConfigCache()
+
+	agentDeckDir := filepath.Join(tempDir, ".agent-deck")
+	_ = os.MkdirAll(agentDeckDir, 0700)
+
+	configPath := filepath.Join(agentDeckDir, "config.toml")
+	configContent := `
+[tmux]
+inject_status_line = true
+`
+	if err := os.WriteFile(configPath, []byte(configContent), 0644); err != nil {
+		t.Fatalf("Failed to write config: %v", err)
+	}
+	ClearUserConfigCache()
+
+	settings := GetTmuxSettings()
+	if !settings.GetInjectStatusLine() {
+		t.Error("GetInjectStatusLine should be true when set to true")
+	}
+}

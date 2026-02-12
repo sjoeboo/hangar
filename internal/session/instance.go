@@ -220,6 +220,7 @@ func NewInstance(title, projectPath string) *Instance {
 	id := generateID()
 	tmuxSess := tmux.NewSession(title, projectPath)
 	tmuxSess.InstanceID = id // Pass instance ID for activity hooks
+	tmuxSess.SetInjectStatusLine(GetTmuxSettings().GetInjectStatusLine())
 
 	return &Instance{
 		ID:          id,
@@ -245,6 +246,7 @@ func NewInstanceWithTool(title, projectPath, tool string) *Instance {
 	id := generateID()
 	tmuxSess := tmux.NewSession(title, projectPath)
 	tmuxSess.InstanceID = id // Pass instance ID for activity hooks
+	tmuxSess.SetInjectStatusLine(GetTmuxSettings().GetInjectStatusLine())
 
 	inst := &Instance{
 		ID:          id,
@@ -2557,6 +2559,7 @@ func (i *Instance) Restart() error {
 	// Fallback: recreate tmux session (for dead sessions or unknown ID)
 	i.tmuxSession = tmux.NewSession(i.Title, i.ProjectPath)
 	i.tmuxSession.InstanceID = i.ID // Pass instance ID for activity hooks
+	i.tmuxSession.SetInjectStatusLine(GetTmuxSettings().GetInjectStatusLine())
 
 	var command string
 	if i.Tool == "claude" && i.ClaudeSessionID != "" {
