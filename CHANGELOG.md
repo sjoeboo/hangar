@@ -5,6 +5,26 @@ All notable changes to Agent Deck will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.14.0] - 2026-02-12
+
+### Added
+
+- Add title-based status detection fast-path: reads tmux pane titles (Braille spinner / done markers) to determine Claude session state without expensive content scanning
+- Add `RefreshPaneInfoCache()` for zero-subprocess pane title fetching via PipeManager
+- Add worktree finish dialog (`W` key): merge branch, remove worktree, delete branch, and clean up session in one step
+- Add worktree branch badge `[branch]` in session list for worktree sessions
+- Add worktree info section in preview pane (branch, repo, path, dirty status)
+- Add worktree dirty status cache with lazy 10s TTL checks
+- Add repository worktree summary in group preview when sessions share a repo
+- Add `esc to interrupt` fallback to Claude busy patterns for older Claude Code versions
+- Add worktree section to help overlay
+
+### Fixed
+
+- Fix busy indicator false negatives for `·` and `✻` spinner chars with ellipsis (BusyRegexp now correctly catches all spinner frames with active context)
+- Remove unused `matchesDetectPatterns` function (lint warning)
+- Fix `starting` and `inactive` status mapping in instance status update
+
 ## [0.13.0] - 2026-02-11
 
 ### Added

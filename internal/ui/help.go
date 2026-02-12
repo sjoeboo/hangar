@@ -128,6 +128,14 @@ func (h *HelpOverlay) View() string {
 			},
 		},
 		{
+			title: "WORKTREES",
+			items: [][2]string{
+				{"W", "Finish worktree (merge + cleanup)"},
+				{"n → w", "Create session in worktree"},
+				{"F → w", "Fork session into worktree"},
+			},
+		},
+		{
 			title: "GROUPS",
 			items: [][2]string{
 				{"g", "New group"},

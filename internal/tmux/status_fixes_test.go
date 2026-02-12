@@ -607,7 +607,7 @@ func TestClaudeCode2125_ActiveDetection(t *testing.T) {
 		{
 			name:     "active - · spinner with ellipsis",
 			content:  "· Sublimating… (39s · ↓ 1.8k tokens)",
-			wantBusy: false, // Spinner-only: · not in active spinner chars
+			wantBusy: true, // BusyRegexp catches · with ellipsis as active work
 		},
 		{
 			name:     "active - ✶ spinner with ellipsis",
@@ -617,7 +617,7 @@ func TestClaudeCode2125_ActiveDetection(t *testing.T) {
 		{
 			name:     "active - ✻ spinner with ellipsis",
 			content:  "✻ Gusting… (43s · ↓ 914 tokens)",
-			wantBusy: false, // Spinner-only: ✻ not in active spinner chars (done indicator)
+			wantBusy: true, // BusyRegexp catches ✻ with ellipsis as active work
 		},
 		{
 			name:     "active - ✢ spinner with ellipsis",
@@ -648,12 +648,12 @@ func TestClaudeCode2125_ActiveDetection(t *testing.T) {
 		{
 			name:     "active - multi-word task with ✻",
 			content:  "✻ Adding mcp-proxy subcommand… (2m 23s · ↓ 2.7k tokens)",
-			wantBusy: false, // Spinner-only: ✻ not in active spinner chars
+			wantBusy: true, // BusyRegexp catches ✻ with ellipsis as active work
 		},
 		{
 			name:     "active - multi-word task with ·",
 			content:  "· Installing package dependencies… (45s · ↑ 312 tokens)",
-			wantBusy: false, // Spinner-only: · not in active spinner chars
+			wantBusy: true, // BusyRegexp catches · with ellipsis as active work
 		},
 		{
 			name: "active - multi-word with surrounding content",
@@ -666,7 +666,7 @@ func TestClaudeCode2125_ActiveDetection(t *testing.T) {
 
 [Opus 4.5] Context: 54%
 ▶▶ bypass permissions on (shift+Tab to cycle) · 3 files +25 -3`,
-			wantBusy: false, // Spinner-only: ✻ not in active spinner chars
+			wantBusy: true, // BusyRegexp catches ✻ with ellipsis as active work
 		},
 		// Done states (should NOT be GREEN)
 		{

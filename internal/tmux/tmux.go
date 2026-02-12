@@ -1556,29 +1556,6 @@ func (s *Session) DetectTool() string {
 	return detectedTool
 }
 
-func matchesDetectPatterns(content string, patterns []string) bool {
-	if len(patterns) == 0 {
-		return false
-	}
-
-	for _, p := range patterns {
-		pattern := strings.TrimPrefix(p, "re:")
-
-		if re, err := regexp.Compile(pattern); err == nil {
-			if re.MatchString(content) {
-				return true
-			}
-			continue
-		}
-
-		if strings.Contains(strings.ToLower(content), strings.ToLower(pattern)) {
-			return true
-		}
-	}
-
-	return false
-}
-
 // ForceDetectTool forces a re-detection of the tool, ignoring cache
 func (s *Session) ForceDetectTool() string {
 	s.mu.Lock()
@@ -1652,6 +1629,36 @@ func (s *Session) GetStatus() (string, error) {
 		s.mu.Unlock()
 		statusLog.Debug("session_inactive", slog.String("session", shortName))
 		return "inactive", nil
+	}
+
+	// FAST PATH: Title-based state detection for Claude Code sessions.
+	// Claude Code sets pane titles via OSC sequences: Braille spinner while working,
+	// ✳ markers when done. One character check replaces full CapturePane + content scan.
+	if paneInfo, ok := GetCachedPaneInfo(s.Name); ok {
+		titleState := AnalyzePaneTitle(paneInfo.Title, paneInfo.CurrentCommand)
+		switch titleState {
+		case TitleStateWorking:
+			// Braille spinner in title = actively working. Short-circuit completely.
+			s.mu.Lock()
+			s.ensureStateTrackerLocked()
+			s.stateTracker.lastChangeTime = time.Now()
+			s.stateTracker.acknowledged = false
+			s.resetPromptNoBusyHoldLocked()
+			s.stateTracker.spinnerTracker.MarkBusy()
+			s.lastStableStatus = "active"
+			s.startupAt = time.Time{}
+			s.mu.Unlock()
+			statusLog.Debug("title_working", slog.String("session", shortName), slog.String("title", paneInfo.Title))
+			return "active", nil
+
+		case TitleStateDone:
+			// Done marker, Claude still alive. Fall through to existing detection
+			// for waiting vs idle (prompt detection + acknowledgment logic).
+			statusLog.Debug("title_done_fallthrough", slog.String("session", shortName))
+
+		default:
+			// Unknown title (non-Claude tools). Fall through to full detection.
+		}
 	}
 
 	// Get current activity timestamp (fast: ~4ms)
