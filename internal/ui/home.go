@@ -217,6 +217,9 @@ type Home struct {
 	// File watcher for external changes (auto-reload)
 	storageWatcher *StorageWatcher
 
+	// System theme watcher (active when theme="system"; nil otherwise)
+	themeWatcher *ThemeWatcher
+
 	// Storage warning (shown if storage initialization failed)
 	storageWarning string
 
@@ -423,6 +426,11 @@ type sendOutputResultMsg struct {
 	targetTitle string
 	lineCount   int
 	err         error
+}
+
+// systemThemeMsg is sent when the OS dark mode setting changes.
+type systemThemeMsg struct {
+	dark bool
 }
 
 // worktreeDirtyCheckMsg is sent when an async worktree dirty check completes
@@ -635,6 +643,11 @@ func NewHomeWithProfileAndMode(profile string) *Home {
 			h.storageWatcher = watcher
 			watcher.Start()
 		}
+	}
+
+	// Start system theme watcher if configured
+	if session.GetTheme() == "system" {
+		h.themeWatcher = NewThemeWatcher(ctx)
 	}
 
 	// Run log maintenance at startup (non-blocking)
@@ -1047,6 +1060,11 @@ func (h *Home) Init() tea.Cmd {
 		cmds = append(cmds, listenForReloads(h.storageWatcher))
 	}
 
+	// Start listening for OS theme changes
+	if h.themeWatcher != nil {
+		cmds = append(cmds, listenForThemeChange(h.themeWatcher))
+	}
+
 	return tea.Batch(cmds...)
 }
 
@@ -1067,6 +1085,37 @@ func listenForReloads(sw *StorageWatcher) tea.Cmd {
 		<-sw.ReloadChannel()
 		return storageChangedMsg{}
 	}
+}
+
+// listenForThemeChange waits for the next OS theme change.
+// MUST be re-issued in the Update handler for systemThemeMsg to keep listening.
+func listenForThemeChange(tw *ThemeWatcher) tea.Cmd {
+	if tw == nil {
+		return nil
+	}
+	return func() tea.Msg {
+		isDark, ok := <-tw.ChangeChannel()
+		if !ok {
+			return nil
+		}
+		return systemThemeMsg{dark: isDark}
+	}
+}
+
+func (h *Home) stopThemeWatcher() {
+	if h.themeWatcher != nil {
+		h.themeWatcher.Close()
+		h.themeWatcher = nil
+	}
+}
+
+func (h *Home) startThemeWatcher() tea.Cmd {
+	h.stopThemeWatcher()
+	h.themeWatcher = NewThemeWatcher(h.ctx)
+	if h.themeWatcher == nil {
+		return nil
+	}
+	return listenForThemeChange(h.themeWatcher)
 }
 
 // loadSessions loads sessions from storage and initializes the pool
@@ -2500,6 +2549,16 @@ func (h *Home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case refreshMsg:
 		return h, h.loadSessions
 
+	case systemThemeMsg:
+		theme := "light"
+		if msg.dark {
+			theme = "dark"
+		}
+		InitTheme(theme)
+		// IMPORTANT: Re-issue listener to keep watching for theme changes.
+		// Without this, the watcher silently disconnects.
+		return h, tea.Batch(listenForThemeChange(h.themeWatcher), tea.ClearScreen)
+
 	case storageChangedMsg:
 		uiLog.Debug("reload_storage_changed", slog.String("profile", h.profile), slog.Int("instances", len(h.instances)))
 
@@ -2994,17 +3053,31 @@ func (h *Home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			var shouldSave bool
 			h.settingsPanel, cmd, shouldSave = h.settingsPanel.Update(msg)
 			if shouldSave {
-				// Auto-save on every change
 				config := h.settingsPanel.GetConfig()
 				if err := session.SaveUserConfig(config); err != nil {
 					h.err = err
 					h.errTime = time.Now()
 				}
 				_, _ = session.ReloadUserConfig()
+
+				// Apply theme changes live
+				h.stopThemeWatcher()
+				resolvedTheme := session.ResolveTheme()
+				InitTheme(resolvedTheme)
+				var themeCmd tea.Cmd
+				if config.Theme == "system" {
+					themeCmd = h.startThemeWatcher()
+				}
+
 				// Apply default tool to new dialog
 				if defaultTool := session.GetDefaultTool(); defaultTool != "" {
 					h.newDialog.SetDefaultTool(defaultTool)
 				}
+
+				if themeCmd != nil {
+					return h, tea.Batch(themeCmd, tea.ClearScreen)
+				}
+				return h, tea.ClearScreen
 			}
 			return h, cmd
 		}
@@ -4147,6 +4220,8 @@ func (h *Home) performFinalShutdown(shutdownPool bool) tea.Cmd {
 		if h.storageWatcher != nil {
 			h.storageWatcher.Close()
 		}
+		// Close theme watcher
+		h.stopThemeWatcher()
 		// Close global search index
 		if h.globalSearchIndex != nil {
 			h.globalSearchIndex.Close()
