@@ -5,6 +5,19 @@ All notable changes to Agent Deck will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.15.0] - 2026-02-13
+
+### Added
+
+- Add `inject_status_line` config option under `[tmux]` to disable tmux statusline injection, allowing users to keep their own tmux status bar (#157)
+- Add system theme option: sync TUI theme with OS dark/light mode (#162)
+- Improve quick session creation: inherit path, tool, and options from hovered session (#165)
+
+### Fixed
+
+- Fix Claude session ID not updating after `/clear`, `/fork`, or `/compact` by syncing from disk (#166)
+- Restore delay between paste and Enter in `SendKeysAndEnter` to prevent swallowed input in tmux (#168)
+
 ## [0.14.0] - 2026-02-12
 
 ### Added
