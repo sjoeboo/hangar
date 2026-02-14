@@ -402,6 +402,12 @@ type ClaudeSettings struct {
 	// Sourced AFTER global [shell].env_files
 	// Path can be absolute, ~ for home, or relative to session working directory
 	EnvFile string `toml:"env_file"`
+
+	// HooksEnabled enables Claude Code hooks for real-time status detection.
+	// When enabled, agent-deck uses lifecycle hooks (SessionStart, Stop, etc.)
+	// for instant, deterministic status updates instead of polling tmux content.
+	// Default: true (nil = use default true, set false to disable)
+	HooksEnabled *bool `toml:"hooks_enabled"`
 }
 
 // GetDangerousMode returns whether dangerous mode is enabled, defaulting to true
@@ -411,6 +417,14 @@ func (c *ClaudeSettings) GetDangerousMode() bool {
 		return true
 	}
 	return *c.DangerousMode
+}
+
+// GetHooksEnabled returns whether Claude Code hooks are enabled, defaulting to true
+func (c *ClaudeSettings) GetHooksEnabled() bool {
+	if c.HooksEnabled == nil {
+		return true
+	}
+	return *c.HooksEnabled
 }
 
 // GeminiSettings defines Gemini CLI configuration

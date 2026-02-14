@@ -214,6 +214,10 @@ type Home struct {
 	// Memory management: periodic cache pruning
 	lastCachePrune time.Time
 
+	// Hook-based status detection (Claude Code lifecycle hooks)
+	hookWatcher        *session.StatusFileWatcher
+	pendingHooksPrompt bool // True if user should be prompted to install hooks
+
 	// File watcher for external changes (auto-reload)
 	storageWatcher *StorageWatcher
 
@@ -642,6 +646,52 @@ func NewHomeWithProfileAndMode(profile string) *Home {
 		} else if watcher != nil {
 			h.storageWatcher = watcher
 			watcher.Start()
+		}
+	}
+
+	// Hook-based status detection (Claude Code lifecycle hooks)
+	userConfig, _ := session.LoadUserConfig()
+	hooksEnabled := userConfig == nil || userConfig.Claude.GetHooksEnabled()
+	if hooksEnabled {
+		configDir := session.GetClaudeConfigDir()
+		alreadyInstalled := session.CheckClaudeHooksInstalled(configDir)
+
+		if alreadyInstalled {
+			// Hooks already present: start watcher, no prompt needed
+			hookWatcher, err := session.NewStatusFileWatcher(nil)
+			if err != nil {
+				uiLog.Warn("hook_watcher_init_failed", slog.String("error", err.Error()))
+			} else {
+				h.hookWatcher = hookWatcher
+				go hookWatcher.Start()
+			}
+		} else {
+			// Hooks not installed: check if user was already prompted
+			prompted := false
+			if db := statedb.GetGlobal(); db != nil {
+				if val, err := db.GetMeta("hooks_prompted"); err == nil && val != "" {
+					prompted = true
+					if val == "accepted" {
+						// User previously accepted but hooks got removed: re-install silently
+						if _, err := session.InjectClaudeHooks(configDir); err != nil {
+							uiLog.Warn("hook_reinstall_failed", slog.String("error", err.Error()))
+						} else {
+							uiLog.Info("claude_hooks_reinstalled", slog.String("config_dir", configDir))
+						}
+						hookWatcher, err := session.NewStatusFileWatcher(nil)
+						if err != nil {
+							uiLog.Warn("hook_watcher_init_failed", slog.String("error", err.Error()))
+						} else {
+							h.hookWatcher = hookWatcher
+							go hookWatcher.Start()
+						}
+					}
+					// val == "declined": user doesn't want hooks, skip
+				}
+			}
+			if !prompted {
+				h.pendingHooksPrompt = true
+			}
 		}
 	}
 
@@ -1612,6 +1662,17 @@ func (h *Home) backgroundStatusUpdate() {
 		}
 	}
 
+	// Feed hook statuses from watcher to instances (enables hook fast path in UpdateStatus)
+	if h.hookWatcher != nil {
+		for _, inst := range instances {
+			if inst.Tool == "claude" {
+				if hs := h.hookWatcher.GetHookStatus(inst.ID); hs != nil {
+					inst.UpdateHookStatus(hs)
+				}
+			}
+		}
+	}
+
 	// Update status for all instances in parallel (I/O bound: tmux subprocess calls)
 	// With PipeManager, skip sessions idle for >5s (no %output events = no status change)
 	statusStart := time.Now()
@@ -2020,6 +2081,12 @@ func (h *Home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		h.reloadMu.Unlock()
 		h.initialLoading = false // First load complete, hide splash
+
+		// Show hooks installation prompt (after splash screen is gone)
+		if h.pendingHooksPrompt && !h.setupWizard.IsVisible() {
+			h.confirmDialog.ShowInstallHooks()
+			h.confirmDialog.SetSize(h.width, h.height)
+		}
 
 		if msg.err != nil {
 			h.setError(msg.err)
@@ -3902,13 +3969,19 @@ func (h *Home) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return h, h.importSessions
 
 	case "u":
-		// Mark session as unread (change idle → waiting)
+		// Mark session as unread (idle → waiting)
 		if h.cursor < len(h.flatItems) {
 			item := h.flatItems[h.cursor]
 			if item.Type == session.ItemTypeSession && item.Session != nil {
 				tmuxSess := item.Session.GetTmuxSession()
 				if tmuxSess != nil {
 					tmuxSess.ResetAcknowledged()
+					// Persist to SQLite so background sync doesn't overwrite
+					if db := statedb.GetGlobal(); db != nil {
+						_ = db.SetAcknowledged(item.Session.ID, false)
+					}
+					// Clear idle optimization so UpdateStatus does a full check
+					item.Session.ForceNextStatusCheck()
 					_ = item.Session.UpdateStatus()
 					h.saveInstances()
 				}
@@ -4126,6 +4199,41 @@ func (h *Home) handleConfirmDialogKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return h, nil
 
+	case ConfirmInstallHooks:
+		switch msg.String() {
+		case "y", "Y":
+			h.confirmDialog.Hide()
+			h.pendingHooksPrompt = false
+			configDir := session.GetClaudeConfigDir()
+			if _, err := session.InjectClaudeHooks(configDir); err != nil {
+				uiLog.Warn("hook_install_failed", slog.String("error", err.Error()))
+			} else {
+				uiLog.Info("claude_hooks_installed", slog.String("config_dir", configDir))
+			}
+			// Start the status file watcher
+			hookWatcher, err := session.NewStatusFileWatcher(nil)
+			if err != nil {
+				uiLog.Warn("hook_watcher_init_failed", slog.String("error", err.Error()))
+			} else {
+				h.hookWatcher = hookWatcher
+				go hookWatcher.Start()
+			}
+			// Remember user's choice
+			if db := statedb.GetGlobal(); db != nil {
+				_ = db.SetMeta("hooks_prompted", "accepted")
+			}
+			return h, nil
+		case "n", "N", "esc":
+			h.confirmDialog.Hide()
+			h.pendingHooksPrompt = false
+			// Remember user declined
+			if db := statedb.GetGlobal(); db != nil {
+				_ = db.SetMeta("hooks_prompted", "declined")
+			}
+			return h, nil
+		}
+		return h, nil
+
 	default:
 		// Handle delete confirmations (session/group)
 		switch msg.String() {
@@ -4215,6 +4323,10 @@ func (h *Home) performFinalShutdown(shutdownPool bool) tea.Cmd {
 		if pm := tmux.GetPipeManager(); pm != nil {
 			pm.Close()
 			tmux.SetPipeManager(nil)
+		}
+		// Close hook watcher (Claude Code lifecycle hooks)
+		if h.hookWatcher != nil {
+			h.hookWatcher.Stop()
 		}
 		// Close storage watcher
 		if h.storageWatcher != nil {

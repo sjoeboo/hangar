@@ -100,6 +100,11 @@ type Instance struct {
 
 	tmuxSession *tmux.Session // Internal tmux session
 
+	// Hook-based status detection (set by StatusFileWatcher from Claude Code hooks)
+	hookStatus     string    // running, idle, waiting, dead (empty = no hook data)
+	hookSessionID  string    // Session ID from hook payload
+	hookLastUpdate time.Time // When hook status was last received
+
 	// mu protects fields written by backgroundStatusUpdate and read by the TUI goroutine.
 	// Use GetStatus()/SetStatus() and GetTool()/SetTool() for thread-safe access.
 	// UpdateStatus() acquires the write lock internally.
@@ -326,6 +331,11 @@ func (i *Instance) buildClaudeCommandWithMessage(baseCommand, message string) st
 		configDirPrefix = fmt.Sprintf("CLAUDE_CONFIG_DIR=%s ", configDir)
 	}
 
+	// AGENTDECK_INSTANCE_ID is set as an inline env var so Claude's hook subprocesses
+	// can identify which agent-deck session they belong to.
+	instanceIDPrefix := fmt.Sprintf("AGENTDECK_INSTANCE_ID=%s ", i.ID)
+	configDirPrefix = instanceIDPrefix + configDirPrefix
+
 	// Get options - either from instance or create defaults from config
 	opts := i.GetClaudeOptions()
 	if opts == nil {
@@ -356,10 +366,10 @@ func (i *Instance) buildClaudeCommandWithMessage(baseCommand, message string) st
 				}
 				// Session was never interacted with - use --session-id with same UUID
 				// This handles the case where session was started but no message was sent
-				bashExportPrefix := ""
+				bashExportPrefix := fmt.Sprintf("export AGENTDECK_INSTANCE_ID=%s; ", i.ID)
 				if IsClaudeConfigDirExplicit() {
 					configDir := GetClaudeConfigDir()
-					bashExportPrefix = fmt.Sprintf("export CLAUDE_CONFIG_DIR=%s; ", configDir)
+					bashExportPrefix += fmt.Sprintf("export CLAUDE_CONFIG_DIR=%s; ", configDir)
 				}
 				return fmt.Sprintf(
 					`tmux set-environment CLAUDE_SESSION_ID "%s"; %sclaude --session-id "%s"%s`,
@@ -380,10 +390,10 @@ func (i *Instance) buildClaudeCommandWithMessage(baseCommand, message string) st
 		// Reason: Commands with $(...) get wrapped in `bash -c` for fish compatibility (#47),
 		// and shell aliases are not available in non-interactive bash shells.
 		//
-		bashExportPrefix := ""
+		bashExportPrefix := fmt.Sprintf("export AGENTDECK_INSTANCE_ID=%s; ", i.ID)
 		if IsClaudeConfigDirExplicit() {
 			configDir := GetClaudeConfigDir()
-			bashExportPrefix = fmt.Sprintf("export CLAUDE_CONFIG_DIR=%s; ", configDir)
+			bashExportPrefix += fmt.Sprintf("export CLAUDE_CONFIG_DIR=%s; ", configDir)
 		}
 
 		var baseCmd string
@@ -1369,6 +1379,39 @@ func (i *Instance) UpdateStatus() error {
 		i.lastKnownActivity = currentTS
 	}
 
+	// HOOK FAST PATH: Pure hook-based status for Claude sessions.
+	// No polling, no tmux checks. Hooks are deterministic and fire instantly.
+	// 2-minute timeout is only a safety net for Claude crashes (no events fire at all).
+	// Escape/interrupt doesn't fire Stop, but self-corrects on next UserPromptSubmit.
+	if i.Tool == "claude" && i.hookStatus != "" && time.Since(i.hookLastUpdate) < 2*time.Minute {
+		switch i.hookStatus {
+		case "running":
+			i.Status = StatusRunning
+			// Reset acknowledged: new activity means output not yet seen.
+			// Without this, a previously-acknowledged session would go straight
+			// to idle (gray) after Stop, skipping the waiting (orange) state.
+			if i.tmuxSession != nil {
+				i.tmuxSession.ResetAcknowledged()
+			}
+		case "waiting":
+			// Check acknowledgment: orange (waiting) vs gray (idle)
+			// Acknowledge() is called when user attaches to a session.
+			// ResetAcknowledged() is called by u key or when new activity occurs.
+			if i.tmuxSession != nil && i.tmuxSession.IsAcknowledged() {
+				i.Status = StatusIdle
+			} else {
+				i.Status = StatusWaiting
+			}
+		case "dead":
+			i.Status = StatusError
+		}
+		if i.hookSessionID != "" && i.hookSessionID != i.ClaudeSessionID {
+			i.ClaudeSessionID = i.hookSessionID
+			i.ClaudeDetectedAt = time.Now()
+		}
+		return nil
+	}
+
 	// Release lock for potentially slow tmux calls (GetStatus calls CapturePane)
 	i.mu.Unlock()
 	status, err := i.tmuxSession.GetStatus()
@@ -1432,6 +1475,20 @@ func (i *Instance) UpdateClaudeSession(excludeIDs map[string]bool) {
 	// Read from tmux environment (set by capture-resume pattern)
 	if sessionID := i.GetSessionIDFromTmux(); sessionID != "" {
 		if i.ClaudeSessionID != sessionID {
+			// Quality gate: don't adopt a zombie ID from tmux env when current has real data
+			if i.ClaudeSessionID != "" {
+				currentHasData := sessionHasConversationData(i.ClaudeSessionID, i.ProjectPath)
+				candidateHasData := sessionHasConversationData(sessionID, i.ProjectPath)
+				if currentHasData && !candidateHasData {
+					sessionLog.Debug("claude_session_tmux_rejected_zombie",
+						slog.String("current_id", i.ClaudeSessionID),
+						slog.String("zombie_id", sessionID),
+						slog.String("reason", "tmux_env_has_zombie_id"),
+					)
+					// Don't adopt the zombie; skip the update but still refresh prompt below
+					sessionID = i.ClaudeSessionID
+				}
+			}
 			i.ClaudeSessionID = sessionID
 		}
 		i.ClaudeDetectedAt = time.Now()
@@ -1496,6 +1553,35 @@ func (i *Instance) syncClaudeSessionFromDisk() {
 		return
 	}
 
+	// Quality gate: don't replace a session with real conversation data with a zombie
+	// (a zombie is a session file with no conversation data, typically from a crashed startup)
+	if i.ClaudeSessionID != "" {
+		currentHasData := sessionHasConversationData(i.ClaudeSessionID, i.ProjectPath)
+		candidateHasData := sessionHasConversationData(activeID, i.ProjectPath)
+
+		// Decision matrix:
+		//   current=real, candidate=real   → ACCEPT (handles /clear: both real, newer wins)
+		//   current=real, candidate=zombie  → REJECT (never replace real with zombie)
+		//   current=zombie, candidate=real  → ACCEPT (upgrade from zombie to real)
+		//   current=zombie, candidate=zombie → REJECT (don't swap zombies)
+		if currentHasData && !candidateHasData {
+			sessionLog.Debug("claude_session_sync_rejected_zombie",
+				slog.String("current_id", i.ClaudeSessionID),
+				slog.String("zombie_id", activeID),
+				slog.String("reason", "candidate_has_no_conversation_data"),
+			)
+			return
+		}
+		if !currentHasData && !candidateHasData {
+			sessionLog.Debug("claude_session_sync_rejected_zombie",
+				slog.String("current_id", i.ClaudeSessionID),
+				slog.String("candidate_id", activeID),
+				slog.String("reason", "both_have_no_conversation_data"),
+			)
+			return
+		}
+	}
+
 	sessionLog.Debug("claude_session_update_from_disk", slog.String("old_id", i.ClaudeSessionID), slog.String("new_id", activeID))
 	i.ClaudeSessionID = activeID
 	i.ClaudeDetectedAt = time.Now()
@@ -1504,6 +1590,74 @@ func (i *Instance) syncClaudeSessionFromDisk() {
 	if i.tmuxSession != nil && i.tmuxSession.Exists() {
 		_ = i.tmuxSession.SetEnvironment("CLAUDE_SESSION_ID", activeID)
 	}
+}
+
+// UpdateHookStatus updates the instance's hook-based status fields.
+// Called by StatusFileWatcher when a hook status file changes.
+func (i *Instance) UpdateHookStatus(status *HookStatus) {
+	if status == nil {
+		return
+	}
+
+	i.mu.Lock()
+	defer i.mu.Unlock()
+
+	i.hookStatus = status.Status
+	i.hookLastUpdate = status.UpdatedAt
+
+	// Sync session ID from hook if provided and different
+	if status.SessionID != "" && status.SessionID != i.ClaudeSessionID {
+		// Quality gate: only accept if the hook session has conversation data,
+		// OR if the current session ID is empty (first detection)
+		if i.ClaudeSessionID == "" || sessionHasConversationData(status.SessionID, i.ProjectPath) {
+			sessionLog.Debug("claude_session_update_from_hook",
+				slog.String("old_id", i.ClaudeSessionID),
+				slog.String("new_id", status.SessionID),
+				slog.String("event", status.Event),
+			)
+			i.ClaudeSessionID = status.SessionID
+			i.ClaudeDetectedAt = time.Now()
+			i.hookSessionID = status.SessionID
+
+			// Sync back to tmux environment
+			if i.tmuxSession != nil && i.tmuxSession.Exists() {
+				_ = i.tmuxSession.SetEnvironment("CLAUDE_SESSION_ID", status.SessionID)
+			}
+		}
+	}
+}
+
+// GetHookStatus returns the current hook-based status and its freshness.
+// Returns empty string if no hook data or data is stale (>5s old).
+func (i *Instance) GetHookStatus() (string, bool) {
+	i.mu.RLock()
+	defer i.mu.RUnlock()
+
+	if i.hookStatus == "" {
+		return "", false
+	}
+	fresh := time.Since(i.hookLastUpdate) < 2*time.Minute
+	return i.hookStatus, fresh
+}
+
+// ClearHookStatus resets the hook-based status, forcing the next UpdateStatus()
+// to fall through to polling. Used when the user manually overrides status (e.g., pressing 'u'
+// to unacknowledge after an Escape interrupt where the Stop hook didn't fire).
+func (i *Instance) ClearHookStatus() {
+	i.mu.Lock()
+	defer i.mu.Unlock()
+	i.hookStatus = ""
+	i.hookLastUpdate = time.Time{}
+}
+
+// ForceNextStatusCheck clears the idle polling optimization so the next
+// UpdateStatus() performs a full check instead of short-circuiting.
+// Call this before UpdateStatus() when a status-affecting change was made
+// externally (e.g. the u key toggling acknowledged state).
+func (i *Instance) ForceNextStatusCheck() {
+	i.mu.Lock()
+	defer i.mu.Unlock()
+	i.lastIdleCheck = time.Time{}
 }
 
 // SetGeminiYoloMode sets the YOLO mode for Gemini and syncs it to the tmux environment.
@@ -2667,6 +2821,11 @@ func (i *Instance) buildClaudeResumeCommand() string {
 		configDir := GetClaudeConfigDir()
 		configDirPrefix = fmt.Sprintf("CLAUDE_CONFIG_DIR=%s ", configDir)
 	}
+
+	// AGENTDECK_INSTANCE_ID is set as an inline env var so hook subprocesses
+	// can identify which agent-deck session they belong to.
+	instanceIDPrefix := fmt.Sprintf("AGENTDECK_INSTANCE_ID=%s ", i.ID)
+	configDirPrefix = instanceIDPrefix + configDirPrefix
 
 	// Get per-session permission settings (falls back to config if not persisted)
 	opts := i.GetClaudeOptions()

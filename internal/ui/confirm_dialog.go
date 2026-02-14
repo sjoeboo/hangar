@@ -17,6 +17,7 @@ const (
 	ConfirmDeleteGroup
 	ConfirmQuitWithPool
 	ConfirmCreateDirectory
+	ConfirmInstallHooks
 )
 
 // ConfirmDialog handles confirmation for destructive actions
@@ -78,6 +79,14 @@ func (c *ConfirmDialog) ShowCreateDirectory(path, sessionName, command, groupPat
 	c.pendingSessionCommand = command
 	c.pendingSessionGroupPath = groupPath
 	c.pendingToolOptionsJSON = toolOptionsJSON
+}
+
+// ShowInstallHooks shows confirmation for installing Claude Code hooks
+func (c *ConfirmDialog) ShowInstallHooks() {
+	c.visible = true
+	c.confirmType = ConfirmInstallHooks
+	c.targetID = ""
+	c.targetName = ""
 }
 
 // GetPendingSession returns the pending session creation data
@@ -227,6 +236,29 @@ func (c *ConfirmDialog) View() string {
 		escHint := lipgloss.NewStyle().
 			Foreground(ColorTextDim).
 			Render("(Esc to cancel)")
+		buttons = lipgloss.JoinHorizontal(lipgloss.Center, buttonYes, "  ", buttonNo, "  ", escHint)
+
+	case ConfirmInstallHooks:
+		title = "Claude Code Hooks"
+		warning = "Agent-deck can install Claude Code lifecycle hooks\nfor real-time status detection (instant green/yellow/gray)."
+		details = "This writes to your Claude settings.json (preserves existing settings).\nNew/restarted sessions will use hooks; existing sessions continue unchanged.\nYou can disable later with: hooks_enabled = false in config.toml"
+		borderColor = ColorAccent
+
+		buttonYes := lipgloss.NewStyle().
+			Foreground(ColorBg).
+			Background(ColorGreen).
+			Padding(0, 2).
+			Bold(true).
+			Render("y Install")
+		buttonNo := lipgloss.NewStyle().
+			Foreground(ColorBg).
+			Background(ColorAccent).
+			Padding(0, 2).
+			Bold(true).
+			Render("n Skip")
+		escHint := lipgloss.NewStyle().
+			Foreground(ColorTextDim).
+			Render("(Esc to skip)")
 		buttons = lipgloss.JoinHorizontal(lipgloss.Center, buttonYes, "  ", buttonNo, "  ", escHint)
 	}
 

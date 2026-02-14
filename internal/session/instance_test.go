@@ -681,8 +681,11 @@ func TestSyncClaudeSessionFromDisk_PicksUpNewerSession(t *testing.T) {
 	oldSessionID := "11111111-1111-1111-1111-111111111111"
 	newSessionID := "22222222-2222-2222-2222-222222222222"
 
+	// Both files need real conversation data (contain "sessionId") to pass the quality gate.
+	// This simulates /clear: old session had conversation, new session starts with data too.
+	oldContent := `{"sessionId":"` + oldSessionID + `","type":"progress"}`
 	oldPath := filepath.Join(projectDir, oldSessionID+".jsonl")
-	if err := os.WriteFile(oldPath, []byte("{}"), 0644); err != nil {
+	if err := os.WriteFile(oldPath, []byte(oldContent), 0644); err != nil {
 		t.Fatal(err)
 	}
 	pastTime := time.Now().Add(-30 * time.Second)
@@ -690,7 +693,8 @@ func TestSyncClaudeSessionFromDisk_PicksUpNewerSession(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := os.WriteFile(filepath.Join(projectDir, newSessionID+".jsonl"), []byte("{}"), 0644); err != nil {
+	newContent := `{"sessionId":"` + newSessionID + `","type":"progress"}`
+	if err := os.WriteFile(filepath.Join(projectDir, newSessionID+".jsonl"), []byte(newContent), 0644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -804,6 +808,158 @@ func TestSyncClaudeSessionFromDisk_SkipsNonClaude(t *testing.T) {
 	inst.syncClaudeSessionFromDisk()
 	if inst.ClaudeSessionID != "should-not-change" {
 		t.Error("syncClaudeSessionFromDisk should be a no-op for non-claude tools")
+	}
+}
+
+// TestSyncClaudeSessionFromDisk_RejectsZombie verifies that a real current session
+// is NOT replaced by a zombie candidate (file with no conversation data).
+func TestSyncClaudeSessionFromDisk_RejectsZombie(t *testing.T) {
+	configDir := t.TempDir()
+	origConfigDir := os.Getenv("CLAUDE_CONFIG_DIR")
+	os.Setenv("CLAUDE_CONFIG_DIR", configDir)
+	defer func() {
+		if origConfigDir != "" {
+			os.Setenv("CLAUDE_CONFIG_DIR", origConfigDir)
+		} else {
+			os.Unsetenv("CLAUDE_CONFIG_DIR")
+		}
+	}()
+
+	projectPath := "/Users/test/zombie-reject-project"
+	projectDirName := ConvertToClaudeDirName(projectPath)
+	projectDir := filepath.Join(configDir, "projects", projectDirName)
+	if err := os.MkdirAll(projectDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	realID := "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+	zombieID := "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
+
+	// Real session: has conversation data
+	realContent := `{"sessionId":"` + realID + `","type":"progress"}`
+	realPath := filepath.Join(projectDir, realID+".jsonl")
+	if err := os.WriteFile(realPath, []byte(realContent), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(realPath, time.Now().Add(-30*time.Second), time.Now().Add(-30*time.Second)); err != nil {
+		t.Fatal(err)
+	}
+
+	// Zombie session: newer modification time but no conversation data
+	zombiePath := filepath.Join(projectDir, zombieID+".jsonl")
+	if err := os.WriteFile(zombiePath, []byte(`{"type":"file-history-snapshot"}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	inst := NewInstanceWithTool("zombie-reject-test", projectPath, "claude")
+	inst.ClaudeSessionID = realID
+	inst.ClaudeDetectedAt = time.Now().Add(-1 * time.Minute)
+
+	inst.syncClaudeSessionFromDisk()
+
+	if inst.ClaudeSessionID != realID {
+		t.Errorf("ClaudeSessionID = %q, want %q (real session should NOT be replaced by zombie)", inst.ClaudeSessionID, realID)
+	}
+}
+
+// TestSyncClaudeSessionFromDisk_AcceptsRealOverZombie verifies that a zombie current
+// session IS replaced by a real candidate (upgrade from zombie to real).
+func TestSyncClaudeSessionFromDisk_AcceptsRealOverZombie(t *testing.T) {
+	configDir := t.TempDir()
+	origConfigDir := os.Getenv("CLAUDE_CONFIG_DIR")
+	os.Setenv("CLAUDE_CONFIG_DIR", configDir)
+	defer func() {
+		if origConfigDir != "" {
+			os.Setenv("CLAUDE_CONFIG_DIR", origConfigDir)
+		} else {
+			os.Unsetenv("CLAUDE_CONFIG_DIR")
+		}
+	}()
+
+	projectPath := "/Users/test/zombie-upgrade-project"
+	projectDirName := ConvertToClaudeDirName(projectPath)
+	projectDir := filepath.Join(configDir, "projects", projectDirName)
+	if err := os.MkdirAll(projectDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	zombieID := "cccccccc-cccc-cccc-cccc-cccccccccccc"
+	realID := "dddddddd-dddd-dddd-dddd-dddddddddddd"
+
+	// Zombie current: no conversation data
+	zombiePath := filepath.Join(projectDir, zombieID+".jsonl")
+	if err := os.WriteFile(zombiePath, []byte(`{"type":"file-history-snapshot"}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(zombiePath, time.Now().Add(-30*time.Second), time.Now().Add(-30*time.Second)); err != nil {
+		t.Fatal(err)
+	}
+
+	// Real candidate: has conversation data, newer
+	realContent := `{"sessionId":"` + realID + `","type":"progress"}`
+	realPath := filepath.Join(projectDir, realID+".jsonl")
+	if err := os.WriteFile(realPath, []byte(realContent), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	inst := NewInstanceWithTool("zombie-upgrade-test", projectPath, "claude")
+	inst.ClaudeSessionID = zombieID
+	inst.ClaudeDetectedAt = time.Now().Add(-1 * time.Minute)
+
+	inst.syncClaudeSessionFromDisk()
+
+	if inst.ClaudeSessionID != realID {
+		t.Errorf("ClaudeSessionID = %q, want %q (zombie should be upgraded to real session)", inst.ClaudeSessionID, realID)
+	}
+}
+
+// TestSyncClaudeSessionFromDisk_RejectsBothZombies verifies that when both the
+// current and candidate sessions are zombies, the current is kept (no pointless swap).
+func TestSyncClaudeSessionFromDisk_RejectsBothZombies(t *testing.T) {
+	configDir := t.TempDir()
+	origConfigDir := os.Getenv("CLAUDE_CONFIG_DIR")
+	os.Setenv("CLAUDE_CONFIG_DIR", configDir)
+	defer func() {
+		if origConfigDir != "" {
+			os.Setenv("CLAUDE_CONFIG_DIR", origConfigDir)
+		} else {
+			os.Unsetenv("CLAUDE_CONFIG_DIR")
+		}
+	}()
+
+	projectPath := "/Users/test/both-zombies-project"
+	projectDirName := ConvertToClaudeDirName(projectPath)
+	projectDir := filepath.Join(configDir, "projects", projectDirName)
+	if err := os.MkdirAll(projectDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	zombieA := "eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee"
+	zombieB := "ffffffff-ffff-ffff-ffff-ffffffffffff"
+
+	// Zombie A (current): no conversation data
+	zombieAPath := filepath.Join(projectDir, zombieA+".jsonl")
+	if err := os.WriteFile(zombieAPath, []byte(`{"type":"file-history-snapshot"}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(zombieAPath, time.Now().Add(-30*time.Second), time.Now().Add(-30*time.Second)); err != nil {
+		t.Fatal(err)
+	}
+
+	// Zombie B (candidate): also no conversation data, but newer
+	zombieBPath := filepath.Join(projectDir, zombieB+".jsonl")
+	if err := os.WriteFile(zombieBPath, []byte(`{"type":"file-history-snapshot"}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	inst := NewInstanceWithTool("both-zombies-test", projectPath, "claude")
+	inst.ClaudeSessionID = zombieA
+	inst.ClaudeDetectedAt = time.Now().Add(-1 * time.Minute)
+
+	inst.syncClaudeSessionFromDisk()
+
+	if inst.ClaudeSessionID != zombieA {
+		t.Errorf("ClaudeSessionID = %q, want %q (should not swap between zombies)", inst.ClaudeSessionID, zombieA)
 	}
 }
 
@@ -1905,5 +2061,126 @@ func TestBuildClaudeExtraFlags_NilOpts(t *testing.T) {
 	}
 	if strings.Contains(flags, "--allow-dangerously-skip-permissions") {
 		t.Errorf("nil opts should not add permission flags, got %q", flags)
+	}
+}
+
+// TestBuildClaudeCommand_ExportsInstanceID verifies that AGENTDECK_INSTANCE_ID
+// is included in the command string for Claude sessions.
+func TestBuildClaudeCommand_ExportsInstanceID(t *testing.T) {
+	origConfigDir := os.Getenv("CLAUDE_CONFIG_DIR")
+	origHome := os.Getenv("HOME")
+	os.Unsetenv("CLAUDE_CONFIG_DIR")
+	os.Setenv("HOME", t.TempDir())
+	ClearUserConfigCache()
+	defer func() {
+		if origConfigDir != "" {
+			os.Setenv("CLAUDE_CONFIG_DIR", origConfigDir)
+		}
+		os.Setenv("HOME", origHome)
+		ClearUserConfigCache()
+	}()
+
+	inst := NewInstanceWithTool("test", "/tmp/test", "claude")
+	cmd := inst.buildClaudeCommand("claude")
+
+	// AGENTDECK_INSTANCE_ID should be in the command as an env var prefix
+	expectedPrefix := "AGENTDECK_INSTANCE_ID=" + inst.ID
+	if !strings.Contains(cmd, expectedPrefix) {
+		t.Errorf("Command should contain %q, got: %s", expectedPrefix, cmd)
+	}
+}
+
+// TestBuildClaudeResumeCommand_ExportsInstanceID verifies that AGENTDECK_INSTANCE_ID
+// is included in the resume command string.
+func TestBuildClaudeResumeCommand_ExportsInstanceID(t *testing.T) {
+	origConfigDir := os.Getenv("CLAUDE_CONFIG_DIR")
+	origHome := os.Getenv("HOME")
+	os.Unsetenv("CLAUDE_CONFIG_DIR")
+	os.Setenv("HOME", t.TempDir())
+	ClearUserConfigCache()
+	defer func() {
+		if origConfigDir != "" {
+			os.Setenv("CLAUDE_CONFIG_DIR", origConfigDir)
+		}
+		os.Setenv("HOME", origHome)
+		ClearUserConfigCache()
+	}()
+
+	inst := NewInstanceWithTool("test", "/tmp/test", "claude")
+	inst.ClaudeSessionID = "abc-123-def"
+
+	cmd := inst.buildClaudeResumeCommand()
+
+	expectedPrefix := "AGENTDECK_INSTANCE_ID=" + inst.ID
+	if !strings.Contains(cmd, expectedPrefix) {
+		t.Errorf("Resume command should contain %q, got: %s", expectedPrefix, cmd)
+	}
+}
+
+// TestInstance_HookFastPath tests that UpdateStatus uses hook data when fresh.
+func TestInstance_HookFastPath(t *testing.T) {
+	inst := NewInstanceWithTool("hook-test", "/tmp/test", "claude")
+
+	// Set fresh hook data
+	inst.hookStatus = "running"
+	inst.hookLastUpdate = time.Now()
+
+	status, fresh := inst.GetHookStatus()
+	if status != "running" {
+		t.Errorf("GetHookStatus() status = %q, want running", status)
+	}
+	if !fresh {
+		t.Error("GetHookStatus() should report fresh for recent update")
+	}
+}
+
+// TestInstance_HookFastPath_Stale tests that stale hook data is not used.
+func TestInstance_HookFastPath_Stale(t *testing.T) {
+	inst := NewInstanceWithTool("hook-stale-test", "/tmp/test", "claude")
+
+	// Hook data older than 2 minutes is stale (safety net for crashes)
+	inst.hookStatus = "running"
+	inst.hookLastUpdate = time.Now().Add(-3 * time.Minute)
+
+	status, fresh := inst.GetHookStatus()
+	if status != "running" {
+		t.Errorf("GetHookStatus() status = %q, want running", status)
+	}
+	if fresh {
+		t.Error("GetHookStatus() should report stale after 2 minutes")
+	}
+}
+
+// TestInstance_UpdateHookStatus tests the UpdateHookStatus method.
+func TestInstance_UpdateHookStatus(t *testing.T) {
+	inst := NewInstanceWithTool("hook-update-test", "/tmp/test", "claude")
+
+	// Update with hook status
+	hookStatus := &HookStatus{
+		Status:    "waiting",
+		SessionID: "hook-session-123",
+		Event:     "PermissionRequest",
+		UpdatedAt: time.Now(),
+	}
+	inst.UpdateHookStatus(hookStatus)
+
+	// Verify fields were set
+	if inst.hookStatus != "waiting" {
+		t.Errorf("hookStatus = %q, want waiting", inst.hookStatus)
+	}
+	if inst.ClaudeSessionID != "hook-session-123" {
+		t.Errorf("ClaudeSessionID = %q, want hook-session-123", inst.ClaudeSessionID)
+	}
+}
+
+// TestInstance_UpdateHookStatus_Nil tests UpdateHookStatus with nil input.
+func TestInstance_UpdateHookStatus_Nil(t *testing.T) {
+	inst := NewInstanceWithTool("hook-nil-test", "/tmp/test", "claude")
+
+	// Should not panic
+	inst.UpdateHookStatus(nil)
+
+	if inst.hookStatus != "" {
+		t.Errorf("hookStatus should be empty, got %q", inst.hookStatus)
 	}
 }
