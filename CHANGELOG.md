@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Add `--teammate-mode` tmux option to Claude session launcher for shared terminal pairing (#168, contributed by @jonnocraig)
+- Add Slack integration and cross-platform daemon support (#169, contributed by @mtparet)
 - Add Claude Code lifecycle hooks for real-time status detection (instant green/yellow/gray transitions without tmux polling)
 - Add first-launch prompt asking users to install hooks (preserves existing Claude settings.json)
 - Add `agent-deck hooks install/uninstall/status` CLI subcommands for manual hook management
@@ -16,6 +18,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add StatusFileWatcher (fsnotify) for instant hook status file processing
 - Add `AGENTDECK_INSTANCE_ID` env var export for Claude hook subprocess identification
 - Add acknowledgment awareness to hook fast path (attach turns session gray, `u` key turns it orange)
+- Add `llms.txt` for LLM discoverability, fix schema version, add FAQ entries (#167)
+
+### Fixed
+
+- Fix middot `·` spinner character not detected as busy indicator when followed by ellipsis (BusyPatterns regex now includes `·`)
 
 ### Changed
 

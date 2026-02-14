@@ -41,7 +41,7 @@ func DefaultRawPatterns(toolName string) *RawPatterns {
 	case "claude":
 		return &RawPatterns{
 			BusyPatterns: []string{
-				`re:[✳✽✶✻✢]\s*.+…`,   // PRIMARY: spinner + ellipsis (Claude 2.1.25+) — excludes · which is a decorative separator in Claude UI
+				`re:[✳✽✶✻✢·]\s*.+…`,   // PRIMARY: spinner + ellipsis (Claude 2.1.25+) — · included because ellipsis requirement prevents false positives from separator usage
 				"ctrl+c to interrupt", // SECONDARY: explicit busy text (current Claude)
 				"esc to interrupt",    // FALLBACK: older Claude Code versions
 			},
