@@ -8,6 +8,7 @@
 **Your AI agent command center**
 
 [![GitHub Stars](https://img.shields.io/github/stars/asheshgoplani/agent-deck?style=for-the-badge&logo=github&color=yellow&labelColor=1a1b26)](https://github.com/asheshgoplani/agent-deck/stargazers)
+[![Downloads](https://img.shields.io/github/downloads/asheshgoplani/agent-deck/total?style=for-the-badge&logo=github&color=bb9af7&labelColor=1a1b26)](https://github.com/asheshgoplani/agent-deck/releases)
 [![Go Version](https://img.shields.io/badge/Go-1.24+-00ADD8?style=for-the-badge&logo=go&labelColor=1a1b26)](https://go.dev)
 [![License](https://img.shields.io/badge/License-MIT-9ece6a?style=for-the-badge&labelColor=1a1b26)](LICENSE)
 [![Platform](https://img.shields.io/badge/Platform-macOS%20%7C%20Linux%20%7C%20WSL-7aa2f7?style=for-the-badge&labelColor=1a1b26)](https://github.com/asheshgoplani/agent-deck)
@@ -141,11 +142,11 @@ Create as many conductors as you need per profile:
 agent-deck -p work conductor setup ops --description "Ops monitor"
 
 # Add more conductors to the same profile (no prompts)
-agent-deck -p work conductor setup infra --no-heartbeat --description "Infra watcher"
+agent-deck -p work conductor setup infra --description "Infra watcher"
 agent-deck conductor setup personal --description "Personal project monitor"
 ```
 
-Each conductor gets its own directory, identity, and heartbeat settings:
+Each conductor gets its own directory, identity, and settings:
 
 ```
 ~/.agent-deck/conductor/
@@ -153,7 +154,7 @@ Each conductor gets its own directory, identity, and heartbeat settings:
 ├── bridge.py           # Bridge daemon (Telegram/Slack, if configured)
 ├── ops/
 │   ├── CLAUDE.md       # Identity: "You are ops, a conductor for the work profile"
-│   ├── meta.json       # Config: name, profile, heartbeat, description
+│   ├── meta.json       # Config: name, profile, description
 │   ├── state.json      # Runtime state
 │   └── task-log.md     # Action log
 └── infra/
@@ -204,9 +205,9 @@ ops: check the frontend session      → routes to conductor-ops (reply in threa
 
 </details>
 
-Both Telegram and Slack can run simultaneously — the bridge daemon handles both concurrently and sends heartbeat alerts to all configured platforms.
+Both Telegram and Slack can run simultaneously — the bridge daemon handles both concurrently and sends event-driven notifications to all configured platforms.
 
-**Heartbeat**: Conductors with heartbeat enabled receive periodic check-in prompts, keeping them actively monitoring your sessions. Disable per conductor with `--no-heartbeat`.
+**Event-Driven**: Conductors receive instant notifications when session statuses change (e.g., a session finishes processing and starts waiting for input), keeping them actively monitoring your sessions without polling delays.
 
 ### Multi-Tool Support
 
