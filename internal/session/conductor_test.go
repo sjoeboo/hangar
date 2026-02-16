@@ -545,7 +545,7 @@ func TestInstallSharedClaudeMD_Default(t *testing.T) {
 	var backup []byte
 	if content, err := os.ReadFile(claudeMDPath); err == nil {
 		backup = content
-		defer os.WriteFile(claudeMDPath, backup, 0o644)
+		defer func() { _ = os.WriteFile(claudeMDPath, backup, 0o644) }()
 	} else {
 		defer os.Remove(claudeMDPath)
 	}
@@ -598,9 +598,9 @@ func TestInstallSharedClaudeMD_CustomSymlink(t *testing.T) {
 	t.Cleanup(func() {
 		os.Remove(claudeMDPath) // Remove whatever the test created (symlink or file)
 		if backupLink != "" {
-			os.Symlink(backupLink, claudeMDPath)
+			_ = os.Symlink(backupLink, claudeMDPath)
 		} else if backupContent != nil {
-			os.WriteFile(claudeMDPath, backupContent, 0o644)
+			_ = os.WriteFile(claudeMDPath, backupContent, 0o644)
 		}
 	})
 
