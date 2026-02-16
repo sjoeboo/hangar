@@ -317,6 +317,7 @@ def load_config() -> dict:
     sl_app_token = sl.get("app_token", "")
     sl_channel_id = sl.get("channel_id", "")
     sl_listen_mode = sl.get("listen_mode", "mentions")  # "mentions" or "all"
+    sl_allowed_users = sl.get("allowed_user_ids", [])  # List of authorized Slack user IDs
     sl_configured = bool(sl_bot_token and sl_app_token and sl_channel_id)
 
     if not tg_configured and not sl_configured:
@@ -337,6 +338,7 @@ def load_config() -> dict:
             "app_token": sl_app_token,
             "channel_id": sl_channel_id,
             "listen_mode": sl_listen_mode,
+            "allowed_user_ids": sl_allowed_users,
             "configured": sl_configured,
         },
         "heartbeat_interval": conductor_cfg.get("heartbeat_interval", 15),
@@ -922,6 +924,22 @@ def create_slack_app(config: dict):
     app = AsyncApp(token=bot_token, authorize=_cached_authorize)
     listen_mode = config["slack"].get("listen_mode", "mentions")
 
+    # Authorization setup
+    allowed_users = config["slack"]["allowed_user_ids"]
+
+    def is_slack_authorized(user_id: str) -> bool:
+        """Check if Slack user is authorized to use the bot.
+
+        If allowed_user_ids is empty, allow all users (backward compatible).
+        Otherwise, only allow users in the list.
+        """
+        if not allowed_users:  # Empty list = no restrictions
+            return True
+        if user_id not in allowed_users:
+            log.warning("Unauthorized Slack message from user %s", user_id)
+            return False
+        return True
+
     def get_default_conductor() -> dict | None:
         """Get the first conductor (default target for messages)."""
         conductors = discover_conductors()
@@ -1043,6 +1061,12 @@ def create_slack_app(config: dict):
         # Only listen in configured channel
         if event.get("channel") != channel_id:
             return
+
+        # Authorization check
+        user_id = event.get("user", "")
+        if not is_slack_authorized(user_id):
+            return
+
         text = event.get("text", "").strip()
         if not text:
             return
@@ -1056,6 +1080,12 @@ def create_slack_app(config: dict):
     @app.event("app_mention")
     async def handle_slack_mention(event, say):
         """Handle @bot mentions in any channel the bot is in. Always active."""
+
+        # Authorization check
+        user_id = event.get("user", "")
+        if not is_slack_authorized(user_id):
+            return
+
         text = event.get("text", "")
         # Strip the bot mention (e.g., "<@U01234> message" -> "message")
         text = re.sub(r"<@[A-Z0-9]+>\s*", "", text).strip()
@@ -1070,9 +1100,16 @@ def create_slack_app(config: dict):
         )
 
     @app.command("/ad-status")
-    async def slack_cmd_status(ack, respond):
+    async def slack_cmd_status(ack, respond, command):
         """Handle /ad-status slash command."""
         await ack()
+
+        # Authorization check
+        user_id = command.get("user_id", "")
+        if not is_slack_authorized(user_id):
+            await respond("⛔ Unauthorized. Contact your administrator.")
+            return
+
         profiles = get_unique_profiles()
         agg = get_status_summary_all(profiles)
         totals = agg["totals"]
@@ -1097,9 +1134,16 @@ def create_slack_app(config: dict):
         await respond("\n".join(lines))
 
     @app.command("/ad-sessions")
-    async def slack_cmd_sessions(ack, respond):
+    async def slack_cmd_sessions(ack, respond, command):
         """Handle /ad-sessions slash command."""
         await ack()
+
+        # Authorization check
+        user_id = command.get("user_id", "")
+        if not is_slack_authorized(user_id):
+            await respond("⛔ Unauthorized. Contact your administrator.")
+            return
+
         profiles = get_unique_profiles()
         all_sessions = get_sessions_list_all(profiles)
         if not all_sessions:
@@ -1120,6 +1164,13 @@ def create_slack_app(config: dict):
     async def slack_cmd_restart(ack, respond, command):
         """Handle /ad-restart slash command."""
         await ack()
+
+        # Authorization check
+        user_id = command.get("user_id", "")
+        if not is_slack_authorized(user_id):
+            await respond("⛔ Unauthorized. Contact your administrator.")
+            return
+
         target_name = command.get("text", "").strip()
         conductor_names = get_conductor_names()
 
@@ -1148,9 +1199,16 @@ def create_slack_app(config: dict):
             await respond(f"Restart failed: {result.stderr.strip()}")
 
     @app.command("/ad-help")
-    async def slack_cmd_help(ack, respond):
+    async def slack_cmd_help(ack, respond, command):
         """Handle /ad-help slash command."""
         await ack()
+
+        # Authorization check
+        user_id = command.get("user_id", "")
+        if not is_slack_authorized(user_id):
+            await respond("⛔ Unauthorized. Contact your administrator.")
+            return
+
         conductors = discover_conductors()
         names = [c["name"] for c in conductors]
         await respond(

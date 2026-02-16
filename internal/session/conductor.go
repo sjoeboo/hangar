@@ -56,6 +56,11 @@ type SlackSettings struct {
 	// ListenMode controls when the bot responds: "mentions" (only @mentions) or "all" (all channel messages)
 	// Default: "mentions"
 	ListenMode string `toml:"listen_mode"`
+
+	// AllowedUserIDs is a list of Slack user IDs authorized to use the bot.
+	// If empty, all users are allowed (backward compatible).
+	// Get user ID from Slack: Right-click user → View profile → More → Copy member ID
+	AllowedUserIDs []string `toml:"allowed_user_ids"`
 }
 
 // ConductorMeta holds metadata for a named conductor instance

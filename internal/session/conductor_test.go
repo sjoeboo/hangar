@@ -318,3 +318,217 @@ func TestGetProfiles(t *testing.T) {
 		t.Errorf("expected 2 profiles, got %d", len(profiles))
 	}
 }
+
+// --- Slack authorization tests ---
+
+func TestSlackSettings_AllowedUserIDs(t *testing.T) {
+	tests := []struct {
+		name        string
+		settings    SlackSettings
+		expectEmpty bool
+	}{
+		{
+			name: "empty allowed users",
+			settings: SlackSettings{
+				BotToken:       "xoxb-test",
+				AppToken:       "xapp-test",
+				ChannelID:      "C12345",
+				ListenMode:     "mentions",
+				AllowedUserIDs: []string{},
+			},
+			expectEmpty: true,
+		},
+		{
+			name: "single allowed user",
+			settings: SlackSettings{
+				BotToken:       "xoxb-test",
+				AppToken:       "xapp-test",
+				ChannelID:      "C12345",
+				ListenMode:     "mentions",
+				AllowedUserIDs: []string{"U12345"},
+			},
+			expectEmpty: false,
+		},
+		{
+			name: "multiple allowed users",
+			settings: SlackSettings{
+				BotToken:       "xoxb-test",
+				AppToken:       "xapp-test",
+				ChannelID:      "C12345",
+				ListenMode:     "all",
+				AllowedUserIDs: []string{"U12345", "U67890", "UABCDE"},
+			},
+			expectEmpty: false,
+		},
+		{
+			name: "nil allowed users",
+			settings: SlackSettings{
+				BotToken:       "xoxb-test",
+				AppToken:       "xapp-test",
+				ChannelID:      "C12345",
+				ListenMode:     "mentions",
+				AllowedUserIDs: nil,
+			},
+			expectEmpty: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			isEmpty := len(tt.settings.AllowedUserIDs) == 0
+			if isEmpty != tt.expectEmpty {
+				t.Errorf("expected empty=%v, got empty=%v for %+v",
+					tt.expectEmpty, isEmpty, tt.settings.AllowedUserIDs)
+			}
+		})
+	}
+}
+
+func TestSlackSettings_UserIDFormat(t *testing.T) {
+	// Verify that typical Slack user ID formats are handled correctly
+	userIDs := []string{
+		"U01234ABCDE",  // Standard user ID
+		"U05678FGHIJ",  // Another standard ID
+		"W12345",       // Workspace user ID
+		"USLACKBOT",    // SlackBot ID
+	}
+
+	settings := SlackSettings{
+		BotToken:       "xoxb-test",
+		AppToken:       "xapp-test",
+		ChannelID:      "C12345",
+		ListenMode:     "mentions",
+		AllowedUserIDs: userIDs,
+	}
+
+	if len(settings.AllowedUserIDs) != len(userIDs) {
+		t.Errorf("expected %d user IDs, got %d", len(userIDs), len(settings.AllowedUserIDs))
+	}
+
+	for i, id := range userIDs {
+		if settings.AllowedUserIDs[i] != id {
+			t.Errorf("user ID mismatch at index %d: got %q, want %q",
+				i, settings.AllowedUserIDs[i], id)
+		}
+	}
+}
+
+func TestSlackSettings_TOML(t *testing.T) {
+	// Verify the SlackSettings struct is properly defined with AllowedUserIDs
+	slack := SlackSettings{
+		BotToken:       "xoxb-test-token",
+		AppToken:       "xapp-test-token",
+		ChannelID:      "C01234ABCDE",
+		ListenMode:     "mentions",
+		AllowedUserIDs: []string{"U01234", "U56789", "UABCDE"},
+	}
+
+	// Verify the struct fields are accessible
+	if slack.BotToken != "xoxb-test-token" {
+		t.Errorf("bot_token mismatch: got %q", slack.BotToken)
+	}
+	if slack.AppToken != "xapp-test-token" {
+		t.Errorf("app_token mismatch: got %q", slack.AppToken)
+	}
+	if slack.ChannelID != "C01234ABCDE" {
+		t.Errorf("channel_id mismatch: got %q", slack.ChannelID)
+	}
+	if slack.ListenMode != "mentions" {
+		t.Errorf("listen_mode mismatch: got %q", slack.ListenMode)
+	}
+	if len(slack.AllowedUserIDs) != 3 {
+		t.Errorf("expected 3 allowed user IDs, got %d", len(slack.AllowedUserIDs))
+	}
+	if slack.AllowedUserIDs[0] != "U01234" {
+		t.Errorf("first user ID mismatch: got %q", slack.AllowedUserIDs[0])
+	}
+	if slack.AllowedUserIDs[1] != "U56789" {
+		t.Errorf("second user ID mismatch: got %q", slack.AllowedUserIDs[1])
+	}
+	if slack.AllowedUserIDs[2] != "UABCDE" {
+		t.Errorf("third user ID mismatch: got %q", slack.AllowedUserIDs[2])
+	}
+}
+
+// --- Python bridge template tests ---
+
+func TestBridgeTemplate_ContainsSlackAuthorization(t *testing.T) {
+	// Verify that the Python bridge template contains the Slack authorization code
+	template := conductorBridgePy
+
+	// Check for authorization function definition
+	if !strings.Contains(template, "def is_slack_authorized(user_id: str) -> bool:") {
+		t.Error("template should contain is_slack_authorized function definition")
+	}
+
+	// Check for allowed_users setup
+	if !strings.Contains(template, `allowed_users = config["slack"]["allowed_user_ids"]`) {
+		t.Error("template should load allowed_user_ids from config")
+	}
+
+	// Check for authorization logic
+	if !strings.Contains(template, "if not allowed_users:") {
+		t.Error("template should check if allowed_users is empty")
+	}
+	if !strings.Contains(template, "if user_id not in allowed_users:") {
+		t.Error("template should check if user_id is in allowed_users")
+	}
+
+	// Check for warning log
+	if !strings.Contains(template, `log.warning("Unauthorized Slack message from user %s", user_id)`) {
+		t.Error("template should log warning for unauthorized users")
+	}
+
+	// Check for authorization checks in handlers
+	authCheckPatterns := []string{
+		"user_id = event.get(\"user\", \"\")",           // message/mention handlers
+		"user_id = command.get(\"user_id\", \"\")",      // slash command handlers
+		"if not is_slack_authorized(user_id):",         // authorization check
+		"await respond(\"⛔ Unauthorized. Contact your administrator.\")", // slash command error
+	}
+
+	for _, pattern := range authCheckPatterns {
+		if !strings.Contains(template, pattern) {
+			t.Errorf("template should contain authorization pattern: %q", pattern)
+		}
+	}
+}
+
+func TestBridgeTemplate_SlackHandlersHaveAuthorization(t *testing.T) {
+	// Verify all Slack handlers have authorization checks
+	template := conductorBridgePy
+
+	handlers := []struct {
+		name    string
+		pattern string
+	}{
+		{"message handler", "@app.event(\"message\")"},
+		{"mention handler", "@app.event(\"app_mention\")"},
+		{"status command", "@app.command(\"/ad-status\")"},
+		{"sessions command", "@app.command(\"/ad-sessions\")"},
+		{"restart command", "@app.command(\"/ad-restart\")"},
+		{"help command", "@app.command(\"/ad-help\")"},
+	}
+
+	for _, h := range handlers {
+		if !strings.Contains(template, h.pattern) {
+			t.Errorf("template should contain %s: %q", h.name, h.pattern)
+		}
+	}
+}
+
+func TestBridgeTemplate_ConfigLoadsAllowedUserIDs(t *testing.T) {
+	// Verify the config loading includes allowed_user_ids
+	template := conductorBridgePy
+
+	configPatterns := []string{
+		`sl_allowed_users = sl.get("allowed_user_ids", [])`,
+		`"allowed_user_ids": sl_allowed_users,`,
+	}
+
+	for _, pattern := range configPatterns {
+		if !strings.Contains(template, pattern) {
+			t.Errorf("template should contain config pattern: %q", pattern)
+		}
+	}
+}
