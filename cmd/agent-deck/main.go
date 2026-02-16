@@ -29,7 +29,7 @@ import (
 	"github.com/asheshgoplani/agent-deck/internal/update"
 )
 
-const Version = "0.16.0"
+const Version = "0.18.0"
 
 // Table column widths for list command output
 const (
@@ -245,8 +245,14 @@ func main() {
 		case "hook-handler":
 			handleHookHandler()
 			return
+		case "codex-notify":
+			handleCodexNotify()
+			return
 		case "hooks":
 			handleHooks(args[1:])
+			return
+		case "codex-hooks":
+			handleCodexHooks(args[1:])
 			return
 		}
 	}
@@ -1741,6 +1747,12 @@ func handleUpdate(args []string) {
 		os.Exit(1)
 	}
 
+	// Update bridge.py if conductor is installed
+	if err := update.UpdateBridgePy(); err != nil {
+		fmt.Printf("Warning: Failed to update bridge.py: %v\n", err)
+		fmt.Println("  You can manually update by running: ./conductor/setup.sh")
+	}
+
 	fmt.Printf("\n✓ Updated to v%s\n", info.LatestVersion)
 	fmt.Println("  Restart agent-deck to use the new version.")
 }
@@ -1808,6 +1820,7 @@ func printHelp() {
 	fmt.Println("  status           Show session status summary")
 	fmt.Println("  session          Manage session lifecycle")
 	fmt.Println("  mcp              Manage MCP servers")
+	fmt.Println("  codex-hooks      Manage Codex notify hook integration")
 	fmt.Println("  group            Manage groups")
 	fmt.Println("  worktree, wt     Manage git worktrees")
 	fmt.Println("  conductor        Manage conductor meta-agent orchestration")
@@ -1830,6 +1843,7 @@ func printHelp() {
 	fmt.Println("  mcp attached [id]         Show MCPs attached to a session")
 	fmt.Println("  mcp attach <id> <mcp>     Attach MCP to session")
 	fmt.Println("  mcp detach <id> <mcp>     Detach MCP from session")
+	fmt.Println("  codex-hooks install       Install Codex notify hook")
 	fmt.Println()
 	fmt.Println("Group Commands:")
 	fmt.Println("  group list                List all groups")
