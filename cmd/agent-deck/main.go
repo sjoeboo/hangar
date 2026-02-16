@@ -233,6 +233,9 @@ func main() {
 		case "try":
 			handleTry(profile, args[1:])
 			return
+		case "launch":
+			handleLaunch(profile, args[1:])
+			return
 		case "conductor":
 			handleConductor(profile, args[1:])
 			return
@@ -1813,6 +1816,7 @@ func printHelp() {
 	fmt.Println("Commands:")
 	fmt.Println("  (none)           Start the TUI")
 	fmt.Println("  add <path>       Add a new session")
+	fmt.Println("  launch [path]    Add, start, and optionally send a message in one step")
 	fmt.Println("  try <name>       Quick experiment (create/find dated folder + session)")
 	fmt.Println("  list, ls         List all sessions")
 	fmt.Println("  remove, rm       Remove a session")
