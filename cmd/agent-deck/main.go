@@ -202,6 +202,9 @@ func main() {
 		case "remove", "rm":
 			handleRemove(profile, args[1:])
 			return
+		case "rename", "mv":
+			handleRename(profile, args[1:])
+			return
 		case "status":
 			handleStatus(profile, args[1:])
 			return
@@ -1271,6 +1274,89 @@ func handleRemove(profile string, args []string) {
 	)
 }
 
+func handleRename(profile string, args []string) {
+	fs := flag.NewFlagSet("rename", flag.ExitOnError)
+	jsonOutput := fs.Bool("json", false, "Output as JSON")
+	quiet := fs.Bool("quiet", false, "Minimal output")
+	quietShort := fs.Bool("q", false, "Minimal output (short)")
+
+	fs.Usage = func() {
+		fmt.Println("Usage: agent-deck rename <id|title> <new-title>")
+		fmt.Println()
+		fmt.Println("Rename a session by ID or title.")
+		fmt.Println()
+		fmt.Println("Examples:")
+		fmt.Println("  agent-deck rename abc12345 \"New Name\"")
+		fmt.Println("  agent-deck rename \"Old Name\" \"New Name\"")
+		fmt.Println("  agent-deck -p work rename abc12345 \"New Name\"   # Rename in 'work' profile")
+	}
+
+	if err := fs.Parse(normalizeArgs(fs, args)); err != nil {
+		os.Exit(1)
+	}
+
+	quietMode := *quiet || *quietShort
+	out := NewCLIOutput(*jsonOutput, quietMode)
+
+	identifier := fs.Arg(0)
+	newTitle := fs.Arg(1)
+	if identifier == "" || newTitle == "" {
+		out.Error("session ID/title and new title are required", ErrCodeInvalidOperation)
+		if !*jsonOutput {
+			fs.Usage()
+		}
+		os.Exit(1)
+	}
+
+	storage, instances, groups, err := loadSessionData(profile)
+	if err != nil {
+		out.Error(err.Error(), ErrCodeInvalidOperation)
+		os.Exit(1)
+	}
+
+	inst, errMsg, errCode := ResolveSession(identifier, instances)
+	if inst == nil {
+		out.Error(fmt.Sprintf("%s (profile '%s')", errMsg, storage.Profile()), errCode)
+		if errCode == ErrCodeNotFound {
+			os.Exit(2)
+		}
+		os.Exit(1)
+	}
+
+	oldTitle := inst.Title
+
+	// Check for duplicate title at the same path (but allow renaming to same title)
+	if newTitle != oldTitle {
+		if isDup, existing := isDuplicateSession(instances, newTitle, inst.ProjectPath); isDup {
+			out.Error(
+				fmt.Sprintf("session with title %q already exists at path %q (id: %s)", newTitle, inst.ProjectPath, existing.ID),
+				ErrCodeInvalidOperation,
+			)
+			os.Exit(1)
+		}
+	}
+
+	inst.Title = newTitle
+	inst.SyncTmuxDisplayName()
+
+	groupTree := session.NewGroupTreeWithGroups(instances, groups)
+	if err := storage.SaveWithGroups(instances, groupTree); err != nil {
+		out.Error(fmt.Sprintf("failed to save: %v", err), ErrCodeInvalidOperation)
+		os.Exit(1)
+	}
+
+	out.Success(
+		fmt.Sprintf("Renamed session: %q → %q (profile '%s')", oldTitle, newTitle, storage.Profile()),
+		map[string]interface{}{
+			"success":   true,
+			"id":        inst.ID,
+			"old_title": oldTitle,
+			"new_title": newTitle,
+			"profile":   storage.Profile(),
+		},
+	)
+}
+
 // statusCounts holds session counts by status
 type statusCounts struct {
 	running int
@@ -1718,6 +1804,7 @@ func printHelp() {
 	fmt.Println("  try <name>       Quick experiment (create/find dated folder + session)")
 	fmt.Println("  list, ls         List all sessions")
 	fmt.Println("  remove, rm       Remove a session")
+	fmt.Println("  rename, mv       Rename a session")
 	fmt.Println("  status           Show session status summary")
 	fmt.Println("  session          Manage session lifecycle")
 	fmt.Println("  mcp              Manage MCP servers")
