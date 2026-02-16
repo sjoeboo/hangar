@@ -5,6 +5,19 @@ All notable changes to Agent Deck will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.17.0] - 2026-02-16
+
+### Added
+
+- Add top-level rename command with validation (#176, contributed by @nlenepveu)
+- Add Slack user ID authorization for conductors (#170, contributed by @mtparet)
+- Custom CLAUDE.md paths via symlinks for conductors (#173, contributed by @mtparet)
+
+### Fixed
+
+- Fix: remove thread context fetching from Slack handler (#175, contributed by @mtparet)
+- Fix: prevent worktree nesting when creating from within worktrees (#177)
+
 ## [0.16.0] - 2026-02-14
 
 ### Added
