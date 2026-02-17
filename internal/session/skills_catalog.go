@@ -1013,12 +1013,7 @@ func ApplyProjectSkills(projectPath string, desired []SkillCandidate) error {
 
 		targetRel := desiredTargetByID[id]
 		targetKey := normalizeSkillToken(targetRel)
-		if ownerID, managed := managedTargetOwner[targetKey]; managed {
-			if _, ok := desiredByID[ownerID]; !ok {
-				// The current owner will be removed in this apply.
-				continue
-			}
-			// ownerStillDesired with another ID is blocked above by desiredTargetOwner collision.
+		if _, managed := managedTargetOwner[targetKey]; managed {
 			continue
 		}
 
