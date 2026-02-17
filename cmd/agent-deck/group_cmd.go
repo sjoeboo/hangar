@@ -22,6 +22,8 @@ func handleGroup(profile string, args []string) {
 		handleGroupList(profile, args[1:])
 	case "create", "new":
 		handleGroupCreate(profile, args[1:])
+	case "update", "set":
+		handleGroupUpdate(profile, args[1:])
 	case "delete", "rm":
 		handleGroupDelete(profile, args[1:])
 	case "move", "mv":
@@ -44,6 +46,7 @@ func printGroupHelp() {
 	fmt.Println("Commands:")
 	fmt.Println("  list              List all groups with session counts")
 	fmt.Println("  create <name>     Create a new group")
+	fmt.Println("  update <name>     Update group settings")
 	fmt.Println("  delete <name>     Delete a group")
 	fmt.Println("  move <id> <group> Move session to a different group")
 	fmt.Println()
@@ -51,6 +54,7 @@ func printGroupHelp() {
 	fmt.Println("  agent-deck group list")
 	fmt.Println("  agent-deck group create mobile")
 	fmt.Println("  agent-deck group create ios --parent mobile")
+	fmt.Println("  agent-deck group update mobile --default-path /path/to/repo")
 	fmt.Println("  agent-deck group delete experiments")
 	fmt.Println("  agent-deck group delete work --force")
 	fmt.Println("  agent-deck group move my-project work/frontend")
@@ -290,6 +294,7 @@ func handleGroupList(profile string, args []string) {
 func handleGroupCreate(profile string, args []string) {
 	fs := flag.NewFlagSet("group create", flag.ExitOnError)
 	parent := fs.String("parent", "", "Create as subgroup under this parent")
+	defaultPath := fs.String("default-path", "", "Default working directory for new sessions in this group")
 	jsonOutput := fs.Bool("json", false, "Output as JSON")
 	quiet := fs.Bool("quiet", false, "Minimal output")
 	quietShort := fs.Bool("q", false, "Minimal output (short)")
@@ -305,6 +310,7 @@ func handleGroupCreate(profile string, args []string) {
 		fmt.Println("Examples:")
 		fmt.Println("  agent-deck group create mobile")
 		fmt.Println("  agent-deck group create ios --parent mobile")
+		fmt.Println("  agent-deck group create backend --default-path ~/src/backend")
 	}
 
 	// Reorder args: move name to end so flags are parsed correctly
@@ -358,6 +364,10 @@ func handleGroupCreate(profile string, args []string) {
 		fullPath = newGroup.Path
 	}
 
+	if *defaultPath != "" {
+		groupTree.SetDefaultPathForGroup(fullPath, *defaultPath)
+	}
+
 	// Check if group already existed
 	existingGroup := false
 	for _, g := range groups {
@@ -375,18 +385,121 @@ func handleGroupCreate(profile string, args []string) {
 
 	if existingGroup {
 		out.Success(fmt.Sprintf("Group already exists: %s", fullPath), map[string]interface{}{
-			"success": true,
-			"name":    newGroup.Name,
-			"path":    fullPath,
-			"existed": true,
+			"success":      true,
+			"name":         newGroup.Name,
+			"path":         fullPath,
+			"default_path": groupTree.DefaultPathForGroup(fullPath),
+			"existed":      true,
 		})
 	} else {
 		out.Success(fmt.Sprintf("Created group: %s", fullPath), map[string]interface{}{
-			"success": true,
-			"name":    newGroup.Name,
-			"path":    fullPath,
+			"success":      true,
+			"name":         newGroup.Name,
+			"path":         fullPath,
+			"default_path": groupTree.DefaultPathForGroup(fullPath),
 		})
 	}
+}
+
+// handleGroupUpdate updates group metadata/settings
+func handleGroupUpdate(profile string, args []string) {
+	fs := flag.NewFlagSet("group update", flag.ExitOnError)
+	defaultPath := fs.String("default-path", "", "Default working directory for new sessions in this group")
+	clearDefaultPath := fs.Bool("clear-default-path", false, "Clear group default working directory")
+	jsonOutput := fs.Bool("json", false, "Output as JSON")
+	quiet := fs.Bool("quiet", false, "Minimal output")
+	quietShort := fs.Bool("q", false, "Minimal output (short)")
+
+	fs.Usage = func() {
+		fmt.Println("Usage: agent-deck group update <name> [options]")
+		fmt.Println()
+		fmt.Println("Update group settings.")
+		fmt.Println()
+		fmt.Println("Options:")
+		fs.PrintDefaults()
+		fmt.Println()
+		fmt.Println("Examples:")
+		fmt.Println("  agent-deck group update mobile --default-path /path/to/repo")
+		fmt.Println("  agent-deck group update mobile --clear-default-path")
+	}
+
+	args = reorderGroupArgs(args)
+
+	if err := fs.Parse(normalizeArgs(fs, args)); err != nil {
+		os.Exit(1)
+	}
+
+	out := NewCLIOutput(*jsonOutput, *quiet || *quietShort)
+
+	name := fs.Arg(0)
+	if name == "" {
+		out.Error("group name is required", ErrCodeNotFound)
+		fmt.Println("Usage: agent-deck group update <name> [--default-path <path>|--clear-default-path]")
+		os.Exit(1)
+	}
+
+	if (*defaultPath == "" && !*clearDefaultPath) || (*defaultPath != "" && *clearDefaultPath) {
+		out.Error("specify exactly one of --default-path or --clear-default-path", ErrCodeInvalidOperation)
+		os.Exit(1)
+	}
+
+	storage, err := session.NewStorageWithProfile(profile)
+	if err != nil {
+		out.Error(fmt.Sprintf("failed to initialize storage: %v", err), ErrCodeNotFound)
+		os.Exit(1)
+	}
+
+	instances, groups, err := storage.LoadWithGroups()
+	if err != nil {
+		out.Error(fmt.Sprintf("failed to load sessions: %v", err), ErrCodeNotFound)
+		os.Exit(1)
+	}
+
+	groupTree := session.NewGroupTreeWithGroups(instances, groups)
+
+	groupPath := normalizeGroupPath(name)
+	_, exists := groupTree.Groups[groupPath]
+	if !exists {
+		for path, g := range groupTree.Groups {
+			if strings.EqualFold(g.Name, name) {
+				groupPath = path
+				exists = true
+				break
+			}
+		}
+	}
+	if !exists {
+		out.Error(fmt.Sprintf("group '%s' not found", name), ErrCodeNotFound)
+		os.Exit(2)
+	}
+
+	if *clearDefaultPath {
+		groupTree.SetDefaultPathForGroup(groupPath, "")
+	} else {
+		groupTree.SetDefaultPathForGroup(groupPath, *defaultPath)
+	}
+
+	if err := storage.SaveWithGroups(instances, groupTree); err != nil {
+		out.Error(fmt.Sprintf("failed to save: %v", err), ErrCodeNotFound)
+		os.Exit(1)
+	}
+
+	currentDefaultPath := groupTree.DefaultPathForGroup(groupPath)
+	if *clearDefaultPath {
+		out.Success(fmt.Sprintf("Cleared default path for group: %s", groupPath), map[string]interface{}{
+			"success":      true,
+			"path":         groupPath,
+			"default_path": currentDefaultPath,
+			"cleared":      true,
+		})
+		return
+	}
+
+	out.Success(fmt.Sprintf("Updated default path for group: %s", groupPath), map[string]interface{}{
+		"success":      true,
+		"path":         groupPath,
+		"default_path": currentDefaultPath,
+	})
 }
 
 // handleGroupDelete deletes a group
@@ -668,7 +781,8 @@ func reorderGroupArgs(args []string) []string {
 
 	// Known flags that take a value
 	valueFlags := map[string]bool{
-		"--parent": true,
+		"--parent":       true,
+		"--default-path": true,
 	}
 
 	var flags []string

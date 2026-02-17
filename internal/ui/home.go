@@ -1621,10 +1621,7 @@ func (h *Home) getDefaultPathForGroup(groupPath string) string {
 	if h.groupTree == nil {
 		return ""
 	}
-	if group, exists := h.groupTree.Groups[groupPath]; exists {
-		return group.DefaultPath
-	}
-	return ""
+	return h.groupTree.DefaultPathForGroup(groupPath)
 }
 
 // statusWorker runs in a background goroutine with its own ticker

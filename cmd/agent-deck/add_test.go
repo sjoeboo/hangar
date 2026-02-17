@@ -420,3 +420,29 @@ func TestGenerateUniqueTitle_MixedPathsMultipleTitles(t *testing.T) {
 		t.Errorf("Expected 'Work' for project-c (no conflict), got '%s'", title)
 	}
 }
+
+func TestResolveGroupPathForAdd_ByExactPath(t *testing.T) {
+	tree := session.NewGroupTree([]*session.Instance{
+		{ID: "1", GroupPath: "platform/backend"},
+	})
+
+	got := resolveGroupPathForAdd(tree, "platform/backend")
+	if got != "platform/backend" {
+		t.Fatalf("Expected exact group path match, got %q", got)
+	}
+}
+
+func TestResolveGroupPathForAdd_ByNameAndNormalizedPath(t *testing.T) {
+	stored := []*session.GroupData{
+		{Name: "My Team", Path: "my-team", Expanded: true, Order: 0},
+	}
+	tree := session.NewGroupTreeWithGroups(nil, stored)
+
+	if got := resolveGroupPathForAdd(tree, "My Team"); got != "my-team" {
+		t.Fatalf("Expected name selector to resolve to my-team, got %q", got)
+	}
+
+	if got := resolveGroupPathForAdd(tree, "my team"); got != "my-team" {
+		t.Fatalf("Expected normalized selector to resolve to my-team, got %q", got)
+	}
+}

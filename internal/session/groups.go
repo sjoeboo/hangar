@@ -1,9 +1,13 @@
 package session
 
 import (
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"unicode"
+
+	"github.com/asheshgoplani/agent-deck/internal/git"
 )
 
 // DefaultGroupName is the display name for the default group where ungrouped sessions go
@@ -41,7 +45,7 @@ type Group struct {
 	Expanded    bool
 	Sessions    []*Instance
 	Order       int
-	DefaultPath string // Most recent project path used for sessions in this group
+	DefaultPath string // Explicit default path for new sessions in this group
 }
 
 // GroupTree manages hierarchical session organization
@@ -1048,14 +1052,83 @@ func mostRecentPathForSessions(sessions []*Instance) string {
 	return ""
 }
 
-// updateGroupDefaultPath updates the DefaultPath of a group based on its sessions
+// resolveGroupDefaultPath normalizes a default path and maps git worktree paths
+// to their base repository root.
+func resolveGroupDefaultPath(defaultPath string) string {
+	defaultPath = strings.TrimSpace(defaultPath)
+	if defaultPath == "" {
+		return ""
+	}
+
+	// Expand ~ for user-supplied paths.
+	if defaultPath == "~" || strings.HasPrefix(defaultPath, "~/") {
+		if home, err := os.UserHomeDir(); err == nil {
+			if defaultPath == "~" {
+				defaultPath = home
+			} else {
+				defaultPath = filepath.Join(home, defaultPath[2:])
+			}
+		}
+	}
+
+	if !filepath.IsAbs(defaultPath) {
+		if abs, err := filepath.Abs(defaultPath); err == nil {
+			defaultPath = abs
+		}
+	}
+
+	info, err := os.Stat(defaultPath)
+	if err != nil || !info.IsDir() {
+		return defaultPath
+	}
+
+	if !git.IsGitRepo(defaultPath) {
+		return defaultPath
+	}
+
+	baseRoot, err := git.GetWorktreeBaseRoot(defaultPath)
+	if err != nil || baseRoot == "" {
+		return defaultPath
+	}
+
+	return baseRoot
+}
+
+// DefaultPathForGroup returns the effective default path for creating new sessions
+// in the group: explicit configured default_path first, then most recent session path.
+func (t *GroupTree) DefaultPathForGroup(groupPath string) string {
+	group, exists := t.Groups[groupPath]
+	if !exists {
+		return ""
+	}
+
+	if group.DefaultPath != "" {
+		return resolveGroupDefaultPath(group.DefaultPath)
+	}
+
+	return resolveGroupDefaultPath(mostRecentPathForSessions(group.Sessions))
+}
+
+// SetDefaultPathForGroup sets (or clears) an explicit default path for a group.
+func (t *GroupTree) SetDefaultPathForGroup(groupPath, defaultPath string) bool {
+	group, exists := t.Groups[groupPath]
+	if !exists {
+		return false
+	}
+
+	group.DefaultPath = resolveGroupDefaultPath(defaultPath)
+	return true
+}
+
+// updateGroupDefaultPath normalizes persisted explicit default paths.
+// Derived fallback paths are computed on demand in DefaultPathForGroup().
 func (t *GroupTree) updateGroupDefaultPath(groupPath string) {
 	group, exists := t.Groups[groupPath]
 	if !exists {
 		return
 	}
 
-	if path := mostRecentPathForSessions(group.Sessions); path != "" {
-		group.DefaultPath = path
+	if group.DefaultPath != "" {
+		group.DefaultPath = resolveGroupDefaultPath(group.DefaultPath)
 	}
 }

@@ -1,6 +1,9 @@
 package session
 
 import (
+	"os"
+	"os/exec"
+	"path/filepath"
 	"testing"
 	"time"
 )
@@ -600,12 +603,12 @@ func TestGroupDefaultPath(t *testing.T) {
 
 	tree := NewGroupTree(instances)
 
-	// Check that DefaultPath is set to most recent session's path
-	if tree.Groups["projects"].DefaultPath != "/new/path" {
-		t.Errorf("Expected default path '/new/path', got '%s'", tree.Groups["projects"].DefaultPath)
+	// Check that effective default path resolves from most recent session.
+	if got := tree.DefaultPathForGroup("projects"); got != "/new/path" {
+		t.Errorf("Expected default path '/new/path', got '%s'", got)
 	}
-	if tree.Groups["other"].DefaultPath != "/other/path" {
-		t.Errorf("Expected default path '/other/path', got '%s'", tree.Groups["other"].DefaultPath)
+	if got := tree.DefaultPathForGroup("other"); got != "/other/path" {
+		t.Errorf("Expected default path '/other/path', got '%s'", got)
 	}
 }
 
@@ -622,11 +625,9 @@ func TestGroupDefaultPathOnMove(t *testing.T) {
 	// Move session to target group
 	tree.MoveSessionToGroup(instances[0], "target")
 
-	// Source group should have empty default path (no sessions left)
-	// Actually, it keeps the default path since the function only updates if there's a session
-	// Target group should have the moved session's path
-	if tree.Groups["target"].DefaultPath != "/source/path" {
-		t.Errorf("Expected target default path '/source/path', got '%s'", tree.Groups["target"].DefaultPath)
+	// Target group should resolve to the moved session's path.
+	if got := tree.DefaultPathForGroup("target"); got != "/source/path" {
+		t.Errorf("Expected target default path '/source/path', got '%s'", got)
 	}
 }
 
@@ -645,9 +646,87 @@ func TestGroupDefaultPathPersistence(t *testing.T) {
 
 	tree := NewGroupTreeWithGroups(instances, storedGroups)
 
-	// Should use the most recent session's path, not the stored one
-	if tree.Groups["projects"].DefaultPath != "/newer/path" {
-		t.Errorf("Expected default path '/newer/path', got '%s'", tree.Groups["projects"].DefaultPath)
+	// Explicit stored default path should be preserved.
+	if got := tree.DefaultPathForGroup("projects"); got != "/stored/path" {
+		t.Errorf("Expected default path '/stored/path', got '%s'", got)
+	}
+}
+
+func TestSetDefaultPathForGroup(t *testing.T) {
+	tree := NewGroupTree([]*Instance{})
+	tree.CreateGroup("Projects")
+
+	if ok := tree.SetDefaultPathForGroup("projects", "/tmp/project-root"); !ok {
+		t.Fatal("SetDefaultPathForGroup should return true for existing group")
+	}
+
+	if got := tree.DefaultPathForGroup("projects"); got != "/tmp/project-root" {
+		t.Fatalf("Expected explicit default path '/tmp/project-root', got %q", got)
+	}
+
+	if ok := tree.SetDefaultPathForGroup("projects", ""); !ok {
+		t.Fatal("SetDefaultPathForGroup should allow clearing")
+	}
+
+	if got := tree.DefaultPathForGroup("projects"); got != "" {
+		t.Fatalf("Expected empty default path after clear, got %q", got)
+	}
+}
+
+func TestDefaultPathForGroupResolvesWorktreeToRepoRoot(t *testing.T) {
+	// Skip if git is unavailable in test environment.
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available")
+	}
+
+	tmpDir := t.TempDir()
+	repoDir := filepath.Join(tmpDir, "repo")
+	wtDir := filepath.Join(tmpDir, "repo-worktree")
+
+	run := func(args ...string) {
+		t.Helper()
+		cmd := exec.Command("git", args...)
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("git %v failed: %v\n%s", args, err, out)
+		}
+	}
+
+	run("init", repoDir)
+	run("-C", repoDir, "config", "user.email", "test@example.com")
+	run("-C", repoDir, "config", "user.name", "Test User")
+
+	if err := os.WriteFile(filepath.Join(repoDir, "README.md"), []byte("hello\n"), 0o644); err != nil {
+		t.Fatalf("failed to write repo file: %v", err)
+	}
+	run("-C", repoDir, "add", "README.md")
+	run("-C", repoDir, "commit", "-m", "init")
+	run("-C", repoDir, "worktree", "add", wtDir, "-b", "feature/test")
+
+	instances := []*Instance{
+		{
+			ID:             "1",
+			Title:          "worktree-session",
+			GroupPath:      "projects",
+			ProjectPath:    wtDir,
+			LastAccessedAt: time.Now(),
+		},
+	}
+
+	tree := NewGroupTree(instances)
+	got := tree.DefaultPathForGroup("projects")
+
+	realRepoDir, err := filepath.EvalSymlinks(repoDir)
+	if err != nil {
+		realRepoDir = repoDir
+	}
+	realGot, err := filepath.EvalSymlinks(got)
+	if err != nil {
+		realGot = got
+	}
+
+	if realGot != realRepoDir {
+		t.Fatalf("Expected default path to resolve to repo root %q, got %q", realRepoDir, realGot)
 	}
 }
 
@@ -1113,8 +1192,8 @@ func TestAddSessionUpdatesDefaultPath(t *testing.T) {
 		ProjectPath:    "/home/user/project-a",
 		LastAccessedAt: now,
 	})
-	if group.DefaultPath != "/home/user/project-a" {
-		t.Errorf("Expected DefaultPath '/home/user/project-a', got %q", group.DefaultPath)
+	if got := tree.DefaultPathForGroup("dev"); got != "/home/user/project-a" {
+		t.Errorf("Expected default path '/home/user/project-a', got %q", got)
 	}
 
 	// After adding a more recently accessed session, DefaultPath should update
@@ -1125,8 +1204,13 @@ func TestAddSessionUpdatesDefaultPath(t *testing.T) {
 		ProjectPath:    "/home/user/project-b",
 		LastAccessedAt: now.Add(time.Minute),
 	})
-	if group.DefaultPath != "/home/user/project-b" {
-		t.Errorf("Expected DefaultPath '/home/user/project-b', got %q", group.DefaultPath)
+	if got := tree.DefaultPathForGroup("dev"); got != "/home/user/project-b" {
+		t.Errorf("Expected default path '/home/user/project-b', got %q", got)
+	}
+
+	// The stored field remains empty until explicitly configured.
+	if group.DefaultPath != "" {
+		t.Errorf("Expected stored DefaultPath to remain empty for derived defaults, got %q", group.DefaultPath)
 	}
 }
 
@@ -1275,8 +1359,11 @@ func TestSyncWithInstancesUpdatesDefaultPath(t *testing.T) {
 	if group == nil {
 		t.Fatal("work group not found after SyncWithInstances")
 	}
-	if group.DefaultPath != "/new/path" {
-		t.Errorf("Expected DefaultPath '/new/path' after sync, got %q", group.DefaultPath)
+	if got := tree.DefaultPathForGroup("work"); got != "/new/path" {
+		t.Errorf("Expected default path '/new/path' after sync, got %q", got)
+	}
+	if group.DefaultPath != "" {
+		t.Errorf("Expected stored DefaultPath to remain empty for derived defaults, got %q", group.DefaultPath)
 	}
 }
 

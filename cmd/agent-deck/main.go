@@ -607,6 +607,31 @@ func generateUniqueTitle(instances []*session.Instance, baseTitle, path string) 
 	return fmt.Sprintf("%s (%d)", baseTitle, time.Now().Unix())
 }
 
+// resolveGroupPathForAdd resolves a user-provided group selector to a stored group path.
+// It accepts exact paths, normalized paths, and case-insensitive group display names.
+func resolveGroupPathForAdd(groupTree *session.GroupTree, groupSelector string) string {
+	if groupTree == nil || groupSelector == "" {
+		return groupSelector
+	}
+
+	if _, exists := groupTree.Groups[groupSelector]; exists {
+		return groupSelector
+	}
+
+	normalized := strings.ToLower(strings.ReplaceAll(groupSelector, " ", "-"))
+	if _, exists := groupTree.Groups[normalized]; exists {
+		return normalized
+	}
+
+	for path, group := range groupTree.Groups {
+		if strings.EqualFold(group.Name, groupSelector) {
+			return path
+		}
+	}
+
+	return groupSelector
+}
+
 // handleAdd adds a new session from CLI
 func handleAdd(profile string, args []string) {
 	fs := flag.NewFlagSet("add", flag.ExitOnError)
@@ -679,23 +704,98 @@ func handleAdd(profile string, args []string) {
 		os.Exit(1)
 	}
 
-	// Get path argument (defaults to current directory)
-	// Fix: sanitize input to remove surrounding quotes that cause issues
-	// Users sometimes pass paths like '"/path/with spaces"' which stores literal quotes
-	path := strings.Trim(fs.Arg(0), "'\"")
-	if path == "" || path == "." {
-		var err error
-		path, err = os.Getwd()
-		if err != nil {
-			fmt.Printf("Error: failed to get current directory: %v\n", err)
+	// Path argument is optional; if omitted with -g/--group, we'll try group default_path.
+	// Fix: sanitize input to remove surrounding quotes that cause issues.
+	rawPathArg := strings.Trim(fs.Arg(0), "'\"")
+	explicitPathProvided := rawPathArg != ""
+	path := ""
+
+	// Resolve worktree flags
+	wtBranch := *worktreeBranch
+	if *worktreeBranchLong != "" {
+		wtBranch = *worktreeBranchLong
+	}
+	createNewBranch := *newBranch || *newBranchLong
+
+	// Merge short and long flags
+	sessionTitle := mergeFlags(*title, *titleShort)
+	sessionGroup := mergeFlags(*group, *groupShort)
+	sessionCommand := mergeFlags(*command, *commandShort)
+	sessionParent := mergeFlags(*parent, *parentShort)
+
+	// Validate --resume-session requires Claude
+	if *resumeSession != "" {
+		tool := detectTool(sessionCommand)
+		if tool != "claude" {
+			fmt.Println("Error: --resume-session only works with Claude sessions (-c claude)")
 			os.Exit(1)
 		}
-	} else {
-		var err error
-		path, err = filepath.Abs(path)
-		if err != nil {
-			fmt.Printf("Error: failed to resolve path: %v\n", err)
+	}
+
+	// Load existing sessions with profile
+	storage, err := session.NewStorageWithProfile(profile)
+	if err != nil {
+		fmt.Printf("Error: failed to initialize storage: %v\n", err)
+		os.Exit(1)
+	}
+
+	instances, groups, err := storage.LoadWithGroups()
+	if err != nil {
+		fmt.Printf("Error: failed to load sessions: %v\n", err)
+		os.Exit(1)
+	}
+
+	groupTree := session.NewGroupTreeWithGroups(instances, groups)
+
+	// Resolve parent session if specified
+	var parentInstance *session.Instance
+	if sessionParent != "" {
+		var errMsg string
+		parentInstance, errMsg, _ = ResolveSession(sessionParent, instances)
+		if parentInstance == nil {
+			fmt.Printf("Error: %s\n", errMsg)
 			os.Exit(1)
+			return // unreachable, satisfies staticcheck SA5011
+		}
+		// Sub-sessions cannot have sub-sessions (single level only)
+		if parentInstance.IsSubSession() {
+			fmt.Printf("Error: cannot create sub-session of a sub-session (single level only)\n")
+			os.Exit(1)
+		}
+		// Inherit group from parent
+		sessionGroup = parentInstance.GroupPath
+	}
+
+	// Resolve group selector to a canonical path when possible.
+	if sessionGroup != "" {
+		sessionGroup = resolveGroupPathForAdd(groupTree, sessionGroup)
+	}
+
+	if explicitPathProvided {
+		if rawPathArg == "." {
+			path, err = os.Getwd()
+			if err != nil {
+				fmt.Printf("Error: failed to get current directory: %v\n", err)
+				os.Exit(1)
+			}
+		} else {
+			path, err = filepath.Abs(rawPathArg)
+			if err != nil {
+				fmt.Printf("Error: failed to resolve path: %v\n", err)
+				os.Exit(1)
+			}
+		}
+	} else {
+		// No explicit path provided: use group default path first, then cwd fallback.
+		if sessionGroup != "" {
+			path = groupTree.DefaultPathForGroup(sessionGroup)
+		}
+		if path == "" {
+			path, err = os.Getwd()
+			if err != nil {
+				fmt.Printf("Error: failed to get current directory: %v\n", err)
+				os.Exit(1)
+			}
 		}
 	}
 
@@ -709,13 +809,6 @@ func handleAdd(profile string, args []string) {
 		fmt.Printf("Error: path is not a directory: %s\n", path)
 		os.Exit(1)
 	}
-
-	// Resolve worktree flags
-	wtBranch := *worktreeBranch
-	if *worktreeBranchLong != "" {
-		wtBranch = *worktreeBranchLong
-	}
-	createNewBranch := *newBranch || *newBranchLong
 
 	// Handle worktree creation
 	var worktreePath, worktreeRepoRoot string
@@ -791,56 +884,9 @@ func handleAdd(profile string, args []string) {
 		path = worktreePath
 	}
 
-	// Merge short and long flags
-	sessionTitle := mergeFlags(*title, *titleShort)
-	sessionGroup := mergeFlags(*group, *groupShort)
-	sessionCommand := mergeFlags(*command, *commandShort)
-	sessionParent := mergeFlags(*parent, *parentShort)
-
-	// Validate --resume-session requires Claude
-	if *resumeSession != "" {
-		tool := detectTool(sessionCommand)
-		if tool != "claude" {
-			fmt.Println("Error: --resume-session only works with Claude sessions (-c claude)")
-			os.Exit(1)
-		}
-	}
-
 	// Default title to folder name
 	if sessionTitle == "" {
 		sessionTitle = filepath.Base(path)
-	}
-
-	// Load existing sessions with profile
-	storage, err := session.NewStorageWithProfile(profile)
-	if err != nil {
-		fmt.Printf("Error: failed to initialize storage: %v\n", err)
-		os.Exit(1)
-	}
-
-	instances, groups, err := storage.LoadWithGroups()
-	if err != nil {
-		fmt.Printf("Error: failed to load sessions: %v\n", err)
-		os.Exit(1)
-	}
-
-	// Resolve parent session if specified
-	var parentInstance *session.Instance
-	if sessionParent != "" {
-		var errMsg string
-		parentInstance, errMsg, _ = ResolveSession(sessionParent, instances)
-		if parentInstance == nil {
-			fmt.Printf("Error: %s\n", errMsg)
-			os.Exit(1)
-			return // unreachable, satisfies staticcheck SA5011
-		}
-		// Sub-sessions cannot have sub-sessions (single level only)
-		if parentInstance.IsSubSession() {
-			fmt.Printf("Error: cannot create sub-session of a sub-session (single level only)\n")
-			os.Exit(1)
-		}
-		// Inherit group from parent
-		sessionGroup = parentInstance.GroupPath
 	}
 
 	// Track if user provided explicit title or we auto-generated from folder name
@@ -918,7 +964,7 @@ func handleAdd(profile string, args []string) {
 	instances = append(instances, newInstance)
 
 	// Rebuild group tree and save
-	groupTree := session.NewGroupTreeWithGroups(instances, groups)
+	groupTree = session.NewGroupTreeWithGroups(instances, groups)
 	// Ensure the session's group exists
 	if newInstance.GroupPath != "" {
 		groupTree.CreateGroup(newInstance.GroupPath)
