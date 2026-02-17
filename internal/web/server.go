@@ -1,7 +1,6 @@
 package web
 
 import (
-	"bufio"
 	"context"
 	"encoding/json"
 	"errors"
@@ -196,39 +195,6 @@ func withRecover(next http.Handler) http.Handler {
 		}()
 		next.ServeHTTP(w, r)
 	})
-}
-
-type statusRecorder struct {
-	http.ResponseWriter
-	status int
-}
-
-func (r *statusRecorder) WriteHeader(statusCode int) {
-	r.status = statusCode
-	r.ResponseWriter.WriteHeader(statusCode)
-}
-
-func (r *statusRecorder) Write(b []byte) (int, error) {
-	if r.status == 0 {
-		r.status = http.StatusOK
-	}
-	return r.ResponseWriter.Write(b)
-}
-
-// Hijack preserves websocket and other upgrade behavior when wrapped by middleware.
-func (r *statusRecorder) Hijack() (net.Conn, *bufio.ReadWriter, error) {
-	hijacker, ok := r.ResponseWriter.(http.Hijacker)
-	if !ok {
-		return nil, nil, fmt.Errorf("response writer does not support hijacking")
-	}
-	return hijacker.Hijack()
-}
-
-// Flush preserves streaming behavior when wrapped by middleware.
-func (r *statusRecorder) Flush() {
-	if flusher, ok := r.ResponseWriter.(http.Flusher); ok {
-		flusher.Flush()
-	}
 }
 
 func (s *Server) String() string {
