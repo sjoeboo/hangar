@@ -92,6 +92,15 @@ func (c *ConductorSettings) GetProfiles() []string {
 	return c.Profiles
 }
 
+// normalizeConductorProfile returns a stable profile value for conductor metadata.
+// Empty profile values are normalized to the canonical default profile.
+func normalizeConductorProfile(profile string) string {
+	if profile == "" {
+		return DefaultProfile
+	}
+	return profile
+}
+
 // ConductorDir returns the base conductor directory (~/.agent-deck/conductor)
 func ConductorDir() (string, error) {
 	dir, err := GetAgentDeckDir()
@@ -163,11 +172,23 @@ func LoadConductorMeta(name string) (*ConductorMeta, error) {
 	if err := json.Unmarshal(data, &meta); err != nil {
 		return nil, fmt.Errorf("failed to parse meta.json for conductor %q: %w", name, err)
 	}
+	if meta.Name == "" {
+		meta.Name = name
+	}
+	meta.Profile = normalizeConductorProfile(meta.Profile)
 	return &meta, nil
 }
 
 // SaveConductorMeta writes meta.json for a conductor
 func SaveConductorMeta(meta *ConductorMeta) error {
+	if meta == nil {
+		return fmt.Errorf("conductor metadata cannot be nil")
+	}
+	if meta.Name == "" {
+		return fmt.Errorf("conductor name cannot be empty")
+	}
+	meta.Profile = normalizeConductorProfile(meta.Profile)
+
 	dir, err := ConductorNameDir(meta.Name)
 	if err != nil {
 		return err
@@ -213,6 +234,10 @@ func ListConductors() ([]ConductorMeta, error) {
 		if err := json.Unmarshal(data, &meta); err != nil {
 			continue
 		}
+		if meta.Name == "" {
+			meta.Name = entry.Name()
+		}
+		meta.Profile = normalizeConductorProfile(meta.Profile)
 		conductors = append(conductors, meta)
 	}
 	return conductors, nil
@@ -237,6 +262,17 @@ func ListConductorsForProfile(profile string) ([]ConductorMeta, error) {
 // If customClaudeMD is provided, creates a symlink instead of writing the template.
 // It does NOT register the session (that's done by the CLI handler which has access to storage).
 func SetupConductor(name, profile string, heartbeatEnabled bool, description string, customClaudeMD string) error {
+	if err := ValidateConductorName(name); err != nil {
+		return err
+	}
+	profile = normalizeConductorProfile(profile)
+
+	if existing, err := LoadConductorMeta(name); err == nil {
+		if existing.Profile != profile {
+			return fmt.Errorf("conductor %q already exists for profile %q (requested profile: %q)", name, existing.Profile, profile)
+		}
+	}
+
 	dir, err := ConductorNameDir(name)
 	if err != nil {
 		return fmt.Errorf("failed to get conductor dir: %w", err)
@@ -256,7 +292,7 @@ func SetupConductor(name, profile string, heartbeatEnabled bool, description str
 	} else if info, err := os.Lstat(targetPath); err != nil || info.Mode()&os.ModeSymlink == 0 {
 		// No custom path - write default template (but preserve existing symlink)
 		content := strings.ReplaceAll(conductorPerNameClaudeMDTemplate, "{NAME}", name)
-		if profile == "" {
+		if profile == DefaultProfile {
 			// For default profile, show "default" in display text and omit -p flag in commands
 			content = strings.ReplaceAll(content, "{PROFILE}", "default")
 			content = strings.ReplaceAll(content, "agent-deck -p default ", "agent-deck ")
@@ -292,8 +328,10 @@ func InstallHeartbeatScript(name, profile string) error {
 	if err != nil {
 		return err
 	}
+	profile = normalizeConductorProfile(profile)
+
 	script := strings.ReplaceAll(conductorHeartbeatScript, "{NAME}", name)
-	if profile == "" {
+	if profile == DefaultProfile {
 		// For default profile, omit -p flag entirely
 		script = strings.ReplaceAll(script, "{PROFILE}", "default")
 		script = strings.ReplaceAll(script, `-p "$PROFILE" `, "")
@@ -391,7 +429,7 @@ SESSION="conductor-{NAME}"
 PROFILE="{PROFILE}"
 
 # Only send if the session is running
-STATUS=$(agent-deck -p "$PROFILE" session show "$SESSION" --json 2>/dev/null | grep -o '"status":"[^"]*"' | cut -d'"' -f4)
+STATUS=$(agent-deck -p "$PROFILE" session show "$SESSION" --json 2>/dev/null | tr -d '\n' | sed -n 's/.*"status"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
 
 if [ "$STATUS" = "idle" ] || [ "$STATUS" = "waiting" ]; then
     agent-deck -p "$PROFILE" session send "$SESSION" "Heartbeat: Check all sessions in the $PROFILE profile. List any waiting sessions, auto-respond where safe, and report what needs my attention."
@@ -488,6 +526,9 @@ func InstallSharedClaudeMD(customPath string) error {
 	if err != nil {
 		return err
 	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return fmt.Errorf("failed to create directory: %w", err)
+	}
 	targetPath := filepath.Join(dir, "CLAUDE.md")
 
 	if customPath != "" {
@@ -496,9 +537,6 @@ func InstallSharedClaudeMD(customPath string) error {
 	}
 
 	// No custom path - write default template (but preserve existing symlink)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return fmt.Errorf("failed to create directory: %w", err)
-	}
 	if info, err := os.Lstat(targetPath); err == nil && info.Mode()&os.ModeSymlink != 0 {
 		return nil
 	}
@@ -1108,7 +1146,8 @@ func installHeartbeatDaemonSystemd(name string, intervalMinutes int) error {
 	}
 
 	if !systemdUserAvailable() {
-		return fmt.Errorf("systemd user session not available; run heartbeat manually via cron or: bash %s/heartbeat.sh", dir)
+		condDir, _ := ConductorNameDir(name)
+		return fmt.Errorf("systemd user session not available; run heartbeat manually via cron or: bash %s/heartbeat.sh", condDir)
 	}
 	timerName := SystemdHeartbeatTimerName(name)
 	if err := exec.Command("systemctl", "--user", "enable", "--now", timerName).Run(); err != nil {

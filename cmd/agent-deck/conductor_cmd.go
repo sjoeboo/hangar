@@ -53,6 +53,18 @@ func runAutoMigration(jsonOutput bool) {
 	}
 }
 
+// parseConductorSetupArgs parses setup flags and returns the conductor name and any extra positional args.
+func parseConductorSetupArgs(fs *flag.FlagSet, args []string) (string, []string, error) {
+	if err := fs.Parse(normalizeArgs(fs, args)); err != nil {
+		return "", nil, err
+	}
+	remaining := fs.Args()
+	if len(remaining) == 0 {
+		return "", nil, nil
+	}
+	return remaining[0], remaining[1:], nil
+}
+
 // handleConductorSetup sets up a named conductor with directories, sessions, and optionally the Telegram bridge
 func handleConductorSetup(profile string, args []string) {
 	fs := flag.NewFlagSet("conductor setup", flag.ExitOnError)
@@ -76,20 +88,8 @@ func handleConductorSetup(profile string, args []string) {
 		fs.PrintDefaults()
 	}
 
-	// Extract positional arg before flags
-	var name string
-	var flagArgs []string
-	for _, arg := range args {
-		if strings.HasPrefix(arg, "-") {
-			flagArgs = append(flagArgs, arg)
-		} else if name == "" {
-			name = arg
-		} else {
-			flagArgs = append(flagArgs, arg)
-		}
-	}
-
-	if err := fs.Parse(normalizeArgs(fs, flagArgs)); err != nil {
+	name, extras, err := parseConductorSetupArgs(fs, args)
+	if err != nil {
 		os.Exit(1)
 	}
 
@@ -98,11 +98,16 @@ func handleConductorSetup(profile string, args []string) {
 		fmt.Fprintln(os.Stderr, "Usage: agent-deck [-p profile] conductor setup <name>")
 		os.Exit(1)
 	}
+	if len(extras) > 0 {
+		fmt.Fprintf(os.Stderr, "Error: unexpected arguments: %s\n", strings.Join(extras, " "))
+		os.Exit(1)
+	}
 
 	if err := session.ValidateConductorName(name); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
+	resolvedProfile := session.GetEffectiveProfile(profile)
 
 	// Auto-migrate legacy conductors
 	runAutoMigration(*jsonOutput)
@@ -242,10 +247,10 @@ func handleConductorSetup(profile string, args []string) {
 
 	// Step 4: Set up the named conductor
 	if !*jsonOutput {
-		fmt.Printf("\nSetting up conductor: %s (profile: %s)\n", name, profile)
+		fmt.Printf("\nSetting up conductor: %s (profile: %s)\n", name, resolvedProfile)
 	}
 
-	if err := session.SetupConductor(name, profile, heartbeatEnabled, *description, *claudeMD); err != nil {
+	if err := session.SetupConductor(name, resolvedProfile, heartbeatEnabled, *description, *claudeMD); err != nil {
 		fmt.Fprintf(os.Stderr, "Error setting up conductor %s: %v\n", name, err)
 		os.Exit(1)
 	}
@@ -255,15 +260,15 @@ func handleConductorSetup(profile string, args []string) {
 
 	// Step 5: Register session in the profile's storage
 	sessionTitle := session.ConductorSessionTitle(name)
-	storage, err := session.NewStorageWithProfile(profile)
+	storage, err := session.NewStorageWithProfile(resolvedProfile)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error loading storage for %s: %v\n", profile, err)
+		fmt.Fprintf(os.Stderr, "Error loading storage for %s: %v\n", resolvedProfile, err)
 		os.Exit(1)
 	}
 
 	instances, groups, err := storage.LoadWithGroups()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error loading sessions for %s: %v\n", profile, err)
+		fmt.Fprintf(os.Stderr, "Error loading sessions for %s: %v\n", resolvedProfile, err)
 		os.Exit(1)
 	}
 
@@ -302,16 +307,16 @@ func handleConductorSetup(profile string, args []string) {
 	conductorGroup.Order = -1
 
 	if err := storage.SaveWithGroups(instances, groupTree); err != nil {
-		fmt.Fprintf(os.Stderr, "Error saving session for %s: %v\n", profile, err)
+		fmt.Fprintf(os.Stderr, "Error saving session for %s: %v\n", resolvedProfile, err)
 		os.Exit(1)
 	}
 
 	// Step 6: Install heartbeat timer (if heartbeat enabled)
 	if heartbeatEnabled {
 		interval := settings.GetHeartbeatInterval()
-		if err := session.InstallHeartbeatScript(name, profile); err != nil {
+		if err := session.InstallHeartbeatScript(name, resolvedProfile); err != nil {
 			fmt.Fprintf(os.Stderr, "Warning: failed to install heartbeat script: %v\n", err)
-		} else if err := session.InstallHeartbeatDaemon(name, profile, interval); err != nil {
+		} else if err := session.InstallHeartbeatDaemon(name, resolvedProfile, interval); err != nil {
 			fmt.Fprintf(os.Stderr, "Warning: failed to install heartbeat daemon: %v\n", err)
 		} else if !*jsonOutput {
 			fmt.Printf("  [ok] Heartbeat timer installed (every %d min)\n", interval)
@@ -355,7 +360,7 @@ func handleConductorSetup(profile string, args []string) {
 		data := map[string]any{
 			"success":   true,
 			"name":      name,
-			"profile":   profile,
+			"profile":   resolvedProfile,
 			"session":   sessionID,
 			"existed":   existed,
 			"heartbeat": heartbeatEnabled,
@@ -374,14 +379,14 @@ func handleConductorSetup(profile string, args []string) {
 	fmt.Println("Conductor setup complete!")
 	fmt.Println()
 	fmt.Printf("  Name:      %s\n", name)
-	fmt.Printf("  Profile:   %s\n", profile)
+	fmt.Printf("  Profile:   %s\n", resolvedProfile)
 	fmt.Printf("  Heartbeat: %v\n", heartbeatEnabled)
 	if *description != "" {
 		fmt.Printf("  Desc:      %s\n", *description)
 	}
 	fmt.Println()
 	fmt.Println("Next steps:")
-	fmt.Printf("  agent-deck -p %s session start %s\n", profile, sessionTitle)
+	fmt.Printf("  agent-deck -p %s session start %s\n", resolvedProfile, sessionTitle)
 	condDir, _ := session.ConductorDir()
 	if telegramConfigured || slackConfigured {
 		fmt.Println()
@@ -681,7 +686,7 @@ func handleConductorStatus(_ string, args []string) {
 						cs.SessionID = inst.ID
 						cs.SessionDone = true
 						_ = inst.UpdateStatus()
-						cs.Running = inst.Status == session.StatusRunning || inst.Status == session.StatusWaiting
+						cs.Running = inst.Status == session.StatusRunning || inst.Status == session.StatusWaiting || inst.Status == session.StatusIdle
 						break
 					}
 				}
@@ -826,7 +831,7 @@ func handleConductorList(profile string, args []string) {
 					if inst.Title == sessionTitle {
 						found = true
 						_ = inst.UpdateStatus()
-						if inst.Status == session.StatusRunning || inst.Status == session.StatusWaiting {
+						if inst.Status == session.StatusRunning || inst.Status == session.StatusWaiting || inst.Status == session.StatusIdle {
 							statusText = "running"
 						} else {
 							statusText = "stopped"

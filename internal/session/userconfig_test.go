@@ -35,6 +35,43 @@ command = "test"
 	}
 }
 
+func TestUserConfig_ProfileClaudeConfigDir(t *testing.T) {
+	tmpDir := t.TempDir()
+	configContent := `
+[claude]
+config_dir = "~/.claude-global"
+
+[profiles.work.claude]
+config_dir = "~/.claude-work"
+
+[profiles.personal.claude]
+config_dir = "~/.claude-personal"
+`
+	configPath := filepath.Join(tmpDir, "config.toml")
+	if err := os.WriteFile(configPath, []byte(configContent), 0600); err != nil {
+		t.Fatalf("Failed to write config file: %v", err)
+	}
+
+	var config UserConfig
+	if _, err := toml.DecodeFile(configPath, &config); err != nil {
+		t.Fatalf("Failed to decode: %v", err)
+	}
+
+	if got := config.GetProfileClaudeConfigDir("work"); got == "" {
+		t.Fatal("GetProfileClaudeConfigDir(work) returned empty string")
+	}
+
+	if got, want := config.Profiles["work"].Claude.ConfigDir, "~/.claude-work"; got != want {
+		t.Errorf("Profiles[work].Claude.ConfigDir = %q, want %q", got, want)
+	}
+	if got, want := config.Profiles["personal"].Claude.ConfigDir, "~/.claude-personal"; got != want {
+		t.Errorf("Profiles[personal].Claude.ConfigDir = %q, want %q", got, want)
+	}
+	if got, want := config.Claude.ConfigDir, "~/.claude-global"; got != want {
+		t.Errorf("Claude.ConfigDir = %q, want %q", got, want)
+	}
+}
+
 func TestUserConfig_ClaudeConfigDirEmpty(t *testing.T) {
 	// Test with no Claude section
 	tmpDir := t.TempDir()

@@ -1,6 +1,9 @@
 package update
 
 import (
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -147,4 +150,41 @@ func TestFormatChangelogForDisplay(t *testing.T) {
 		assert.Contains(t, result, "v0.1.0")
 		assert.NotContains(t, result, "()")
 	})
+}
+
+func TestUpdateBridgePy_NoConductorDir(t *testing.T) {
+	tmpHome := t.TempDir()
+	t.Setenv("HOME", tmpHome)
+
+	err := UpdateBridgePy()
+	require.NoError(t, err)
+
+	condDir := filepath.Join(tmpHome, ".agent-deck", "conductor")
+	_, statErr := os.Stat(condDir)
+	assert.True(t, os.IsNotExist(statErr), "conductor dir should not be created when not installed")
+}
+
+func TestUpdateBridgePy_UsesEmbeddedTemplateAndBacksUpExistingFile(t *testing.T) {
+	tmpHome := t.TempDir()
+	t.Setenv("HOME", tmpHome)
+
+	condDir := filepath.Join(tmpHome, ".agent-deck", "conductor")
+	require.NoError(t, os.MkdirAll(condDir, 0o755))
+
+	bridgePath := filepath.Join(condDir, "bridge.py")
+	legacyContent := "# legacy bridge\nprint('old bridge')\n"
+	require.NoError(t, os.WriteFile(bridgePath, []byte(legacyContent), 0o755))
+
+	err := UpdateBridgePy()
+	require.NoError(t, err)
+
+	backupPath := bridgePath + ".backup"
+	backupContent, err := os.ReadFile(backupPath)
+	require.NoError(t, err)
+	assert.Equal(t, legacyContent, string(backupContent))
+
+	newContent, err := os.ReadFile(bridgePath)
+	require.NoError(t, err)
+	assert.True(t, strings.Contains(string(newContent), "Conductor Bridge: Telegram & Slack"),
+		"bridge.py should be refreshed from the embedded multi-platform template")
 }

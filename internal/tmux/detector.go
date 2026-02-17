@@ -69,8 +69,7 @@ func (d *PromptDetector) HasPrompt(content string) bool {
 			return false
 		}
 		return strings.Contains(content, "codex>") ||
-			strings.Contains(content, "Continue?") ||
-			d.hasLineEndingWith(content, ">")
+			strings.Contains(content, "Continue?")
 
 	default:
 		// Generic shell - check for common prompts

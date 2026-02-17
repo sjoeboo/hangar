@@ -254,11 +254,7 @@ func handleHooksStatus() {
 }
 
 // getClaudeConfigDirForHooks returns the Claude config directory for hook operations.
-// Checks CLAUDE_CONFIG_DIR env var first, then falls back to ~/.claude
+// Respects CLAUDE_CONFIG_DIR env var and agent-deck config resolution.
 func getClaudeConfigDirForHooks() string {
-	if dir := os.Getenv("CLAUDE_CONFIG_DIR"); dir != "" {
-		return dir
-	}
-	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".claude")
+	return session.GetClaudeConfigDir()
 }

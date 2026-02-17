@@ -146,6 +146,7 @@ type Home struct {
 	confirmDialog        *ConfirmDialog        // For confirming destructive actions
 	helpOverlay          *HelpOverlay          // For showing keyboard shortcuts
 	mcpDialog            *MCPDialog            // For managing MCPs
+	skillDialog          *SkillDialog          // For managing project skills
 	setupWizard          *SetupWizard          // For first-run setup
 	settingsPanel        *SettingsPanel        // For editing settings
 	analyticsPanel       *AnalyticsPanel       // For displaying session analytics
@@ -516,6 +517,7 @@ func NewHomeWithProfileAndMode(profile string) *Home {
 		confirmDialog:        NewConfirmDialog(),
 		helpOverlay:          NewHelpOverlay(),
 		mcpDialog:            NewMCPDialog(),
+		skillDialog:          NewSkillDialog(),
 		setupWizard:          NewSetupWizard(),
 		settingsPanel:        NewSettingsPanel(),
 		analyticsPanel:       NewAnalyticsPanel(),
@@ -549,6 +551,10 @@ func NewHomeWithProfileAndMode(profile string) *Home {
 		undoStack:            make([]deletedSessionEntry, 0, 10),
 		pendingTitleChanges:  make(map[string]string),
 	}
+
+	// Keep settings panel profile-aware so profile overrides (e.g., Claude config dir)
+	// are displayed and edited in the correct scope.
+	h.settingsPanel.SetProfile(actualProfile)
 
 	// Restore persisted UI state (preview mode, status filter, cursor position)
 	h.loadUIState()
@@ -3250,6 +3256,9 @@ func (h *Home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if h.mcpDialog.IsVisible() {
 			return h.handleMCPDialogKey(msg)
 		}
+		if h.skillDialog.IsVisible() {
+			return h.handleSkillDialogKey(msg)
+		}
 		if h.geminiModelDialog.IsVisible() {
 			d, cmd := h.geminiModelDialog.Update(msg)
 			h.geminiModelDialog = d
@@ -3839,6 +3848,20 @@ func (h *Home) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				(item.Session.Tool == "claude" || item.Session.Tool == "gemini") {
 				h.mcpDialog.SetSize(h.width, h.height)
 				if err := h.mcpDialog.Show(item.Session.ProjectPath, item.Session.ID, item.Session.Tool); err != nil {
+					h.setError(err)
+				}
+			}
+		}
+		return h, nil
+
+	case "P", "shift+p":
+		// Skills Manager - currently for Claude sessions
+		if h.cursor < len(h.flatItems) {
+			item := h.flatItems[h.cursor]
+			if item.Type == session.ItemTypeSession && item.Session != nil &&
+				item.Session.Tool == "claude" {
+				h.skillDialog.SetSize(h.width, h.height)
+				if err := h.skillDialog.Show(item.Session.ProjectPath, item.Session.ID, item.Session.Tool); err != nil {
 					h.setError(err)
 				}
 			}
@@ -4486,6 +4509,38 @@ func (h *Home) handleMCPDialogKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	default:
 		h.mcpDialog.Update(msg)
+		return h, nil
+	}
+}
+
+// handleSkillDialogKey handles keys when Skills dialog is visible
+func (h *Home) handleSkillDialogKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "enter":
+		hasChanged := h.skillDialog.HasChanged()
+		if hasChanged {
+			if err := h.skillDialog.Apply(); err != nil {
+				h.setError(err)
+				h.skillDialog.Hide()
+				return h, nil
+			}
+
+			sessionID := h.skillDialog.GetSessionID()
+			targetInst := h.getInstanceByID(sessionID)
+			if targetInst != nil && targetInst.Tool == "claude" {
+				h.skillDialog.Hide()
+				return h, h.restartSession(targetInst)
+			}
+		}
+		h.skillDialog.Hide()
+		return h, nil
+
+	case "esc":
+		h.skillDialog.Hide()
+		return h, nil
+
+	default:
+		h.skillDialog.Update(msg)
 		return h, nil
 	}
 }
@@ -5545,6 +5600,9 @@ func (h *Home) View() string {
 	if h.mcpDialog.IsVisible() {
 		return h.mcpDialog.View()
 	}
+	if h.skillDialog.IsVisible() {
+		return h.skillDialog.View()
+	}
 	if h.geminiModelDialog.IsVisible() {
 		return h.geminiModelDialog.View()
 	}
@@ -6526,6 +6584,9 @@ func (h *Home) renderHelpBarCompact() string {
 				contextHints = append(contextHints, h.helpKeyShort("M", "MCP"))
 				contextHints = append(contextHints, h.helpKeyShort("v", h.previewModeShort()))
 			}
+			if item.Session != nil && item.Session.Tool == "claude" {
+				contextHints = append(contextHints, h.helpKeyShort("P", "Skills"))
+			}
 			contextHints = append(contextHints, h.helpKeyShort("c", "Copy"))
 			contextHints = append(contextHints, h.helpKeyShort("x", "Send"))
 		}
@@ -6627,6 +6688,9 @@ func (h *Home) renderHelpBarFull() string {
 			if item.Session != nil && (item.Session.Tool == "claude" || item.Session.Tool == "gemini") {
 				primaryHints = append(primaryHints, h.helpKey("M", "MCP"))
 				primaryHints = append(primaryHints, h.helpKey("v", h.previewModeShort()))
+			}
+			if item.Session != nil && item.Session.Tool == "claude" {
+				primaryHints = append(primaryHints, h.helpKey("P", "Skills"))
 			}
 			primaryHints = append(primaryHints, h.helpKey("c", "Copy"))
 			primaryHints = append(primaryHints, h.helpKey("x", "Send"))

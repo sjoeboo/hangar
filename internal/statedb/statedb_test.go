@@ -160,6 +160,11 @@ func TestStatusReadWrite(t *testing.T) {
 		t.Fatalf("SaveInstance: %v", err)
 	}
 
+	// Simulate previously acknowledged waiting/idle state.
+	if err := db.SetAcknowledged("s1", true); err != nil {
+		t.Fatalf("SetAcknowledged: %v", err)
+	}
+
 	// Write status
 	if err := db.WriteStatus("s1", "running", "claude"); err != nil {
 		t.Fatalf("WriteStatus: %v", err)
@@ -174,7 +179,7 @@ func TestStatusReadWrite(t *testing.T) {
 		t.Errorf("Unexpected status: %+v", statuses["s1"])
 	}
 	if statuses["s1"].Acknowledged {
-		t.Error("Should not be acknowledged yet")
+		t.Error("running status should clear acknowledged flag")
 	}
 }
 

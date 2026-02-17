@@ -42,12 +42,14 @@ type SettingsPanel struct {
 	height       int
 	cursor       int // Current setting index
 	scrollOffset int // Scroll offset when content overflows terminal height
+	profile      string
 
 	// Setting values
 	selectedTheme       int // 0=dark, 1=light, 2=system
 	selectedTool        int // 0=claude, 1=gemini, 2=opencode, 3=codex, 4=none
 	dangerousMode       bool
 	claudeConfigDir     string
+	claudeConfigIsScope bool // true = profile override, false = global [claude]
 	geminiYoloMode      bool
 	codexYoloMode       bool
 	checkForUpdates     bool
@@ -137,6 +139,11 @@ func (s *SettingsPanel) SetSize(width, height int) {
 	s.height = height
 }
 
+// SetProfile sets the active profile for profile-aware settings.
+func (s *SettingsPanel) SetProfile(profile string) {
+	s.profile = profile
+}
+
 // LoadConfig populates panel values from a UserConfig
 func (s *SettingsPanel) LoadConfig(config *session.UserConfig) {
 	// Load theme
@@ -161,6 +168,13 @@ func (s *SettingsPanel) LoadConfig(config *session.UserConfig) {
 	// Claude settings
 	s.dangerousMode = config.Claude.GetDangerousMode()
 	s.claudeConfigDir = config.Claude.ConfigDir
+	s.claudeConfigIsScope = false
+	if s.profile != "" && config.Profiles != nil {
+		if profileCfg, ok := config.Profiles[s.profile]; ok && profileCfg.Claude.ConfigDir != "" {
+			s.claudeConfigDir = profileCfg.Claude.ConfigDir
+			s.claudeConfigIsScope = true
+		}
+	}
 
 	// Gemini settings
 	s.geminiYoloMode = config.Gemini.YoloMode
@@ -226,7 +240,9 @@ func (s *SettingsPanel) GetConfig() *session.UserConfig {
 	// Claude settings
 	dangerousModeVal := s.dangerousMode
 	config.Claude.DangerousMode = &dangerousModeVal
-	config.Claude.ConfigDir = s.claudeConfigDir
+	if !s.claudeConfigIsScope {
+		config.Claude.ConfigDir = s.claudeConfigDir
+	}
 
 	// Gemini settings
 	config.Gemini.YoloMode = s.geminiYoloMode
@@ -264,6 +280,21 @@ func (s *SettingsPanel) GetConfig() *session.UserConfig {
 		config.MCPs = s.originalConfig.MCPs
 		config.Tools = s.originalConfig.Tools
 		config.MCPPool = s.originalConfig.MCPPool
+		config.Profiles = s.originalConfig.Profiles
+		// Keep global Claude config when editing profile-specific override.
+		if s.claudeConfigIsScope {
+			config.Claude.ConfigDir = s.originalConfig.Claude.ConfigDir
+		}
+	}
+
+	// Apply profile-specific Claude override after original profile map is restored.
+	if s.claudeConfigIsScope && s.profile != "" {
+		if config.Profiles == nil {
+			config.Profiles = make(map[string]session.ProfileSettings)
+		}
+		profileCfg := config.Profiles[s.profile]
+		profileCfg.Claude.ConfigDir = s.claudeConfigDir
+		config.Profiles[s.profile] = profileCfg
 	}
 
 	return config
@@ -551,7 +582,11 @@ func (s *SettingsPanel) View() string {
 	content.WriteString("  " + labelStyle.Render(line) + "\n")
 
 	// Config directory
-	line = "Config directory: "
+	line = "Config directory"
+	if s.claudeConfigIsScope && s.profile != "" {
+		line += " (" + s.profile + " profile)"
+	}
+	line += ": "
 	if s.editingText && s.cursor == int(SettingClaudeConfigDir) {
 		line += "[" + s.textBuffer + "|]"
 	} else if s.claudeConfigDir == "" {

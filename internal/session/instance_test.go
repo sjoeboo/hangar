@@ -2217,3 +2217,25 @@ func TestInstance_UpdateHookStatus_Nil(t *testing.T) {
 		t.Errorf("hookStatus should be empty, got %q", inst.hookStatus)
 	}
 }
+
+func TestInstance_SetAcknowledgedFromShared_RunningIgnored(t *testing.T) {
+	inst := NewInstanceWithTool("ack-shared-running", "/tmp/test", "codex")
+	inst.Status = StatusRunning
+
+	inst.SetAcknowledgedFromShared(true)
+
+	if inst.tmuxSession.IsAcknowledged() {
+		t.Fatal("running session should ignore shared acknowledged=true")
+	}
+}
+
+func TestInstance_SetAcknowledgedFromShared_WaitingApplied(t *testing.T) {
+	inst := NewInstanceWithTool("ack-shared-waiting", "/tmp/test", "codex")
+	inst.Status = StatusWaiting
+
+	inst.SetAcknowledgedFromShared(true)
+
+	if !inst.tmuxSession.IsAcknowledged() {
+		t.Fatal("waiting session should apply shared acknowledged=true")
+	}
+}

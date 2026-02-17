@@ -220,18 +220,28 @@ func getMCPInfoUncached(projectPath string) *MCPInfo {
 	return info
 }
 
-// GetClaudeConfigDir returns the Claude config directory
-// Priority: 1) CLAUDE_CONFIG_DIR env, 2) UserConfig setting, 3) ~/.claude
+// GetClaudeConfigDir returns the Claude config directory for the active profile.
+// Priority:
+// 1. CLAUDE_CONFIG_DIR env var
+// 2. profile-specific override: [profiles.<profile>.claude].config_dir
+// 3. global setting: [claude].config_dir
+// 4. default: ~/.claude
 func GetClaudeConfigDir() string {
 	// 1. Check env var (highest priority)
 	if envDir := os.Getenv("CLAUDE_CONFIG_DIR"); envDir != "" {
 		return expandTilde(envDir)
 	}
 
-	// 2. Check user config
+	// 2. Check user config (profile-specific first, then global)
 	userConfig, _ := LoadUserConfig()
-	if userConfig != nil && userConfig.Claude.ConfigDir != "" {
-		return expandTilde(userConfig.Claude.ConfigDir)
+	if userConfig != nil {
+		profile := GetEffectiveProfile("")
+		if profileDir := userConfig.GetProfileClaudeConfigDir(profile); profileDir != "" {
+			return profileDir
+		}
+		if userConfig.Claude.ConfigDir != "" {
+			return expandTilde(userConfig.Claude.ConfigDir)
+		}
 	}
 
 	// 3. Default to ~/.claude
@@ -240,7 +250,7 @@ func GetClaudeConfigDir() string {
 }
 
 // IsClaudeConfigDirExplicit returns true if the Claude config directory is
-// explicitly configured (via CLAUDE_CONFIG_DIR env var or config.toml setting).
+// explicitly configured (via CLAUDE_CONFIG_DIR env var, profile override, or global config.toml setting).
 // When false, the user is using the default path and we should NOT override
 // CLAUDE_CONFIG_DIR in commands, allowing the shell's environment to be respected.
 //
@@ -253,10 +263,16 @@ func IsClaudeConfigDirExplicit() bool {
 		return true
 	}
 
-	// Check user config
+	// Check user config (profile-specific first, then global)
 	userConfig, _ := LoadUserConfig()
-	if userConfig != nil && userConfig.Claude.ConfigDir != "" {
-		return true
+	if userConfig != nil {
+		profile := GetEffectiveProfile("")
+		if userConfig.GetProfileClaudeConfigDir(profile) != "" {
+			return true
+		}
+		if userConfig.Claude.ConfigDir != "" {
+			return true
+		}
 	}
 
 	return false

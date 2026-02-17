@@ -209,6 +209,27 @@ func TestPromptDetector(t *testing.T) {
 			t.Errorf("gemini.HasPrompt(%q) = %v, want %v", tt.content, result, tt.expected)
 		}
 	}
+
+	// Test Codex prompt detection
+	codexDetector := NewPromptDetector("codex")
+
+	codexTests := []struct {
+		content  string
+		expected bool
+	}{
+		{"codex>", true},
+		{"Continue?", true},
+		{"How can I help today?", false}, // plain prose should not trigger by itself
+		{"some output >", false},         // generic trailing '>' should not be treated as Codex prompt
+		{"esc to interrupt", false},      // busy indicator, not prompt
+	}
+
+	for _, tt := range codexTests {
+		result := codexDetector.HasPrompt(tt.content)
+		if result != tt.expected {
+			t.Errorf("codex.HasPrompt(%q) = %v, want %v", tt.content, result, tt.expected)
+		}
+	}
 }
 
 func TestBusyIndicatorDetection(t *testing.T) {

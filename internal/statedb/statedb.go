@@ -429,8 +429,11 @@ func (s *StateDB) DeleteGroup(path string) error {
 // WriteStatus updates the status and tool for an instance.
 func (s *StateDB) WriteStatus(id, status, tool string) error {
 	_, err := s.db.Exec(
-		"UPDATE instances SET status = ?, tool = ? WHERE id = ?",
-		status, tool, id,
+		`UPDATE instances
+		 SET status = ?, tool = ?,
+		     acknowledged = CASE WHEN ? = 'running' THEN 0 ELSE acknowledged END
+		 WHERE id = ?`,
+		status, tool, status, id,
 	)
 	return err
 }

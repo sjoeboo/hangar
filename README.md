@@ -205,9 +205,9 @@ ops: check the frontend session      → routes to conductor-ops (reply in threa
 
 </details>
 
-Both Telegram and Slack can run simultaneously — the bridge daemon handles both concurrently and sends event-driven notifications to all configured platforms.
+Both Telegram and Slack can run simultaneously — the bridge daemon handles both concurrently and relays responses on-demand, plus periodic heartbeat alerts to configured platforms.
 
-**Event-Driven**: Conductors receive instant notifications when session statuses change (e.g., a session finishes processing and starts waiting for input), keeping them actively monitoring your sessions without polling delays.
+**Heartbeat-driven monitoring**: Conductors are nudged every configured interval (default 15 minutes). If a conductor response includes `NEED:`, the bridge forwards that alert to Telegram and/or Slack.
 
 ### Multi-Tool Support
 
@@ -356,6 +356,36 @@ Agent Deck adds AI-specific intelligence on top of tmux: smart status detection 
 <summary><b>Can I use it on Windows?</b></summary>
 
 Yes, via WSL (Windows Subsystem for Linux). [Install WSL](https://learn.microsoft.com/en-us/windows/wsl/install), then run the installer inside WSL. WSL2 is recommended for full feature support including MCP socket pooling.
+
+</details>
+
+<details>
+<summary><b>Can I use different Claude accounts/configs per profile?</b></summary>
+
+Yes. Set a global Claude config dir, then add optional per-profile overrides in `~/.agent-deck/config.toml`:
+
+```toml
+[claude]
+config_dir = "~/.claude"             # Global default
+
+[profiles.work.claude]
+config_dir = "~/.claude-work"        # Work account
+```
+
+Run with the target profile:
+
+```bash
+agent-deck -p work
+```
+
+You can verify which Claude config path is active with:
+
+```bash
+agent-deck hooks status
+agent-deck hooks status -p work
+```
+
+See [Configuration Reference](skills/agent-deck/references/config-reference.md#claude-section) for full details.
 
 </details>
 

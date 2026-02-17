@@ -44,6 +44,12 @@ type UserConfig struct {
 	// Claude defines Claude Code integration settings
 	Claude ClaudeSettings `toml:"claude"`
 
+	// Profiles defines optional per-profile overrides.
+	// Example:
+	// [profiles.work.claude]
+	// config_dir = "~/.claude-work"
+	Profiles map[string]ProfileSettings `toml:"profiles"`
+
 	// Gemini defines Gemini CLI integration settings
 	Gemini GeminiSettings `toml:"gemini"`
 
@@ -94,6 +100,18 @@ type UserConfig struct {
 
 	// Tmux defines tmux option overrides applied to every session
 	Tmux TmuxSettings `toml:"tmux"`
+}
+
+// ProfileSettings defines per-profile configuration overrides.
+type ProfileSettings struct {
+	// Claude defines Claude Code overrides for a specific profile.
+	Claude ProfileClaudeSettings `toml:"claude"`
+}
+
+// ProfileClaudeSettings defines profile-specific Claude overrides.
+type ProfileClaudeSettings struct {
+	// ConfigDir overrides [claude].config_dir for this profile only.
+	ConfigDir string `toml:"config_dir"`
 }
 
 // MCPPoolSettings defines HTTP MCP pool configuration
@@ -411,6 +429,18 @@ type ClaudeSettings struct {
 	// for instant, deterministic status updates instead of polling tmux content.
 	// Default: true (nil = use default true, set false to disable)
 	HooksEnabled *bool `toml:"hooks_enabled"`
+}
+
+// GetProfileClaudeConfigDir returns the profile-specific Claude config directory, if configured.
+func (c *UserConfig) GetProfileClaudeConfigDir(profile string) string {
+	if c == nil || profile == "" || c.Profiles == nil {
+		return ""
+	}
+	profileCfg, ok := c.Profiles[profile]
+	if !ok || profileCfg.Claude.ConfigDir == "" {
+		return ""
+	}
+	return expandTilde(profileCfg.Claude.ConfigDir)
 }
 
 // GetDangerousMode returns whether dangerous mode is enabled, defaulting to true
@@ -1301,6 +1331,9 @@ func CreateExampleConfig() error {
 # [claude]
 # Custom config directory (for dual account setups)
 # Default: ~/.claude (or CLAUDE_CONFIG_DIR env var takes priority)
+# config_dir = "~/.claude-work"
+# Optional per-profile override (takes precedence over [claude] when profile matches)
+# [profiles.work.claude]
 # config_dir = "~/.claude-work"
 # Enable --dangerously-skip-permissions by default (default: false)
 # dangerous_mode = true

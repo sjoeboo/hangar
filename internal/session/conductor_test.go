@@ -533,6 +533,28 @@ func TestBridgeTemplate_ConfigLoadsAllowedUserIDs(t *testing.T) {
 	}
 }
 
+func TestBridgeTemplate_HeartbeatSelectsOnePerProfile(t *testing.T) {
+	template := conductorBridgePy
+
+	patterns := []string{
+		"def select_heartbeat_conductors(conductors: list[dict]) -> list[dict]:",
+		"conductors = select_heartbeat_conductors(all_conductors)",
+		"Multiple conductors may share a profile. Heartbeat auto-actions are profile-wide,",
+	}
+
+	for _, pattern := range patterns {
+		if !strings.Contains(template, pattern) {
+			t.Errorf("template should contain heartbeat dedupe pattern: %q", pattern)
+		}
+	}
+}
+
+func TestConductorHeartbeatScript_StatusParsingHandlesWhitespace(t *testing.T) {
+	if !strings.Contains(conductorHeartbeatScript, `"status"[[:space:]]*:[[:space:]]*"`) {
+		t.Fatal("heartbeat status parser should tolerate JSON whitespace around ':'")
+	}
+}
+
 // --- Symlink-based CLAUDE.md tests ---
 
 func TestInstallSharedClaudeMD_Default(t *testing.T) {
@@ -628,6 +650,29 @@ func TestInstallSharedClaudeMD_CustomSymlink(t *testing.T) {
 	}
 }
 
+func TestInstallSharedClaudeMD_CustomSymlinkCreatesConductorDir(t *testing.T) {
+	tmpHome := t.TempDir()
+	t.Setenv("HOME", tmpHome)
+
+	customPath := filepath.Join(t.TempDir(), "my-shared-claude.md")
+	if err := os.WriteFile(customPath, []byte("# shared rules\n"), 0o644); err != nil {
+		t.Fatalf("failed to create custom file: %v", err)
+	}
+
+	if err := InstallSharedClaudeMD(customPath); err != nil {
+		t.Fatalf("InstallSharedClaudeMD returned error: %v", err)
+	}
+
+	target := filepath.Join(tmpHome, ".agent-deck", "conductor", "CLAUDE.md")
+	linkDest, err := os.Readlink(target)
+	if err != nil {
+		t.Fatalf("expected symlink at %q: %v", target, err)
+	}
+	if linkDest != customPath {
+		t.Fatalf("symlink destination = %q, want %q", linkDest, customPath)
+	}
+}
+
 func TestSetupConductor_DefaultTemplate(t *testing.T) {
 	name := "test-default"
 	profile := "default"
@@ -710,6 +755,75 @@ func TestSetupConductor_CustomSymlink(t *testing.T) {
 	content, _ := os.ReadFile(claudeMDPath)
 	if !strings.Contains(string(content), "My Custom Conductor Rules") {
 		t.Error("reading through symlink should return custom content")
+	}
+}
+
+func TestSetupConductor_EmptyProfileNormalizesToDefault(t *testing.T) {
+	tmpHome := t.TempDir()
+	t.Setenv("HOME", tmpHome)
+
+	name := "default-profile-conductor"
+	if err := SetupConductor(name, "", true, "", ""); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	meta, err := LoadConductorMeta(name)
+	if err != nil {
+		t.Fatalf("failed to load meta: %v", err)
+	}
+	if meta.Profile != DefaultProfile {
+		t.Fatalf("meta profile = %q, want %q", meta.Profile, DefaultProfile)
+	}
+
+	dir, _ := ConductorNameDir(name)
+	content, err := os.ReadFile(filepath.Join(dir, "CLAUDE.md"))
+	if err != nil {
+		t.Fatalf("failed to read CLAUDE.md: %v", err)
+	}
+	if strings.Contains(string(content), "-p default") {
+		t.Fatal("default profile template should omit explicit -p default flags")
+	}
+}
+
+func TestSetupConductor_ProfileConflict(t *testing.T) {
+	tmpHome := t.TempDir()
+	t.Setenv("HOME", tmpHome)
+
+	name := "profile-conflict"
+	if err := SetupConductor(name, "work", true, "", ""); err != nil {
+		t.Fatalf("first setup failed: %v", err)
+	}
+
+	err := SetupConductor(name, "personal", true, "", "")
+	if err == nil {
+		t.Fatal("expected conflict error when reusing conductor name across profiles")
+	}
+	if !strings.Contains(err.Error(), `already exists for profile "work"`) {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestLoadConductorMeta_EmptyProfileDefaultsToDefault(t *testing.T) {
+	tmpHome := t.TempDir()
+	t.Setenv("HOME", tmpHome)
+
+	name := "meta-empty-profile"
+	dir, _ := ConductorNameDir(name)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("failed to create conductor dir: %v", err)
+	}
+
+	raw := `{"name":"meta-empty-profile","heartbeat_enabled":true,"created_at":"2026-01-01T00:00:00Z"}`
+	if err := os.WriteFile(filepath.Join(dir, "meta.json"), []byte(raw), 0o644); err != nil {
+		t.Fatalf("failed to write meta.json: %v", err)
+	}
+
+	meta, err := LoadConductorMeta(name)
+	if err != nil {
+		t.Fatalf("LoadConductorMeta failed: %v", err)
+	}
+	if meta.Profile != DefaultProfile {
+		t.Fatalf("meta profile = %q, want %q", meta.Profile, DefaultProfile)
 	}
 }
 

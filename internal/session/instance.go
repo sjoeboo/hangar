@@ -3432,9 +3432,18 @@ func (i *Instance) GetTmuxSession() *tmux.Session {
 // (read from SQLite). This transitions a YELLOW (waiting) session to GRAY (idle)
 // without requiring the user to interact with this specific TUI instance.
 func (i *Instance) SetAcknowledgedFromShared(ack bool) {
-	if ack && i.tmuxSession != nil {
-		i.tmuxSession.Acknowledge()
+	if !ack || i.tmuxSession == nil {
+		return
 	}
+
+	// Running/starting is authoritative: don't let stale shared ack force
+	// an active session back to idle.
+	status := i.GetStatusThreadSafe()
+	if status == StatusRunning || status == StatusStarting {
+		return
+	}
+
+	i.tmuxSession.Acknowledge()
 }
 
 // SyncTmuxDisplayName updates the tmux status bar to reflect the current title.

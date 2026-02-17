@@ -41,6 +41,111 @@ func TestGetClaudeConfigDir_EnvOverride(t *testing.T) {
 	}
 }
 
+func TestGetClaudeConfigDir_ProfileOverride(t *testing.T) {
+	tmpHome := t.TempDir()
+	origHome := os.Getenv("HOME")
+	origProfile := os.Getenv("AGENTDECK_PROFILE")
+	origClaudeDir := os.Getenv("CLAUDE_CONFIG_DIR")
+	defer func() {
+		_ = os.Setenv("HOME", origHome)
+		if origProfile != "" {
+			_ = os.Setenv("AGENTDECK_PROFILE", origProfile)
+		} else {
+			_ = os.Unsetenv("AGENTDECK_PROFILE")
+		}
+		if origClaudeDir != "" {
+			_ = os.Setenv("CLAUDE_CONFIG_DIR", origClaudeDir)
+		} else {
+			_ = os.Unsetenv("CLAUDE_CONFIG_DIR")
+		}
+		ClearUserConfigCache()
+	}()
+
+	_ = os.Setenv("HOME", tmpHome)
+	_ = os.Unsetenv("CLAUDE_CONFIG_DIR")
+	_ = os.Setenv("AGENTDECK_PROFILE", "work")
+	ClearUserConfigCache()
+
+	agentDeckDir := filepath.Join(tmpHome, ".agent-deck")
+	if err := os.MkdirAll(agentDeckDir, 0700); err != nil {
+		t.Fatalf("failed to create agent-deck dir: %v", err)
+	}
+	configContent := `
+[claude]
+config_dir = "~/.claude-global"
+
+[profiles.work.claude]
+config_dir = "~/.claude-work"
+`
+	if err := os.WriteFile(filepath.Join(agentDeckDir, "config.toml"), []byte(configContent), 0600); err != nil {
+		t.Fatalf("failed to write config.toml: %v", err)
+	}
+
+	got := GetClaudeConfigDir()
+	want := filepath.Join(tmpHome, ".claude-work")
+	if got != want {
+		t.Errorf("GetClaudeConfigDir() = %s, want %s", got, want)
+	}
+
+	// Unknown profile should fall back to global [claude].config_dir
+	_ = os.Setenv("AGENTDECK_PROFILE", "unknown")
+	ClearUserConfigCache()
+	got = GetClaudeConfigDir()
+	want = filepath.Join(tmpHome, ".claude-global")
+	if got != want {
+		t.Errorf("GetClaudeConfigDir() fallback = %s, want %s", got, want)
+	}
+
+	// Explicit CLAUDE_CONFIG_DIR should always win
+	_ = os.Setenv("CLAUDE_CONFIG_DIR", "/override")
+	got = GetClaudeConfigDir()
+	if got != "/override" {
+		t.Errorf("GetClaudeConfigDir() env override = %s, want /override", got)
+	}
+}
+
+func TestIsClaudeConfigDirExplicit_ProfileOverride(t *testing.T) {
+	tmpHome := t.TempDir()
+	origHome := os.Getenv("HOME")
+	origProfile := os.Getenv("AGENTDECK_PROFILE")
+	origClaudeDir := os.Getenv("CLAUDE_CONFIG_DIR")
+	defer func() {
+		_ = os.Setenv("HOME", origHome)
+		if origProfile != "" {
+			_ = os.Setenv("AGENTDECK_PROFILE", origProfile)
+		} else {
+			_ = os.Unsetenv("AGENTDECK_PROFILE")
+		}
+		if origClaudeDir != "" {
+			_ = os.Setenv("CLAUDE_CONFIG_DIR", origClaudeDir)
+		} else {
+			_ = os.Unsetenv("CLAUDE_CONFIG_DIR")
+		}
+		ClearUserConfigCache()
+	}()
+
+	_ = os.Setenv("HOME", tmpHome)
+	_ = os.Unsetenv("CLAUDE_CONFIG_DIR")
+	_ = os.Setenv("AGENTDECK_PROFILE", "work")
+	ClearUserConfigCache()
+
+	agentDeckDir := filepath.Join(tmpHome, ".agent-deck")
+	if err := os.MkdirAll(agentDeckDir, 0700); err != nil {
+		t.Fatalf("failed to create agent-deck dir: %v", err)
+	}
+	configContent := `
+[profiles.work.claude]
+config_dir = "~/.claude-work"
+`
+	if err := os.WriteFile(filepath.Join(agentDeckDir, "config.toml"), []byte(configContent), 0600); err != nil {
+		t.Fatalf("failed to write config.toml: %v", err)
+	}
+
+	if !IsClaudeConfigDirExplicit() {
+		t.Fatal("IsClaudeConfigDirExplicit() = false, want true for profile override")
+	}
+}
+
 func TestGetClaudeSessionID_NotFound(t *testing.T) {
 	id, err := GetClaudeSessionID("/nonexistent/path")
 	if err == nil {

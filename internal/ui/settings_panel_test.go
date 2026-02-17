@@ -100,6 +100,35 @@ func TestSettingsPanel_LoadConfig(t *testing.T) {
 	}
 }
 
+func TestSettingsPanel_LoadConfig_ProfileClaudeOverride(t *testing.T) {
+	panel := NewSettingsPanel()
+	panel.SetProfile("work")
+
+	dangerousModeBool := true
+	config := &session.UserConfig{
+		Claude: session.ClaudeSettings{
+			DangerousMode: &dangerousModeBool,
+			ConfigDir:     "~/.claude-global",
+		},
+		Profiles: map[string]session.ProfileSettings{
+			"work": {
+				Claude: session.ProfileClaudeSettings{
+					ConfigDir: "~/.claude-work",
+				},
+			},
+		},
+	}
+
+	panel.LoadConfig(config)
+
+	if panel.claudeConfigDir != "~/.claude-work" {
+		t.Errorf("claudeConfigDir: got %q, want %q", panel.claudeConfigDir, "~/.claude-work")
+	}
+	if !panel.claudeConfigIsScope {
+		t.Error("claudeConfigIsScope should be true when profile override exists")
+	}
+}
+
 func TestSettingsPanel_LoadConfig_DefaultTool(t *testing.T) {
 	panel := NewSettingsPanel()
 
@@ -209,6 +238,55 @@ func TestSettingsPanel_GetConfig(t *testing.T) {
 	}
 	if config.GlobalSearch.RecentDays != 45 {
 		t.Errorf("RecentDays: got %d, want 45", config.GlobalSearch.RecentDays)
+	}
+}
+
+func TestSettingsPanel_GetConfig_PreservesProfileOverrides(t *testing.T) {
+	panel := NewSettingsPanel()
+	panel.originalConfig = &session.UserConfig{
+		Profiles: map[string]session.ProfileSettings{
+			"work": {
+				Claude: session.ProfileClaudeSettings{
+					ConfigDir: "~/.claude-work",
+				},
+			},
+		},
+	}
+
+	config := panel.GetConfig()
+	profileCfg, ok := config.Profiles["work"]
+	if !ok {
+		t.Fatal("expected profile override for work to be preserved")
+	}
+	if profileCfg.Claude.ConfigDir != "~/.claude-work" {
+		t.Errorf("profile override config dir: got %q, want %q", profileCfg.Claude.ConfigDir, "~/.claude-work")
+	}
+}
+
+func TestSettingsPanel_GetConfig_UpdatesProfileClaudeOverride(t *testing.T) {
+	panel := NewSettingsPanel()
+	panel.SetProfile("work")
+	panel.claudeConfigDir = "~/.claude-work-updated"
+	panel.claudeConfigIsScope = true
+	panel.originalConfig = &session.UserConfig{
+		Claude: session.ClaudeSettings{
+			ConfigDir: "~/.claude-global",
+		},
+		Profiles: map[string]session.ProfileSettings{
+			"work": {
+				Claude: session.ProfileClaudeSettings{
+					ConfigDir: "~/.claude-work",
+				},
+			},
+		},
+	}
+
+	config := panel.GetConfig()
+	if config.Claude.ConfigDir != "~/.claude-global" {
+		t.Errorf("global Claude.ConfigDir changed unexpectedly: got %q, want %q", config.Claude.ConfigDir, "~/.claude-global")
+	}
+	if got := config.Profiles["work"].Claude.ConfigDir; got != "~/.claude-work-updated" {
+		t.Errorf("profile override config dir: got %q, want %q", got, "~/.claude-work-updated")
 	}
 }
 

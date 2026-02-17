@@ -11,6 +11,7 @@ Complete reference for all agent-deck CLI commands.
 - [MCP Commands](#mcp-commands)
 - [Group Commands](#group-commands)
 - [Profile Commands](#profile-commands)
+- [Conductor Commands](#conductor-commands)
 
 ## Global Options
 
@@ -103,15 +104,7 @@ agent-deck session start <id|title> [-m "message"] [--json] [-q]
 ```
 
 `-m` sends initial message after agent is ready.
-
-**CRITICAL:** Flags MUST come BEFORE session name!
-```bash
-# Correct
-agent-deck session start -m "Hello" my-project
-
-# WRONG - flag ignored!
-agent-deck session start my-project -m "Hello"
-```
+Flags can be placed before or after the session identifier.
 
 ### session stop
 
@@ -288,6 +281,21 @@ agent-deck profile create <name>
 agent-deck profile delete <name>
 agent-deck profile default [name]
 ```
+
+## Conductor Commands
+
+```bash
+agent-deck conductor setup <name> [--description "..."] [--heartbeat|--no-heartbeat]
+agent-deck conductor teardown <name> [--remove]
+agent-deck conductor teardown --all [--remove]
+agent-deck conductor status [name]
+agent-deck conductor list [--profile <name>]
+```
+
+- `setup` creates `~/.agent-deck/conductor/<name>/` plus `meta.json` and registers `conductor-<name>` session in the selected profile.
+- `setup` also installs shared `~/.agent-deck/conductor/CLAUDE.md` (or symlink via `--shared-claude-md`).
+- Heartbeat timers run per conductor (default every 15 minutes) and can be disabled with `--no-heartbeat`.
+- Bridge daemon is installed only when Telegram and/or Slack is configured in `[conductor]`.
 
 ## Session Resolution
 

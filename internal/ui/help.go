@@ -118,6 +118,7 @@ func (h *HelpOverlay) View() string {
 				{"Ctrl+Z", "Undo delete"},
 				{"m", "Move to group"},
 				{"Shift+M", "MCP Manager (Claude)"},
+				{"Shift+P", "Skills Manager (Claude)"},
 				{"v", "Toggle preview mode (output/stats/both)"},
 				{"u", "Mark unread"},
 				{"K / J", "Reorder up/down"},

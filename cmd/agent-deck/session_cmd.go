@@ -1266,11 +1266,27 @@ func handleSessionUnsetParent(profile string, args []string) {
 // Waits for the agent to be ready before sending (Claude, Gemini, etc.)
 func handleSessionSend(profile string, args []string) {
 	fs := flag.NewFlagSet("session send", flag.ExitOnError)
+	fs.SetOutput(os.Stdout)
 	jsonOutput := fs.Bool("json", false, "Output as JSON")
 	quiet := fs.Bool("q", false, "Quiet mode")
 	noWait := fs.Bool("no-wait", false, "Don't wait for agent to be ready (send immediately)")
 	wait := fs.Bool("wait", false, "Block until agent finishes processing, then print output")
 	timeout := fs.Duration("timeout", 10*time.Minute, "Max time to wait for completion (used with --wait)")
+
+	fs.Usage = func() {
+		fmt.Println("Usage: agent-deck session send <id|title> <message> [options]")
+		fmt.Println()
+		fmt.Println("Send a message to a running session.")
+		fmt.Println()
+		fmt.Println("Options:")
+		fs.PrintDefaults()
+		fmt.Println()
+		fmt.Println("Examples:")
+		fmt.Println("  agent-deck session send my-project \"Summarize recent changes\"")
+		fmt.Println("  agent-deck session send my-project \"run tests\" --wait")
+		fmt.Println("  agent-deck session send my-project \"quick ping\" --no-wait")
+	}
+
 	if err := fs.Parse(normalizeArgs(fs, args)); err != nil {
 		os.Exit(1)
 	}
@@ -1279,7 +1295,8 @@ func handleSessionSend(profile string, args []string) {
 	out := NewCLIOutput(*jsonOutput, *quiet)
 
 	if len(remaining) < 2 {
-		out.Error("usage: agent-deck session send <id> <message>", ErrCodeInvalidOperation)
+		fs.Usage()
+		out.Error("session and message are required", ErrCodeInvalidOperation)
 		os.Exit(1)
 	}
 

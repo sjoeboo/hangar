@@ -26,16 +26,57 @@ Claude Code integration settings.
 
 ```toml
 [claude]
-config_dir = "~/.claude-work"      # Path to Claude config directory
+config_dir = "~/.claude"           # Path to Claude config directory
 dangerous_mode = true              # Enable --dangerously-skip-permissions
 allow_dangerous_mode = false       # Enable --allow-dangerously-skip-permissions
+
+[profiles.work.claude]
+config_dir = "~/.claude-work"      # Optional override for profile "work"
 ```
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
 | `config_dir` | string | `~/.claude` | Claude config directory. Override with `CLAUDE_CONFIG_DIR` env. |
+| `profiles.<name>.claude.config_dir` | string | none | Profile-specific Claude config directory. Takes precedence over `[claude].config_dir` when that profile is active. |
 | `dangerous_mode` | bool | `false` | Adds `--dangerously-skip-permissions`. Forces bypass on. Takes precedence over `allow_dangerous_mode`. |
 | `allow_dangerous_mode` | bool | `false` | Adds `--allow-dangerously-skip-permissions`. Unlocks bypass as an option without activating it. Ignored when `dangerous_mode` is true. |
+
+Config resolution order for Claude config dir:
+1. `CLAUDE_CONFIG_DIR` env var
+2. `[profiles.<active-profile>.claude].config_dir`
+3. `[claude].config_dir`
+4. `~/.claude`
+
+### Multiple Claude accounts (per profile)
+
+Use a global default, then override only profiles that need a different Claude account/config:
+
+```toml
+[claude]
+config_dir = "~/.claude"             # Global default (personal)
+
+[profiles.work.claude]
+config_dir = "~/.claude-work"        # Work account
+
+[profiles.clientx.claude]
+config_dir = "~/.claude-clientx"     # Client account
+```
+
+Launch each profile normally:
+
+```bash
+agent-deck               # Uses default profile -> global [claude].config_dir
+agent-deck -p work       # Uses [profiles.work.claude].config_dir
+agent-deck -p clientx    # Uses [profiles.clientx.claude].config_dir
+```
+
+Verify the effective Claude config path:
+
+```bash
+agent-deck hooks status
+agent-deck hooks status -p work
+agent-deck hooks status -p clientx
+```
 
 ## [codex] Section
 
@@ -267,8 +308,11 @@ busy_patterns = ["thinking...", "processing..."]
 default_tool = "claude"
 
 [claude]
-config_dir = "~/.claude-work"
+config_dir = "~/.claude"
 dangerous_mode = true
+
+[profiles.work.claude]
+config_dir = "~/.claude-work"
 
 [codex]
 yolo_mode = false

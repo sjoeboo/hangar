@@ -184,6 +184,11 @@ func initColorProfile() {
 func main() {
 	// Extract global -p/--profile flag before subcommand dispatch
 	profile, args := extractProfileFlag(os.Args[1:])
+	if profile != "" {
+		// Propagate explicit profile selection so config lookups (e.g., per-profile Claude config)
+		// resolve consistently across all command paths in this process.
+		_ = os.Setenv("AGENTDECK_PROFILE", profile)
+	}
 
 	var webEnabled bool
 	var webArgs []string
@@ -223,6 +228,9 @@ func main() {
 			return
 		case "mcp":
 			handleMCP(profile, args[1:])
+			return
+		case "skill":
+			handleSkill(profile, args[1:])
 			return
 		case "mcp-proxy":
 			if len(args) < 2 {
@@ -1571,28 +1579,45 @@ func handleProfile(args []string) {
 		return
 	}
 
+	if filteredArgs[0] == "help" || filteredArgs[0] == "--help" || filteredArgs[0] == "-h" {
+		printProfileHelp()
+		return
+	}
+
 	switch filteredArgs[0] {
 	case "list", "ls":
 		handleProfileList(out, jsonMode)
 	case "create", "new":
+		if len(filteredArgs) >= 2 && isHelpArg(filteredArgs[1]) {
+			printProfileCreateHelp()
+			return
+		}
 		if len(filteredArgs) < 2 {
 			out.Error("profile name is required", ErrCodeInvalidOperation)
 			if !jsonMode {
-				fmt.Println("Usage: agent-deck profile create <name>")
+				printProfileCreateHelp()
 			}
 			os.Exit(1)
 		}
 		handleProfileCreate(out, filteredArgs[1])
 	case "delete", "rm":
+		if len(filteredArgs) >= 2 && isHelpArg(filteredArgs[1]) {
+			printProfileDeleteHelp()
+			return
+		}
 		if len(filteredArgs) < 2 {
 			out.Error("profile name is required", ErrCodeInvalidOperation)
 			if !jsonMode {
-				fmt.Println("Usage: agent-deck profile delete <name>")
+				printProfileDeleteHelp()
 			}
 			os.Exit(1)
 		}
 		handleProfileDelete(out, jsonMode, filteredArgs[1])
 	case "default":
+		if len(filteredArgs) >= 2 && isHelpArg(filteredArgs[1]) {
+			printProfileDefaultHelp()
+			return
+		}
 		if len(filteredArgs) < 2 {
 			// Show current default
 			config, err := session.LoadConfig()
@@ -1611,16 +1636,38 @@ func handleProfile(args []string) {
 		out.Error(fmt.Sprintf("unknown profile command: %s", filteredArgs[0]), ErrCodeInvalidOperation)
 		if !jsonMode {
 			fmt.Println()
-			fmt.Println("Usage: agent-deck profile <command>")
-			fmt.Println()
-			fmt.Println("Commands:")
-			fmt.Println("  list              List all profiles")
-			fmt.Println("  create <name>     Create a new profile")
-			fmt.Println("  delete <name>     Delete a profile")
-			fmt.Println("  default [name]    Show or set default profile")
+			printProfileHelp()
 		}
 		os.Exit(1)
 	}
+}
+
+func printProfileHelp() {
+	fmt.Println("Usage: agent-deck profile <command>")
+	fmt.Println()
+	fmt.Println("Manage named Agent Deck profiles.")
+	fmt.Println()
+	fmt.Println("Commands:")
+	fmt.Println("  list              List all profiles")
+	fmt.Println("  create <name>     Create a new profile")
+	fmt.Println("  delete <name>     Delete a profile")
+	fmt.Println("  default [name]    Show or set default profile")
+}
+
+func printProfileCreateHelp() {
+	fmt.Println("Usage: agent-deck profile create <name>")
+}
+
+func printProfileDeleteHelp() {
+	fmt.Println("Usage: agent-deck profile delete <name>")
+}
+
+func printProfileDefaultHelp() {
+	fmt.Println("Usage: agent-deck profile default [name]")
+}
+
+func isHelpArg(arg string) bool {
+	return arg == "help" || arg == "--help" || arg == "-h"
 }
 
 func handleProfileList(out *CLIOutput, jsonMode bool) {
@@ -1790,7 +1837,7 @@ func handleUpdate(args []string) {
 	// Update bridge.py if conductor is installed
 	if err := update.UpdateBridgePy(); err != nil {
 		fmt.Printf("Warning: Failed to update bridge.py: %v\n", err)
-		fmt.Println("  You can manually update by running: ./conductor/setup.sh")
+		fmt.Println("  You can manually refresh it with: agent-deck conductor setup <name>")
 	}
 
 	fmt.Printf("\n✓ Updated to v%s\n", info.LatestVersion)
@@ -1861,6 +1908,7 @@ func printHelp() {
 	fmt.Println("  status           Show session status summary")
 	fmt.Println("  session          Manage session lifecycle")
 	fmt.Println("  mcp              Manage MCP servers")
+	fmt.Println("  skill            Manage Claude skills")
 	fmt.Println("  codex-hooks      Manage Codex notify hook integration")
 	fmt.Println("  group            Manage groups")
 	fmt.Println("  worktree, wt     Manage git worktrees")
@@ -1885,7 +1933,18 @@ func printHelp() {
 	fmt.Println("  mcp attached [id]         Show MCPs attached to a session")
 	fmt.Println("  mcp attach <id> <mcp>     Attach MCP to session")
 	fmt.Println("  mcp detach <id> <mcp>     Detach MCP from session")
-	fmt.Println("  codex-hooks install       Install Codex notify hook")
+	fmt.Println()
+	fmt.Println("Skill Commands:")
+	fmt.Println("  skill list                List discoverable skills")
+	fmt.Println("  skill attached [id]       Show skills attached to a session")
+	fmt.Println("  skill attach <id> <name>  Attach skill to session project")
+	fmt.Println("  skill detach <id> <name>  Detach skill from session project")
+	fmt.Println("  skill source list         List global skill sources")
+	fmt.Println()
+	fmt.Println("Codex Hook Commands:")
+	fmt.Println("  codex-hooks install       Install or upgrade Codex notify hook")
+	fmt.Println("  codex-hooks uninstall     Remove Codex notify hook")
+	fmt.Println("  codex-hooks status        Show Codex hook install status")
 	fmt.Println()
 	fmt.Println("Group Commands:")
 	fmt.Println("  group list                List all groups")
@@ -1897,6 +1956,7 @@ func printHelp() {
 	fmt.Println("  conductor setup           Set up conductor (Telegram bridge + sessions)")
 	fmt.Println("  conductor teardown        Stop conductor and remove bridge daemon")
 	fmt.Println("  conductor status          Show conductor health across profiles")
+	fmt.Println("  conductor list            List configured conductors")
 	fmt.Println()
 	fmt.Println("Worktree Commands:")
 	fmt.Println("  worktree list             List worktrees with session associations")
@@ -1918,6 +1978,7 @@ func printHelp() {
 	fmt.Println("  agent-deck session show               # Show current session (in tmux)")
 	fmt.Println("  agent-deck mcp list --json            # List MCPs as JSON")
 	fmt.Println("  agent-deck mcp attach my-app exa      # Attach MCP to session")
+	fmt.Println("  agent-deck skill attach my-app react  # Attach skill to project")
 	fmt.Println("  agent-deck group move my-app work     # Move session to group")
 	fmt.Println("  agent-deck web                        # TUI + web server on 127.0.0.1:8420")
 	fmt.Println("  agent-deck web --listen :9000         # TUI + web on custom port")

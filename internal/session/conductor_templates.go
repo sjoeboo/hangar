@@ -356,7 +356,13 @@ def discover_conductors() -> list[dict]:
             if meta_path.exists():
                 try:
                     with open(meta_path) as f:
-                        conductors.append(json.load(f))
+                        meta = json.load(f)
+                    if not isinstance(meta, dict):
+                        continue
+                    # Backward compatibility: normalize missing fields.
+                    meta["name"] = meta.get("name") or entry.name
+                    meta["profile"] = meta.get("profile") or "default"
+                    conductors.append(meta)
                 except (json.JSONDecodeError, IOError) as e:
                     log.warning("Failed to read %s: %s", meta_path, e)
     return conductors
@@ -376,8 +382,38 @@ def get_unique_profiles() -> list[str]:
     """Get unique profile names from all conductors."""
     profiles = set()
     for c in discover_conductors():
-        profiles.add(c.get("profile", "default"))
+        profiles.add(c.get("profile") or "default")
     return sorted(profiles)
+
+
+def select_heartbeat_conductors(conductors: list[dict]) -> list[dict]:
+    """Select at most one heartbeat conductor per profile.
+
+    Multiple conductors may share a profile. Heartbeat auto-actions are profile-wide,
+    so running all of them would duplicate interventions. We choose one deterministic
+    conductor (oldest by created_at, then name) per profile.
+    """
+    selected: dict[str, dict] = {}
+    for c in conductors:
+        if not c.get("heartbeat_enabled", True):
+            continue
+        profile = c.get("profile") or "default"
+        current = selected.get(profile)
+        if current is None:
+            selected[profile] = c
+            continue
+
+        cur_key = (
+            str(current.get("created_at", "")),
+            str(current.get("name", "")),
+        )
+        cand_key = (
+            str(c.get("created_at", "")),
+            str(c.get("name", "")),
+        )
+        if cand_key < cur_key:
+            selected[profile] = c
+    return list(selected.values())
 
 
 # ---------------------------------------------------------------------------
@@ -499,6 +535,7 @@ def get_sessions_list_all(profiles: list[str]) -> list[tuple[str, dict]]:
 
 def ensure_conductor_running(name: str, profile: str) -> bool:
     """Ensure the conductor session exists and is running."""
+    profile = profile or "default"
     session_title = conductor_session_title(name)
     status = get_session_status(session_title, profile=profile)
 
@@ -1203,15 +1240,13 @@ async def heartbeat_loop(config: dict, telegram_bot=None, slack_app=None, slack_
     while True:
         await asyncio.sleep(interval_seconds)
 
-        conductors = discover_conductors()
+        all_conductors = discover_conductors()
+        conductors = select_heartbeat_conductors(all_conductors)
         for conductor in conductors:
             try:
-                name = conductor["name"]
-                profile = conductor["profile"]
-
-                # Skip conductors with heartbeat disabled
-                if not conductor.get("heartbeat_enabled", True):
-                    log.debug("Heartbeat skipped for %s (disabled)", name)
+                name = conductor.get("name", "")
+                profile = conductor.get("profile") or "default"
+                if not name:
                     continue
 
                 session_title = conductor_session_title(name)
@@ -1299,7 +1334,6 @@ async def heartbeat_loop(config: dict, telegram_bot=None, slack_app=None, slack_
 
                 # If conductor flagged items needing attention, notify via Telegram and Slack
                 if "NEED:" in response:
-                    all_conductors = discover_conductors()
                     prefix = (
                         f"[{name}] " if len(all_conductors) > 1 else ""
                     )

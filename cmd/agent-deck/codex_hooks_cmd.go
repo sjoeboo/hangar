@@ -190,11 +190,13 @@ func handleCodexNotify() {
 
 func handleCodexHooks(args []string) {
 	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "Usage: agent-deck codex-hooks <install|uninstall|status>")
+		printCodexHooksUsage(os.Stderr)
 		os.Exit(1)
 	}
 
 	switch args[0] {
+	case "help", "--help", "-h":
+		printCodexHooksUsage(os.Stdout)
 	case "install":
 		handleCodexHooksInstall()
 	case "uninstall":
@@ -203,9 +205,20 @@ func handleCodexHooks(args []string) {
 		handleCodexHooksStatus()
 	default:
 		fmt.Fprintf(os.Stderr, "Unknown codex-hooks subcommand: %s\n", args[0])
-		fmt.Fprintln(os.Stderr, "Usage: agent-deck codex-hooks <install|uninstall|status>")
+		printCodexHooksUsage(os.Stderr)
 		os.Exit(1)
 	}
+}
+
+func printCodexHooksUsage(w io.Writer) {
+	fmt.Fprintln(w, "Usage: agent-deck codex-hooks <command>")
+	fmt.Fprintln(w)
+	fmt.Fprintln(w, "Manage Codex notify hook integration.")
+	fmt.Fprintln(w)
+	fmt.Fprintln(w, "Commands:")
+	fmt.Fprintln(w, "  install      Install or upgrade agent-deck Codex notify hook")
+	fmt.Fprintln(w, "  uninstall    Remove agent-deck Codex notify hook")
+	fmt.Fprintln(w, "  status       Show current hook install status")
 }
 
 func handleCodexHooksInstall() {
