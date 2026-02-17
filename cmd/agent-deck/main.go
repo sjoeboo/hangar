@@ -27,6 +27,7 @@ import (
 	"github.com/asheshgoplani/agent-deck/internal/statedb"
 	"github.com/asheshgoplani/agent-deck/internal/ui"
 	"github.com/asheshgoplani/agent-deck/internal/update"
+	"github.com/asheshgoplani/agent-deck/internal/web"
 )
 
 const Version = "0.18.2"
@@ -184,6 +185,9 @@ func main() {
 	// Extract global -p/--profile flag before subcommand dispatch
 	profile, args := extractProfileFlag(os.Args[1:])
 
+	var webEnabled bool
+	var webArgs []string
+
 	// Handle subcommands
 	if len(args) > 0 {
 		switch args[0] {
@@ -242,6 +246,10 @@ func main() {
 		case "worktree", "wt":
 			handleWorktree(profile, args[1:])
 			return
+		case "web":
+			webEnabled = true
+			webArgs = append(webArgs, args[1:]...)
+			// fall through to TUI launch below
 		case "uninstall":
 			handleUninstall(args[1:])
 			return
@@ -408,6 +416,33 @@ func main() {
 
 	// Start TUI with the specified profile
 	homeModel := ui.NewHomeWithProfileAndMode(profile)
+
+	// Start web server alongside TUI if "web" subcommand was used
+	if webEnabled {
+		effectiveProfile := session.GetEffectiveProfile(profile)
+		fallbackMenuData := web.NewSessionDataService(effectiveProfile)
+		liveMenuData := web.NewMemoryMenuData(fallbackMenuData)
+		homeModel.SetWebMenuData(liveMenuData)
+
+		server, err := buildWebServer(effectiveProfile, webArgs, liveMenuData)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: web server setup failed: %v\n", err)
+			os.Exit(1)
+		}
+		go func() {
+			if err := server.Start(); err != nil {
+				logging.ForComponent(logging.CompWeb).Error("web_server_error",
+					slog.String("error", err.Error()))
+			}
+		}()
+		fmt.Printf("Web server: http://%s\n", server.Addr())
+		defer func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			_ = server.Shutdown(ctx)
+		}()
+	}
+
 	p := tea.NewProgram(
 		homeModel,
 		tea.WithAltScreen(),
@@ -1829,6 +1864,7 @@ func printHelp() {
 	fmt.Println("  codex-hooks      Manage Codex notify hook integration")
 	fmt.Println("  group            Manage groups")
 	fmt.Println("  worktree, wt     Manage git worktrees")
+	fmt.Println("  web              Start TUI with web UI server running alongside")
 	fmt.Println("  conductor        Manage conductor meta-agent orchestration")
 	fmt.Println("  profile          Manage profiles")
 	fmt.Println("  update           Check for and install updates")
@@ -1883,6 +1919,11 @@ func printHelp() {
 	fmt.Println("  agent-deck mcp list --json            # List MCPs as JSON")
 	fmt.Println("  agent-deck mcp attach my-app exa      # Attach MCP to session")
 	fmt.Println("  agent-deck group move my-app work     # Move session to group")
+	fmt.Println("  agent-deck web                        # TUI + web server on 127.0.0.1:8420")
+	fmt.Println("  agent-deck web --listen :9000         # TUI + web on custom port")
+	fmt.Println("  agent-deck web --read-only            # TUI + web in read-only mode")
+	fmt.Println("  agent-deck web --token secret         # TUI + web with auth token")
+	fmt.Println("  agent-deck web --help                 # Show web command flags")
 	fmt.Println()
 	fmt.Println("Environment Variables:")
 	fmt.Println("  AGENTDECK_PROFILE    Default profile to use")
