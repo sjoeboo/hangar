@@ -42,8 +42,8 @@ func DefaultRawPatterns(toolName string) *RawPatterns {
 		return &RawPatterns{
 			BusyPatterns: []string{
 				`re:(?m)^[✳✽✶✻✢·]\s*.+…`, // PRIMARY: spinner + ellipsis (Claude 2.1.25+) — anchored to line start to prevent mid-line · in welcome banner from false-positiving
-				"ctrl+c to interrupt", // SECONDARY: explicit busy text (current Claude)
-				"esc to interrupt",    // FALLBACK: older Claude Code versions
+				"ctrl+c to interrupt",    // SECONDARY: explicit busy text (current Claude)
+				"esc to interrupt",       // FALLBACK: older Claude Code versions
 			},
 			SpinnerChars:   defaultSpinnerChars(),
 			WhimsicalWords: defaultWhimsicalWords(),

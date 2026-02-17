@@ -5,6 +5,21 @@ All notable changes to Agent Deck will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.0] - 2026-02-17
+
+### Added
+
+- Add `agent-deck web` mode to run the TUI and web UI server together, with browser terminal streaming and session menu APIs (#174, contributed by @PatrickStraeter)
+- Add web push notification and PWA support for web mode (`--push`, `--push-vapid-subject`, `--push-test-every`) (#174)
+- Add macOS MacPorts support to `install.sh` with `--pkg-manager` selection alongside Homebrew (#187, contributed by @bronweg)
+
+### Fixed
+
+- Fix `allow_dangerous_mode` propagation for Claude sessions created from the UI flow (#185, contributed by @daniel-shimon)
+- Fix TUI scroll artifacts caused by width-measurement inconsistency and control-character leakage in preview rendering (#182, contributed by @jsvana)
+- Fix Claude busy-pattern false positives from welcome-banner separators by anchoring spinner regexes to line start (#179, contributed by @mtparet)
+- Harden web mode by restricting WebSocket upgrades to same-host origins and preserving auth token in push deep links (#174)
+
 ## [0.18.1] - 2026-02-17
 
 ### Added
