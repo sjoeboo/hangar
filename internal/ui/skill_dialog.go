@@ -182,13 +182,6 @@ func (d *SkillDialog) currentListAndIndex() (*[]SkillDialogItem, *int) {
 	return &d.available, &d.availableIdx
 }
 
-func (d *SkillDialog) currentOffset() *int {
-	if d.column == SkillColumnAttached {
-		return &d.attachedOff
-	}
-	return &d.availableOff
-}
-
 func (d *SkillDialog) maxRowsPerColumn() int {
 	if d.height <= 0 {
 		return 16
