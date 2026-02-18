@@ -25,6 +25,7 @@ Complete reference for agent-deck Terminal UI features.
 | `K` / `J` | Move item up/down in order |
 | `m` | Move session to different group |
 | `M` | Open MCP Manager (Claude/Gemini) |
+| `P` | Open Skills Manager (Claude) |
 | `d` | Delete session or group |
 | `u` | Mark unread (idle -> waiting) |
 | `f` | Quick fork (Claude only) |
@@ -92,6 +93,7 @@ Complete reference for agent-deck Terminal UI features.
 - `Tab` - Switch scope
 - `←/→` - Switch columns
 - `↑/↓` - Navigate
+- `Type letters/digits` - Jump to MCP name prefix
 - `Space` - Toggle MCP
 - `Enter` - Apply changes
 - `Esc` - Cancel
@@ -102,6 +104,26 @@ Complete reference for agent-deck Terminal UI features.
 - `(p)` PROJECT scope
 - `🔌` MCP is pooled
 - `⟳` Pending restart
+
+### Skills Manager (`P`)
+
+**Layout:**
+- Two columns: Attached | Available
+- Available is pool-only (`source=pool`)
+- Column headers include counts (for example: `Attached (3)`, `Available (28)`)
+
+**Controls:**
+- `←/→` - Switch columns
+- `↑/↓` - Navigate (scrolls long lists)
+- `Type letters/digits` - Jump to skill name prefix
+- `Space` - Move skill between columns
+- `Enter` - Apply changes
+- `Esc` - Cancel
+
+**Persistence:**
+- Writes attachment state to `<project>/.agent-deck/skills.toml`
+- Materializes selected entries in `<project>/.claude/skills`
+- If no pool entries exist, dialog shows guidance for `~/.agent-deck/skills/pool`
 
 ### Fork Dialog (`F`)
 

@@ -83,8 +83,17 @@ Try different approaches without losing context. Fork any Claude conversation in
 
 Attach MCP servers without touching config files. Need web search? Browser automation? Toggle them on per project or globally. Agent Deck handles the restart automatically.
 
-- Press `M` to open, `Space` to toggle, `Tab` to cycle scope (LOCAL/GLOBAL)
+- Press `M` to open, `Space` to toggle, `Tab` to cycle scope (LOCAL/GLOBAL), type to jump
 - Define your MCPs once in `~/.agent-deck/config.toml`, then toggle per session — see [Configuration Reference](skills/agent-deck/references/config-reference.md)
+
+### Skills Manager
+
+Attach/detach Claude skills per project with a managed pool workflow.
+
+- Press `P` to open Skills Manager for a Claude session
+- Available list is pool-only (`~/.agent-deck/skills/pool`) to keep attach/detach deterministic
+- Apply writes project state to `.agent-deck/skills.toml` and materializes into `.claude/skills`
+- Type-to-jump is supported in the dialog (same pattern as MCP Manager)
 
 ### MCP Socket Pool
 
@@ -280,6 +289,7 @@ agent-deck                        # Launch TUI
 agent-deck add . -c claude        # Add current dir with Claude
 agent-deck session fork my-proj   # Fork a Claude session
 agent-deck mcp attach my-proj exa # Attach MCP to session
+agent-deck skill attach my-proj docs --source pool --restart # Attach skill + restart
 agent-deck web                    # Start web UI on http://127.0.0.1:8420
 ```
 
@@ -318,6 +328,7 @@ agent-deck web --token my-secret
 | `n` | New session |
 | `f` / `F` | Fork (quick / dialog) |
 | `M` | MCP Manager |
+| `P` | Skills Manager (Claude) |
 | `/` / `G` | Search / Global search |
 | `r` | Restart session |
 | `d` | Delete |
@@ -330,7 +341,7 @@ See [TUI Reference](skills/agent-deck/references/tui-reference.md) for all short
 | Guide | What's Inside |
 |-------|---------------|
 | [CLI Reference](skills/agent-deck/references/cli-reference.md) | Commands, flags, scripting examples |
-| [Configuration](skills/agent-deck/references/config-reference.md) | config.toml, MCP setup, custom tools, socket pool |
+| [Configuration](skills/agent-deck/references/config-reference.md) | config.toml, MCP setup, custom tools, socket pool, skills registry paths |
 | [TUI Reference](skills/agent-deck/references/tui-reference.md) | Keyboard shortcuts, status indicators, navigation |
 | [Troubleshooting](skills/agent-deck/references/troubleshooting.md) | Common issues, debugging, recovery, uninstalling |
 

@@ -10,6 +10,7 @@ All options for `~/.agent-deck/config.toml`.
 - [[logs] Section](#logs-section)
 - [[updates] Section](#updates-section)
 - [[global_search] Section](#global_search-section)
+- [Skills Registry (Outside config.toml)](#skills-registry-outside-configtoml)
 - [[mcp_pool] Section](#mcp_pool-section)
 - [[mcps.*] Section](#mcps-section)
 - [[tools.*] Section](#tools-section)
@@ -149,6 +150,27 @@ index_rate_limit = 20       # Files/second for indexing
 | `memory_limit_mb` | int | `100` | Max memory for balanced tier. |
 | `recent_days` | int | `90` | Only search recent conversations. |
 | `index_rate_limit` | int | `20` | Indexing speed (reduce for less CPU). |
+
+## Skills Registry (Outside config.toml)
+
+Skill source discovery and project attachment state are not stored in `~/.agent-deck/config.toml`.
+
+**Global source registry:**
+- `~/.agent-deck/skills/sources.toml`
+- Includes default sources:
+  - `pool` -> `~/.agent-deck/skills/pool`
+  - `claude-global` -> `~/.claude/skills` (or active Claude config dir)
+
+**Project attachment state:**
+- `<project>/.agent-deck/skills.toml` (managed manifest)
+- `<project>/.claude/skills` (materialized links/copies used by Claude)
+
+**Manage via CLI:**
+```bash
+agent-deck skill source list
+agent-deck skill source add team ~/src/team-skills
+agent-deck skill source remove team
+```
 
 ## [mcp_pool] Section
 

@@ -9,6 +9,7 @@ Complete reference for all agent-deck CLI commands.
 - [Web Command](#web-command)
 - [Session Commands](#session-commands)
 - [MCP Commands](#mcp-commands)
+- [Skill Commands](#skill-commands)
 - [Group Commands](#group-commands)
 - [Profile Commands](#profile-commands)
 - [Conductor Commands](#conductor-commands)
@@ -241,6 +242,67 @@ agent-deck mcp attach <session> <mcp> [--global] [--restart]
 
 ```bash
 agent-deck mcp detach <session> <mcp> [--global] [--restart]
+```
+
+## Skill Commands
+
+Skills are discovered from configured sources and attached per project (Claude only).
+
+### skill list
+
+```bash
+agent-deck skill list [--source <name>] [--json] [-q]
+agent-deck skill ls
+```
+
+`--source` filters by source name (for example `pool`, `claude-global`, `team`).
+
+### skill attached
+
+```bash
+agent-deck skill attached [id|title] [--json] [-q]
+```
+
+Shows:
+- Manifest-managed attachments from `<project>/.agent-deck/skills.toml`
+- Unmanaged entries currently present in `<project>/.claude/skills`
+
+### skill attach
+
+```bash
+agent-deck skill attach <session> <skill> [--source <name>] [--restart] [--json] [-q]
+```
+
+- `--source`: Force source when name is ambiguous
+- `--restart`: Restart session immediately after attach
+
+### skill detach
+
+```bash
+agent-deck skill detach <session> <skill> [--source <name>] [--restart] [--json] [-q]
+```
+
+- `--source`: Filter by source when detaching
+- `--restart`: Restart session immediately after detach
+
+### skill source list
+
+```bash
+agent-deck skill source list [--json] [-q]
+agent-deck skill source ls
+```
+
+### skill source add
+
+```bash
+agent-deck skill source add <name> <path> [--description "..."] [--json] [-q]
+```
+
+### skill source remove
+
+```bash
+agent-deck skill source remove <name> [--json] [-q]
+agent-deck skill source rm <name>
 ```
 
 ## Group Commands
