@@ -179,10 +179,11 @@ agent-deck remove "Codex Review" && agent-deck remove "Gemini Arch"
 |-----|--------|
 | `n` | New session |
 | `r/R` | Restart (reloads MCPs) |
-| `M` | MCP Manager |
+| `m` | MCP Manager |
+| `s` | Skills Manager (Claude) |
 | `f/F` | Fork Claude session |
 | `d` | Delete |
-| `m` | Move to group |
+| `M` | Move to group |
 
 ### Search & Filter
 | Key | Action |

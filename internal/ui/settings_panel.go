@@ -715,7 +715,7 @@ func (s *SettingsPanel) View() string {
 	content.WriteString("\n")
 	content.WriteString(dimStyle.Render("  Edit ~/.agent-deck/config.toml to configure MCPs and tools."))
 	content.WriteString("\n")
-	content.WriteString(dimStyle.Render("  Press M on any Claude/Gemini session to attach MCPs."))
+	content.WriteString(dimStyle.Render("  Press m on any Claude/Gemini session to attach MCPs."))
 	content.WriteString("\n\n")
 
 	// Help bar

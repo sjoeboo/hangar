@@ -91,7 +91,7 @@ Try different approaches without losing context. Fork any Claude conversation in
 
 Attach MCP servers without touching config files. Need web search? Browser automation? Toggle them on per project or globally. Agent Deck handles the restart automatically.
 
-- Press `M` to open, `Space` to toggle, `Tab` to cycle scope (LOCAL/GLOBAL)
+- Press `m` to open, `Space` to toggle, `Tab` to cycle scope (LOCAL/GLOBAL)
 - Define your MCPs once in `~/.agent-deck/config.toml`, then toggle per session — see [Configuration Reference](skills/agent-deck/references/config-reference.md)
 
 ### MCP Socket Pool
@@ -218,7 +218,10 @@ agent-deck mcp attach my-proj exa # Attach MCP to session
 | `Enter` | Attach to session |
 | `n` | New session |
 | `f` / `F` | Fork (quick / dialog) |
-| `M` | MCP Manager |
+| `m` | MCP Manager |
+| `s` | Skills Manager (Claude) |
+| `M` | Move session to group |
+| `S` | Settings |
 | `/` / `G` | Search / Global search |
 | `r` | Restart session |
 | `d` | Delete |
@@ -482,10 +485,11 @@ agent-deck remove "Codex Review" && agent-deck remove "Gemini Arch"
 |-----|--------|
 | `n` | New session |
 | `r/R` | Restart (reloads MCPs) |
-| `M` | MCP Manager |
+| `m` | MCP Manager |
+| `s` | Skills Manager (Claude) |
 | `f/F` | Fork Claude session |
 | `d` | Delete |
-| `m` | Move to group |
+| `M` | Move to group |
 
 ### Search & Filter
 | Key | Action |
@@ -1560,8 +1564,9 @@ Complete reference for agent-deck Terminal UI features.
 | `r` | Rename session or group |
 | `R` | Restart session (reloads MCPs) |
 | `K` / `J` | Move item up/down in order |
-| `m` | Move session to different group |
-| `M` | Open MCP Manager (Claude/Gemini) |
+| `M` | Move session to different group |
+| `m` | Open MCP Manager (Claude/Gemini) |
+| `s` | Open Skills Manager (Claude) |
 | `d` | Delete session or group |
 | `u` | Mark unread (idle -> waiting) |
 | `f` | Quick fork (Claude only) |
@@ -1572,7 +1577,7 @@ Complete reference for agent-deck Terminal UI features.
 | Key | Action |
 |-----|--------|
 | `g` | Create group (subgroup if on group) |
-| `e` | Rename group (alias for `r`) |
+| `r` | Rename group |
 
 ### Search & Filter
 
@@ -1619,7 +1624,7 @@ Complete reference for agent-deck Terminal UI features.
 
 **Controls:** `Tab` move fields | `Enter` create | `Esc` cancel
 
-### MCP Manager (`M`)
+### MCP Manager (`m`)
 
 **Layout:**
 - Two columns: Attached | Available

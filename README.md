@@ -83,14 +83,14 @@ Try different approaches without losing context. Fork any Claude conversation in
 
 Attach MCP servers without touching config files. Need web search? Browser automation? Toggle them on per project or globally. Agent Deck handles the restart automatically.
 
-- Press `M` to open, `Space` to toggle, `Tab` to cycle scope (LOCAL/GLOBAL), type to jump
+- Press `m` to open, `Space` to toggle, `Tab` to cycle scope (LOCAL/GLOBAL), type to jump
 - Define your MCPs once in `~/.agent-deck/config.toml`, then toggle per session — see [Configuration Reference](skills/agent-deck/references/config-reference.md)
 
 ### Skills Manager
 
 Attach/detach Claude skills per project with a managed pool workflow.
 
-- Press `P` to open Skills Manager for a Claude session
+- Press `s` to open Skills Manager for a Claude session
 - Available list is pool-only (`~/.agent-deck/skills/pool`) to keep attach/detach deterministic
 - Apply writes project state to `.agent-deck/skills.toml` and materializes into `.claude/skills`
 - Type-to-jump is supported in the dialog (same pattern as MCP Manager)
@@ -327,8 +327,10 @@ agent-deck web --token my-secret
 | `Enter` | Attach to session |
 | `n` | New session |
 | `f` / `F` | Fork (quick / dialog) |
-| `M` | MCP Manager |
-| `P` | Skills Manager (Claude) |
+| `m` | MCP Manager |
+| `s` | Skills Manager (Claude) |
+| `M` | Move session to group |
+| `S` | Settings |
 | `/` / `G` | Search / Global search |
 | `r` | Restart session |
 | `d` | Delete |

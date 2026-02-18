@@ -3794,11 +3794,15 @@ func (h *Home) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return h, nil
 
 	case "m":
-		// Move session to different group
+		// MCP Manager - for Claude and Gemini sessions
 		if h.cursor < len(h.flatItems) {
 			item := h.flatItems[h.cursor]
-			if item.Type == session.ItemTypeSession {
-				h.groupDialog.ShowMove(h.groupTree.GetGroupNames())
+			if item.Type == session.ItemTypeSession && item.Session != nil &&
+				(item.Session.Tool == "claude" || item.Session.Tool == "gemini") {
+				h.mcpDialog.SetSize(h.width, h.height)
+				if err := h.mcpDialog.Show(item.Session.ProjectPath, item.Session.ID, item.Session.Tool); err != nil {
+					h.setError(err)
+				}
 			}
 		}
 		return h, nil
@@ -3839,21 +3843,7 @@ func (h *Home) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return h, nil
 
-	case "M", "shift+m":
-		// MCP Manager - for Claude and Gemini sessions
-		if h.cursor < len(h.flatItems) {
-			item := h.flatItems[h.cursor]
-			if item.Type == session.ItemTypeSession && item.Session != nil &&
-				(item.Session.Tool == "claude" || item.Session.Tool == "gemini") {
-				h.mcpDialog.SetSize(h.width, h.height)
-				if err := h.mcpDialog.Show(item.Session.ProjectPath, item.Session.ID, item.Session.Tool); err != nil {
-					h.setError(err)
-				}
-			}
-		}
-		return h, nil
-
-	case "P", "shift+p":
+	case "s":
 		// Skills Manager - currently for Claude sessions
 		if h.cursor < len(h.flatItems) {
 			item := h.flatItems[h.cursor]
@@ -3863,6 +3853,16 @@ func (h *Home) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				if err := h.skillDialog.Show(item.Session.ProjectPath, item.Session.ID, item.Session.Tool); err != nil {
 					h.setError(err)
 				}
+			}
+		}
+		return h, nil
+
+	case "M", "shift+m":
+		// Move session to different group
+		if h.cursor < len(h.flatItems) {
+			item := h.flatItems[h.cursor]
+			if item.Type == session.ItemTypeSession {
+				h.groupDialog.ShowMove(h.groupTree.GetGroupNames())
 			}
 		}
 		return h, nil
@@ -6534,7 +6534,10 @@ func (h *Home) renderHelpBarMinimal() string {
 				contextKeys += " " + keyStyle.Render("f")
 			}
 			if item.Session != nil && (item.Session.Tool == "claude" || item.Session.Tool == "gemini") {
-				contextKeys += " " + keyStyle.Render("M")
+				contextKeys += " " + keyStyle.Render("m")
+			}
+			if item.Session != nil && item.Session.Tool == "claude" {
+				contextKeys += " " + keyStyle.Render("s")
 			}
 		}
 	}
@@ -6592,11 +6595,11 @@ func (h *Home) renderHelpBarCompact() string {
 				contextHints = append(contextHints, h.helpKeyShort("f", "Fork"))
 			}
 			if item.Session != nil && (item.Session.Tool == "claude" || item.Session.Tool == "gemini") {
-				contextHints = append(contextHints, h.helpKeyShort("M", "MCP"))
+				contextHints = append(contextHints, h.helpKeyShort("m", "MCP"))
 				contextHints = append(contextHints, h.helpKeyShort("v", h.previewModeShort()))
 			}
 			if item.Session != nil && item.Session.Tool == "claude" {
-				contextHints = append(contextHints, h.helpKeyShort("P", "Skills"))
+				contextHints = append(contextHints, h.helpKeyShort("s", "Skills"))
 			}
 			contextHints = append(contextHints, h.helpKeyShort("c", "Copy"))
 			contextHints = append(contextHints, h.helpKeyShort("x", "Send"))
@@ -6697,17 +6700,17 @@ func (h *Home) renderHelpBarFull() string {
 			}
 			// Show MCP Manager and preview mode toggle for Claude and Gemini sessions
 			if item.Session != nil && (item.Session.Tool == "claude" || item.Session.Tool == "gemini") {
-				primaryHints = append(primaryHints, h.helpKey("M", "MCP"))
+				primaryHints = append(primaryHints, h.helpKey("m", "MCP"))
 				primaryHints = append(primaryHints, h.helpKey("v", h.previewModeShort()))
 			}
 			if item.Session != nil && item.Session.Tool == "claude" {
-				primaryHints = append(primaryHints, h.helpKey("P", "Skills"))
+				primaryHints = append(primaryHints, h.helpKey("s", "Skills"))
 			}
 			primaryHints = append(primaryHints, h.helpKey("c", "Copy"))
 			primaryHints = append(primaryHints, h.helpKey("x", "Send"))
 			secondaryHints = []string{
 				h.helpKey("r", "Rename"),
-				h.helpKey("m", "Move"),
+				h.helpKey("M", "Move"),
 				h.helpKey("d", "Delete"),
 			}
 		}

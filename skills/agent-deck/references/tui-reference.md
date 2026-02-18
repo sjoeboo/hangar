@@ -23,9 +23,9 @@ Complete reference for agent-deck Terminal UI features.
 | `r` | Rename session or group |
 | `R` | Restart session (reloads MCPs) |
 | `K` / `J` | Move item up/down in order |
-| `m` | Move session to different group |
-| `M` | Open MCP Manager (Claude/Gemini) |
-| `P` | Open Skills Manager (Claude) |
+| `M` | Move session to different group |
+| `m` | Open MCP Manager (Claude/Gemini) |
+| `s` | Open Skills Manager (Claude) |
 | `d` | Delete session or group |
 | `u` | Mark unread (idle -> waiting) |
 | `f` | Quick fork (Claude only) |
@@ -36,7 +36,7 @@ Complete reference for agent-deck Terminal UI features.
 | Key | Action |
 |-----|--------|
 | `g` | Create group (subgroup if on group) |
-| `e` | Rename group (alias for `r`) |
+| `r` | Rename group |
 
 ### Search & Filter
 
@@ -83,7 +83,7 @@ Complete reference for agent-deck Terminal UI features.
 
 **Controls:** `Tab` move fields | `Enter` create | `Esc` cancel
 
-### MCP Manager (`M`)
+### MCP Manager (`m`)
 
 **Layout:**
 - Two columns: Attached | Available
@@ -105,7 +105,7 @@ Complete reference for agent-deck Terminal UI features.
 - `🔌` MCP is pooled
 - `⟳` Pending restart
 
-### Skills Manager (`P`)
+### Skills Manager (`s`)
 
 **Layout:**
 - Two columns: Attached | Available
