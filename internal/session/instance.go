@@ -42,6 +42,8 @@ const (
 	hookFastPathWindow             = 2 * time.Minute
 	codexHookRunningFastPathWindow = 20 * time.Second
 	codexHookWaitingFastPathWindow = 2 * time.Minute
+	codexBootstrapScanInterval     = 2 * time.Second
+	codexRotationScanInterval      = 30 * time.Second
 )
 
 // Instance represents a single agent/shell session
@@ -86,6 +88,7 @@ type Instance struct {
 	CodexSessionID  string    `json:"codex_session_id,omitempty"`
 	CodexDetectedAt time.Time `json:"codex_detected_at,omitempty"`
 	CodexStartedAt  int64     `json:"-"` // Unix millis when we started Codex (for session matching, not persisted)
+	lastCodexScanAt time.Time // Rate-limits expensive ~/.codex/sessions scans
 
 	// Latest user input for context (extracted from session files)
 	LatestPrompt      string    `json:"latest_prompt,omitempty"`
@@ -1070,6 +1073,22 @@ func (i *Instance) collectOtherCodexSessionIDs() map[string]bool {
 	return exclude
 }
 
+// shouldScanCodexSession returns whether we should run an expensive filesystem
+// scan for Codex session rotation right now.
+func (i *Instance) shouldScanCodexSession(allowUnscoped bool) bool {
+	interval := codexRotationScanInterval
+	if allowUnscoped {
+		interval = codexBootstrapScanInterval
+	}
+
+	if !i.lastCodexScanAt.IsZero() && time.Since(i.lastCodexScanAt) < interval {
+		return false
+	}
+
+	i.lastCodexScanAt = time.Now()
+	return true
+}
+
 // UpdateCodexSession updates the Codex session ID.
 // Primary source: tmux environment.
 // Fallback: project-aware filesystem scan.
@@ -1094,7 +1113,12 @@ func (i *Instance) UpdateCodexSession(excludeIDs map[string]bool) {
 	// 2. Detect same-project session rotation (e.g. /new) from disk.
 	// Only allow unscoped fallback when we don't have a known session ID yet.
 	allowUnscoped := envSessionID == "" && i.CodexSessionID == "" && i.CodexStartedAt > 0
+	if !i.shouldScanCodexSession(allowUnscoped) {
+		return
+	}
+
 	if sessionID := i.queryCodexSession(excludeIDs, allowUnscoped); sessionID != "" {
+		changed := sessionID != i.CodexSessionID
 		if sessionID != i.CodexSessionID {
 			sessionLog.Debug("codex_session_update", slog.String("old_id", i.CodexSessionID), slog.String("new_id", sessionID))
 		}
@@ -1102,7 +1126,8 @@ func (i *Instance) UpdateCodexSession(excludeIDs map[string]bool) {
 		i.CodexDetectedAt = time.Now()
 
 		// Sync back to tmux environment for future restarts
-		if i.tmuxSession != nil && i.tmuxSession.Exists() {
+		// Skip redundant writes when env already matches: each write is a tmux subprocess.
+		if i.tmuxSession != nil && i.tmuxSession.Exists() && (changed || envSessionID == "") {
 			_ = i.tmuxSession.SetEnvironment("CODEX_SESSION_ID", i.CodexSessionID)
 		}
 	}

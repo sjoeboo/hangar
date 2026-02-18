@@ -2184,6 +2184,77 @@ func TestInstance_HookFastPath_CodexWaitingFreshness(t *testing.T) {
 	}
 }
 
+func TestInstance_UpdateCodexSession_ScanCooldown(t *testing.T) {
+	origCodexHome := os.Getenv("CODEX_HOME")
+	codexHome := t.TempDir()
+	if err := os.Setenv("CODEX_HOME", codexHome); err != nil {
+		t.Fatalf("set CODEX_HOME: %v", err)
+	}
+	defer func() {
+		if origCodexHome != "" {
+			_ = os.Setenv("CODEX_HOME", origCodexHome)
+		} else {
+			_ = os.Unsetenv("CODEX_HOME")
+		}
+	}()
+
+	projectPath := filepath.Join(codexHome, "project")
+	if err := os.MkdirAll(projectPath, 0755); err != nil {
+		t.Fatalf("create project dir: %v", err)
+	}
+
+	inst := NewInstanceWithTool("codex-cooldown", projectPath, "codex")
+
+	sessionID1 := "11111111-1111-4111-8111-111111111111"
+	sessionID2 := "22222222-2222-4222-8222-222222222222"
+
+	file1 := writeCodexSessionFile(t, codexHome, sessionID1, projectPath)
+	file1Time := time.Now().Add(-2 * time.Minute)
+	if err := os.Chtimes(file1, file1Time, file1Time); err != nil {
+		t.Fatalf("set file1 mtime: %v", err)
+	}
+
+	inst.UpdateCodexSession(nil)
+	if inst.CodexSessionID != sessionID1 {
+		t.Fatalf("first scan picked %q, want %q", inst.CodexSessionID, sessionID1)
+	}
+
+	file2 := writeCodexSessionFile(t, codexHome, sessionID2, projectPath)
+	file2Time := time.Now().Add(-1 * time.Minute)
+	if err := os.Chtimes(file2, file2Time, file2Time); err != nil {
+		t.Fatalf("set file2 mtime: %v", err)
+	}
+
+	// Immediate follow-up should skip expensive scan and keep existing ID.
+	inst.UpdateCodexSession(nil)
+	if inst.CodexSessionID != sessionID1 {
+		t.Fatalf("cooldown should keep %q, got %q", sessionID1, inst.CodexSessionID)
+	}
+
+	// After cooldown, scan should run and pick the newer rotated session.
+	inst.lastCodexScanAt = time.Now().Add(-codexRotationScanInterval - time.Second)
+	inst.UpdateCodexSession(nil)
+	if inst.CodexSessionID != sessionID2 {
+		t.Fatalf("post-cooldown scan picked %q, want %q", inst.CodexSessionID, sessionID2)
+	}
+}
+
+func writeCodexSessionFile(t *testing.T, codexHome, sessionID, cwd string) string {
+	t.Helper()
+
+	sessionsDir := filepath.Join(codexHome, "sessions", "2026", "02", "18")
+	if err := os.MkdirAll(sessionsDir, 0755); err != nil {
+		t.Fatalf("create sessions dir: %v", err)
+	}
+
+	filePath := filepath.Join(sessionsDir, sessionID+".jsonl")
+	content := fmt.Sprintf("{\"cwd\":%q}\n", cwd)
+	if err := os.WriteFile(filePath, []byte(content), 0644); err != nil {
+		t.Fatalf("write session file: %v", err)
+	}
+	return filePath
+}
+
 // TestInstance_UpdateHookStatus tests the UpdateHookStatus method.
 func TestInstance_UpdateHookStatus(t *testing.T) {
 	inst := NewInstanceWithTool("hook-update-test", "/tmp/test", "claude")
