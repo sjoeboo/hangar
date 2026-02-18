@@ -849,3 +849,54 @@ func TestHomeViewAllLayoutModes(t *testing.T) {
 		})
 	}
 }
+
+func TestSessionRestartedMsgErrorClearsResumingAnimation(t *testing.T) {
+	home := NewHome()
+	inst := session.NewInstance("restart-test", "/tmp/project")
+
+	home.instancesMu.Lock()
+	home.instances = []*session.Instance{inst}
+	home.instanceByID[inst.ID] = inst
+	home.instancesMu.Unlock()
+
+	home.resumingSessions[inst.ID] = time.Now()
+
+	model, _ := home.Update(sessionRestartedMsg{
+		sessionID: inst.ID,
+		err:       fmt.Errorf("restart failed"),
+	})
+	h := model.(*Home)
+
+	if _, ok := h.resumingSessions[inst.ID]; ok {
+		t.Fatal("resuming animation should be cleared after restart error")
+	}
+	if h.err == nil {
+		t.Fatal("expected restart error to be set")
+	}
+	if !strings.Contains(h.err.Error(), "failed to restart session") {
+		t.Fatalf("unexpected error: %v", h.err)
+	}
+}
+
+func TestRestartSessionCmdSessionMissingReturnsError(t *testing.T) {
+	home := NewHome()
+	inst := session.NewInstance("restart-test", "/tmp/project")
+
+	// Build command with a valid instance, then simulate reload/delete before cmd runs.
+	cmd := home.restartSession(inst)
+	home.instancesMu.Lock()
+	delete(home.instanceByID, inst.ID)
+	home.instancesMu.Unlock()
+
+	msg := cmd()
+	restarted, ok := msg.(sessionRestartedMsg)
+	if !ok {
+		t.Fatalf("expected sessionRestartedMsg, got %T", msg)
+	}
+	if restarted.err == nil {
+		t.Fatal("expected error when session no longer exists")
+	}
+	if !strings.Contains(restarted.err.Error(), "session no longer exists") {
+		t.Fatalf("unexpected error: %v", restarted.err)
+	}
+}

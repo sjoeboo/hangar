@@ -2601,6 +2601,8 @@ func (h *Home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case sessionRestartedMsg:
 		if msg.err != nil {
+			// Restart failed - clear resuming animation immediately so user can retry.
+			delete(h.resumingSessions, msg.sessionID)
 			h.setError(fmt.Errorf("failed to restart session: %w", msg.err))
 		} else {
 			// Find the instance and refresh its MCP state (O(1) lookup)
@@ -5226,7 +5228,19 @@ func (h *Home) restartSession(inst *session.Instance) tea.Cmd {
 	mcpUILog.Debug("restart_session_called", slog.String("id", inst.ID), slog.String("title", inst.Title), slog.String("tool", inst.Tool))
 	return func() tea.Msg {
 		mcpUILog.Debug("restart_session_executing", slog.String("id", id))
-		err := inst.Restart()
+
+		// Resolve current instance by ID at execution time. During storage reloads,
+		// the pointer captured from the key event can be replaced before this cmd runs.
+		h.instancesMu.RLock()
+		current := h.instanceByID[id]
+		h.instancesMu.RUnlock()
+		if current == nil {
+			err := fmt.Errorf("session no longer exists")
+			mcpUILog.Debug("restart_session_result", slog.String("id", id), slog.Any("error", err))
+			return sessionRestartedMsg{sessionID: id, err: err}
+		}
+
+		err := current.Restart()
 		mcpUILog.Debug("restart_session_result", slog.String("id", id), slog.Any("error", err))
 		return sessionRestartedMsg{sessionID: id, err: err}
 	}
