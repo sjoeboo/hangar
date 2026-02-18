@@ -5,6 +5,17 @@ All notable changes to Agent Deck will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.5] - 2026-02-18
+
+### Changed
+
+- Remap TUI shortcuts to reduce conflicts: `m` opens MCP Manager, `s` opens Skills Manager (Claude), and `M` moves sessions between groups.
+
+### Fixed
+
+- Reduce Codex session watcher CPU usage by rate-limiting expensive on-disk session scans and avoiding redundant tmux environment writes.
+- Fix macOS installer crash on default Bash 3.2 by replacing associative arrays in `install.sh` with Bash 3.2 compatible helper functions (#192, contributed by @slkiser).
+
 ## [0.19.4] - 2026-02-18
 
 ### Added
