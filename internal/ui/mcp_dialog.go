@@ -2,6 +2,9 @@ package ui
 
 import (
 	"log/slog"
+	"strings"
+	"time"
+	"unicode"
 
 	"github.com/asheshgoplani/agent-deck/internal/logging"
 	"github.com/asheshgoplani/agent-deck/internal/session"
@@ -26,6 +29,8 @@ type MCPColumn int
 const (
 	MCPColumnAttached MCPColumn = iota
 	MCPColumnAvailable
+
+	mcpTypeJumpTimeout = 1200 * time.Millisecond
 )
 
 // MCPItem represents an MCP in the dialog list
@@ -73,8 +78,10 @@ type MCPDialog struct {
 	globalChanged bool
 	userChanged   bool // USER scope changed
 
-	err         error
-	configError string // Error message from config parsing
+	err           error
+	configError   string // Error message from config parsing
+	typeJumpBuf   string
+	typeJumpUntil time.Time
 }
 
 // NewMCPDialog creates a new MCP management dialog
@@ -306,6 +313,8 @@ func (m *MCPDialog) Show(projectPath string, sessionID string, tool string) erro
 	m.globalChanged = false
 	m.userChanged = false
 	m.err = nil
+	m.typeJumpBuf = ""
+	m.typeJumpUntil = time.Time{}
 
 	return nil
 }
@@ -320,6 +329,8 @@ func (m *MCPDialog) Hide() {
 	m.userAttached = nil
 	m.userAvailable = nil
 	m.err = nil
+	m.typeJumpBuf = ""
+	m.typeJumpUntil = time.Time{}
 }
 
 // IsVisible returns whether the dialog is visible
@@ -446,6 +457,53 @@ func (m *MCPDialog) Move() {
 	}
 }
 
+func (m *MCPDialog) resetTypeJump() {
+	m.typeJumpBuf = ""
+	m.typeJumpUntil = time.Time{}
+}
+
+func (m *MCPDialog) typeJump(r rune) {
+	if !unicode.IsLetter(r) && !unicode.IsDigit(r) && r != '-' && r != '_' && r != '.' {
+		return
+	}
+
+	now := time.Now()
+	if now.After(m.typeJumpUntil) {
+		m.typeJumpBuf = ""
+	}
+	m.typeJumpBuf += strings.ToLower(string(r))
+	m.typeJumpUntil = now.Add(mcpTypeJumpTimeout)
+
+	list, idx := m.getCurrentList()
+	if len(*list) == 0 {
+		return
+	}
+
+	findFrom := func(prefix string) int {
+		start := *idx + 1
+		for i := 0; i < len(*list); i++ {
+			j := (start + i) % len(*list)
+			name := strings.ToLower((*list)[j].Name)
+			if strings.HasPrefix(name, prefix) {
+				return j
+			}
+		}
+		return -1
+	}
+
+	if match := findFrom(m.typeJumpBuf); match >= 0 {
+		*idx = match
+		return
+	}
+
+	// Fallback: if multi-char prefix misses, try latest rune by itself.
+	last := strings.ToLower(string(r))
+	if match := findFrom(last); match >= 0 {
+		m.typeJumpBuf = last
+		*idx = match
+	}
+}
+
 // Apply saves the changes to LOCAL (.mcp.json), GLOBAL (Claude/Gemini config), and USER (~/.claude.json)
 func (m *MCPDialog) Apply() error {
 	mcpDialogLog.Debug("mcp_apply_start",
@@ -555,27 +613,38 @@ func (m *MCPDialog) Update(msg tea.KeyMsg) (*MCPDialog, tea.Cmd) {
 				m.scope = MCPScopeLocal
 			}
 		}
+		m.resetTypeJump()
 
 	case "left", "h":
 		// Switch to Attached column
 		m.column = MCPColumnAttached
+		m.resetTypeJump()
 
 	case "right", "l":
 		// Switch to Available column
 		m.column = MCPColumnAvailable
+		m.resetTypeJump()
 
 	case "up", "k":
+		m.resetTypeJump()
 		if len(*list) > 0 && *idx > 0 {
 			*idx--
 		}
 
 	case "down", "j":
+		m.resetTypeJump()
 		if len(*list) > 0 && *idx < len(*list)-1 {
 			*idx++
 		}
 
 	case " ":
+		m.resetTypeJump()
 		m.Move()
+
+	default:
+		if msg.Type == tea.KeyRunes && len(msg.Runes) > 0 {
+			m.typeJump(msg.Runes[0])
+		}
 	}
 
 	return m, nil
@@ -682,9 +751,12 @@ func (m *MCPDialog) View() string {
 	hintStyle := lipgloss.NewStyle().Foreground(ColorComment)
 	var hint string
 	if m.tool == "gemini" {
-		hint = hintStyle.Render("←→ column │ Space move │ Enter apply │ Esc cancel")
+		hint = hintStyle.Render("←→ column │ Type jump │ Space move │ Enter apply │ Esc cancel")
 	} else {
-		hint = hintStyle.Render("Tab scope │ ←→ column │ Space move │ Enter apply │ Esc cancel")
+		hint = hintStyle.Render("Tab scope │ ←→ column │ Type jump │ Space move │ Enter apply │ Esc cancel")
+	}
+	if m.typeJumpBuf != "" && time.Now().Before(m.typeJumpUntil) {
+		hint += lipgloss.NewStyle().Foreground(ColorTextDim).Render("  (" + m.typeJumpBuf + ")")
 	}
 
 	// Legend for orphan MCPs
