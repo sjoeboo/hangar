@@ -156,35 +156,50 @@ fi
 
 # macOS-specific package manager configuration
 if [[ "$OS" == "darwin" ]]; then
-    # Package manager configuration
-    declare -A MACOS_PKG_MGR_NAMES=(
-        ["brew"]="Homebrew"
-        ["port"]="MacPorts"
-    )
+    # Bash 3.2 compatibility: use case-based helpers instead of associative arrays.
+    macos_pkg_mgr_name() {
+        case "$1" in
+            brew) echo "Homebrew" ;;
+            port) echo "MacPorts" ;;
+            *) return 1 ;;
+        esac
+    }
 
-    declare -A MACOS_PKG_MGR_COMMANDS=(
-        ["brew"]="brew"
-        ["port"]="port"
-    )
+    macos_pkg_mgr_command() {
+        case "$1" in
+            brew) echo "brew" ;;
+            port) echo "port" ;;
+            *) return 1 ;;
+        esac
+    }
 
-    declare -A MACOS_PKG_MGR_INSTALL_CMDS=(
-        ["brew"]="brew install"
-        ["port"]="sudo port install"
-    )
+    macos_pkg_mgr_install_cmd() {
+        case "$1" in
+            brew) echo "brew install" ;;
+            port) echo "sudo port install" ;;
+            *) return 1 ;;
+        esac
+    }
 
-    declare -A MACOS_PKG_MGR_LINKS=(
-        ["brew"]="https://brew.sh"
-        ["port"]="https://www.macports.org/install.php"
-    )
+    macos_pkg_mgr_link() {
+        case "$1" in
+            brew) echo "https://brew.sh" ;;
+            port) echo "https://www.macports.org/install.php" ;;
+            *) return 1 ;;
+        esac
+    }
 fi
 
 # Detect or select macOS package manager
 detect_macos_package_manager() {
     # If user specified a package manager, verify it's available
     if [[ -n "$MACOS_PKG_MANAGER" ]]; then
-        local cmd="${MACOS_PKG_MGR_COMMANDS[$MACOS_PKG_MANAGER]}"
-        local name="${MACOS_PKG_MGR_NAMES[$MACOS_PKG_MANAGER]}"
-        local link="${MACOS_PKG_MGR_LINKS[$MACOS_PKG_MANAGER]}"
+        local cmd
+        cmd="$(macos_pkg_mgr_command "$MACOS_PKG_MANAGER")"
+        local name
+        name="$(macos_pkg_mgr_name "$MACOS_PKG_MANAGER")"
+        local link
+        link="$(macos_pkg_mgr_link "$MACOS_PKG_MANAGER")"
 
         if ! command -v "$cmd" &> /dev/null; then
             echo -e "${RED}Error: $name not found but --pkg-manager=$MACOS_PKG_MANAGER was specified${NC}"
@@ -198,7 +213,7 @@ detect_macos_package_manager() {
     # Auto-detect: check for available package managers
     local available_mgrs=()
     for mgr in "${MACOS_SUPPORTED_PKG_MGRS[@]}"; do
-        if command -v "${MACOS_PKG_MGR_COMMANDS[$mgr]}" &> /dev/null; then
+        if command -v "$(macos_pkg_mgr_command "$mgr")" &> /dev/null; then
             available_mgrs+=("$mgr")
         fi
     done
@@ -210,24 +225,24 @@ detect_macos_package_manager() {
         echo -e "${YELLOW}No package manager detected (Homebrew or MacPorts)${NC}"
         echo "You'll need to install dependencies manually or install a package manager first:"
         for mgr in "${MACOS_SUPPORTED_PKG_MGRS[@]}"; do
-            echo "  • ${MACOS_PKG_MGR_NAMES[$mgr]}: ${MACOS_PKG_MGR_LINKS[$mgr]}"
+            echo "  • $(macos_pkg_mgr_name "$mgr"): $(macos_pkg_mgr_link "$mgr")"
         done
     elif [[ ${#available_mgrs[@]} -eq 1 ]]; then
         # Only one available
         MACOS_PKG_MANAGER="${available_mgrs[0]}"
-        echo -e "Package manager: ${GREEN}${MACOS_PKG_MGR_NAMES[$MACOS_PKG_MANAGER]}${NC} (auto-detected)"
+        echo -e "Package manager: ${GREEN}$(macos_pkg_mgr_name "$MACOS_PKG_MANAGER")${NC} (auto-detected)"
     else
         # Multiple available - ask user to choose
         echo -e "${YELLOW}Multiple package managers are installed.${NC}"
         if [[ "$SKIP_OPTIONAL_DEPS" == "true" ]]; then
             # Non-interactive mode: use first in preference order
             MACOS_PKG_MANAGER="${available_mgrs[0]}"
-            echo -e "Package manager: ${GREEN}${MACOS_PKG_MGR_NAMES[$MACOS_PKG_MANAGER]}${NC} (auto-selected in non-interactive mode)"
+            echo -e "Package manager: ${GREEN}$(macos_pkg_mgr_name "$MACOS_PKG_MANAGER")${NC} (auto-selected in non-interactive mode)"
         else
             echo "Which package manager would you like to use?"
             local i=1
             for mgr in "${available_mgrs[@]}"; do
-                echo "  $i) ${MACOS_PKG_MGR_NAMES[$mgr]} ($mgr)"
+                echo "  $i) $(macos_pkg_mgr_name "$mgr") ($mgr)"
                 ((i++))
             done
             read -p "Enter choice [1-${#available_mgrs[@]}]: " -n 1 -r
@@ -236,9 +251,9 @@ detect_macos_package_manager() {
             local choice=$((REPLY - 1))
             if [[ $choice -ge 0 && $choice -lt ${#available_mgrs[@]} ]]; then
                 MACOS_PKG_MANAGER="${available_mgrs[$choice]}"
-                echo -e "Package manager: ${GREEN}${MACOS_PKG_MGR_NAMES[$MACOS_PKG_MANAGER]}${NC}"
+                echo -e "Package manager: ${GREEN}$(macos_pkg_mgr_name "$MACOS_PKG_MANAGER")${NC}"
             else
-                echo -e "${YELLOW}Invalid choice, defaulting to ${MACOS_PKG_MGR_NAMES[${available_mgrs[0]}]}${NC}"
+                echo -e "${YELLOW}Invalid choice, defaulting to $(macos_pkg_mgr_name "${available_mgrs[0]}")${NC}"
                 MACOS_PKG_MANAGER="${available_mgrs[0]}"
             fi
         fi
@@ -256,11 +271,14 @@ fi
 # Prerequisite: MACOS_PKG_MANAGER must be set (validated by detect_macos_package_manager)
 install_macos_package() {
     local PACKAGE_NAME="$1"
-    local install_cmd="${MACOS_PKG_MGR_INSTALL_CMDS[$MACOS_PKG_MANAGER]}"
-    local mgr_name="${MACOS_PKG_MGR_NAMES[$MACOS_PKG_MANAGER]}"
+    local mgr_name
+    mgr_name="$(macos_pkg_mgr_name "$MACOS_PKG_MANAGER")"
 
     echo -e "Installing $PACKAGE_NAME via $mgr_name..."
-    $install_cmd "$PACKAGE_NAME"
+    case "$MACOS_PKG_MANAGER" in
+        brew) brew install "$PACKAGE_NAME" ;;
+        port) sudo port install "$PACKAGE_NAME" ;;
+    esac
 }
 
 # Helper function to print manual install commands on macOS
@@ -268,7 +286,7 @@ print_macos_manual_install_help() {
     local package_name="$1"
     echo "Install $package_name manually with one of:"
     for mgr in "${MACOS_SUPPORTED_PKG_MGRS[@]}"; do
-        echo "  ${MACOS_PKG_MGR_INSTALL_CMDS[$mgr]} $package_name"
+        echo "  $(macos_pkg_mgr_install_cmd "$mgr") $package_name"
     done
 }
 
@@ -281,7 +299,7 @@ if ! command -v tmux &> /dev/null; then
     # Try to auto-install tmux
     if [[ "$OS" == "darwin" ]]; then
         if [[ -n "$MACOS_PKG_MANAGER" ]]; then
-            mgr_name="${MACOS_PKG_MGR_NAMES[$MACOS_PKG_MANAGER]}"
+            mgr_name="$(macos_pkg_mgr_name "$MACOS_PKG_MANAGER")"
             read -p "Install tmux via $mgr_name? [Y/n] " -n 1 -r
             echo
             if [[ ! $REPLY =~ ^[Nn]$ ]]; then
@@ -343,7 +361,7 @@ if ! command -v jq &> /dev/null && [[ "$SKIP_OPTIONAL_DEPS" != "true" ]]; then
     # Try to auto-install jq
     if [[ "$OS" == "darwin" ]]; then
         if [[ -n "$MACOS_PKG_MANAGER" ]]; then
-            mgr_name="${MACOS_PKG_MGR_NAMES[$MACOS_PKG_MANAGER]}"
+            mgr_name="$(macos_pkg_mgr_name "$MACOS_PKG_MANAGER")"
             read -p "Install jq via $mgr_name? [Y/n] " -n 1 -r
             echo
             if [[ ! $REPLY =~ ^[Nn]$ ]]; then
