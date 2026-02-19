@@ -258,10 +258,28 @@ func ListConductorsForProfile(profile string) ([]ConductorMeta, error) {
 	return filtered, nil
 }
 
+func renderConductorClaudeTemplate(baseTemplate, name, profile string) string {
+	content := strings.ReplaceAll(baseTemplate, "{NAME}", name)
+	if profile == DefaultProfile {
+		// For default profile, show "default" in display text and omit -p flag in commands
+		content = strings.ReplaceAll(content, "{PROFILE}", "default")
+		content = strings.ReplaceAll(content, "agent-deck -p default ", "agent-deck ")
+		content = strings.ReplaceAll(content, "Always pass `-p default` to all CLI commands.", "Use CLI commands without `-p` flag (default profile).")
+	} else {
+		content = strings.ReplaceAll(content, "{PROFILE}", profile)
+	}
+	return content
+}
+
+func matchesTemplateContent(actual, expected string) bool {
+	return strings.TrimSuffix(actual, "\n") == strings.TrimSuffix(expected, "\n")
+}
+
 // SetupConductor creates the conductor directory, per-conductor CLAUDE.md, and meta.json.
 // If customClaudeMD is provided, creates a symlink instead of writing the template.
+// If customPolicyMD is provided, creates a per-conductor POLICY.md symlink (overrides the shared POLICY.md).
 // It does NOT register the session (that's done by the CLI handler which has access to storage).
-func SetupConductor(name, profile string, heartbeatEnabled bool, description string, customClaudeMD string) error {
+func SetupConductor(name, profile string, heartbeatEnabled bool, description string, customClaudeMD string, customPolicyMD string) error {
 	if err := ValidateConductorName(name); err != nil {
 		return err
 	}
@@ -291,18 +309,17 @@ func SetupConductor(name, profile string, heartbeatEnabled bool, description str
 		}
 	} else if info, err := os.Lstat(targetPath); err != nil || info.Mode()&os.ModeSymlink == 0 {
 		// No custom path - write default template (but preserve existing symlink)
-		content := strings.ReplaceAll(conductorPerNameClaudeMDTemplate, "{NAME}", name)
-		if profile == DefaultProfile {
-			// For default profile, show "default" in display text and omit -p flag in commands
-			content = strings.ReplaceAll(content, "{PROFILE}", "default")
-			content = strings.ReplaceAll(content, "agent-deck -p default ", "agent-deck ")
-			content = strings.ReplaceAll(content, "Always pass `-p default` to all CLI commands.", "Use CLI commands without `-p` flag (default profile).")
-		} else {
-			content = strings.ReplaceAll(content, "{PROFILE}", profile)
-		}
-
+		content := renderConductorClaudeTemplate(conductorPerNameClaudeMDTemplate, name, profile)
 		if err := os.WriteFile(targetPath, []byte(content), 0o644); err != nil {
 			return fmt.Errorf("failed to write CLAUDE.md: %w", err)
+		}
+	}
+
+	// Write per-conductor POLICY.md symlink if custom path provided
+	if customPolicyMD != "" {
+		policyPath := filepath.Join(dir, "POLICY.md")
+		if err := createSymlinkWithExpansion(policyPath, customPolicyMD); err != nil {
+			return fmt.Errorf("failed to create POLICY.md symlink: %w", err)
 		}
 	}
 
@@ -479,7 +496,7 @@ const conductorHeartbeatPlistTemplate = `<?xml version="1.0" encoding="UTF-8"?>
 // SetupConductorProfile creates the conductor directory and CLAUDE.md for a profile.
 // Deprecated: Use SetupConductor instead. Kept for backward compatibility.
 func SetupConductorProfile(profile string) error {
-	return SetupConductor(profile, profile, true, "", "")
+	return SetupConductor(profile, profile, true, "", "", "")
 }
 
 // createSymlinkWithExpansion creates a symlink from target to source, with ~ expansion and validation.
@@ -502,7 +519,7 @@ func createSymlinkWithExpansion(target, source string) error {
 
 	// Check if source file exists
 	if _, err := os.Stat(source); os.IsNotExist(err) {
-		return fmt.Errorf("custom CLAUDE.md file does not exist: %s\nCreate the file first, then run setup again", source)
+		return fmt.Errorf("custom file does not exist: %s\nCreate the file first, then run setup again", source)
 	}
 
 	// Remove existing file/symlink at target
@@ -542,6 +559,34 @@ func InstallSharedClaudeMD(customPath string) error {
 	}
 	if err := os.WriteFile(targetPath, []byte(conductorSharedClaudeMDTemplate), 0o644); err != nil {
 		return fmt.Errorf("failed to write shared CLAUDE.md: %w", err)
+	}
+	return nil
+}
+
+// InstallPolicyMD writes the default POLICY.md to the conductor base directory,
+// or creates a symlink if customPath is provided.
+// This contains agent behavior rules (auto-response policy, escalation guidelines).
+func InstallPolicyMD(customPath string) error {
+	dir, err := ConductorDir()
+	if err != nil {
+		return err
+	}
+	targetPath := filepath.Join(dir, "POLICY.md")
+
+	if customPath != "" {
+		// Custom path provided - create symlink
+		return createSymlinkWithExpansion(targetPath, customPath)
+	}
+
+	// No custom path - write default template (but preserve existing symlink)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return fmt.Errorf("failed to create directory: %w", err)
+	}
+	if info, err := os.Lstat(targetPath); err == nil && info.Mode()&os.ModeSymlink != 0 {
+		return nil
+	}
+	if err := os.WriteFile(targetPath, []byte(conductorPolicyTemplate), 0o644); err != nil {
+		return fmt.Errorf("failed to write POLICY.md: %w", err)
 	}
 	return nil
 }
@@ -610,6 +655,69 @@ func MigrateLegacyConductors() ([]string, error) {
 		}
 		migrated = append(migrated, name)
 	}
+	return migrated, nil
+}
+
+// MigrateConductorPolicySplit updates legacy generated per-conductor CLAUDE.md
+// templates to include POLICY.md instructions.
+// It only rewrites non-symlink CLAUDE.md files that exactly match the legacy generated template.
+func MigrateConductorPolicySplit() ([]string, error) {
+	base, err := ConductorDir()
+	if err != nil {
+		return nil, err
+	}
+	if _, err := os.Stat(base); os.IsNotExist(err) {
+		return nil, nil
+	}
+	entries, err := os.ReadDir(base)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read conductor directory: %w", err)
+	}
+
+	var migrated []string
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		name := entry.Name()
+		claudePath := filepath.Join(base, name, "CLAUDE.md")
+
+		info, err := os.Lstat(claudePath)
+		if err != nil {
+			continue
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			continue
+		}
+
+		meta, err := LoadConductorMeta(name)
+		if err != nil {
+			continue
+		}
+
+		contentBytes, err := os.ReadFile(claudePath)
+		if err != nil {
+			continue
+		}
+		content := string(contentBytes)
+
+		// Already on the new template format (or custom file with policy instructions).
+		if strings.Contains(content, "## Policy") && strings.Contains(content, "POLICY.md") {
+			continue
+		}
+
+		legacyTemplate := renderConductorClaudeTemplate(conductorPerNameClaudeMDLegacyTemplate, name, meta.Profile)
+		if !matchesTemplateContent(content, legacyTemplate) {
+			continue
+		}
+
+		updatedTemplate := renderConductorClaudeTemplate(conductorPerNameClaudeMDTemplate, name, meta.Profile)
+		if err := os.WriteFile(claudePath, []byte(updatedTemplate), 0o644); err != nil {
+			return migrated, fmt.Errorf("failed to migrate %s CLAUDE.md: %w", name, err)
+		}
+		migrated = append(migrated, name)
+	}
+
 	return migrated, nil
 }
 

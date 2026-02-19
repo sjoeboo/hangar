@@ -588,10 +588,29 @@ func TestInstallSharedClaudeMD_Default(t *testing.T) {
 		t.Error("CLAUDE.md should not be a symlink when using default template")
 	}
 
-	// Verify content contains template
+	// Verify content contains mechanism template
 	content, _ := os.ReadFile(claudeMDPath)
 	if !strings.Contains(string(content), "Conductor: Shared Knowledge Base") {
 		t.Error("CLAUDE.md should contain shared template content")
+	}
+
+	// Verify mechanism content is present
+	if !strings.Contains(string(content), "Agent-Deck CLI Reference") {
+		t.Error("CLAUDE.md should contain CLI reference (mechanism)")
+	}
+	if !strings.Contains(string(content), "Session Status Values") {
+		t.Error("CLAUDE.md should contain session status values (mechanism)")
+	}
+
+	// Verify policy content has been removed from shared template
+	if strings.Contains(string(content), "## Core Rules") {
+		t.Error("CLAUDE.md should NOT contain Core Rules (moved to POLICY.md)")
+	}
+	if strings.Contains(string(content), "## Auto-Response Guidelines") {
+		t.Error("CLAUDE.md should NOT contain Auto-Response Guidelines (moved to POLICY.md)")
+	}
+	if !strings.Contains(string(content), "Your heartbeat response format") {
+		t.Error("CLAUDE.md should contain heartbeat response format (bridge protocol)")
 	}
 }
 
@@ -682,7 +701,7 @@ func TestSetupConductor_DefaultTemplate(t *testing.T) {
 	defer os.RemoveAll(filepath.Join(homeDir, ".agent-deck", "conductor", name))
 
 	// Setup without custom path (uses default template)
-	err := SetupConductor(name, profile, true, "test description", "")
+	err := SetupConductor(name, profile, true, "test description", "", "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -703,6 +722,11 @@ func TestSetupConductor_DefaultTemplate(t *testing.T) {
 	content, _ := os.ReadFile(claudeMDPath)
 	if !strings.Contains(string(content), name) {
 		t.Errorf("CLAUDE.md should contain conductor name %q", name)
+	}
+
+	// Verify per-conductor CLAUDE.md references POLICY.md
+	if !strings.Contains(string(content), "POLICY.md") {
+		t.Error("per-conductor CLAUDE.md should reference POLICY.md")
 	}
 
 	// Verify meta.json does NOT contain ClaudeMDPath field
@@ -733,7 +757,7 @@ func TestSetupConductor_CustomSymlink(t *testing.T) {
 	defer os.RemoveAll(filepath.Join(homeDir, ".agent-deck", "conductor", name))
 
 	// Setup with custom path (creates symlink)
-	err := SetupConductor(name, profile, true, "test description", customPath)
+	err := SetupConductor(name, profile, true, "test description", customPath, "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -763,7 +787,7 @@ func TestSetupConductor_EmptyProfileNormalizesToDefault(t *testing.T) {
 	t.Setenv("HOME", tmpHome)
 
 	name := "default-profile-conductor"
-	if err := SetupConductor(name, "", true, "", ""); err != nil {
+	if err := SetupConductor(name, "", true, "", "", ""); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
@@ -790,11 +814,11 @@ func TestSetupConductor_ProfileConflict(t *testing.T) {
 	t.Setenv("HOME", tmpHome)
 
 	name := "profile-conflict"
-	if err := SetupConductor(name, "work", true, "", ""); err != nil {
+	if err := SetupConductor(name, "work", true, "", "", ""); err != nil {
 		t.Fatalf("first setup failed: %v", err)
 	}
 
-	err := SetupConductor(name, "personal", true, "", "")
+	err := SetupConductor(name, "personal", true, "", "", "")
 	if err == nil {
 		t.Fatal("expected conflict error when reusing conductor name across profiles")
 	}
@@ -895,5 +919,288 @@ func TestCreateSymlinkWithExpansion_MissingSourceError(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "does not exist") {
 		t.Errorf("error should mention 'does not exist', got %v", err)
+	}
+}
+
+// --- Policy MD tests ---
+
+func TestInstallPolicyMD_Default(t *testing.T) {
+	// Use actual conductor directory (cleanup after test)
+	homeDir, _ := os.UserHomeDir()
+	conductorDir := filepath.Join(homeDir, ".agent-deck", "conductor")
+	policyPath := filepath.Join(conductorDir, "POLICY.md")
+
+	// Backup existing file if present
+	var backup []byte
+	if content, err := os.ReadFile(policyPath); err == nil {
+		backup = content
+		defer func() { _ = os.WriteFile(policyPath, backup, 0o644) }()
+	} else {
+		defer os.Remove(policyPath)
+	}
+
+	// Test installing default template
+	err := InstallPolicyMD("")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Verify file exists at default location
+	if _, err := os.Stat(policyPath); os.IsNotExist(err) {
+		t.Errorf("POLICY.md not created at %q", policyPath)
+	}
+
+	// Verify it's NOT a symlink
+	if _, err := os.Readlink(policyPath); err == nil {
+		t.Error("POLICY.md should not be a symlink when using default template")
+	}
+
+	// Verify content contains policy template
+	content, _ := os.ReadFile(policyPath)
+	if !strings.Contains(string(content), "Conductor Policy") {
+		t.Error("POLICY.md should contain policy template content")
+	}
+
+	// Verify policy-specific content is present
+	if !strings.Contains(string(content), "Core Rules") {
+		t.Error("POLICY.md should contain Core Rules")
+	}
+	if !strings.Contains(string(content), "Auto-Response Guidelines") {
+		t.Error("POLICY.md should contain Auto-Response Guidelines")
+	}
+	if strings.Contains(string(content), "Heartbeat Response Format") {
+		t.Error("POLICY.md should NOT contain Heartbeat Response Format (it's a bridge protocol, belongs in CLAUDE.md)")
+	}
+}
+
+func TestInstallPolicyMD_CustomSymlink(t *testing.T) {
+	tmpDir := t.TempDir()
+	customPath := filepath.Join(tmpDir, "my-POLICY.md")
+
+	// Create custom file first
+	if err := os.WriteFile(customPath, []byte("# My Custom Policy\n"), 0o644); err != nil {
+		t.Fatalf("failed to create custom file: %v", err)
+	}
+
+	// Use actual conductor directory (cleanup after test)
+	homeDir, _ := os.UserHomeDir()
+	conductorDir := filepath.Join(homeDir, ".agent-deck", "conductor")
+	policyPath := filepath.Join(conductorDir, "POLICY.md")
+
+	// Backup existing file/symlink if present
+	var backupContent []byte
+	var backupLink string
+	if linkDest, err := os.Readlink(policyPath); err == nil {
+		backupLink = linkDest
+	} else if content, err := os.ReadFile(policyPath); err == nil {
+		backupContent = content
+	}
+	t.Cleanup(func() {
+		os.Remove(policyPath)
+		if backupLink != "" {
+			_ = os.Symlink(backupLink, policyPath)
+		} else if backupContent != nil {
+			_ = os.WriteFile(policyPath, backupContent, 0o644)
+		}
+	})
+
+	// Test installing with custom path (creates symlink)
+	err := InstallPolicyMD(customPath)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Verify symlink exists
+	linkDest, err := os.Readlink(policyPath)
+	if err != nil {
+		t.Fatalf("POLICY.md should be a symlink: %v", err)
+	}
+
+	// Verify symlink points to custom file
+	if linkDest != customPath {
+		t.Errorf("symlink should point to %q, got %q", customPath, linkDest)
+	}
+
+	// Verify reading through symlink works
+	content, _ := os.ReadFile(policyPath)
+	if !strings.Contains(string(content), "My Custom Policy") {
+		t.Error("reading through symlink should return custom content")
+	}
+}
+
+func TestSetupConductor_PolicyOverride(t *testing.T) {
+	tmpDir := t.TempDir()
+	customPolicyPath := filepath.Join(tmpDir, "my-conductor-POLICY.md")
+
+	// Create custom file first
+	if err := os.WriteFile(customPolicyPath, []byte("# My Conductor Policy\n"), 0o644); err != nil {
+		t.Fatalf("failed to create custom file: %v", err)
+	}
+
+	name := "test-policy-override"
+	profile := "default"
+
+	// Clean up after test
+	homeDir, _ := os.UserHomeDir()
+	defer os.RemoveAll(filepath.Join(homeDir, ".agent-deck", "conductor", name))
+
+	// Setup with custom policy path (creates per-conductor symlink)
+	err := SetupConductor(name, profile, true, "test description", "", customPolicyPath)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Verify per-conductor POLICY.md symlink exists
+	dir, _ := ConductorNameDir(name)
+	policyPath := filepath.Join(dir, "POLICY.md")
+	linkDest, err := os.Readlink(policyPath)
+	if err != nil {
+		t.Fatalf("POLICY.md should be a symlink: %v", err)
+	}
+
+	// Verify symlink points to custom file
+	if linkDest != customPolicyPath {
+		t.Errorf("symlink should point to %q, got %q", customPolicyPath, linkDest)
+	}
+
+	// Verify reading through symlink works
+	content, _ := os.ReadFile(policyPath)
+	if !strings.Contains(string(content), "My Conductor Policy") {
+		t.Error("reading through symlink should return custom content")
+	}
+}
+
+func TestMigrateConductorPolicySplit_RewritesLegacyGeneratedTemplate(t *testing.T) {
+	tmpHome := t.TempDir()
+	t.Setenv("HOME", tmpHome)
+
+	name := "legacy-policy-migrate"
+	profile := DefaultProfile
+	if err := SaveConductorMeta(&ConductorMeta{
+		Name:             name,
+		Profile:          profile,
+		HeartbeatEnabled: true,
+		CreatedAt:        "2026-01-01T00:00:00Z",
+	}); err != nil {
+		t.Fatalf("failed to save meta: %v", err)
+	}
+
+	dir, _ := ConductorNameDir(name)
+	claudePath := filepath.Join(dir, "CLAUDE.md")
+	legacyContent := renderConductorClaudeTemplate(conductorPerNameClaudeMDLegacyTemplate, name, profile)
+	if err := os.WriteFile(claudePath, []byte(legacyContent), 0o644); err != nil {
+		t.Fatalf("failed to write legacy CLAUDE.md: %v", err)
+	}
+
+	migrated, err := MigrateConductorPolicySplit()
+	if err != nil {
+		t.Fatalf("unexpected migration error: %v", err)
+	}
+
+	found := false
+	for _, migratedName := range migrated {
+		if migratedName == name {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected %q to be migrated, got %v", name, migrated)
+	}
+
+	content, err := os.ReadFile(claudePath)
+	if err != nil {
+		t.Fatalf("failed to read migrated CLAUDE.md: %v", err)
+	}
+	if !strings.Contains(string(content), "## Policy") {
+		t.Fatal("migrated CLAUDE.md should contain policy section")
+	}
+	if !strings.Contains(string(content), "./POLICY.md") {
+		t.Fatal("migrated CLAUDE.md should reference ./POLICY.md")
+	}
+}
+
+func TestMigrateConductorPolicySplit_PreservesCustomClaudeMD(t *testing.T) {
+	tmpHome := t.TempDir()
+	t.Setenv("HOME", tmpHome)
+
+	name := "custom-claude-policy-migrate"
+	profile := "work"
+	if err := SaveConductorMeta(&ConductorMeta{
+		Name:             name,
+		Profile:          profile,
+		HeartbeatEnabled: true,
+		CreatedAt:        "2026-01-01T00:00:00Z",
+	}); err != nil {
+		t.Fatalf("failed to save meta: %v", err)
+	}
+
+	dir, _ := ConductorNameDir(name)
+	claudePath := filepath.Join(dir, "CLAUDE.md")
+	customContent := "# Custom conductor instructions\nDo not overwrite this file.\n"
+	if err := os.WriteFile(claudePath, []byte(customContent), 0o644); err != nil {
+		t.Fatalf("failed to write custom CLAUDE.md: %v", err)
+	}
+
+	migrated, err := MigrateConductorPolicySplit()
+	if err != nil {
+		t.Fatalf("unexpected migration error: %v", err)
+	}
+	for _, migratedName := range migrated {
+		if migratedName == name {
+			t.Fatalf("custom CLAUDE.md should not be migrated, got %v", migrated)
+		}
+	}
+
+	content, err := os.ReadFile(claudePath)
+	if err != nil {
+		t.Fatalf("failed to read CLAUDE.md: %v", err)
+	}
+	if string(content) != customContent {
+		t.Fatal("custom CLAUDE.md content should be preserved")
+	}
+}
+
+func TestMigrateConductorPolicySplit_PreservesSymlinkedClaudeMD(t *testing.T) {
+	tmpHome := t.TempDir()
+	t.Setenv("HOME", tmpHome)
+
+	name := "symlink-claude-policy-migrate"
+	if err := SaveConductorMeta(&ConductorMeta{
+		Name:             name,
+		Profile:          DefaultProfile,
+		HeartbeatEnabled: true,
+		CreatedAt:        "2026-01-01T00:00:00Z",
+	}); err != nil {
+		t.Fatalf("failed to save meta: %v", err)
+	}
+
+	customPath := filepath.Join(t.TempDir(), "custom-claude.md")
+	if err := os.WriteFile(customPath, []byte("# custom"), 0o644); err != nil {
+		t.Fatalf("failed to write custom target: %v", err)
+	}
+
+	dir, _ := ConductorNameDir(name)
+	claudePath := filepath.Join(dir, "CLAUDE.md")
+	if err := os.Symlink(customPath, claudePath); err != nil {
+		t.Fatalf("failed to create CLAUDE.md symlink: %v", err)
+	}
+
+	migrated, err := MigrateConductorPolicySplit()
+	if err != nil {
+		t.Fatalf("unexpected migration error: %v", err)
+	}
+	for _, migratedName := range migrated {
+		if migratedName == name {
+			t.Fatalf("symlinked CLAUDE.md should not be migrated, got %v", migrated)
+		}
+	}
+
+	linkDest, err := os.Readlink(claudePath)
+	if err != nil {
+		t.Fatalf("CLAUDE.md should remain a symlink: %v", err)
+	}
+	if linkDest != customPath {
+		t.Fatalf("symlink destination changed to %q, want %q", linkDest, customPath)
 	}
 }
