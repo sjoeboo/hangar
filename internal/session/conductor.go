@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
@@ -392,6 +393,7 @@ func GenerateHeartbeatPlist(name string, intervalMinutes int) (string, error) {
 	plist = strings.ReplaceAll(plist, "__LOG_PATH__", logPath)
 	plist = strings.ReplaceAll(plist, "__HOME__", homeDir)
 	plist = strings.ReplaceAll(plist, "__INTERVAL__", fmt.Sprintf("%d", intervalSeconds))
+	plist = strings.ReplaceAll(plist, "__PATH__", buildDaemonPath(agentDeckPath))
 
 	return plist, nil
 }
@@ -435,6 +437,23 @@ func findAgentDeck() string {
 		}
 	}
 	return ""
+}
+
+// buildDaemonPath returns a PATH string suitable for daemon environments.
+// If agentDeckPath is non-empty, its parent directory is prepended so daemon
+// processes (launchd, systemd) that don't inherit the user's shell PATH can
+// still find the agent-deck binary.
+func buildDaemonPath(agentDeckPath string) string {
+	base := "/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+	if agentDeckPath == "" {
+		return base
+	}
+	dir := filepath.Dir(agentDeckPath)
+	// Avoid duplicating a directory already in base
+	if slices.Contains(strings.Split(base, ":"), dir) {
+		return base
+	}
+	return dir + ":" + base
 }
 
 // conductorHeartbeatScript is the shell script that sends a heartbeat to a conductor session
@@ -482,7 +501,7 @@ const conductorHeartbeatPlistTemplate = `<?xml version="1.0" encoding="UTF-8"?>
     <key>EnvironmentVariables</key>
     <dict>
         <key>PATH</key>
-        <string>/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+        <string>__PATH__</string>
         <key>HOME</key>
         <string>__HOME__</string>
     </dict>
@@ -778,6 +797,8 @@ func GenerateLaunchdPlist() (string, error) {
 	plist = strings.ReplaceAll(plist, "__BRIDGE_PATH__", bridgePath)
 	plist = strings.ReplaceAll(plist, "__LOG_PATH__", logPath)
 	plist = strings.ReplaceAll(plist, "__HOME__", homeDir)
+	agentDeckPath := findAgentDeck()
+	plist = strings.ReplaceAll(plist, "__PATH__", buildDaemonPath(agentDeckPath))
 
 	return plist, nil
 }
@@ -845,7 +866,7 @@ const conductorPlistTemplate = `<?xml version="1.0" encoding="UTF-8"?>
     <key>EnvironmentVariables</key>
     <dict>
         <key>PATH</key>
-        <string>/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+        <string>__PATH__</string>
         <key>HOME</key>
         <string>__HOME__</string>
     </dict>
@@ -873,7 +894,7 @@ RestartSec=10
 WorkingDirectory=__HOME__
 StandardOutput=append:__LOG_PATH__
 StandardError=append:__LOG_PATH__
-Environment=PATH=/usr/local/bin:/usr/bin:/bin
+Environment=PATH=__PATH__
 Environment=HOME=__HOME__
 
 [Install]
@@ -898,7 +919,7 @@ Description=Agent Deck Conductor Heartbeat (__NAME__)
 Type=oneshot
 ExecStart=/bin/bash __SCRIPT_PATH__
 WorkingDirectory=__HOME__
-Environment=PATH=/usr/local/bin:/usr/bin:/bin
+Environment=PATH=__PATH__
 Environment=HOME=__HOME__
 `
 
@@ -975,6 +996,8 @@ func GenerateSystemdBridgeService() (string, error) {
 	unit = strings.ReplaceAll(unit, "__BRIDGE_PATH__", bridgePath)
 	unit = strings.ReplaceAll(unit, "__LOG_PATH__", logPath)
 	unit = strings.ReplaceAll(unit, "__HOME__", homeDir)
+	agentDeckPath := findAgentDeck()
+	unit = strings.ReplaceAll(unit, "__PATH__", buildDaemonPath(agentDeckPath))
 	return unit, nil
 }
 
@@ -1000,6 +1023,8 @@ func GenerateSystemdHeartbeatService(name string) (string, error) {
 	unit := strings.ReplaceAll(systemdHeartbeatServiceTemplate, "__NAME__", name)
 	unit = strings.ReplaceAll(unit, "__SCRIPT_PATH__", scriptPath)
 	unit = strings.ReplaceAll(unit, "__HOME__", homeDir)
+	agentDeckPath := findAgentDeck()
+	unit = strings.ReplaceAll(unit, "__PATH__", buildDaemonPath(agentDeckPath))
 	return unit, nil
 }
 

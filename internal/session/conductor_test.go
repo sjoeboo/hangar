@@ -907,6 +907,128 @@ func TestCreateSymlinkWithExpansion_RelativePathError(t *testing.T) {
 	}
 }
 
+func TestGenerateSystemdBridgeService_IncludesAgentDeckDir(t *testing.T) {
+	unit, err := GenerateSystemdBridgeService()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if strings.Contains(unit, "__PATH__") {
+		t.Error("unit still contains __PATH__ placeholder")
+	}
+	agentDeck := findAgentDeck()
+	if agentDeck == "" {
+		t.Skip("agent-deck not found in PATH, skipping directory check")
+	}
+	if !strings.Contains(unit, filepath.Dir(agentDeck)) {
+		t.Errorf("systemd bridge unit PATH should contain agent-deck dir, unit:\n%s", unit)
+	}
+}
+
+func TestGenerateSystemdHeartbeatService_IncludesAgentDeckDir(t *testing.T) {
+	unit, err := GenerateSystemdHeartbeatService("test-conductor")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if strings.Contains(unit, "__PATH__") {
+		t.Error("unit still contains __PATH__ placeholder")
+	}
+	agentDeck := findAgentDeck()
+	if agentDeck == "" {
+		t.Skip("agent-deck not found in PATH, skipping directory check")
+	}
+	if !strings.Contains(unit, filepath.Dir(agentDeck)) {
+		t.Errorf("systemd heartbeat unit PATH should contain agent-deck dir, unit:\n%s", unit)
+	}
+}
+
+func TestGenerateHeartbeatPlist_IncludesAgentDeckDir(t *testing.T) {
+	plist, err := GenerateHeartbeatPlist("test-conductor", 15)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if strings.Contains(plist, "__PATH__") {
+		t.Error("plist still contains __PATH__ placeholder")
+	}
+	agentDeck := findAgentDeck()
+	if agentDeck == "" {
+		t.Skip("agent-deck not found in PATH, skipping directory check")
+	}
+	agentDeckDir := filepath.Dir(agentDeck)
+	if !strings.Contains(plist, agentDeckDir) {
+		t.Errorf("heartbeat plist PATH should contain agent-deck dir %q, plist:\n%s", agentDeckDir, plist)
+	}
+}
+
+func TestGenerateLaunchdPlist_IncludesAgentDeckDir(t *testing.T) {
+	plist, err := GenerateLaunchdPlist()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	// Verify no __PATH__ placeholder remains
+	if strings.Contains(plist, "__PATH__") {
+		t.Error("plist still contains __PATH__ placeholder")
+	}
+	// The plist PATH should include the directory of the agent-deck binary
+	agentDeck := findAgentDeck()
+	if agentDeck == "" {
+		t.Skip("agent-deck not found in PATH, skipping directory check")
+	}
+	agentDeckDir := filepath.Dir(agentDeck)
+	if !strings.Contains(plist, agentDeckDir) {
+		t.Errorf("plist PATH should contain agent-deck dir %q, plist:\n%s", agentDeckDir, plist)
+	}
+}
+
+func TestBuildDaemonPath(t *testing.T) {
+	tests := []struct {
+		name          string
+		agentDeckPath string
+		wantPrefix    string
+		wantContains  string
+	}{
+		{
+			name:          "empty path falls back to standard",
+			agentDeckPath: "",
+			wantPrefix:    "/usr/local/bin",
+			wantContains:  "/usr/bin:/bin",
+		},
+		{
+			name:          "local bin prepended",
+			agentDeckPath: "/Users/someone/.local/bin/agent-deck",
+			wantPrefix:    "/Users/someone/.local/bin",
+			wantContains:  "/usr/local/bin",
+		},
+		{
+			name:          "homebrew path not duplicated",
+			agentDeckPath: "/opt/homebrew/bin/agent-deck",
+			wantPrefix:    "/usr/local/bin",
+			wantContains:  "/usr/bin:/bin",
+		},
+		{
+			name:          "custom path included",
+			agentDeckPath: "/custom/tools/bin/agent-deck",
+			wantPrefix:    "/custom/tools/bin",
+			wantContains:  "/opt/homebrew/bin",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := buildDaemonPath(tt.agentDeckPath)
+			if !strings.HasPrefix(result, tt.wantPrefix) {
+				t.Errorf("buildDaemonPath(%q) = %q, want prefix %q", tt.agentDeckPath, result, tt.wantPrefix)
+			}
+			if !strings.Contains(result, tt.wantContains) {
+				t.Errorf("buildDaemonPath(%q) = %q, want to contain %q", tt.agentDeckPath, result, tt.wantContains)
+			}
+			// Must never contain duplicate colons
+			if strings.Contains(result, "::") {
+				t.Errorf("buildDaemonPath(%q) = %q, contains double colon", tt.agentDeckPath, result)
+			}
+		})
+	}
+}
+
 func TestCreateSymlinkWithExpansion_MissingSourceError(t *testing.T) {
 	tmpDir := t.TempDir()
 	targetPath := filepath.Join(tmpDir, "link.md")
