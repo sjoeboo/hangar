@@ -5,6 +5,19 @@ All notable changes to Agent Deck will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.6] - 2026-02-19
+
+### Added
+
+- Add `manage_mcp_json` config option to disable all `.mcp.json` writes, plus a LOCAL-scope MCP Manager warning when disabled (#197, contributed by @sjoeboo).
+- Split conductor guidance into shared mechanism (`CLAUDE.md`) and policy (`POLICY.md`) with per-conductor policy override support (#201).
+
+### Fixed
+
+- Fix conductor setup migration so legacy generated per-conductor `CLAUDE.md` files are updated safely for the policy split while preserving custom and symlinked files (#201).
+- Fix launchd and systemd conductor daemon units to include the installed `agent-deck` binary directory in `PATH` so bridge/heartbeat jobs can find the CLI (#196, contributed by @sjoeboo).
+- Support environment variable expansion (`$VAR`, `${VAR}`) in path-based config values and unify path expansion behavior across config consumers (#194, contributed by @tiwillia).
+
 ## [0.19.5] - 2026-02-18
 
 ### Changed
