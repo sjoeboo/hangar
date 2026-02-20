@@ -196,7 +196,11 @@ agent-deck session set <id|title> <field> <value>
 agent-deck session send <id|title> "message" [--no-wait] [-q] [--json]
 ```
 
-Default: Waits for agent readiness before sending.
+Default behavior:
+- Waits for agent readiness before sending.
+- Verifies processing starts after send.
+- If Claude leaves a pasted prompt unsent (`[Pasted text ...]`), retries `Enter` automatically.
+- Avoids unnecessary retry `Enter` presses when session is already `waiting`/`idle`.
 
 ### session output
 

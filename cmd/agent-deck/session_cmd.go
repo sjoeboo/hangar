@@ -1410,7 +1410,39 @@ func handleSessionSend(profile string, args []string) {
 // sendWithRetry sends a message atomically and retries Enter if the agent
 // doesn't start processing within a reasonable time.
 func sendWithRetry(tmuxSess *tmux.Session, message string, skipVerify bool) error {
-	if err := tmuxSess.SendKeysAndEnter(message); err != nil {
+	return sendWithRetryTarget(tmuxSess, message, skipVerify, sendRetryOptions{
+		maxRetries: 6,
+		checkDelay: 500 * time.Millisecond,
+	})
+}
+
+type sendRetryTarget interface {
+	SendKeysAndEnter(string) error
+	GetStatus() (string, error)
+	SendEnter() error
+	CapturePane() (string, error)
+}
+
+type sendRetryOptions struct {
+	maxRetries int
+	checkDelay time.Duration
+}
+
+// hasUnsentPastedPrompt detects Claude's composer marker for a pasted-but-unsent prompt.
+// Example: "[Pasted text #1 +89 lines]".
+func hasUnsentPastedPrompt(content string) bool {
+	return strings.Contains(strings.ToLower(content), "[pasted text")
+}
+
+func sendWithRetryTarget(target sendRetryTarget, message string, skipVerify bool, opts sendRetryOptions) error {
+	if opts.maxRetries <= 0 {
+		opts.maxRetries = 1
+	}
+	if opts.checkDelay < 0 {
+		opts.checkDelay = 0
+	}
+
+	if err := target.SendKeysAndEnter(message); err != nil {
 		return fmt.Errorf("failed to send message: %w", err)
 	}
 
@@ -1418,22 +1450,42 @@ func sendWithRetry(tmuxSess *tmux.Session, message string, skipVerify bool) erro
 		return nil
 	}
 
-	// Verify: check if agent transitions to "active" (processing).
-	// If not, the Enter may have been lost; retry just the Enter key.
-	const maxRetries = 2
-	const checkDelay = 500 * time.Millisecond
+	// Verify the agent starts processing. If it doesn't:
+	// - Retry Enter when the pane shows Claude's pasted-but-unsent marker.
+	// - Treat waiting/idle without that marker as success (message accepted quickly).
+	// - For ambiguous states, keep a small best-effort Enter retry budget.
+	for retry := 0; retry < opts.maxRetries; retry++ {
+		time.Sleep(opts.checkDelay)
 
-	for retry := 0; retry < maxRetries; retry++ {
-		time.Sleep(checkDelay)
-		status, err := tmuxSess.GetStatus()
+		status, err := target.GetStatus()
 		if err == nil && status == "active" {
-			return nil // Agent is processing
+			return nil
 		}
-		// Retry just the Enter key
-		_ = tmuxSess.SendEnter()
+
+		pastedPromptUnsent := false
+		if content, captureErr := target.CapturePane(); captureErr == nil && hasUnsentPastedPrompt(content) {
+			pastedPromptUnsent = true
+		}
+
+		if pastedPromptUnsent {
+			_ = target.SendEnter()
+			continue
+		}
+
+		// If we're already waiting/idle and there's no unsent prompt marker,
+		// assume the message was accepted and either completed very quickly or
+		// is ready for the next input.
+		if err == nil && (status == "waiting" || status == "idle") {
+			return nil
+		}
+
+		// Ambiguous state: keep a small best-effort Enter retry budget.
+		if retry < 2 {
+			_ = target.SendEnter()
+		}
 	}
-	// Best effort: don't fail even if verification is inconclusive
-	// (agent might process fast enough that we miss the "active" window)
+
+	// Best effort: don't fail even if verification is inconclusive.
 	return nil
 }
 

@@ -116,7 +116,7 @@ Smart polling detects what every agent is doing right now:
 
 ### Notification Bar
 
-Waiting sessions appear right in your tmux status bar. Press `Ctrl+b 1-6` to jump directly to them.
+Waiting sessions appear right in your tmux status bar. Press `Ctrl+b`, release, then press `1`–`6` to jump directly to them.
 
 ```
 ⚡ [1] frontend [2] api [3] backend
