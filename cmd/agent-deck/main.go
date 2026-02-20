@@ -30,7 +30,7 @@ import (
 	"github.com/asheshgoplani/agent-deck/internal/web"
 )
 
-const Version = "0.19.8"
+const Version = "0.19.9"
 
 // Table column widths for list command output
 const (

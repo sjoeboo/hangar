@@ -5,6 +5,17 @@ All notable changes to Agent Deck will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.9] - 2026-02-20
+
+### Fixed
+
+- Fix terminal style leakage after tmux attach by waiting for PTY output to drain and resetting OSC-8/SGR styles before the TUI redraws.
+- Harden `agent-deck session send` delivery by retrying `Enter` only when Claude shows a pasted-but-unsent marker (`[Pasted text ...]`) and avoiding unnecessary retries once status is already `waiting`/`idle`.
+
+### Changed
+
+- Clarify tmux wait-bar shortcut docs: press `Ctrl+b`, release, then press `1`–`6` to jump to waiting sessions.
+
 ## [0.19.8] - 2026-02-20
 
 ### Fixed
