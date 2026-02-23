@@ -1899,6 +1899,30 @@ func TestInstance_GetJSONLPath(t *testing.T) {
 	})
 }
 
+func TestInstance_GetLastResponseBestEffort_ClaudeNoSessionID(t *testing.T) {
+	inst := NewInstance("best-effort", t.TempDir())
+	inst.Tool = "claude"
+	inst.ClaudeSessionID = ""
+	inst.tmuxSession = nil // Avoid tmux dependencies for this fallback-path test
+
+	resp, err := inst.GetLastResponseBestEffort()
+	if err != nil {
+		t.Fatalf("GetLastResponseBestEffort() unexpected error: %v", err)
+	}
+	if resp == nil {
+		t.Fatal("GetLastResponseBestEffort() returned nil response")
+	}
+	if resp.Tool != "claude" {
+		t.Fatalf("Tool = %q, want %q", resp.Tool, "claude")
+	}
+	if resp.Role != "assistant" {
+		t.Fatalf("Role = %q, want %q", resp.Role, "assistant")
+	}
+	if resp.Content != "" {
+		t.Fatalf("Content = %q, want empty string", resp.Content)
+	}
+}
+
 func TestSessionHasConversationData(t *testing.T) {
 	// Create temp directory structure
 	tmpDir := t.TempDir()

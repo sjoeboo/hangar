@@ -1508,11 +1508,57 @@ func (i *Instance) sendMessageWhenReady(message string) error {
 				return fmt.Errorf("failed to send message: %w", err)
 			}
 
+			// Verify delivery and retry Enter when Claude shows the
+			// pasted-but-unsent marker. Mirrors CLI session send behavior.
+			const verifyRetries = 6
+			const verifyDelay = 500 * time.Millisecond
+			waitingNoMarkerChecks := 0
+
+			for retry := 0; retry < verifyRetries; retry++ {
+				time.Sleep(verifyDelay)
+
+				verifiedStatus, statusErr := i.tmuxSession.GetStatus()
+				pastedPromptUnsent := false
+				if content, captureErr := i.tmuxSession.CapturePane(); captureErr == nil && hasUnsentPastedPrompt(content) {
+					pastedPromptUnsent = true
+				}
+
+				if pastedPromptUnsent {
+					waitingNoMarkerChecks = 0
+					_ = i.tmuxSession.SendEnter()
+					continue
+				}
+
+				if statusErr == nil && verifiedStatus == "active" {
+					return nil
+				}
+
+				if statusErr == nil && (verifiedStatus == "waiting" || verifiedStatus == "idle") {
+					waitingNoMarkerChecks++
+					if waitingNoMarkerChecks >= 2 {
+						return nil
+					}
+					continue
+				}
+
+				waitingNoMarkerChecks = 0
+				if retry < 2 {
+					_ = i.tmuxSession.SendEnter()
+				}
+			}
+
+			// Best effort: don't fail if verification remains inconclusive.
 			return nil
 		}
 	}
 
 	return fmt.Errorf("timeout waiting for agent to be ready")
+}
+
+// hasUnsentPastedPrompt detects Claude's composer marker for pasted text that
+// has not been submitted yet.
+func hasUnsentPastedPrompt(content string) bool {
+	return strings.Contains(strings.ToLower(content), "[pasted text")
 }
 
 // errorRecheckInterval - how often to recheck sessions that don't exist
@@ -2204,6 +2250,61 @@ func (i *Instance) GetLastResponse() (*ResponseOutput, error) {
 		return i.getGeminiLastResponse()
 	}
 	return i.getTerminalLastResponse()
+}
+
+// GetLastResponseBestEffort returns the last assistant response with fallback logic
+// intended for CLI read paths (like `session output`) where we prefer useful output
+// over hard errors.
+//
+// Behavior for Claude:
+// 1. Try structured JSONL read via stored ClaudeSessionID.
+// 2. Refresh ID from tmux env and retry.
+// 3. Scan disk for active session ID and retry.
+// 4. Fallback to terminal parsing.
+// 5. If still unavailable, return an empty response (no error).
+func (i *Instance) GetLastResponseBestEffort() (*ResponseOutput, error) {
+	resp, err := i.GetLastResponse()
+	if err == nil {
+		return resp, nil
+	}
+
+	// Claude-specific recovery path
+	if i.Tool == "claude" {
+		// Refresh from tmux env (fast path)
+		if sessionID := i.GetSessionIDFromTmux(); sessionID != "" {
+			i.ClaudeSessionID = sessionID
+			i.ClaudeDetectedAt = time.Now()
+			if recovered, recoverErr := i.getClaudeLastResponse(); recoverErr == nil {
+				return recovered, nil
+			}
+		}
+
+		// Fallback: detect latest session on disk (handles startup race / stale ID)
+		i.syncClaudeSessionFromDisk()
+		if i.ClaudeSessionID != "" {
+			if recovered, recoverErr := i.getClaudeLastResponse(); recoverErr == nil {
+				return recovered, nil
+			}
+		}
+	}
+
+	// Final fallback: terminal parsing (works for all tools).
+	if i.tmuxSession != nil {
+		if terminalResp, terminalErr := i.getTerminalLastResponse(); terminalErr == nil {
+			return terminalResp, nil
+		}
+	}
+
+	// For Claude, prefer a graceful empty response instead of a hard error.
+	if i.Tool == "claude" {
+		return &ResponseOutput{
+			Tool:    "claude",
+			Role:    "assistant",
+			Content: "",
+		}, nil
+	}
+
+	return nil, err
 }
 
 // GetJSONLPath returns the path to the Claude session JSONL file for analytics

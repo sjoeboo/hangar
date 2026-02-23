@@ -549,6 +549,23 @@ func TestBridgeTemplate_HeartbeatSelectsOnePerProfile(t *testing.T) {
 	}
 }
 
+func TestBridgeTemplate_SendToConductorSupportsSingleCallWait(t *testing.T) {
+	template := conductorBridgePy
+	waitPattern := `"--wait", "--timeout", f"{response_timeout}s", "-q",`
+	noWaitPattern := `"session", "send", session, message, "--no-wait",`
+	oldPattern := `"session", "send", session, message, profile=profile, timeout=120`
+
+	if !strings.Contains(template, waitPattern) {
+		t.Fatalf("template should include --wait send path: %q", waitPattern)
+	}
+	if !strings.Contains(template, noWaitPattern) {
+		t.Fatalf("template should retain --no-wait send path: %q", noWaitPattern)
+	}
+	if strings.Contains(template, oldPattern) {
+		t.Fatalf("template should not contain blocking send pattern: %q", oldPattern)
+	}
+}
+
 func TestConductorHeartbeatScript_StatusParsingHandlesWhitespace(t *testing.T) {
 	if !strings.Contains(conductorHeartbeatScript, `"status"[[:space:]]*:[[:space:]]*"`) {
 		t.Fatal("heartbeat status parser should tolerate JSON whitespace around ':'")

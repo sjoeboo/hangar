@@ -266,6 +266,46 @@ func TestHomeRenameSessionComplete(t *testing.T) {
 	}
 }
 
+func TestHomeEnterDuringLaunchingDoesNotShowStartingError(t *testing.T) {
+	home := NewHome()
+	home.width = 100
+	home.height = 30
+
+	inst := session.NewInstance("launching-session", "/tmp/project")
+	home.instancesMu.Lock()
+	home.instances = []*session.Instance{inst}
+	home.instanceByID[inst.ID] = inst
+	home.instancesMu.Unlock()
+
+	home.flatItems = []session.Item{
+		{Type: session.ItemTypeSession, Session: inst},
+	}
+	home.cursor = 0
+	home.launchingSessions[inst.ID] = time.Now()
+
+	model, _ := home.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	h, ok := model.(*Home)
+	if !ok {
+		t.Fatal("Update should return *Home")
+	}
+
+	if h.err != nil && strings.Contains(h.err.Error(), "session is starting, please wait") {
+		t.Fatalf("unexpected launch block error: %v", h.err)
+	}
+}
+
+func TestLaunchAnimationMinDurationByTool(t *testing.T) {
+	if got := launchAnimationMinDuration("claude"); got != minLaunchAnimationDurationClaude {
+		t.Fatalf("claude min duration = %v, want %v", got, minLaunchAnimationDurationClaude)
+	}
+	if got := launchAnimationMinDuration("gemini"); got != minLaunchAnimationDurationClaude {
+		t.Fatalf("gemini min duration = %v, want %v", got, minLaunchAnimationDurationClaude)
+	}
+	if got := launchAnimationMinDuration("shell"); got != minLaunchAnimationDurationDefault {
+		t.Fatalf("default min duration = %v, want %v", got, minLaunchAnimationDurationDefault)
+	}
+}
+
 func TestHomeRenamePendingChangesSurviveReload(t *testing.T) {
 	home := NewHome()
 	home.width = 100
