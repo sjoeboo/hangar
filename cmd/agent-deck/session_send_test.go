@@ -234,6 +234,24 @@ func TestSendWithRetryTarget_RetriesOnUnsentPasteMarker(t *testing.T) {
 	}
 }
 
+func TestSendWithRetryTarget_DetectsPasteMarkerAfterInitialWaiting(t *testing.T) {
+	mock := &mockSendRetryTarget{
+		statuses: []string{"waiting", "waiting", "active"},
+		panes: []string{
+			"",
+			"[Pasted text #1 +18 lines]",
+			"",
+		},
+	}
+	err := sendWithRetryTarget(mock, "hello", false, sendRetryOptions{maxRetries: 5, checkDelay: 0})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got := atomic.LoadInt32(&mock.sendEnterCalls); got != 1 {
+		t.Fatalf("expected 1 SendEnter call when pasted marker appears after initial waiting, got %d", got)
+	}
+}
+
 func TestSendWithRetryTarget_AmbiguousStateUsesLimitedFallbackRetries(t *testing.T) {
 	mock := &mockSendRetryTarget{
 		statuses: []string{"error", "error", "error", "error"},

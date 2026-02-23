@@ -41,9 +41,6 @@ TG_MAX_LENGTH = 4096
 # How long to wait for conductor to respond (seconds)
 RESPONSE_TIMEOUT = 300
 
-# Poll interval when waiting for conductor response (seconds)
-POLL_INTERVAL = 2
-
 # ---------------------------------------------------------------------------
 # Logging
 # ---------------------------------------------------------------------------
@@ -158,18 +155,36 @@ def get_session_output(session: str, profile: str | None = None) -> str:
 
 
 def send_to_conductor(
-    session: str, message: str, profile: str | None = None
-) -> bool:
-    """Send a message to the conductor session. Returns True on success."""
-    result = run_cli(
-        "session", "send", session, message, "--no-wait", profile=profile, timeout=30
-    )
+    session: str,
+    message: str,
+    profile: str | None = None,
+    wait_for_reply: bool = False,
+    response_timeout: int = RESPONSE_TIMEOUT,
+) -> tuple[bool, str]:
+    """Send a message to the conductor session.
+
+    Returns (success, response_text). When wait_for_reply=False, response_text is "".
+    """
+    if wait_for_reply:
+        # Single-call flow: send + wait + print raw response.
+        # Avoids extra status/output polling round-trips.
+        result = run_cli(
+            "session", "send", session, message,
+            "--wait", "--timeout", f"{response_timeout}s", "-q",
+            profile=profile,
+            timeout=max(response_timeout+30, 60),
+        )
+    else:
+        result = run_cli(
+            "session", "send", session, message, "--no-wait",
+            profile=profile, timeout=30,
+        )
     if result.returncode != 0:
         log.error(
             "Failed to send to conductor: %s", result.stderr.strip()
         )
-        return False
-    return True
+        return False, ""
+    return True, result.stdout.strip()
 
 
 def get_status_summary(profile: str | None = None) -> dict:
@@ -305,29 +320,6 @@ def parse_profile_prefix(text: str, profiles: list[str]) -> tuple[str | None, st
             return profile, text[len(prefix):].strip()
 
     return None, text
-
-
-# ---------------------------------------------------------------------------
-# Response polling
-# ---------------------------------------------------------------------------
-
-
-async def wait_for_response(
-    session: str, profile: str | None = None, timeout: int = RESPONSE_TIMEOUT
-) -> str:
-    """Poll until the conductor finishes processing (status = waiting/idle)."""
-    elapsed = 0
-    while elapsed < timeout:
-        await asyncio.sleep(POLL_INTERVAL)
-        elapsed += POLL_INTERVAL
-
-        status = get_session_status(session, profile=profile)
-        if status in ("waiting", "idle"):
-            return get_session_output(session, profile=profile)
-        if status == "error":
-            return "[Conductor session is in error state. Try /restart]"
-
-    return f"[Conductor timed out after {timeout}s. It may still be processing.]"
 
 
 # ---------------------------------------------------------------------------
@@ -518,22 +510,24 @@ def create_bot(config: dict) -> tuple[Bot, Dispatcher]:
         log.info(
             "User message -> [%s]: %s", target_profile, cleaned_msg[:100]
         )
-        if not send_to_conductor(
-            session_title, cleaned_msg, profile=target_profile
-        ):
+        ok, response = send_to_conductor(
+            session_title,
+            cleaned_msg,
+            profile=target_profile,
+            wait_for_reply=True,
+            response_timeout=RESPONSE_TIMEOUT,
+        )
+        if not ok:
             await message.answer(
                 f"[Failed to send message to conductor [{target_profile}].]"
             )
             return
 
-        # Wait for response
+        # Response is returned directly by `session send --wait`.
         profile_tag = (
             f"[{target_profile}] " if len(profiles) > 1 else ""
         )
         await message.answer(f"{profile_tag}...")  # typing indicator
-        response = await wait_for_response(
-            session_title, profile=target_profile
-        )
         log.info("Conductor [%s] response: %s", target_profile, response[:100])
 
         # Send response back (split if needed)
@@ -636,19 +630,21 @@ async def heartbeat_loop(bot: Bot, config: dict):
                     continue
 
                 # Send heartbeat to conductor
-                if not send_to_conductor(
-                    session_title, heartbeat_msg, profile=profile
-                ):
+                ok, response = send_to_conductor(
+                    session_title,
+                    heartbeat_msg,
+                    profile=profile,
+                    wait_for_reply=True,
+                    response_timeout=RESPONSE_TIMEOUT,
+                )
+                if not ok:
                     log.error(
                         "Heartbeat [%s]: failed to send to conductor",
                         profile,
                     )
                     continue
 
-                # Wait for conductor's response
-                response = await wait_for_response(
-                    session_title, profile=profile
-                )
+                # Response is returned directly by `session send --wait`.
                 log.info(
                     "Heartbeat [%s] response: %s",
                     profile, response[:200],

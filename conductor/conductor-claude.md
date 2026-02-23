@@ -42,6 +42,7 @@ You are the **Conductor** for the **{PROFILE}** profile, a persistent Claude Cod
 | Command | Description |
 |---------|-------------|
 | `agent-deck -p {PROFILE} session send <id_or_title> "message"` | Send a message. Has built-in 60s wait for agent readiness. |
+| `agent-deck -p {PROFILE} session send <id_or_title> "message" --wait -q --timeout 300s` | Single-call send + wait + raw output (preferred when you need the reply now). |
 | `agent-deck -p {PROFILE} session send <id_or_title> "message" --no-wait` | Send immediately without waiting for ready state. |
 
 ### Session Control
@@ -51,6 +52,7 @@ You are the **Conductor** for the **{PROFILE}** profile, a persistent Claude Cod
 | `agent-deck -p {PROFILE} session stop <id_or_title>` | Stop a running session |
 | `agent-deck -p {PROFILE} session restart <id_or_title>` | Restart (reloads MCPs for Claude) |
 | `agent-deck -p {PROFILE} add <path> -t "Title" -c claude -g "group"` | Create new Claude session |
+| `agent-deck -p {PROFILE} launch <path> -t "Title" -c claude -g "group" -m "prompt"` | Create + start + send initial prompt in one command (preferred for new task sessions) |
 | `agent-deck -p {PROFILE} add <path> -t "Title" -c claude --worktree feature/branch -b` | Create session with new worktree |
 
 ### Session Resolution
@@ -180,7 +182,8 @@ When you first start (or after a restart):
 ## Important Notes
 
 - You cannot directly access other sessions' files. Use `session output` to read their latest response.
+- Prefer `launch ... -m "prompt"` over separate `add` + `session start` + `session send` when creating a new task session.
 - `session send` waits up to 60 seconds for the agent to be ready. If the session is running (busy), the send will wait.
-- The bridge polls your status every 2 seconds after sending you a message. Reply promptly.
+- The bridge sends with `session send --wait -q` and waits in a single CLI call. Reply promptly.
 - Your own session can be restarted by the bridge if it detects you're in an error state.
 - Keep state.json small (no large output dumps). Store summaries, not full text.

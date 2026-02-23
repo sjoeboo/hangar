@@ -304,8 +304,10 @@ func handleLaunch(profile string, args []string) {
 		}
 	}
 
-	// Start the session (with or without initial message)
-	if initialMessage != "" {
+	// Start the session.
+	// - default: StartWithMessage waits for readiness and delivers initial prompt
+	// - --no-wait: start immediately, then fire-and-forget send below
+	if initialMessage != "" && !*noWait {
 		if err := newInstance.StartWithMessage(initialMessage); err != nil {
 			out.Error(fmt.Sprintf("failed to start session: %v", err), ErrCodeInvalidOperation)
 			os.Exit(1)
@@ -326,8 +328,8 @@ func handleLaunch(profile string, args []string) {
 		os.Exit(1)
 	}
 
-	// Send message if provided and StartWithMessage wasn't used
-	// (StartWithMessage uses the deferred send mechanism; for --no-wait we send directly)
+	// Send message only for --no-wait mode.
+	// Non --no-wait mode already sent via StartWithMessage above.
 	if initialMessage != "" && *noWait {
 		tmuxSess := newInstance.GetTmuxSession()
 		if tmuxSess != nil {
@@ -349,6 +351,7 @@ func handleLaunch(profile string, args []string) {
 	}
 	if initialMessage != "" {
 		jsonData["message"] = initialMessage
+		jsonData["message_pending"] = !*noWait
 	}
 	if len(mcpFlags) > 0 {
 		jsonData["mcps"] = mcpFlags
@@ -363,7 +366,11 @@ func handleLaunch(profile string, args []string) {
 
 	msg := fmt.Sprintf("Launched session: %s", newInstance.Title)
 	if initialMessage != "" {
-		msg += " (message pending)"
+		if *noWait {
+			msg += " (message sent with --no-wait)"
+		} else {
+			msg += " (message pending)"
+		}
 	}
 	out.Success(msg, jsonData)
 }

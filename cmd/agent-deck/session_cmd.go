@@ -1391,13 +1391,13 @@ func handleSessionSend(profile string, args []string) {
 		}
 
 		// Fetch and print last response (like session output -q)
-		response, err := inst.GetLastResponse()
+		response, err := inst.GetLastResponseBestEffort()
 		if err != nil {
 			// Fallback: reload session from DB in case tmux env was also stale
 			// (e.g., /clear created a new session that TUI or hooks detected)
 			if _, freshInstances, _, loadErr := loadSessionData(profile); loadErr == nil {
 				if freshInst, _, _ := ResolveSession(sessionRef, freshInstances); freshInst != nil {
-					response, err = freshInst.GetLastResponse()
+					response, err = freshInst.GetLastResponseBestEffort()
 				}
 			}
 		}
@@ -1459,15 +1459,14 @@ func sendWithRetryTarget(target sendRetryTarget, message string, skipVerify bool
 
 	// Verify the agent starts processing. If it doesn't:
 	// - Retry Enter when the pane shows Claude's pasted-but-unsent marker.
-	// - Treat waiting/idle without that marker as success (message accepted quickly).
+	// - Require two consecutive waiting/idle checks without that marker before
+	//   assuming success (avoids a first-check race with stale pane content).
 	// - For ambiguous states, keep a small best-effort Enter retry budget.
+	waitingNoMarkerChecks := 0
 	for retry := 0; retry < opts.maxRetries; retry++ {
 		time.Sleep(opts.checkDelay)
 
 		status, err := target.GetStatus()
-		if err == nil && status == "active" {
-			return nil
-		}
 
 		pastedPromptUnsent := false
 		if content, captureErr := target.CapturePane(); captureErr == nil && hasUnsentPastedPrompt(content) {
@@ -1475,16 +1474,26 @@ func sendWithRetryTarget(target sendRetryTarget, message string, skipVerify bool
 		}
 
 		if pastedPromptUnsent {
+			waitingNoMarkerChecks = 0
 			_ = target.SendEnter()
 			continue
 		}
 
-		// If we're already waiting/idle and there's no unsent prompt marker,
-		// assume the message was accepted and either completed very quickly or
-		// is ready for the next input.
-		if err == nil && (status == "waiting" || status == "idle") {
+		if err == nil && status == "active" {
 			return nil
 		}
+
+		// If we're already waiting/idle and there's no unsent prompt marker,
+		// require two consecutive checks before assuming success. This avoids
+		// false positives when the first post-send capture is stale.
+		if err == nil && (status == "waiting" || status == "idle") {
+			waitingNoMarkerChecks++
+			if waitingNoMarkerChecks >= 2 {
+				return nil
+			}
+			continue
+		}
+		waitingNoMarkerChecks = 0
 
 		// Ambiguous state: keep a small best-effort Enter retry budget.
 		if retry < 2 {
@@ -1622,8 +1631,8 @@ func handleSessionOutput(profile string, args []string) {
 		return // unreachable, satisfies staticcheck SA5011
 	}
 
-	// Get the last response
-	response, err := inst.GetLastResponse()
+	// Get the last response (best-effort fallback for smoother CLI reads)
+	response, err := inst.GetLastResponseBestEffort()
 	if err != nil {
 		out.Error(fmt.Sprintf("failed to get response: %v", err), ErrCodeInvalidOperation)
 		os.Exit(1)

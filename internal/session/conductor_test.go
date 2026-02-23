@@ -549,13 +549,17 @@ func TestBridgeTemplate_HeartbeatSelectsOnePerProfile(t *testing.T) {
 	}
 }
 
-func TestBridgeTemplate_SendToConductorUsesNoWait(t *testing.T) {
+func TestBridgeTemplate_SendToConductorSupportsSingleCallWait(t *testing.T) {
 	template := conductorBridgePy
-	newPattern := `"session", "send", session, message, "--no-wait", profile=profile, timeout=30`
+	waitPattern := `"--wait", "--timeout", f"{response_timeout}s", "-q",`
+	noWaitPattern := `"session", "send", session, message, "--no-wait",`
 	oldPattern := `"session", "send", session, message, profile=profile, timeout=120`
 
-	if !strings.Contains(template, newPattern) {
-		t.Fatalf("template should use --no-wait send pattern: %q", newPattern)
+	if !strings.Contains(template, waitPattern) {
+		t.Fatalf("template should include --wait send path: %q", waitPattern)
+	}
+	if !strings.Contains(template, noWaitPattern) {
+		t.Fatalf("template should retain --no-wait send path: %q", noWaitPattern)
 	}
 	if strings.Contains(template, oldPattern) {
 		t.Fatalf("template should not contain blocking send pattern: %q", oldPattern)

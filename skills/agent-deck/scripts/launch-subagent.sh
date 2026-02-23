@@ -88,57 +88,15 @@ else
 fi
 mkdir -p "$WORK_DIR"
 
-# Build add command
-ADD_CMD="agent-deck -p $PROFILE add -t \"$TITLE\" --parent \"$PARENT\" -c $TOOL"
+# Launch session and send initial prompt in one command
+LAUNCH_CMD=(agent-deck -p "$PROFILE" launch "$WORK_DIR" -t "$TITLE" --parent "$PARENT" -c "$TOOL" -m "$PROMPT")
 for mcp in "${MCPS[@]}"; do
-    ADD_CMD="$ADD_CMD --mcp $mcp"
+    LAUNCH_CMD+=(--mcp "$mcp")
 done
-ADD_CMD="$ADD_CMD \"$WORK_DIR\""
+"${LAUNCH_CMD[@]}"
 
-# Create and start session
-eval "$ADD_CMD"
-agent-deck -p "$PROFILE" session start "$TITLE"
-
-# Get tmux session name for readiness check
+# Get tmux session name (used for optional --wait fallback capture)
 TMUX_SESSION=$(agent-deck -p "$PROFILE" session show "$TITLE" 2>/dev/null | grep '^Tmux:' | awk '{print $2}')
-
-# Tool-aware readiness patterns
-case "$TOOL" in
-    codex)
-        READY_PATTERN="OpenAI Codex|>_|codex>|How can I help"
-        ;;
-    gemini)
-        READY_PATTERN="Gemini|gemini|>>>"
-        ;;
-    *)
-        READY_PATTERN=">|claude|Claude Code|/tmp/"
-        ;;
-esac
-
-# Wait for agent to be ready
-echo "Waiting for $TOOL to initialize..."
-for i in $(seq 1 20); do
-    PANE_CONTENT=$(tmux capture-pane -t "$TMUX_SESSION" -p 2>/dev/null | tail -5)
-
-    if echo "$PANE_CONTENT" | grep -qE "($READY_PATTERN)" 2>/dev/null; then
-        sleep 2  # Extra buffer for stability
-        break
-    fi
-
-    # Codex: dismiss the approval prompt if it appears
-    if [ "$TOOL" = "codex" ]; then
-        FULL_PANE=$(tmux capture-pane -t "$TMUX_SESSION" -p 2>/dev/null)
-        if echo "$FULL_PANE" | grep -qE "(Require approval|Press enter to continue)" 2>/dev/null; then
-            tmux send-keys -t "$TMUX_SESSION" Enter
-            sleep 1
-        fi
-    fi
-
-    sleep 1
-done
-
-# Send prompt
-agent-deck -p "$PROFILE" session send "$TITLE" "$PROMPT"
 
 echo ""
 echo "Sub-agent launched:"

@@ -27,6 +27,7 @@ Each conductor has its own identity in its subdirectory and its own policy in PO
 | Command | Description |
 |---------|-------------|
 | ` + "`" + `agent-deck -p <PROFILE> session send <id_or_title> "message"` + "`" + ` | Send a message. Has built-in 60s wait for agent readiness. |
+| ` + "`" + `agent-deck -p <PROFILE> session send <id_or_title> "message" --wait -q --timeout 300s` + "`" + ` | Single-call send + wait + raw output (preferred when you need the reply now). |
 | ` + "`" + `agent-deck -p <PROFILE> session send <id_or_title> "message" --no-wait` + "`" + ` | Send immediately without waiting for ready state. |
 
 ### Session Control
@@ -36,6 +37,7 @@ Each conductor has its own identity in its subdirectory and its own policy in PO
 | ` + "`" + `agent-deck -p <PROFILE> session stop <id_or_title>` + "`" + ` | Stop a running session |
 | ` + "`" + `agent-deck -p <PROFILE> session restart <id_or_title>` + "`" + ` | Restart (reloads MCPs for Claude) |
 | ` + "`" + `agent-deck -p <PROFILE> add <path> -t "Title" -c claude -g "group"` + "`" + ` | Create new Claude session |
+| ` + "`" + `agent-deck -p <PROFILE> launch <path> -t "Title" -c claude -g "group" -m "prompt"` + "`" + ` | Create + start + send initial prompt in one command (preferred for new task sessions) |
 | ` + "`" + `agent-deck -p <PROFILE> add <path> -t "Title" -c claude --worktree feature/branch -b` + "`" + ` | Create session with new worktree |
 
 ### Session Resolution
@@ -132,8 +134,9 @@ For any other text, treat it as a conversational message from the user. They mig
 
 - This project is ` + "`" + `asheshgoplani/agent-deck` + "`" + ` on GitHub. When referencing GitHub issues or PRs, always use owner ` + "`" + `asheshgoplani` + "`" + ` and repo ` + "`" + `agent-deck` + "`" + `. Never use ` + "`" + `anthropics` + "`" + ` as the owner.
 - You cannot directly access other sessions' files. Use ` + "`" + `session output` + "`" + ` to read their latest response.
+- Prefer ` + "`" + `launch ... -m "prompt"` + "`" + ` over separate ` + "`" + `add` + "`" + ` + ` + "`" + `session start` + "`" + ` + ` + "`" + `session send` + "`" + ` when creating a new task session.
 - ` + "`" + `session send` + "`" + ` waits up to 60 seconds for the agent to be ready. If the session is running (busy), the send will wait.
-- The bridge polls your status every 2 seconds after sending you a message. Reply promptly.
+- The bridge sends with ` + "`" + `session send --wait -q` + "`" + ` and waits in a single CLI call. Reply promptly.
 - Your own session can be restarted by the bridge if it detects you're in an error state.
 - Keep state.json small (no large output dumps). Store summaries, not full text.
 `
@@ -309,9 +312,6 @@ SLACK_MAX_LENGTH = 40000
 
 # How long to wait for conductor to respond (seconds)
 RESPONSE_TIMEOUT = 300
-
-# Poll interval when waiting for conductor response (seconds)
-POLL_INTERVAL = 2
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -516,18 +516,36 @@ def get_session_output(session: str, profile: str | None = None) -> str:
 
 
 def send_to_conductor(
-    session: str, message: str, profile: str | None = None
-) -> bool:
-    """Send a message to the conductor session. Returns True on success."""
-    result = run_cli(
-        "session", "send", session, message, "--no-wait", profile=profile, timeout=30
-    )
+    session: str,
+    message: str,
+    profile: str | None = None,
+    wait_for_reply: bool = False,
+    response_timeout: int = RESPONSE_TIMEOUT,
+) -> tuple[bool, str]:
+    """Send a message to the conductor session.
+
+    Returns (success, response_text). When wait_for_reply=False, response_text is "".
+    """
+    if wait_for_reply:
+        # Single-call flow: send + wait + print raw response.
+        # Avoids extra status/output polling round-trips.
+        result = run_cli(
+            "session", "send", session, message,
+            "--wait", "--timeout", f"{response_timeout}s", "-q",
+            profile=profile,
+            timeout=max(response_timeout+30, 60),
+        )
+    else:
+        result = run_cli(
+            "session", "send", session, message, "--no-wait",
+            profile=profile, timeout=30,
+        )
     if result.returncode != 0:
         log.error(
             "Failed to send to conductor: %s", result.stderr.strip()
         )
-        return False
-    return True
+        return False, ""
+    return True, result.stdout.strip()
 
 
 def get_status_summary(profile: str | None = None) -> dict:
@@ -645,57 +663,6 @@ def parse_conductor_prefix(text: str, conductor_names: list[str]) -> tuple[str |
             return name, text[len(prefix):].strip()
 
     return None, text
-
-
-# ---------------------------------------------------------------------------
-# Response polling
-# ---------------------------------------------------------------------------
-
-
-async def wait_for_response(
-    session: str, profile: str | None = None, timeout: int = RESPONSE_TIMEOUT
-) -> str:
-    """Poll until the conductor finishes processing (status = waiting/idle).
-
-    Two phases:
-    1. Wait for the session to become active (processing the message).
-       This avoids reading stale output from before the message was sent.
-    2. Wait for the session to return to waiting/idle (response ready).
-
-    If reading the output fails (e.g. session file not yet created for new
-    sessions), keeps polling instead of returning the error immediately.
-    """
-    elapsed = 0
-    saw_active = False
-    last_error = ""
-
-    while elapsed < timeout:
-        await asyncio.sleep(POLL_INTERVAL)
-        elapsed += POLL_INTERVAL
-
-        status = get_session_status(session, profile=profile)
-        if status == "error":
-            return "[Conductor session is in error state. Try /restart]"
-
-        if status in ("running", "active", "starting"):
-            saw_active = True
-            continue
-
-        if status in ("waiting", "idle"):
-            should_read = saw_active or elapsed >= 6
-            if should_read:
-                output = get_session_output(session, profile=profile)
-                if output.startswith("[Error"):
-                    # Output not available yet (e.g. JSONL file not created).
-                    # Keep polling — it should appear soon.
-                    last_error = output
-                    saw_active = True  # prevent re-reading every poll
-                    continue
-                return output
-
-    if last_error:
-        return last_error
-    return f"[Conductor timed out after {timeout}s. It may still be processing.]"
 
 
 # ---------------------------------------------------------------------------
@@ -929,22 +896,24 @@ def create_telegram_bot(config: dict):
         log.info(
             "User message -> [%s]: %s", target["name"], cleaned_msg[:100]
         )
-        if not send_to_conductor(
-            session_title, cleaned_msg, profile=profile
-        ):
+        ok, response = send_to_conductor(
+            session_title,
+            cleaned_msg,
+            profile=profile,
+            wait_for_reply=True,
+            response_timeout=RESPONSE_TIMEOUT,
+        )
+        if not ok:
             await message.answer(
                 f"[Failed to send message to conductor {target['name']}.]"
             )
             return
 
-        # Wait for response
+        # Response is returned directly by session send --wait.
         name_tag = (
             f"[{target['name']}] " if len(conductors) > 1 else ""
         )
         await message.answer(f"{name_tag}...")  # typing indicator
-        response = await wait_for_response(
-            session_title, profile=profile
-        )
         log.info("Conductor [%s] response: %s", target["name"], response[:100])
 
         # Send response back (split if needed)
@@ -1072,7 +1041,14 @@ def create_slack_app(config: dict):
             return
 
         log.info("Slack message -> [%s]: %s", target["name"], cleaned_msg[:100])
-        if not send_to_conductor(session_title, cleaned_msg, profile=profile):
+        ok, response = send_to_conductor(
+            session_title,
+            cleaned_msg,
+            profile=profile,
+            wait_for_reply=True,
+            response_timeout=RESPONSE_TIMEOUT,
+        )
+        if not ok:
             await _safe_say(
                 say,
                 text=f"[Failed to send message to conductor {target['name']}.]",
@@ -1083,7 +1059,7 @@ def create_slack_app(config: dict):
         name_tag = f"[{target['name']}] " if len(conductors) > 1 else ""
         await _safe_say(say, text=f"{name_tag}...", thread_ts=thread_ts)
 
-        response = await wait_for_response(session_title, profile=profile)
+        # Response is returned directly by session send --wait.
         log.info("Conductor [%s] response: %s", target["name"], response[:100])
 
         for chunk in split_message(response, max_len=SLACK_MAX_LENGTH):
@@ -1359,19 +1335,21 @@ async def heartbeat_loop(config: dict, telegram_bot=None, slack_app=None, slack_
                     continue
 
                 # Send heartbeat to conductor
-                if not send_to_conductor(
-                    session_title, heartbeat_msg, profile=profile
-                ):
+                ok, response = send_to_conductor(
+                    session_title,
+                    heartbeat_msg,
+                    profile=profile,
+                    wait_for_reply=True,
+                    response_timeout=RESPONSE_TIMEOUT,
+                )
+                if not ok:
                     log.error(
                         "Heartbeat [%s]: failed to send to conductor",
                         name,
                     )
                     continue
 
-                # Wait for conductor's response
-                response = await wait_for_response(
-                    session_title, profile=profile
-                )
+                # Response is returned directly by session send --wait.
                 log.info(
                     "Heartbeat [%s] response: %s",
                     name, response[:200],

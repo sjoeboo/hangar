@@ -55,6 +55,11 @@ const (
 	// At 2s: 2-5 CapturePane() calls/sec = minimal CPU overhead
 	tickInterval = 2 * time.Second
 
+	// Launch animation minimum durations.
+	// Claude/Gemini get longer feedback because startup UI is richer and may settle asynchronously.
+	minLaunchAnimationDurationDefault = 500 * time.Millisecond
+	minLaunchAnimationDurationClaude  = 800 * time.Millisecond
+
 	// logCheckInterval - how often to check for oversized logs (fast check, just file stats)
 	// This catches runaway logs before they cause high CPU
 	logCheckInterval = 10 * time.Second
@@ -1359,6 +1364,13 @@ func (h *Home) cleanupExpiredAnimations(animMap map[string]time.Time, claudeTime
 	return toDelete
 }
 
+func launchAnimationMinDuration(tool string) time.Duration {
+	if tool == "claude" || tool == "gemini" {
+		return minLaunchAnimationDurationClaude
+	}
+	return minLaunchAnimationDurationDefault
+}
+
 // hasActiveAnimation checks if a session has an animation currently being displayed
 // Returns true only if the animation is actually showing (not just tracked in the map)
 // This MUST match the display logic in renderPreviewPane exactly
@@ -1397,8 +1409,8 @@ func (h *Home) hasActiveAnimation(sessionID string) bool {
 	// Status is updated via background polling (2s interval)
 	timeSinceStart := time.Since(startTime)
 
-	// Brief minimum (500ms) to prevent flicker during rapid status changes
-	if timeSinceStart < 500*time.Millisecond {
+	// Brief minimum to prevent flicker during rapid status changes
+	if timeSinceStart < launchAnimationMinDuration(inst.GetToolThreadSafe()) {
 		return true
 	}
 
@@ -3680,11 +3692,6 @@ func (h *Home) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if h.cursor < len(h.flatItems) {
 			item := h.flatItems[h.cursor]
 			if item.Type == session.ItemTypeSession && item.Session != nil {
-				// Block attachment during animations (must match renderPreviewPane display logic)
-				if h.hasActiveAnimation(item.Session.ID) {
-					h.setError(fmt.Errorf("session is starting, please wait..."))
-					return h, nil
-				}
 				if item.Session.Exists() {
 					h.isAttaching.Store(true) // Prevent View() output during transition (atomic)
 					return h, h.attachSession(item.Session)
@@ -5143,9 +5150,6 @@ func (h *Home) forkSessionCmdWithOptions(source *session.Instance, title, groupP
 	// Track source session as "forking" for immediate UI feedback
 	h.forkingSessions[source.ID] = time.Now()
 
-	// Capture current used session IDs before starting the async fork
-	// This ensures we don't detect an already-used session ID
-	usedIDs := h.getUsedClaudeSessionIDs()
 	sourceID := source.ID // Capture for closure
 
 	return func() tea.Msg {
@@ -5172,8 +5176,6 @@ func (h *Home) forkSessionCmdWithOptions(source *session.Instance, title, groupP
 		}
 
 		switch inst.Tool {
-		case "claude":
-			_ = inst.WaitForClaudeSessionWithExclude(5*time.Second, usedIDs)
 		case "opencode":
 			go inst.DetectOpenCodeSession()
 		}
@@ -8016,8 +8018,8 @@ func (h *Home) renderPreviewPane(width, height int) string {
 	if isLaunching || isResuming || isMcpLoading {
 		timeSinceStart := time.Since(animationStartTime)
 
-		// Brief minimum (500ms) to prevent flicker
-		if timeSinceStart < 500*time.Millisecond {
+		// Brief minimum to prevent flicker
+		if timeSinceStart < launchAnimationMinDuration(selected.Tool) {
 			if isMcpLoading {
 				showMcpLoadingAnimation = true
 			} else {
