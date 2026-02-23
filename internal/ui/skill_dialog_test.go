@@ -170,6 +170,35 @@ func TestSkillDialog_Show_AvailableOnlyPoolSource(t *testing.T) {
 	}
 }
 
+func TestSkillDialog_Show_IgnoresLegacyFileSkillsInAvailable(t *testing.T) {
+	cleanup := setupSkillDialogEnv(t)
+	defer cleanup()
+
+	poolPath := t.TempDir()
+	writeDialogSkillDir(t, poolPath, "pool-one", "pool-one", "Pool managed skill")
+	if err := os.WriteFile(filepath.Join(poolPath, "legacy.skill"), []byte("legacy"), 0o644); err != nil {
+		t.Fatalf("failed to write legacy skill file: %v", err)
+	}
+
+	if err := session.SaveSkillSources(map[string]session.SkillSourceDef{
+		"pool": {Path: poolPath, Enabled: boolPtrDialog(true)},
+	}); err != nil {
+		t.Fatalf("SaveSkillSources failed: %v", err)
+	}
+
+	dialog := NewSkillDialog()
+	if err := dialog.Show(t.TempDir(), "sess-1", "claude"); err != nil {
+		t.Fatalf("Show failed: %v", err)
+	}
+
+	if len(dialog.available) != 1 {
+		t.Fatalf("expected only directory skills in available, got %d", len(dialog.available))
+	}
+	if dialog.available[0].Candidate.EntryName != "pool-one" {
+		t.Fatalf("expected pool-one directory entry, got %q", dialog.available[0].Candidate.EntryName)
+	}
+}
+
 func TestSkillDialog_TypeJump(t *testing.T) {
 	dialog := NewSkillDialog()
 	dialog.visible = true

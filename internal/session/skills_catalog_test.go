@@ -271,6 +271,115 @@ func TestAttachDetachSkillProject(t *testing.T) {
 	}
 }
 
+func TestAttachSkillToProject_RejectsLegacyFileSkill(t *testing.T) {
+	_, cleanup := setupSkillTestEnv(t)
+	defer cleanup()
+
+	sourcePath, err := os.MkdirTemp("", "agentdeck-legacy-file-source-*")
+	if err != nil {
+		t.Fatalf("failed to create source path: %v", err)
+	}
+	defer os.RemoveAll(sourcePath)
+
+	if err := os.WriteFile(filepath.Join(sourcePath, "legacy.skill"), []byte("legacy"), 0o644); err != nil {
+		t.Fatalf("failed to write legacy .skill file: %v", err)
+	}
+
+	if err := SaveSkillSources(map[string]SkillSourceDef{
+		"local": {Path: sourcePath, Enabled: boolPtr(true)},
+	}); err != nil {
+		t.Fatalf("SaveSkillSources failed: %v", err)
+	}
+
+	projectPath, err := os.MkdirTemp("", "agentdeck-legacy-project-*")
+	if err != nil {
+		t.Fatalf("failed to create project path: %v", err)
+	}
+	defer os.RemoveAll(projectPath)
+
+	_, err = AttachSkillToProject(projectPath, "legacy", "local")
+	if !errors.Is(err, ErrSkillUnsupportedKind) {
+		t.Fatalf("expected ErrSkillUnsupportedKind, got %v", err)
+	}
+}
+
+func TestAttachSkillToProject_RematerializesBrokenSymlink(t *testing.T) {
+	_, cleanup := setupSkillTestEnv(t)
+	defer cleanup()
+
+	sourcePath, err := os.MkdirTemp("", "agentdeck-broken-link-source-*")
+	if err != nil {
+		t.Fatalf("failed to create source path: %v", err)
+	}
+	defer os.RemoveAll(sourcePath)
+
+	writeSkillDir(t, sourcePath, "lint", "lint", "Linting best practices")
+	if err := SaveSkillSources(map[string]SkillSourceDef{
+		"local": {Path: sourcePath, Enabled: boolPtr(true)},
+	}); err != nil {
+		t.Fatalf("SaveSkillSources failed: %v", err)
+	}
+
+	projectPath, err := os.MkdirTemp("", "agentdeck-broken-link-project-*")
+	if err != nil {
+		t.Fatalf("failed to create project path: %v", err)
+	}
+	defer os.RemoveAll(projectPath)
+
+	if _, err := AttachSkillToProject(projectPath, "lint", "local"); err != nil {
+		t.Fatalf("initial attach failed: %v", err)
+	}
+
+	targetPath := filepath.Join(projectPath, ".claude", "skills", "lint")
+	if err := os.RemoveAll(targetPath); err != nil {
+		t.Fatalf("failed to remove target: %v", err)
+	}
+	if err := os.Symlink("missing-target", targetPath); err != nil {
+		t.Fatalf("failed to create broken symlink: %v", err)
+	}
+	if _, err := os.Stat(targetPath); !os.IsNotExist(err) {
+		t.Fatalf("expected broken symlink, stat err=%v", err)
+	}
+
+	if _, err := AttachSkillToProject(projectPath, "lint", "local"); err != nil {
+		t.Fatalf("reattach should rematerialize broken link, got %v", err)
+	}
+
+	if _, err := os.Stat(filepath.Join(targetPath, "SKILL.md")); err != nil {
+		t.Fatalf("expected rematerialized skill content, got %v", err)
+	}
+}
+
+func TestMaterializeSkill_SymlinkedTargetPathCreatesReadableTarget(t *testing.T) {
+	root := t.TempDir()
+
+	sourceRoot := filepath.Join(root, "source")
+	sourcePath := writeSkillDir(t, sourceRoot, "lint", "lint", "Linting best practices")
+
+	realBase := filepath.Join(root, "real", "nested", "path")
+	if err := os.MkdirAll(realBase, 0o755); err != nil {
+		t.Fatalf("failed to create real base path: %v", err)
+	}
+
+	aliasBase := filepath.Join(root, "alias")
+	if err := os.Symlink(realBase, aliasBase); err != nil {
+		t.Skipf("symlink not supported in this environment: %v", err)
+	}
+
+	targetPath := filepath.Join(aliasBase, "project", ".claude", "skills", "lint")
+	mode, err := materializeSkill(sourcePath, targetPath)
+	if err != nil {
+		t.Fatalf("materializeSkill failed: %v", err)
+	}
+	if mode != "symlink" && mode != "copy" {
+		t.Fatalf("unexpected materialize mode: %s", mode)
+	}
+
+	if _, err := os.Stat(filepath.Join(targetPath, "SKILL.md")); err != nil {
+		t.Fatalf("expected readable materialized target, got %v", err)
+	}
+}
+
 func TestApplyProjectSkills_SyncsAttachments(t *testing.T) {
 	_, cleanup := setupSkillTestEnv(t)
 	defer cleanup()

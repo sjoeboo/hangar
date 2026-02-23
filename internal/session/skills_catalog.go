@@ -29,6 +29,7 @@ var (
 	ErrSkillSourceNotFound  = errors.New("skill source not found")
 	ErrSkillNotFound        = errors.New("skill not found")
 	ErrSkillAmbiguous       = errors.New("skill reference is ambiguous")
+	ErrSkillUnsupportedKind = errors.New("skill is not a Claude-compatible directory skill")
 	ErrSkillAlreadyAttached = errors.New("skill already attached")
 	ErrSkillNotAttached     = errors.New("skill not attached")
 	ErrSkillTargetConflict  = errors.New("skill target path conflict")
@@ -770,10 +771,28 @@ func materializeSkill(sourcePath, targetPath string) (string, error) {
 		return "", err
 	}
 
-	relTarget, relErr := filepath.Rel(filepath.Dir(targetPath), sourcePath)
+	// Resolve symlinks before computing relative paths.
+	// This avoids broken relative links when target lives under a symlinked path
+	// (for example macOS /tmp -> /private/tmp).
+	resolvedSourcePath := sourcePath
+	if resolved, err := filepath.EvalSymlinks(sourcePath); err == nil {
+		resolvedSourcePath = resolved
+	}
+
+	relBase := filepath.Dir(targetPath)
+	if resolvedBase, err := filepath.EvalSymlinks(relBase); err == nil {
+		relBase = resolvedBase
+	}
+
+	relTarget, relErr := filepath.Rel(relBase, resolvedSourcePath)
 	if relErr == nil {
 		if err := os.Symlink(relTarget, targetPath); err == nil {
-			return "symlink", nil
+			// Validate that the symlink resolves to a real target.
+			// If it does not, fall back to copy mode below.
+			if _, err := os.Stat(targetPath); err == nil {
+				return "symlink", nil
+			}
+			_ = os.Remove(targetPath)
 		}
 	}
 
@@ -826,7 +845,36 @@ func buildAttachment(projectPath string, candidate SkillCandidate, mode string) 
 	})
 }
 
+func validateAttachableSkillCandidate(candidate SkillCandidate) error {
+	// Claude-compatible project skills must be directory skills with SKILL.md.
+	if candidate.Kind != "dir" {
+		return fmt.Errorf("%w: %s", ErrSkillUnsupportedKind, candidate.Name)
+	}
+
+	info, err := os.Stat(candidate.SourcePath)
+	if err != nil {
+		return err
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("%w: %s", ErrSkillUnsupportedKind, candidate.Name)
+	}
+
+	skillMD := filepath.Join(candidate.SourcePath, "SKILL.md")
+	if _, err := os.Stat(skillMD); err != nil {
+		if os.IsNotExist(err) {
+			return fmt.Errorf("%w: %s", ErrSkillUnsupportedKind, candidate.Name)
+		}
+		return err
+	}
+
+	return nil
+}
+
 func attachSkillCandidate(projectPath string, candidate SkillCandidate) (*ProjectSkillAttachment, error) {
+	if err := validateAttachableSkillCandidate(candidate); err != nil {
+		return nil, err
+	}
+
 	manifest, err := LoadProjectSkillsManifest(projectPath)
 	if err != nil {
 		return nil, err
@@ -837,8 +885,10 @@ func attachSkillCandidate(projectPath string, candidate SkillCandidate) (*Projec
 		existing := manifest.Skills[i]
 		if normalizeSkillToken(skillIDForAttachment(existing)) == normalizeSkillToken(candidateID) {
 			targetPath := resolveTargetPath(projectPath, existing.TargetPath)
-			if _, err := os.Lstat(targetPath); err == nil {
+			if _, err := os.Stat(targetPath); err == nil {
 				return nil, fmt.Errorf("%w: %s", ErrSkillAlreadyAttached, candidate.Name)
+			} else if !os.IsNotExist(err) {
+				return nil, err
 			}
 
 			mode, err := materializeSkill(candidate.SourcePath, targetPath)
@@ -1040,7 +1090,10 @@ func ApplyProjectSkills(projectPath string, desired []SkillCandidate) error {
 		candidate := desiredByID[id]
 		if current, exists := currentByID[id]; exists {
 			targetPath := resolveTargetPath(projectPath, current.TargetPath)
-			if _, err := os.Lstat(targetPath); err != nil {
+			if _, err := os.Stat(targetPath); err != nil {
+				if !os.IsNotExist(err) {
+					return err
+				}
 				mode, err := materializeSkill(candidate.SourcePath, targetPath)
 				if err != nil {
 					return err

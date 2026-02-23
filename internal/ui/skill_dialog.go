@@ -95,7 +95,7 @@ func (d *SkillDialog) Show(projectPath, sessionID, tool string) error {
 	availableSkills := make([]session.SkillCandidate, 0, len(allDiscoveredSkills))
 	for _, skill := range allDiscoveredSkills {
 		discoveredByID[skill.ID] = skill
-		if strings.EqualFold(skill.Source, skillDialogAvailableSource) {
+		if strings.EqualFold(skill.Source, skillDialogAvailableSource) && strings.EqualFold(skill.Kind, "dir") {
 			availableSkills = append(availableSkills, skill)
 		}
 	}

@@ -322,6 +322,9 @@ func handleSkillAttach(profile string, args []string) {
 		case errors.Is(err, session.ErrSkillAmbiguous):
 			out.Error(err.Error(), ErrCodeAmbiguous)
 			os.Exit(2)
+		case errors.Is(err, session.ErrSkillUnsupportedKind):
+			out.Error(err.Error(), ErrCodeInvalidOperation)
+			os.Exit(1)
 		case errors.Is(err, session.ErrSkillAlreadyAttached):
 			out.Error(err.Error(), ErrCodeAlreadyExists)
 			os.Exit(1)
