@@ -4915,21 +4915,6 @@ func (h *Home) loadUIState() {
 	h.pendingCursorRestore = &state
 }
 
-// getUsedClaudeSessionIDs returns a map of all Claude session IDs currently in use
-// This is used for deduplication when detecting new session IDs
-func (h *Home) getUsedClaudeSessionIDs() map[string]bool {
-	h.instancesMu.RLock()
-	defer h.instancesMu.RUnlock()
-
-	usedIDs := make(map[string]bool)
-	for _, inst := range h.instances {
-		if inst.ClaudeSessionID != "" {
-			usedIDs[inst.ClaudeSessionID] = true
-		}
-	}
-	return usedIDs
-}
-
 // createSessionInGroupWithWorktreeAndOptions creates a new session with full options including YOLO mode and tool options
 func (h *Home) createSessionInGroupWithWorktreeAndOptions(name, path, command, groupPath, worktreePath, worktreeRepoRoot, worktreeBranch string, geminiYoloMode bool, toolOptionsJSON json.RawMessage) tea.Cmd {
 	return func() tea.Msg {
