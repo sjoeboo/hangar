@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/asheshgoplani/agent-deck/internal/session"
 	tea "github.com/charmbracelet/bubbletea"
@@ -14,7 +15,10 @@ import (
 func setupSkillDialogEnv(t *testing.T) func() {
 	t.Helper()
 
-	homeDir := t.TempDir()
+	homeDir, err := os.MkdirTemp("", "agentdeck-skill-dialog-home-*")
+	if err != nil {
+		t.Fatalf("failed to create temp home: %v", err)
+	}
 	claudeDir := filepath.Join(homeDir, ".claude")
 	if err := os.MkdirAll(claudeDir, 0o755); err != nil {
 		t.Fatalf("failed to create claude dir: %v", err)
@@ -34,6 +38,12 @@ func setupSkillDialogEnv(t *testing.T) func() {
 		_ = os.Setenv("HOME", oldHome)
 		_ = os.Setenv("CLAUDE_CONFIG_DIR", oldClaude)
 		session.ClearUserConfigCache()
+		for i := 0; i < 3; i++ {
+			if err := os.RemoveAll(homeDir); err == nil || os.IsNotExist(err) {
+				break
+			}
+			time.Sleep(20 * time.Millisecond)
+		}
 	}
 }
 
