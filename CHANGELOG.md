@@ -5,6 +5,18 @@ All notable changes to Agent Deck will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.11] - 2026-02-23
+
+### Added
+
+- Add shared and per-conductor `LEARNINGS.md` support with setup/migration wiring so conductors can capture reusable orchestration lessons over time.
+
+### Fixed
+
+- Harden `launch -m` and `session send` message delivery for Claude by using fresh pane captures, robust composer prompt parsing (including wrapped prompts), and stronger Enter retry verification to avoid pasted-but-unsent prompts.
+- Improve readiness detection for non-Claude tools (including Codex) by treating stable `idle`/`waiting` states as ready, preventing false startup timeouts when launching with an initial message.
+- Fix launch/session-start messaging semantics so non-`--no-wait` flows correctly report message sent state (`message_pending=false`).
+
 ## [0.19.10] - 2026-02-23
 
 ### Fixed
