@@ -336,6 +336,14 @@ func SetupConductor(name, profile string, heartbeatEnabled bool, description str
 		return fmt.Errorf("failed to write meta.json: %w", err)
 	}
 
+	// Write per-conductor LEARNINGS.md (don't overwrite existing)
+	learningsPath := filepath.Join(dir, "LEARNINGS.md")
+	if _, err := os.Stat(learningsPath); os.IsNotExist(err) {
+		if err := os.WriteFile(learningsPath, []byte(conductorLearningsTemplate), 0o644); err != nil {
+			return fmt.Errorf("failed to write LEARNINGS.md: %w", err)
+		}
+	}
+
 	return nil
 }
 
@@ -573,6 +581,24 @@ func InstallSharedClaudeMD(customPath string) error {
 	return nil
 }
 
+// InstallLearningsMD writes the default LEARNINGS.md to the conductor base directory.
+// This is the shared (Tier 1) learnings file for generic patterns across all conductors.
+func InstallLearningsMD() error {
+	dir, err := ConductorDir()
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return fmt.Errorf("failed to create directory: %w", err)
+	}
+	targetPath := filepath.Join(dir, "LEARNINGS.md")
+	// Don't overwrite if already exists (preserves user entries)
+	if _, err := os.Stat(targetPath); err == nil {
+		return nil
+	}
+	return os.WriteFile(targetPath, []byte(conductorLearningsTemplate), 0o644)
+}
+
 // InstallPolicyMD writes the default POLICY.md to the conductor base directory,
 // or creates a symlink if customPath is provided.
 // This contains agent behavior rules (auto-response policy, escalation guidelines).
@@ -726,6 +752,108 @@ func MigrateConductorPolicySplit() ([]string, error) {
 			return migrated, fmt.Errorf("failed to migrate %s CLAUDE.md: %w", name, err)
 		}
 		migrated = append(migrated, name)
+	}
+
+	return migrated, nil
+}
+
+// MigrateConductorLearnings backfills LEARNINGS.md files for existing conductors and
+// updates per-conductor CLAUDE.md startup checklists to include the LEARNINGS.md reading step.
+// It only rewrites non-symlink CLAUDE.md files that exactly match the pre-learnings generated template.
+// Returns the names of conductors that were updated.
+func MigrateConductorLearnings() ([]string, error) {
+	base, err := ConductorDir()
+	if err != nil {
+		return nil, err
+	}
+	if _, err := os.Stat(base); os.IsNotExist(err) {
+		return nil, nil
+	}
+	entries, err := os.ReadDir(base)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read conductor directory: %w", err)
+	}
+
+	var migrated []string
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		name := entry.Name()
+		dir := filepath.Join(base, name)
+
+		// Must have meta.json (is a conductor)
+		meta, err := LoadConductorMeta(name)
+		if err != nil {
+			continue
+		}
+
+		changed := false
+
+		// 1. Create LEARNINGS.md if missing
+		learningsPath := filepath.Join(dir, "LEARNINGS.md")
+		if _, err := os.Stat(learningsPath); os.IsNotExist(err) {
+			if err := os.WriteFile(learningsPath, []byte(conductorLearningsTemplate), 0o644); err == nil {
+				changed = true
+			}
+		}
+
+		// 2. Update CLAUDE.md startup checklist (only for non-symlink, exact template matches)
+		claudePath := filepath.Join(dir, "CLAUDE.md")
+		info, err := os.Lstat(claudePath)
+		if err != nil {
+			if changed {
+				migrated = append(migrated, name)
+			}
+			continue
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			if changed {
+				migrated = append(migrated, name)
+			}
+			continue
+		}
+
+		contentBytes, err := os.ReadFile(claudePath)
+		if err != nil {
+			if changed {
+				migrated = append(migrated, name)
+			}
+			continue
+		}
+		content := string(contentBytes)
+
+		// Already has learnings step
+		if strings.Contains(content, "LEARNINGS.md") {
+			if changed {
+				migrated = append(migrated, name)
+			}
+			continue
+		}
+
+		preLearnings := renderConductorClaudeTemplate(conductorPerNameClaudeMDPreLearningsTemplate, name, meta.Profile)
+		if !matchesTemplateContent(content, preLearnings) {
+			if changed {
+				migrated = append(migrated, name)
+			}
+			continue
+		}
+
+		updated := renderConductorClaudeTemplate(conductorPerNameClaudeMDTemplate, name, meta.Profile)
+		if err := os.WriteFile(claudePath, []byte(updated), 0o644); err != nil {
+			return migrated, fmt.Errorf("failed to migrate %s CLAUDE.md: %w", name, err)
+		}
+		changed = true
+
+		if changed {
+			migrated = append(migrated, name)
+		}
+	}
+
+	// Also create shared LEARNINGS.md if missing
+	sharedPath := filepath.Join(base, "LEARNINGS.md")
+	if _, err := os.Stat(sharedPath); os.IsNotExist(err) {
+		_ = os.WriteFile(sharedPath, []byte(conductorLearningsTemplate), 0o644)
 	}
 
 	return migrated, nil

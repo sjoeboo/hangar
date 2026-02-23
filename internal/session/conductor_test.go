@@ -1316,6 +1316,340 @@ func TestMigrateConductorPolicySplit_PreservesCustomClaudeMD(t *testing.T) {
 	}
 }
 
+// --- LEARNINGS.md tests ---
+
+func TestInstallLearningsMD(t *testing.T) {
+	tmpHome := t.TempDir()
+	t.Setenv("HOME", tmpHome)
+
+	err := InstallLearningsMD()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	learningsPath := filepath.Join(tmpHome, ".agent-deck", "conductor", "LEARNINGS.md")
+	content, err := os.ReadFile(learningsPath)
+	if err != nil {
+		t.Fatalf("LEARNINGS.md not created: %v", err)
+	}
+
+	if !strings.Contains(string(content), "# Conductor Learnings") {
+		t.Error("LEARNINGS.md should contain header")
+	}
+	if !strings.Contains(string(content), "## Entry Format") {
+		t.Error("LEARNINGS.md should contain Entry Format section")
+	}
+	if !strings.Contains(string(content), "## How to Use This File") {
+		t.Error("LEARNINGS.md should contain How to Use section")
+	}
+}
+
+func TestInstallLearningsMDPreservesExisting(t *testing.T) {
+	tmpHome := t.TempDir()
+	t.Setenv("HOME", tmpHome)
+
+	// Create the directory and an existing LEARNINGS.md with custom content
+	conductorDir := filepath.Join(tmpHome, ".agent-deck", "conductor")
+	if err := os.MkdirAll(conductorDir, 0o755); err != nil {
+		t.Fatalf("failed to create dir: %v", err)
+	}
+	customContent := "# My Custom Learnings\n\n### [20260101-001] Test entry\n"
+	learningsPath := filepath.Join(conductorDir, "LEARNINGS.md")
+	if err := os.WriteFile(learningsPath, []byte(customContent), 0o644); err != nil {
+		t.Fatalf("failed to write existing file: %v", err)
+	}
+
+	// InstallLearningsMD should NOT overwrite
+	err := InstallLearningsMD()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	content, err := os.ReadFile(learningsPath)
+	if err != nil {
+		t.Fatalf("failed to read file: %v", err)
+	}
+	if string(content) != customContent {
+		t.Errorf("existing LEARNINGS.md should be preserved, got:\n%s", string(content))
+	}
+}
+
+func TestSetupConductorCreatesLearnings(t *testing.T) {
+	tmpHome := t.TempDir()
+	t.Setenv("HOME", tmpHome)
+
+	name := "learnings-test"
+	if err := SetupConductor(name, "default", true, "", "", ""); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	dir, _ := ConductorNameDir(name)
+	learningsPath := filepath.Join(dir, "LEARNINGS.md")
+	content, err := os.ReadFile(learningsPath)
+	if err != nil {
+		t.Fatalf("per-conductor LEARNINGS.md not created: %v", err)
+	}
+
+	if !strings.Contains(string(content), "# Conductor Learnings") {
+		t.Error("per-conductor LEARNINGS.md should contain template content")
+	}
+	if !strings.Contains(string(content), "Promote") {
+		t.Error("per-conductor LEARNINGS.md should contain promotion rules")
+	}
+}
+
+func TestSetupConductorPreservesExistingLearnings(t *testing.T) {
+	tmpHome := t.TempDir()
+	t.Setenv("HOME", tmpHome)
+
+	name := "learnings-preserve"
+	// First setup creates the file
+	if err := SetupConductor(name, "default", true, "", "", ""); err != nil {
+		t.Fatalf("first setup failed: %v", err)
+	}
+
+	// Write custom content
+	dir, _ := ConductorNameDir(name)
+	learningsPath := filepath.Join(dir, "LEARNINGS.md")
+	customContent := "# My Learnings\n\n### [20260201-001] Custom entry\n"
+	if err := os.WriteFile(learningsPath, []byte(customContent), 0o644); err != nil {
+		t.Fatalf("failed to write custom content: %v", err)
+	}
+
+	// Re-running setup should NOT overwrite
+	if err := SetupConductor(name, "default", true, "", "", ""); err != nil {
+		t.Fatalf("second setup failed: %v", err)
+	}
+
+	content, err := os.ReadFile(learningsPath)
+	if err != nil {
+		t.Fatalf("failed to read file: %v", err)
+	}
+	if string(content) != customContent {
+		t.Errorf("existing per-conductor LEARNINGS.md should be preserved, got:\n%s", string(content))
+	}
+}
+
+func TestLearningsTemplateContent(t *testing.T) {
+	template := conductorLearningsTemplate
+
+	// Verify required sections
+	sections := []string{
+		"# Conductor Learnings",
+		"## How to Use This File",
+		"## Entry Format",
+		"YYYYMMDD-NNN",
+	}
+	for _, section := range sections {
+		if !strings.Contains(template, section) {
+			t.Errorf("template should contain %q", section)
+		}
+	}
+
+	// Verify entry types are documented
+	types := []string{
+		"auto_response_ok",
+		"auto_response_wrong",
+		"escalation_unnecessary",
+		"escalation_correct",
+		"pattern",
+		"session_behavior",
+	}
+	for _, entryType := range types {
+		if !strings.Contains(template, entryType) {
+			t.Errorf("template should document entry type %q", entryType)
+		}
+	}
+
+	// Verify promotion instructions
+	if !strings.Contains(template, "Promote") {
+		t.Error("template should contain promotion instructions")
+	}
+	if !strings.Contains(template, "POLICY.md") {
+		t.Error("template should reference POLICY.md for promotions")
+	}
+
+	// Verify status values
+	statuses := []string{"active", "promoted", "retired"}
+	for _, status := range statuses {
+		if !strings.Contains(template, status) {
+			t.Errorf("template should document status %q", status)
+		}
+	}
+}
+
+func TestMigrateConductorLearnings_BackfillsExistingConductors(t *testing.T) {
+	tmpHome := t.TempDir()
+	t.Setenv("HOME", tmpHome)
+
+	name := "existing-conductor"
+	profile := DefaultProfile
+
+	// Create a conductor with the pre-learnings template (post-policy-split, no LEARNINGS.md step)
+	if err := SaveConductorMeta(&ConductorMeta{
+		Name:             name,
+		Profile:          profile,
+		HeartbeatEnabled: true,
+		CreatedAt:        "2026-01-01T00:00:00Z",
+	}); err != nil {
+		t.Fatalf("failed to save meta: %v", err)
+	}
+
+	dir, _ := ConductorNameDir(name)
+	claudePath := filepath.Join(dir, "CLAUDE.md")
+	preLearningsContent := renderConductorClaudeTemplate(conductorPerNameClaudeMDPreLearningsTemplate, name, profile)
+	if err := os.WriteFile(claudePath, []byte(preLearningsContent), 0o644); err != nil {
+		t.Fatalf("failed to write pre-learnings CLAUDE.md: %v", err)
+	}
+
+	// Run migration
+	migrated, err := MigrateConductorLearnings()
+	if err != nil {
+		t.Fatalf("unexpected migration error: %v", err)
+	}
+
+	// Should be migrated
+	found := false
+	for _, n := range migrated {
+		if n == name {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected %q to be migrated, got %v", name, migrated)
+	}
+
+	// Verify CLAUDE.md now has LEARNINGS.md step
+	content, err := os.ReadFile(claudePath)
+	if err != nil {
+		t.Fatalf("failed to read CLAUDE.md: %v", err)
+	}
+	if !strings.Contains(string(content), "LEARNINGS.md") {
+		t.Fatal("migrated CLAUDE.md should reference LEARNINGS.md")
+	}
+	if !strings.Contains(string(content), "review past patterns") {
+		t.Fatal("migrated CLAUDE.md should contain learnings reading instruction")
+	}
+
+	// Verify per-conductor LEARNINGS.md was created
+	learningsPath := filepath.Join(dir, "LEARNINGS.md")
+	lContent, err := os.ReadFile(learningsPath)
+	if err != nil {
+		t.Fatalf("per-conductor LEARNINGS.md not created: %v", err)
+	}
+	if !strings.Contains(string(lContent), "# Conductor Learnings") {
+		t.Fatal("per-conductor LEARNINGS.md should contain template")
+	}
+
+	// Verify shared LEARNINGS.md was created
+	base, _ := ConductorDir()
+	sharedPath := filepath.Join(base, "LEARNINGS.md")
+	sContent, err := os.ReadFile(sharedPath)
+	if err != nil {
+		t.Fatalf("shared LEARNINGS.md not created: %v", err)
+	}
+	if !strings.Contains(string(sContent), "# Conductor Learnings") {
+		t.Fatal("shared LEARNINGS.md should contain template")
+	}
+}
+
+func TestMigrateConductorLearnings_PreservesCustomClaudeMD(t *testing.T) {
+	tmpHome := t.TempDir()
+	t.Setenv("HOME", tmpHome)
+
+	name := "custom-learnings-migrate"
+	if err := SaveConductorMeta(&ConductorMeta{
+		Name:             name,
+		Profile:          "work",
+		HeartbeatEnabled: true,
+		CreatedAt:        "2026-01-01T00:00:00Z",
+	}); err != nil {
+		t.Fatalf("failed to save meta: %v", err)
+	}
+
+	dir, _ := ConductorNameDir(name)
+	claudePath := filepath.Join(dir, "CLAUDE.md")
+	customContent := "# Custom conductor instructions\nDo not overwrite.\n"
+	if err := os.WriteFile(claudePath, []byte(customContent), 0o644); err != nil {
+		t.Fatalf("failed to write custom CLAUDE.md: %v", err)
+	}
+
+	migrated, err := MigrateConductorLearnings()
+	if err != nil {
+		t.Fatalf("unexpected migration error: %v", err)
+	}
+
+	// Should still be migrated (LEARNINGS.md was created) but CLAUDE.md preserved
+	content, err := os.ReadFile(claudePath)
+	if err != nil {
+		t.Fatalf("failed to read CLAUDE.md: %v", err)
+	}
+	if string(content) != customContent {
+		t.Fatal("custom CLAUDE.md should be preserved")
+	}
+
+	// LEARNINGS.md should still be created
+	learningsPath := filepath.Join(dir, "LEARNINGS.md")
+	if _, err := os.Stat(learningsPath); os.IsNotExist(err) {
+		t.Fatal("per-conductor LEARNINGS.md should be created even for custom CLAUDE.md")
+	}
+
+	// Verify the conductor IS in migrated list (because LEARNINGS.md was created)
+	found := false
+	for _, n := range migrated {
+		if n == name {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatal("conductor should be in migrated list since LEARNINGS.md was created")
+	}
+}
+
+func TestMigrateConductorLearnings_SkipsAlreadyMigrated(t *testing.T) {
+	tmpHome := t.TempDir()
+	t.Setenv("HOME", tmpHome)
+
+	name := "already-migrated"
+	if err := SaveConductorMeta(&ConductorMeta{
+		Name:             name,
+		Profile:          DefaultProfile,
+		HeartbeatEnabled: true,
+		CreatedAt:        "2026-01-01T00:00:00Z",
+	}); err != nil {
+		t.Fatalf("failed to save meta: %v", err)
+	}
+
+	dir, _ := ConductorNameDir(name)
+
+	// Write the current (post-learnings) template
+	claudePath := filepath.Join(dir, "CLAUDE.md")
+	currentContent := renderConductorClaudeTemplate(conductorPerNameClaudeMDTemplate, name, DefaultProfile)
+	if err := os.WriteFile(claudePath, []byte(currentContent), 0o644); err != nil {
+		t.Fatalf("failed to write CLAUDE.md: %v", err)
+	}
+
+	// Write LEARNINGS.md too
+	learningsPath := filepath.Join(dir, "LEARNINGS.md")
+	if err := os.WriteFile(learningsPath, []byte(conductorLearningsTemplate), 0o644); err != nil {
+		t.Fatalf("failed to write LEARNINGS.md: %v", err)
+	}
+
+	migrated, err := MigrateConductorLearnings()
+	if err != nil {
+		t.Fatalf("unexpected migration error: %v", err)
+	}
+
+	// Should NOT appear in migrated list (already up to date)
+	for _, n := range migrated {
+		if n == name {
+			t.Fatal("already-migrated conductor should not be in migrated list")
+		}
+	}
+}
+
 func TestMigrateConductorPolicySplit_PreservesSymlinkedClaudeMD(t *testing.T) {
 	tmpHome := t.TempDir()
 	t.Setenv("HOME", tmpHome)

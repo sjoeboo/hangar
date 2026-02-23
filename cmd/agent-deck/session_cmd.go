@@ -207,8 +207,8 @@ func handleSessionStart(profile string, args []string) {
 	}
 	if initialMessage != "" {
 		jsonData["message"] = initialMessage
-		jsonData["message_pending"] = true
-		out.Success(fmt.Sprintf("Started session: %s (message will be sent when ready)", inst.Title), jsonData)
+		jsonData["message_pending"] = false
+		out.Success(fmt.Sprintf("Started session: %s (message sent)", inst.Title), jsonData)
 	} else {
 		out.Success(fmt.Sprintf("Started session: %s", inst.Title), jsonData)
 	}
@@ -1418,8 +1418,8 @@ func handleSessionSend(profile string, args []string) {
 // doesn't start processing within a reasonable time.
 func sendWithRetry(tmuxSess *tmux.Session, message string, skipVerify bool) error {
 	return sendWithRetryTarget(tmuxSess, message, skipVerify, sendRetryOptions{
-		maxRetries: 6,
-		checkDelay: 500 * time.Millisecond,
+		maxRetries: 50,
+		checkDelay: 300 * time.Millisecond,
 	})
 }
 
@@ -1427,7 +1427,7 @@ type sendRetryTarget interface {
 	SendKeysAndEnter(string) error
 	GetStatus() (string, error)
 	SendEnter() error
-	CapturePane() (string, error)
+	CapturePaneFresh() (string, error)
 }
 
 type sendRetryOptions struct {
@@ -1439,6 +1439,172 @@ type sendRetryOptions struct {
 // Example: "[Pasted text #1 +89 lines]".
 func hasUnsentPastedPrompt(content string) bool {
 	return strings.Contains(strings.ToLower(content), "[pasted text")
+}
+
+func normalizePromptText(s string) string {
+	s = strings.ReplaceAll(s, "\u00a0", " ")
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return ""
+	}
+	return strings.Join(strings.Fields(s), " ")
+}
+
+func isComposerDividerLine(line string) bool {
+	line = strings.TrimSpace(line)
+	if line == "" {
+		return false
+	}
+	count := 0
+	for _, r := range line {
+		if r == '─' || r == '-' || r == '━' {
+			count++
+			continue
+		}
+		return false
+	}
+	return count >= 10
+}
+
+func parsePromptFromComposerBlock(lines []string) (string, bool) {
+	for i := 0; i < len(lines); i++ {
+		line := strings.TrimRight(lines[i], " \t\r")
+		trimmed := strings.TrimLeft(line, " \t")
+		if trimmed == "" {
+			continue
+		}
+
+		markerLen := 0
+		for _, marker := range []string{"❯", "›"} {
+			if strings.HasPrefix(trimmed, marker) {
+				markerLen = len(marker)
+				break
+			}
+		}
+		if markerLen == 0 {
+			continue
+		}
+
+		bodyParts := []string{strings.TrimSpace(trimmed[markerLen:])}
+		for j := i + 1; j < len(lines); j++ {
+			cont := strings.TrimRight(lines[j], " \t\r")
+			if strings.TrimSpace(cont) == "" {
+				if len(bodyParts) > 0 && bodyParts[len(bodyParts)-1] != "" {
+					break
+				}
+				continue
+			}
+			// Wrapped composer lines are typically indented continuation lines.
+			if strings.HasPrefix(cont, "  ") || strings.HasPrefix(cont, "\t") {
+				bodyParts = append(bodyParts, strings.TrimSpace(cont))
+				continue
+			}
+			break
+		}
+
+		return normalizePromptText(strings.Join(bodyParts, " ")), true
+	}
+	return "", false
+}
+
+func currentComposerPrompt(content string) (string, bool) {
+	lines := strings.Split(content, "\n")
+	if len(lines) > 240 {
+		lines = lines[len(lines)-240:]
+	}
+
+	// Primary path: parse the explicit composer region between the last two
+	// divider lines nearest the bottom of the pane.
+	lastDivider := -1
+	for i := len(lines) - 1; i >= 0; i-- {
+		if isComposerDividerLine(lines[i]) {
+			lastDivider = i
+			break
+		}
+	}
+	if lastDivider > 0 {
+		prevDivider := -1
+		for i := lastDivider - 1; i >= 0; i-- {
+			if isComposerDividerLine(lines[i]) {
+				prevDivider = i
+				break
+			}
+		}
+		if prevDivider >= 0 && prevDivider+1 < lastDivider {
+			if body, ok := parsePromptFromComposerBlock(lines[prevDivider+1 : lastDivider]); ok {
+				return body, true
+			}
+		}
+	}
+
+	// Fallback for layouts without clear divider lines: look near the bottom
+	// for a strict prompt marker at the start of the line.
+	start := 0
+	if len(lines) > 40 {
+		start = len(lines) - 40
+	}
+	for i := len(lines) - 1; i >= start; i-- {
+		trimmed := strings.TrimLeft(lines[i], " \t")
+		if strings.TrimSpace(trimmed) == "" {
+			continue
+		}
+		for _, marker := range []string{"❯", "›"} {
+			if strings.HasPrefix(trimmed, marker) {
+				return normalizePromptText(strings.TrimSpace(trimmed[len(marker):])), true
+			}
+		}
+	}
+	return "", false
+}
+
+func hasCurrentComposerPrompt(content string) bool {
+	_, ok := currentComposerPrompt(content)
+	return ok
+}
+
+// hasUnsentComposerPrompt detects when the message text is still present in the
+// interactive input line (e.g., "❯ message"), which indicates Enter was not
+// accepted yet even if no "[Pasted text ...]" marker is shown.
+func hasUnsentComposerPrompt(content, message string) bool {
+	msg := normalizePromptText(message)
+	if msg == "" {
+		return false
+	}
+
+	promptBody, hasPrompt := currentComposerPrompt(content)
+	if !hasPrompt {
+		return false
+	}
+	promptBody = normalizePromptText(promptBody)
+	if promptBody == "" {
+		return false
+	}
+
+	// Direct match (short prompts or fully visible single-line prompts).
+	if strings.HasPrefix(promptBody, msg) || strings.Contains(promptBody, msg) {
+		return true
+	}
+
+	// Wrapped prompts: Claude often shows only the first visual line of the
+	// current composer input (message wraps to following indented lines).
+	// If the visible prompt line is a substantial prefix of the message,
+	// Enter was not accepted yet.
+	const minWrappedPrefixLen = 16
+	if len(promptBody) >= minWrappedPrefixLen && strings.HasPrefix(msg, promptBody) {
+		return true
+	}
+
+	// Fallback: compare a short message prefix to handle truncation/formatting
+	// differences while avoiding over-broad matching.
+	needle := msg
+	if len(needle) > 32 {
+		needle = needle[:32]
+	}
+	if strings.Contains(promptBody, needle) {
+		return true
+	}
+
+	return false
 }
 
 func sendWithRetryTarget(target sendRetryTarget, message string, skipVerify bool, opts sendRetryOptions) error {
@@ -1457,39 +1623,58 @@ func sendWithRetryTarget(target sendRetryTarget, message string, skipVerify bool
 		return nil
 	}
 
-	// Verify the agent starts processing. If it doesn't:
-	// - Retry Enter when the pane shows Claude's pasted-but-unsent marker.
-	// - Require two consecutive waiting/idle checks without that marker before
-	//   assuming success (avoids a first-check race with stale pane content).
-	// - For ambiguous states, keep a small best-effort Enter retry budget.
+	// Verify the agent accepted Enter and began processing.
+	// Strategy:
+	// - If unsent prompt is visible, press Enter again immediately.
+	// - Consider success only after sustained post-send activity ("active").
+	// - If we never observe active and remain in waiting/idle, keep a periodic
+	//   fallback Enter cadence instead of returning early (handles late unsent
+	//   prompt rendering races seen in Claude startup).
+	const activeSuccessThreshold = 2
+	const waitingAfterActiveThreshold = 2
 	waitingNoMarkerChecks := 0
+	activeChecks := 0
+	sawActiveAfterSend := false
 	for retry := 0; retry < opts.maxRetries; retry++ {
 		time.Sleep(opts.checkDelay)
 
+		unsentPromptDetected := false
+		if content, captureErr := target.CapturePaneFresh(); captureErr == nil {
+			unsentPromptDetected = hasUnsentPastedPrompt(content) || hasUnsentComposerPrompt(content, message)
+		}
 		status, err := target.GetStatus()
 
-		pastedPromptUnsent := false
-		if content, captureErr := target.CapturePane(); captureErr == nil && hasUnsentPastedPrompt(content) {
-			pastedPromptUnsent = true
-		}
-
-		if pastedPromptUnsent {
+		if unsentPromptDetected {
 			waitingNoMarkerChecks = 0
+			activeChecks = 0
 			_ = target.SendEnter()
 			continue
 		}
 
 		if err == nil && status == "active" {
-			return nil
-		}
-
-		// If we're already waiting/idle and there's no unsent prompt marker,
-		// require two consecutive checks before assuming success. This avoids
-		// false positives when the first post-send capture is stale.
-		if err == nil && (status == "waiting" || status == "idle") {
-			waitingNoMarkerChecks++
-			if waitingNoMarkerChecks >= 2 {
+			sawActiveAfterSend = true
+			waitingNoMarkerChecks = 0
+			activeChecks++
+			if activeChecks >= activeSuccessThreshold {
 				return nil
+			}
+			continue
+		}
+		activeChecks = 0
+
+		if err == nil && (status == "waiting" || status == "idle") {
+			if sawActiveAfterSend {
+				waitingNoMarkerChecks++
+				if waitingNoMarkerChecks >= waitingAfterActiveThreshold {
+					return nil
+				}
+			} else {
+				waitingNoMarkerChecks = 0
+				// We haven't observed any post-send activity yet. Periodically
+				// nudge Enter while waiting to handle late prompt-state races.
+				if retry%3 == 2 {
+					_ = target.SendEnter()
+				}
 			}
 			continue
 		}
@@ -1509,7 +1694,7 @@ func sendWithRetryTarget(target sendRetryTarget, message string, skipVerify bool
 // Uses status detection: waits for "active" → "waiting" transition
 func waitForAgentReady(tmuxSess *tmux.Session, tool string) error {
 	sawActive := false
-	waitingCount := 0
+	readyCount := 0
 	maxAttempts := 400 // 80 seconds max (400 * 200ms)
 
 	for attempt := 0; attempt < maxAttempts; attempt++ {
@@ -1517,27 +1702,34 @@ func waitForAgentReady(tmuxSess *tmux.Session, tool string) error {
 
 		status, err := tmuxSess.GetStatus()
 		if err != nil {
-			waitingCount = 0
+			readyCount = 0
 			continue
 		}
 
 		if status == "active" {
 			sawActive = true
-			waitingCount = 0
+			readyCount = 0
 			continue
 		}
 
-		if status == "waiting" {
-			waitingCount++
+		if status == "waiting" || status == "idle" {
+			readyCount++
 		} else {
-			waitingCount = 0
+			readyCount = 0
 		}
 
 		// Agent is ready when:
 		// 1. We've seen "active" (loading) and now see "waiting" (ready)
-		// 2. We've seen "waiting" 10+ times (already ready)
-		alreadyReady := waitingCount >= 10 && attempt >= 15 // At least 3s elapsed
-		if (sawActive && status == "waiting") || alreadyReady {
+		// 2. We've seen stable waiting/idle 10+ times (already ready)
+		alreadyReady := readyCount >= 10 && attempt >= 15 // At least 3s elapsed
+		if (sawActive && (status == "waiting" || status == "idle")) || alreadyReady {
+			if tool == "claude" {
+				if content, captureErr := tmuxSess.CapturePaneFresh(); captureErr == nil && !hasCurrentComposerPrompt(content) {
+					// Claude can report waiting before the interactive prompt is visible.
+					// Keep polling until the prompt line is present.
+					continue
+				}
+			}
 			time.Sleep(300 * time.Millisecond) // Small delay for UI to render
 			return nil
 		}

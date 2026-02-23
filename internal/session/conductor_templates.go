@@ -116,6 +116,34 @@ Append every action to ` + "`" + `./task-log.md` + "`" + `:
 - Responded with summary
 ` + "```" + `
 
+## Self-Improvement
+
+Maintain ` + "`" + `LEARNINGS.md` + "`" + ` to track orchestration patterns. Two tiers exist:
+- ` + "`" + `../LEARNINGS.md` + "`" + ` (shared): patterns that work across all conductors
+- ` + "`" + `./LEARNINGS.md` + "`" + ` (per-conductor): patterns specific to your profile and sessions
+
+### When to Log
+
+| Situation | Entry Type |
+|-----------|-----------|
+| You auto-responded and user later said it was wrong | ` + "`" + `auto_response_wrong` + "`" + ` |
+| You auto-responded and it worked well | ` + "`" + `auto_response_ok` + "`" + ` |
+| You escalated but user said it was fine to auto-respond | ` + "`" + `escalation_unnecessary` + "`" + ` |
+| You escalated and user confirmed it needed attention | ` + "`" + `escalation_correct` + "`" + ` |
+| You notice a recurring session behavior | ` + "`" + `session_behavior` + "`" + ` |
+| You discover a useful pattern | ` + "`" + `pattern` + "`" + ` |
+
+### Promotion to Policy
+
+When an entry reaches Recurrence 3+ and has proven reliable, promote it:
+1. Distill into a concise rule
+2. Add to ` + "`" + `./POLICY.md` + "`" + ` (create if needed) or request update to ` + "`" + `../POLICY.md` + "`" + ` (shared)
+3. Set entry Status to ` + "`" + `promoted` + "`" + `
+
+### At Startup
+
+Read both ` + "`" + `./LEARNINGS.md` + "`" + ` and ` + "`" + `../LEARNINGS.md` + "`" + ` before responding. Past patterns inform current decisions.
+
 ## Quick Commands
 
 The bridge may forward these special commands from Telegram or Slack:
@@ -139,6 +167,33 @@ For any other text, treat it as a conversational message from the user. They mig
 - The bridge sends with ` + "`" + `session send --wait -q` + "`" + ` and waits in a single CLI call. Reply promptly.
 - Your own session can be restarted by the bridge if it detects you're in an error state.
 - Keep state.json small (no large output dumps). Store summaries, not full text.
+`
+
+// conductorLearningsTemplate is the default LEARNINGS.md written to ~/.agent-deck/conductor/LEARNINGS.md
+// and ~/.agent-deck/conductor/<name>/LEARNINGS.md.
+// It provides a structured format for conductors to log orchestration patterns learned from experience.
+// Two tiers: shared (generic patterns across all conductors) and per-conductor (project/person-specific).
+const conductorLearningsTemplate = `# Conductor Learnings
+
+Orchestration patterns learned from experience. Review at startup and before heartbeat responses.
+
+## How to Use This File
+
+- **Log** a new entry when: you auto-respond and later learn it was wrong, you escalate and user says it was unnecessary, you discover a pattern in session behavior, or a recurring situation emerges.
+- **Promote** entries to POLICY.md when they recur 3+ times and prove reliable.
+- **Delete** entries that turn out to be wrong or no longer relevant.
+
+## Entry Format
+
+### [YYYYMMDD-NNN] Short description
+- **Type**: auto_response_ok | auto_response_wrong | escalation_unnecessary | escalation_correct | pattern | session_behavior
+- **Sessions**: which session(s) this involved
+- **Context**: what happened
+- **Lesson**: what to do differently (or keep doing)
+- **Recurrence**: N (increment when seen again)
+- **Status**: active | promoted | retired
+
+---
 `
 
 // conductorPolicyTemplate is the default POLICY.md written to ~/.agent-deck/conductor/POLICY.md.
@@ -185,6 +240,41 @@ If you're not sure whether to auto-respond, **escalate**. The cost of a false es
 // It contains only the conductor's identity. Shared knowledge is inherited from the parent directory's CLAUDE.md.
 // {NAME} and {PROFILE} placeholders are replaced at setup time.
 const conductorPerNameClaudeMDTemplate = `# Conductor: {NAME} ({PROFILE} profile)
+
+You are **{NAME}**, a conductor for the **{PROFILE}** profile.
+
+## Your Identity
+
+- Your session title is ` + "`" + `conductor-{NAME}` + "`" + `
+- You manage the **{PROFILE}** profile exclusively. Always pass ` + "`" + `-p {PROFILE}` + "`" + ` to all CLI commands.
+- You live in ` + "`" + `~/.agent-deck/conductor/{NAME}/` + "`" + `
+- Maintain state in ` + "`" + `./state.json` + "`" + ` and log actions in ` + "`" + `./task-log.md` + "`" + `
+- The bridge (Telegram/Slack) sends you messages from the user and forwards your responses back
+- You receive periodic ` + "`" + `[HEARTBEAT]` + "`" + ` messages with system status
+- Other conductors may exist for different purposes. You only manage sessions in your profile.
+
+## Startup Checklist
+
+When you first start (or after a restart):
+
+1. Read ` + "`" + `./state.json` + "`" + ` if it exists (restore context)
+2. Read ` + "`" + `./LEARNINGS.md` + "`" + ` and ` + "`" + `../LEARNINGS.md` + "`" + ` if they exist (review past patterns)
+3. Run ` + "`" + `agent-deck -p {PROFILE} status --json` + "`" + ` to get the current state
+4. Run ` + "`" + `agent-deck -p {PROFILE} list --json` + "`" + ` to know what sessions exist
+5. Log startup in ` + "`" + `./task-log.md` + "`" + `
+6. If any sessions are in error state, try to restart them
+7. Reply: "Conductor {NAME} ({PROFILE}) online. N sessions tracked (X running, Y waiting)."
+
+## Policy
+
+Your operating rules (auto-response policy, escalation guidelines, response style) are in ` + "`" + `./POLICY.md` + "`" + `.
+If ` + "`" + `./POLICY.md` + "`" + ` does not exist, use ` + "`" + `../POLICY.md` + "`" + ` instead.
+Read the policy file at the start of each interaction.
+`
+
+// conductorPerNameClaudeMDPreLearningsTemplate is the post-policy-split but pre-learnings per-conductor CLAUDE.md template.
+// It is kept only for migration matching and should not be used for new writes.
+const conductorPerNameClaudeMDPreLearningsTemplate = `# Conductor: {NAME} ({PROFILE} profile)
 
 You are **{NAME}**, a conductor for the **{PROFILE}** profile.
 

@@ -52,12 +52,20 @@ func runAutoMigration(jsonOutput bool) {
 		fmt.Fprintf(os.Stderr, "Warning: policy migration check failed: %v\n", err)
 	}
 
+	migratedLearnings, err := session.MigrateConductorLearnings()
+	if err != nil && !jsonOutput {
+		fmt.Fprintf(os.Stderr, "Warning: learnings migration check failed: %v\n", err)
+	}
+
 	if !jsonOutput {
 		for _, name := range migratedLegacy {
 			fmt.Printf("  [migrated] Legacy conductor: %s\n", name)
 		}
 		for _, name := range migratedPolicy {
 			fmt.Printf("  [migrated] Updated policy split: %s\n", name)
+		}
+		for _, name := range migratedLearnings {
+			fmt.Printf("  [migrated] Added learnings: %s\n", name)
 		}
 	}
 }
@@ -284,6 +292,15 @@ func handleConductorSetup(profile string, args []string) {
 	}
 	if !*jsonOutput {
 		fmt.Println("[ok] Shared POLICY.md installed/updated")
+	}
+
+	// Step 3c: Install shared LEARNINGS.md (don't overwrite existing)
+	if err := session.InstallLearningsMD(); err != nil {
+		fmt.Fprintf(os.Stderr, "Error installing LEARNINGS.md: %v\n", err)
+		os.Exit(1)
+	}
+	if !*jsonOutput {
+		fmt.Println("[ok] Shared LEARNINGS.md installed")
 	}
 
 	// Step 4: Set up the named conductor
@@ -605,6 +622,7 @@ func handleConductorTeardown(_ string, args []string) {
 			_ = os.Remove(filepath.Join(condDir, "bridge.log"))
 			_ = os.Remove(filepath.Join(condDir, "CLAUDE.md"))
 			_ = os.Remove(filepath.Join(condDir, "POLICY.md"))
+			_ = os.Remove(filepath.Join(condDir, "LEARNINGS.md"))
 			_ = os.Remove(condDir) // Remove dir if empty
 		}
 	}

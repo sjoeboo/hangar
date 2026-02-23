@@ -1440,6 +1440,32 @@ func (s *Session) CapturePane() (string, error) {
 	return v.(string), nil
 }
 
+// CapturePaneFresh captures pane content via a direct tmux subprocess call.
+// Unlike CapturePane(), this bypasses the control-mode pipe and short-lived
+// cache to provide a fresh snapshot. Use this for send verification where
+// stale pane content can hide unsent composer input.
+func (s *Session) CapturePaneFresh() (string, error) {
+	s.invalidateCache()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "tmux", "capture-pane", "-t", s.Name, "-p", "-J")
+	output, err := cmd.Output()
+	if err != nil {
+		if ctx.Err() == context.DeadlineExceeded {
+			return "", ErrCaptureTimeout
+		}
+		return "", fmt.Errorf("failed to capture pane: %w", err)
+	}
+
+	content := string(output)
+	s.cacheMu.Lock()
+	s.cacheContent = content
+	s.cacheTime = time.Now()
+	s.cacheMu.Unlock()
+	return content, nil
+}
+
 // CaptureFullHistory captures the scrollback history (limited to last 2000 lines for performance)
 func (s *Session) CaptureFullHistory() (string, error) {
 	// Limit to last 2000 lines to balance content availability with memory usage

@@ -351,7 +351,7 @@ func handleLaunch(profile string, args []string) {
 	}
 	if initialMessage != "" {
 		jsonData["message"] = initialMessage
-		jsonData["message_pending"] = !*noWait
+		jsonData["message_pending"] = *noWait
 	}
 	if len(mcpFlags) > 0 {
 		jsonData["mcps"] = mcpFlags
@@ -369,7 +369,7 @@ func handleLaunch(profile string, args []string) {
 		if *noWait {
 			msg += " (message sent with --no-wait)"
 		} else {
-			msg += " (message pending)"
+			msg += " (message sent)"
 		}
 	}
 	out.Success(msg, jsonData)

@@ -148,7 +148,7 @@ func (m *mockSendRetryTarget) SendEnter() error {
 	return nil
 }
 
-func (m *mockSendRetryTarget) CapturePane() (string, error) {
+func (m *mockSendRetryTarget) CapturePaneFresh() (string, error) {
 	i := int(m.paneIdx.Add(1) - 1)
 	if len(m.panes) == 0 {
 		return "", nil
@@ -169,6 +169,57 @@ func TestHasUnsentPastedPrompt(t *testing.T) {
 	}
 	if hasUnsentPastedPrompt("normal terminal output") {
 		t.Fatal("did not expect normal output to be detected as pasted prompt")
+	}
+}
+
+func TestHasUnsentComposerPrompt(t *testing.T) {
+	content := "────────────────\n❯\u00a0Write one line: LAUNCH_OK\n[Opus 4.6] Context: 0%"
+	if !hasUnsentComposerPrompt(content, "Write one line: LAUNCH_OK") {
+		t.Fatal("expected unsent composer prompt to be detected")
+	}
+	if hasUnsentComposerPrompt(content, "Different text") {
+		t.Fatal("did not expect mismatched composer text to be detected")
+	}
+
+	// Submitted messages can appear in history; only current composer should count.
+	submitted := "❯ Write one line: LAUNCH_OK\n✳ Tempering…\n────────────────\n❯\n────────────────\n[Opus 4.6] Context: 0%"
+	if hasUnsentComposerPrompt(submitted, "Write one line: LAUNCH_OK") {
+		t.Fatal("did not expect submitted history line to be treated as unsent composer input")
+	}
+
+	// Wrapped current composer lines only expose a prefix of the message.
+	wrappedContent := "────────────────\n❯\u00a0Read these 3 files and produce a summary for DIAGTOKEN_123. Keep\n  under 80 lines and include one verdict line.\n────────────────\n[Opus 4.6] Context: 0%"
+	wrappedMessage := "Read these 3 files and produce a summary for DIAGTOKEN_123. Keep under 80 lines and include one verdict line."
+	if !hasUnsentComposerPrompt(wrappedContent, wrappedMessage) {
+		t.Fatal("expected wrapped unsent composer prompt to be detected")
+	}
+
+	// Claude hint suggestions should not be treated as unsent input for a
+	// different message.
+	suggestion := "────────────────\n❯\u00a0Try \"write a test for <filepath>\"\n────────────────\n[Opus 4.6] Context: 0%"
+	if hasUnsentComposerPrompt(suggestion, wrappedMessage) {
+		t.Fatal("did not expect suggestion placeholder to be treated as unsent composer input")
+	}
+}
+
+func TestCurrentComposerPrompt_UsesBottomComposerBlock(t *testing.T) {
+	content := strings.Join([]string{
+		"> quoted output line from earlier response",
+		"Some other output",
+		"────────────────",
+		"❯\u00a0Read these 3 files and produce a summary for DIAGTOKEN_123. Keep",
+		"  under 80 lines and include one verdict line.",
+		"────────────────",
+		"[Opus 4.6] Context: 0%",
+	}, "\n")
+
+	got, ok := currentComposerPrompt(content)
+	if !ok {
+		t.Fatal("expected current composer prompt to be found")
+	}
+	want := "Read these 3 files and produce a summary for DIAGTOKEN_123. Keep under 80 lines and include one verdict line."
+	if got != want {
+		t.Fatalf("unexpected composer prompt.\nwant: %q\ngot:  %q", want, got)
 	}
 }
 
@@ -209,8 +260,8 @@ func TestSendWithRetryTarget_WaitingWithoutPasteMarkerReturnsSuccess(t *testing.
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if got := atomic.LoadInt32(&mock.sendEnterCalls); got != 0 {
-		t.Fatalf("expected 0 SendEnter calls for quick waiting state, got %d", got)
+	if got := atomic.LoadInt32(&mock.sendEnterCalls); got != 1 {
+		t.Fatalf("expected 1 periodic fallback SendEnter call for waiting-without-active state, got %d", got)
 	}
 }
 
@@ -249,6 +300,41 @@ func TestSendWithRetryTarget_DetectsPasteMarkerAfterInitialWaiting(t *testing.T)
 	}
 	if got := atomic.LoadInt32(&mock.sendEnterCalls); got != 1 {
 		t.Fatalf("expected 1 SendEnter call when pasted marker appears after initial waiting, got %d", got)
+	}
+}
+
+func TestSendWithRetryTarget_RetriesWhenComposerPromptStillHasMessage(t *testing.T) {
+	mock := &mockSendRetryTarget{
+		statuses: []string{"waiting", "active"},
+		panes: []string{
+			"❯ Write one line: LAUNCH_OK",
+			"",
+		},
+	}
+	err := sendWithRetryTarget(mock, "Write one line: LAUNCH_OK", false, sendRetryOptions{maxRetries: 4, checkDelay: 0})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got := atomic.LoadInt32(&mock.sendEnterCalls); got != 1 {
+		t.Fatalf("expected 1 SendEnter call when composer still has unsent message, got %d", got)
+	}
+}
+
+func TestSendWithRetryTarget_RetriesWhenWrappedComposerPromptStillHasMessage(t *testing.T) {
+	mock := &mockSendRetryTarget{
+		statuses: []string{"waiting", "active"},
+		panes: []string{
+			"────────────────\n❯ Read these 3 files and produce a summary for DIAGTOKEN_123. Keep\n  under 80 lines.\n────────────────",
+			"",
+		},
+	}
+	message := "Read these 3 files and produce a summary for DIAGTOKEN_123. Keep under 80 lines."
+	err := sendWithRetryTarget(mock, message, false, sendRetryOptions{maxRetries: 4, checkDelay: 0})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got := atomic.LoadInt32(&mock.sendEnterCalls); got != 1 {
+		t.Fatalf("expected 1 SendEnter call when wrapped composer prompt still has unsent message, got %d", got)
 	}
 }
 
