@@ -196,11 +196,26 @@ func (s *StateDB) Migrate() error {
 		return fmt.Errorf("statedb: create heartbeats: %w", err)
 	}
 
-	// Set schema version
-	if _, err := tx.Exec(`
-		INSERT OR REPLACE INTO metadata (key, value) VALUES ('schema_version', ?)
-	`, fmt.Sprintf("%d", SchemaVersion)); err != nil {
-		return fmt.Errorf("statedb: set schema version: %w", err)
+	// Set schema version only when missing or changed.
+	// Avoiding a write on every open reduces lock contention between CLI processes.
+	schemaVersion := fmt.Sprintf("%d", SchemaVersion)
+	var existingVersion string
+	err = tx.QueryRow(`SELECT value FROM metadata WHERE key = 'schema_version'`).Scan(&existingVersion)
+	switch {
+	case err == sql.ErrNoRows:
+		if _, err := tx.Exec(`
+			INSERT INTO metadata (key, value) VALUES ('schema_version', ?)
+		`, schemaVersion); err != nil {
+			return fmt.Errorf("statedb: insert schema version: %w", err)
+		}
+	case err != nil:
+		return fmt.Errorf("statedb: read schema version: %w", err)
+	case existingVersion != schemaVersion:
+		if _, err := tx.Exec(`
+			UPDATE metadata SET value = ? WHERE key = 'schema_version'
+		`, schemaVersion); err != nil {
+			return fmt.Errorf("statedb: update schema version: %w", err)
+		}
 	}
 
 	return tx.Commit()

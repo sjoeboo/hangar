@@ -28,6 +28,7 @@ func handleLaunch(profile string, args []string) {
 	noWait := fs.Bool("no-wait", false, "Don't wait for agent to be ready before sending message")
 	parent := fs.String("parent", "", "Parent session (creates sub-session, inherits group)")
 	parentShort := fs.String("p", "", "Parent session (short)")
+	noParent := fs.Bool("no-parent", false, "Disable automatic parent linking")
 	jsonOutput := fs.Bool("json", false, "Output as JSON")
 	quiet := fs.Bool("quiet", false, "Minimal output")
 	quietShort := fs.Bool("q", false, "Minimal output (short)")
@@ -113,6 +114,10 @@ func handleLaunch(profile string, args []string) {
 	sessionGroup := mergeFlags(*group, *groupShort)
 	sessionCommand := mergeFlags(*command, *commandShort)
 	sessionParent := mergeFlags(*parent, *parentShort)
+	if sessionParent != "" && *noParent {
+		out.Error("--parent and --no-parent cannot be used together", ErrCodeInvalidOperation)
+		os.Exit(1)
+	}
 	initialMessage := mergeFlags(*message, *messageShort)
 
 	// Resolve worktree flags
@@ -210,6 +215,13 @@ func handleLaunch(profile string, args []string) {
 			os.Exit(1)
 		}
 		sessionGroup = parentInstance.GroupPath
+	} else if !*noParent {
+		parentInstance = resolveAutoParentInstance(instances)
+		if parentInstance != nil && !parentInstance.IsSubSession() {
+			sessionGroup = parentInstance.GroupPath
+		} else {
+			parentInstance = nil
+		}
 	}
 
 	// Default title to folder name

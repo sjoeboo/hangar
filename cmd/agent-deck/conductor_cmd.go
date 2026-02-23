@@ -413,20 +413,36 @@ func handleConductorSetup(profile string, args []string) {
 		}
 	}
 
+	// Step 8: Install transition notifier daemon (always-on status-driven notifications)
+	var notifierDaemonPath string
+	if daemonPath, err := session.InstallTransitionNotifierDaemon(); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: failed to install transition notifier daemon: %v\n", err)
+		fmt.Fprintf(os.Stderr, "Tip: %s\n", session.TransitionNotifierDaemonHint())
+	} else {
+		notifierDaemonPath = daemonPath
+		if !*jsonOutput {
+			fmt.Println("[ok] Transition notifier daemon installed")
+		}
+	}
+
 	// Output summary
 	if *jsonOutput {
 		data := map[string]any{
-			"success":   true,
-			"name":      name,
-			"profile":   resolvedProfile,
-			"session":   sessionID,
-			"existed":   existed,
-			"heartbeat": heartbeatEnabled,
-			"telegram":  telegramConfigured,
-			"slack":     slackConfigured,
+			"success":                 true,
+			"name":                    name,
+			"profile":                 resolvedProfile,
+			"session":                 sessionID,
+			"existed":                 existed,
+			"heartbeat":               heartbeatEnabled,
+			"telegram":                telegramConfigured,
+			"slack":                   slackConfigured,
+			"notifier_daemon_running": session.IsTransitionNotifierDaemonRunning(),
 		}
 		if plistPath != "" {
 			data["daemon"] = plistPath
+		}
+		if notifierDaemonPath != "" {
+			data["notifier_daemon"] = notifierDaemonPath
 		}
 		output, _ := json.MarshalIndent(data, "", "  ")
 		fmt.Println(string(output))
@@ -543,6 +559,15 @@ func handleConductorTeardown(_ string, args []string) {
 			_ = session.UninstallBridgeDaemon()
 			if !*jsonOutput {
 				fmt.Println("[ok] Daemon stopped and removed")
+			}
+		}
+		if session.IsTransitionNotifierDaemonRunning() {
+			if !*jsonOutput {
+				fmt.Println("Stopping transition notifier daemon...")
+			}
+			_ = session.UninstallTransitionNotifierDaemon()
+			if !*jsonOutput {
+				fmt.Println("[ok] Transition notifier daemon stopped and removed")
 			}
 		}
 	}
@@ -758,12 +783,14 @@ func handleConductorStatus(_ string, args []string) {
 
 	// Check bridge daemon
 	daemonRunning := session.IsBridgeDaemonRunning()
+	notifierRunning := session.IsTransitionNotifierDaemonRunning()
 
 	if *jsonOutput {
 		output, _ := json.MarshalIndent(map[string]any{
-			"enabled":        true,
-			"conductors":     statuses,
-			"daemon_running": daemonRunning,
+			"enabled":                 true,
+			"conductors":              statuses,
+			"daemon_running":          daemonRunning,
+			"notifier_daemon_running": notifierRunning,
 		}, "", "  ")
 		fmt.Println(string(output))
 		return
@@ -778,6 +805,11 @@ func handleConductorStatus(_ string, args []string) {
 		fmt.Println("Bridge daemon: RUNNING")
 	} else {
 		fmt.Println("Bridge daemon: STOPPED")
+	}
+	if notifierRunning {
+		fmt.Println("Notifier daemon: RUNNING")
+	} else {
+		fmt.Println("Notifier daemon: STOPPED")
 	}
 	fmt.Println()
 
@@ -821,6 +853,9 @@ func handleConductorStatus(_ string, args []string) {
 	// Hints
 	if !daemonRunning {
 		fmt.Printf("Tip: %s\n", session.BridgeDaemonHint())
+	}
+	if !notifierRunning {
+		fmt.Printf("Tip: %s\n", session.TransitionNotifierDaemonHint())
 	}
 }
 

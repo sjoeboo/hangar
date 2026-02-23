@@ -5,6 +5,20 @@ All notable changes to Agent Deck will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.13] - 2026-02-24
+
+### Added
+
+- Add built-in event-driven transition notifications (`notify-daemon`) that nudge a parent session first, then fall back to a conductor session when a child transitions from `running` to `waiting`/`error`/`idle`.
+- Add `--no-parent` and default auto-parent linking for `add`/`launch` when launched from a managed session (`AGENT_DECK_SESSION_ID`), with conflict protection for `--parent` + `--no-parent`.
+- Add `parent_session_id` and `parent_project_path` to `agent-deck session show --json`.
+- Add conductor setup/status/teardown integration for the transition notifier daemon so always-on notifications can be installed and managed with conductor commands.
+
+### Fixed
+
+- Reduce SQLite lock contention under concurrent daemon and CLI usage by avoiding unnecessary schema-version writes and retrying transient busy errors during storage migration/open.
+- Improve status-driven notification reliability for fast tool completions by combining watcher updates with direct hook-file fallback reads and hook-based terminal transition candidates.
+
 ## [0.19.11] - 2026-02-23
 
 ### Added

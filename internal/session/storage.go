@@ -142,8 +142,10 @@ func NewStorageWithProfile(profile string) (*Storage, error) {
 		return nil, fmt.Errorf("failed to open state database: %w", err)
 	}
 
-	// Create tables if they don't exist
-	if err := db.Migrate(); err != nil {
+	// Create tables if they don't exist.
+	// Retry transient lock contention because daemon/background writers may hold
+	// short-lived transactions during startup.
+	if err := migrateStateDBWithRetry(db); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("failed to migrate state database: %w", err)
 	}
@@ -198,6 +200,30 @@ func (s *Storage) Close() error {
 		return s.db.Close()
 	}
 	return nil
+}
+
+func migrateStateDBWithRetry(db *statedb.StateDB) error {
+	var lastErr error
+	for attempt := 0; attempt < 6; attempt++ {
+		if err := db.Migrate(); err == nil {
+			return nil
+		} else {
+			lastErr = err
+			if !isSQLiteBusyError(err) {
+				return err
+			}
+		}
+		time.Sleep(time.Duration(100*(attempt+1)) * time.Millisecond)
+	}
+	return lastErr
+}
+
+func isSQLiteBusyError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "sqlite_busy") || strings.Contains(msg, "database is locked")
 }
 
 // Save persists instances to SQLite

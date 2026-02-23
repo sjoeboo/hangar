@@ -30,7 +30,7 @@ import (
 	"github.com/asheshgoplani/agent-deck/internal/web"
 )
 
-const Version = "0.19.12"
+const Version = "0.19.13"
 
 // Table column widths for list command output
 const (
@@ -272,6 +272,9 @@ func main() {
 			return
 		case "codex-hooks":
 			handleCodexHooks(args[1:])
+			return
+		case "notify-daemon":
+			handleNotifyDaemon(args[1:])
 			return
 		}
 	}
@@ -607,6 +610,29 @@ func generateUniqueTitle(instances []*session.Instance, baseTitle, path string) 
 	return fmt.Sprintf("%s (%d)", baseTitle, time.Now().Unix())
 }
 
+func resolveAutoParentInstance(instances []*session.Instance) *session.Instance {
+	candidates := []string{
+		strings.TrimSpace(os.Getenv("AGENT_DECK_SESSION_ID")),
+		strings.TrimSpace(os.Getenv("AGENTDECK_INSTANCE_ID")),
+	}
+
+	if tmuxCurrent := strings.TrimSpace(GetCurrentSessionID()); tmuxCurrent != "" {
+		candidates = append(candidates, tmuxCurrent)
+	}
+
+	seen := map[string]bool{}
+	for _, candidate := range candidates {
+		if candidate == "" || seen[candidate] {
+			continue
+		}
+		seen[candidate] = true
+		if inst, _, _ := ResolveSession(candidate, instances); inst != nil {
+			return inst
+		}
+	}
+	return nil
+}
+
 // resolveGroupPathForAdd resolves a user-provided group selector to a stored group path.
 // It accepts exact paths, normalized paths, and case-insensitive group display names.
 func resolveGroupPathForAdd(groupTree *session.GroupTree, groupSelector string) string {
@@ -644,6 +670,7 @@ func handleAdd(profile string, args []string) {
 	wrapper := fs.String("wrapper", "", "Wrapper command (use {command} to include tool command, e.g., 'nvim +\"terminal {command}\"')")
 	parent := fs.String("parent", "", "Parent session (creates sub-session, inherits group)")
 	parentShort := fs.String("p", "", "Parent session (short)")
+	noParent := fs.Bool("no-parent", false, "Disable automatic parent linking")
 	quickCreate := fs.Bool("quick", false, "Auto-generate session name (adjective-noun)")
 	quickCreateShort := fs.Bool("Q", false, "Auto-generate session name (short)")
 	jsonOutput := fs.Bool("json", false, "Output as JSON")
@@ -722,6 +749,10 @@ func handleAdd(profile string, args []string) {
 	sessionGroup := mergeFlags(*group, *groupShort)
 	sessionCommand := mergeFlags(*command, *commandShort)
 	sessionParent := mergeFlags(*parent, *parentShort)
+	if sessionParent != "" && *noParent {
+		fmt.Println("Error: --parent and --no-parent cannot be used together")
+		os.Exit(1)
+	}
 
 	// Validate --resume-session requires Claude
 	if *resumeSession != "" {
@@ -764,6 +795,14 @@ func handleAdd(profile string, args []string) {
 		}
 		// Inherit group from parent
 		sessionGroup = parentInstance.GroupPath
+	} else if !*noParent {
+		parentInstance = resolveAutoParentInstance(instances)
+		if parentInstance != nil && !parentInstance.IsSubSession() {
+			// Inherit group from auto-parent too.
+			sessionGroup = parentInstance.GroupPath
+		} else {
+			parentInstance = nil
+		}
 	}
 
 	// Resolve group selector to a canonical path when possible.

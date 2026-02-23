@@ -891,6 +891,9 @@ func GetConductorSettings() ConductorSettings {
 // LaunchdPlistName is the launchd label for the conductor bridge daemon
 const LaunchdPlistName = "com.agentdeck.conductor-bridge"
 
+// TransitionNotifierLaunchdPlistName is the launchd label for the transition notifier daemon.
+const TransitionNotifierLaunchdPlistName = "com.agentdeck.transition-notifier"
+
 // GenerateLaunchdPlist returns a launchd plist with paths substituted
 func GenerateLaunchdPlist() (string, error) {
 	condDir, err := ConductorDir()
@@ -1002,6 +1005,48 @@ const conductorPlistTemplate = `<?xml version="1.0" encoding="UTF-8"?>
 </plist>
 `
 
+const transitionNotifierPlistTemplate = `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.agentdeck.transition-notifier</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>__AGENT_DECK__</string>
+        <string>notify-daemon</string>
+    </array>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>KeepAlive</key>
+    <true/>
+
+    <key>StandardOutPath</key>
+    <string>__LOG_PATH__</string>
+
+    <key>StandardErrorPath</key>
+    <string>__LOG_PATH__</string>
+
+    <key>WorkingDirectory</key>
+    <string>__HOME__</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>__PATH__</string>
+        <key>HOME</key>
+        <string>__HOME__</string>
+    </dict>
+
+    <key>ThrottleInterval</key>
+    <integer>5</integer>
+</dict>
+</plist>
+`
+
 // --- Systemd unit templates ---
 
 const systemdBridgeServiceTemplate = `[Unit]
@@ -1013,6 +1058,25 @@ Type=simple
 ExecStart=__PYTHON3__ __BRIDGE_PATH__
 Restart=always
 RestartSec=10
+WorkingDirectory=__HOME__
+StandardOutput=append:__LOG_PATH__
+StandardError=append:__LOG_PATH__
+Environment=PATH=__PATH__
+Environment=HOME=__HOME__
+
+[Install]
+WantedBy=default.target
+`
+
+const systemdTransitionNotifierServiceTemplate = `[Unit]
+Description=Agent Deck Transition Notifier
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=__AGENT_DECK__ notify-daemon
+Restart=always
+RestartSec=5
 WorkingDirectory=__HOME__
 StandardOutput=append:__LOG_PATH__
 StandardError=append:__LOG_PATH__
@@ -1048,6 +1112,7 @@ Environment=HOME=__HOME__
 // --- Systemd path helpers ---
 
 const systemdBridgeServiceName = "agent-deck-conductor-bridge.service"
+const systemdTransitionNotifierServiceName = "agent-deck-transition-notifier.service"
 
 // SystemdUserDir returns the systemd user unit directory (~/.config/systemd/user/)
 func SystemdUserDir() (string, error) {
@@ -1065,6 +1130,15 @@ func SystemdBridgeServicePath() (string, error) {
 		return "", err
 	}
 	return filepath.Join(dir, systemdBridgeServiceName), nil
+}
+
+// SystemdTransitionNotifierServicePath returns the full path to the transition notifier service file.
+func SystemdTransitionNotifierServicePath() (string, error) {
+	dir, err := SystemdUserDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, systemdTransitionNotifierServiceName), nil
 }
 
 // SystemdHeartbeatServiceName returns the systemd service name for a conductor heartbeat
@@ -1119,6 +1193,63 @@ func GenerateSystemdBridgeService() (string, error) {
 	unit = strings.ReplaceAll(unit, "__LOG_PATH__", logPath)
 	unit = strings.ReplaceAll(unit, "__HOME__", homeDir)
 	agentDeckPath := findAgentDeck()
+	unit = strings.ReplaceAll(unit, "__PATH__", buildDaemonPath(agentDeckPath))
+	return unit, nil
+}
+
+// GenerateTransitionNotifierLaunchdPlist returns a launchd plist for the transition notifier daemon.
+func GenerateTransitionNotifierLaunchdPlist() (string, error) {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	agentDeckDir, err := GetAgentDeckDir()
+	if err != nil {
+		return "", err
+	}
+	agentDeckPath := findAgentDeck()
+	execPath := "agent-deck"
+	if agentDeckPath != "" {
+		execPath = agentDeckPath
+	}
+	logPath := filepath.Join(agentDeckDir, "logs", "transition-notifier.log")
+
+	plist := strings.ReplaceAll(transitionNotifierPlistTemplate, "__AGENT_DECK__", execPath)
+	plist = strings.ReplaceAll(plist, "__LOG_PATH__", logPath)
+	plist = strings.ReplaceAll(plist, "__HOME__", homeDir)
+	plist = strings.ReplaceAll(plist, "__PATH__", buildDaemonPath(agentDeckPath))
+	return plist, nil
+}
+
+// TransitionNotifierLaunchdPlistPath returns the launchd plist path for transition notifier.
+func TransitionNotifierLaunchdPlistPath() (string, error) {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(homeDir, "Library", "LaunchAgents", TransitionNotifierLaunchdPlistName+".plist"), nil
+}
+
+// GenerateSystemdTransitionNotifierService returns the systemd unit content for transition notifier.
+func GenerateSystemdTransitionNotifierService() (string, error) {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	agentDeckDir, err := GetAgentDeckDir()
+	if err != nil {
+		return "", err
+	}
+	agentDeckPath := findAgentDeck()
+	execPath := "agent-deck"
+	if agentDeckPath != "" {
+		execPath = agentDeckPath
+	}
+	logPath := filepath.Join(agentDeckDir, "logs", "transition-notifier.log")
+
+	unit := strings.ReplaceAll(systemdTransitionNotifierServiceTemplate, "__AGENT_DECK__", execPath)
+	unit = strings.ReplaceAll(unit, "__LOG_PATH__", logPath)
+	unit = strings.ReplaceAll(unit, "__HOME__", homeDir)
 	unit = strings.ReplaceAll(unit, "__PATH__", buildDaemonPath(agentDeckPath))
 	return unit, nil
 }
@@ -1246,6 +1377,73 @@ func installBridgeDaemonSystemd() (string, error) {
 	return unitPath, nil
 }
 
+// InstallTransitionNotifierDaemon installs and starts the transition notifier daemon.
+func InstallTransitionNotifierDaemon() (string, error) {
+	plat := platform.Detect()
+	switch plat {
+	case platform.PlatformMacOS:
+		return installTransitionNotifierLaunchd()
+	case platform.PlatformLinux, platform.PlatformWSL2:
+		return installTransitionNotifierSystemd()
+	default:
+		return "", fmt.Errorf("unsupported platform %s for daemon management", plat)
+	}
+}
+
+func installTransitionNotifierLaunchd() (string, error) {
+	plistContent, err := GenerateTransitionNotifierLaunchdPlist()
+	if err != nil {
+		return "", fmt.Errorf("failed to generate notifier plist: %w", err)
+	}
+	plistPath, err := TransitionNotifierLaunchdPlistPath()
+	if err != nil {
+		return "", fmt.Errorf("failed to get notifier plist path: %w", err)
+	}
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	if err := os.MkdirAll(filepath.Join(homeDir, "Library", "LaunchAgents"), 0o755); err != nil {
+		return "", fmt.Errorf("failed to create LaunchAgents dir: %w", err)
+	}
+	_ = exec.Command("launchctl", "unload", plistPath).Run()
+	if err := os.WriteFile(plistPath, []byte(plistContent), 0o644); err != nil {
+		return "", fmt.Errorf("failed to write notifier plist: %w", err)
+	}
+	if err := exec.Command("launchctl", "load", plistPath).Run(); err != nil {
+		return plistPath, fmt.Errorf("plist written but failed to load notifier daemon: %w", err)
+	}
+	return plistPath, nil
+}
+
+func installTransitionNotifierSystemd() (string, error) {
+	unitContent, err := GenerateSystemdTransitionNotifierService()
+	if err != nil {
+		return "", fmt.Errorf("failed to generate notifier unit: %w", err)
+	}
+	unitPath, err := SystemdTransitionNotifierServicePath()
+	if err != nil {
+		return "", fmt.Errorf("failed to get notifier unit path: %w", err)
+	}
+	dir, err := SystemdUserDir()
+	if err != nil {
+		return "", err
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return "", fmt.Errorf("failed to create systemd user dir: %w", err)
+	}
+	if err := os.WriteFile(unitPath, []byte(unitContent), 0o644); err != nil {
+		return "", fmt.Errorf("failed to write notifier unit: %w", err)
+	}
+	if !systemdUserAvailable() {
+		return "", fmt.Errorf("systemd user session not available; run manually: agent-deck notify-daemon")
+	}
+	if err := exec.Command("systemctl", "--user", "enable", "--now", systemdTransitionNotifierServiceName).Run(); err != nil {
+		return unitPath, fmt.Errorf("unit written but enable failed: %w", err)
+	}
+	return unitPath, nil
+}
+
 // UninstallBridgeDaemon stops and removes the bridge daemon.
 func UninstallBridgeDaemon() error {
 	plat := platform.Detect()
@@ -1287,6 +1485,47 @@ func uninstallBridgeDaemonSystemd() error {
 	return nil
 }
 
+// UninstallTransitionNotifierDaemon stops and removes the transition notifier daemon.
+func UninstallTransitionNotifierDaemon() error {
+	plat := platform.Detect()
+	switch plat {
+	case platform.PlatformMacOS:
+		return uninstallTransitionNotifierLaunchd()
+	case platform.PlatformLinux, platform.PlatformWSL2:
+		return uninstallTransitionNotifierSystemd()
+	default:
+		return nil
+	}
+}
+
+func uninstallTransitionNotifierLaunchd() error {
+	plistPath, err := TransitionNotifierLaunchdPlistPath()
+	if err != nil {
+		return err
+	}
+	if _, err := os.Stat(plistPath); os.IsNotExist(err) {
+		return nil
+	}
+	_ = exec.Command("launchctl", "unload", plistPath).Run()
+	return os.Remove(plistPath)
+}
+
+func uninstallTransitionNotifierSystemd() error {
+	_ = exec.Command("systemctl", "--user", "disable", "--now", systemdTransitionNotifierServiceName).Run()
+	unitPath, err := SystemdTransitionNotifierServicePath()
+	if err != nil {
+		return err
+	}
+	if _, err := os.Stat(unitPath); os.IsNotExist(err) {
+		return nil
+	}
+	if err := os.Remove(unitPath); err != nil {
+		return err
+	}
+	_ = exec.Command("systemctl", "--user", "daemon-reload").Run()
+	return nil
+}
+
 // IsBridgeDaemonRunning checks if the bridge daemon is currently running.
 func IsBridgeDaemonRunning() bool {
 	plat := platform.Detect()
@@ -1296,6 +1535,21 @@ func IsBridgeDaemonRunning() bool {
 		return err == nil && len(out) > 0
 	case platform.PlatformLinux, platform.PlatformWSL2:
 		err := exec.Command("systemctl", "--user", "is-active", "--quiet", systemdBridgeServiceName).Run()
+		return err == nil
+	default:
+		return false
+	}
+}
+
+// IsTransitionNotifierDaemonRunning checks if transition notifier daemon is running.
+func IsTransitionNotifierDaemonRunning() bool {
+	plat := platform.Detect()
+	switch plat {
+	case platform.PlatformMacOS:
+		out, err := exec.Command("launchctl", "list", TransitionNotifierLaunchdPlistName).Output()
+		return err == nil && len(out) > 0
+	case platform.PlatformLinux, platform.PlatformWSL2:
+		err := exec.Command("systemctl", "--user", "is-active", "--quiet", systemdTransitionNotifierServiceName).Run()
 		return err == nil
 	default:
 		return false
@@ -1329,6 +1583,34 @@ func BridgeDaemonHint() string {
 	default:
 		condDir, _ := ConductorDir()
 		return fmt.Sprintf("Run manually: python3 %s/bridge.py", condDir)
+	}
+}
+
+// TransitionNotifierDaemonHint returns how to start transition notifier daemon.
+func TransitionNotifierDaemonHint() string {
+	plat := platform.Detect()
+	switch plat {
+	case platform.PlatformMacOS:
+		plistPath, err := TransitionNotifierLaunchdPlistPath()
+		if err == nil {
+			if _, err := os.Stat(plistPath); err == nil {
+				return fmt.Sprintf("Start notifier daemon with: launchctl load %s", plistPath)
+			}
+		}
+		return "Run 'agent-deck conductor setup <name>' to install notifier daemon"
+	case platform.PlatformLinux, platform.PlatformWSL2:
+		if !systemdUserAvailable() {
+			return "Run notifier manually: agent-deck notify-daemon"
+		}
+		unitPath, err := SystemdTransitionNotifierServicePath()
+		if err == nil {
+			if _, err := os.Stat(unitPath); err == nil {
+				return "Start notifier daemon with: systemctl --user start agent-deck-transition-notifier"
+			}
+		}
+		return "Run 'agent-deck conductor setup <name>' to install notifier daemon"
+	default:
+		return "Run notifier manually: agent-deck notify-daemon"
 	}
 }
 
