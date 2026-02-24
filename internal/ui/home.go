@@ -276,6 +276,10 @@ type Home struct {
 	lastNavigationTime time.Time // When user last navigated (up/down/j/k)
 	isNavigating       bool      // True if user is rapidly navigating
 
+	// Mouse click tracking (double-click detection)
+	lastClickTime  time.Time
+	lastClickIndex int
+
 	// Cached status counts (invalidated on instance changes)
 	cachedStatusCounts struct {
 		running, waiting, idle, errored int
