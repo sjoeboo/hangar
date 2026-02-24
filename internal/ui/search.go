@@ -176,7 +176,7 @@ func (s *Search) View() string {
 	header := lipgloss.NewStyle().
 		Foreground(ColorAccent).
 		Bold(true).
-		Render("🔍 Local Search (Agent Deck sessions)")
+		Render("🔍 Local Search (Hangar sessions)")
 
 	// Build search input box
 	searchBox := searchBoxStyle.Render(s.input.View())

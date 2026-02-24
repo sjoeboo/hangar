@@ -5419,12 +5419,12 @@ func (h *Home) View() string {
 		Foreground(ColorAccent)
 
 	// Show profile in title if not default
-	titleText := "Agent Deck"
+	titleText := "Hangar"
 	if h.profile != "" && h.profile != session.DefaultProfile {
 		profileStyle := lipgloss.NewStyle().
 			Foreground(ColorCyan).
 			Bold(true)
-		titleText = "Agent Deck " + profileStyle.Render("["+h.profile+"]")
+		titleText = "Hangar " + profileStyle.Render("["+h.profile+"]")
 	}
 	title := titleStyle.Render(titleText)
 
@@ -5671,7 +5671,7 @@ func renderLoadingSplash(width, height int, frame int) string {
 		content.WriteString("\n")
 		content.WriteString("      " + running + "   " + waiting + "   " + idle + "      \n")
 		content.WriteString("\n")
-		content.WriteString(titleStyle.Render("Agent Deck") + "\n")
+		content.WriteString(titleStyle.Render("Hangar") + "\n")
 		content.WriteString("\n")
 		content.WriteString(subtitleStyle.Render("Loading sessions..."))
 	} else if width >= 25 && height >= 6 {
@@ -5689,11 +5689,11 @@ func renderLoadingSplash(width, height int, frame int) string {
 		}
 		content.WriteString(indicators + "\n")
 		content.WriteString("\n")
-		content.WriteString(titleStyle.Render("Agent Deck") + "\n")
+		content.WriteString(titleStyle.Render("Hangar") + "\n")
 		content.WriteString(subtitleStyle.Render("Loading..."))
 	} else {
 		// Minimal
-		content.WriteString(greenStyle.Render("●") + " " + titleStyle.Render("Agent Deck") + "\n")
+		content.WriteString(greenStyle.Render("●") + " " + titleStyle.Render("Hangar") + "\n")
 		content.WriteString(subtitleStyle.Render("Loading..."))
 	}
 
@@ -5752,12 +5752,12 @@ func renderQuittingSplash(width, height int, frame int) string {
 		content.WriteString("\n")
 		content.WriteString("      " + running + "   " + waiting + "   " + idle + "      \n")
 		content.WriteString("\n")
-		content.WriteString(titleStyle.Render("Agent Deck") + "\n")
+		content.WriteString(titleStyle.Render("Hangar") + "\n")
 		content.WriteString("\n")
 		content.WriteString(subtitleStyle.Render("Shutting down..."))
 	} else {
 		// Compact/Minimal
-		content.WriteString(titleStyle.Render("Agent Deck") + "\n")
+		content.WriteString(titleStyle.Render("Hangar") + "\n")
 		content.WriteString(subtitleStyle.Render("Shutting down..."))
 	}
 

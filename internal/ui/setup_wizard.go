@@ -20,7 +20,7 @@ type SetupWizard struct {
 
 	// Step 1: Tool selection
 	toolOptions  []string
-	selectedTool int // 0=Claude, 1=Gemini, 2=OpenCode, 3=Codex, 4=Shell
+	selectedTool int // 0=Claude, 1=Shell
 
 	// Step 2: Claude settings (only if Claude selected)
 	dangerousMode        bool
@@ -53,7 +53,7 @@ func NewSetupWizard() *SetupWizard {
 		visible:             false,
 		complete:            false,
 		currentStep:         0,
-		toolOptions:         []string{"claude", "gemini", "opencode", "codex", "shell"},
+		toolOptions:         []string{"claude", "shell"},
 		selectedTool:        0, // Default to Claude
 		dangerousMode:       false,
 		useDefaultConfigDir: true,
@@ -357,13 +357,13 @@ func (w *SetupWizard) View() string {
 
 	switch w.currentStep {
 	case stepWelcome:
-		content.WriteString(titleStyle.Render("Welcome to Agent Deck!"))
+		content.WriteString(titleStyle.Render("Welcome to Hangar!"))
 		content.WriteString("\n\n")
-		content.WriteString(labelStyle.Render("Agent Deck is a terminal session manager for AI coding agents."))
+		content.WriteString(labelStyle.Render("Hangar is a Claude Code session manager."))
 		content.WriteString("\n\n")
 		content.WriteString(labelStyle.Render("This wizard will help you configure:"))
 		content.WriteString("\n")
-		content.WriteString(lipgloss.NewStyle().Foreground(ColorCyan).Render("  - Default AI tool"))
+		content.WriteString(lipgloss.NewStyle().Foreground(ColorCyan).Render("  - Default session command"))
 		content.WriteString("\n")
 		content.WriteString(lipgloss.NewStyle().Foreground(ColorCyan).Render("  - Claude Code settings"))
 		content.WriteString("\n\n")
@@ -372,17 +372,14 @@ func (w *SetupWizard) View() string {
 		content.WriteString(helpStyle.Render("Enter: continue"))
 
 	case stepToolSelection:
-		content.WriteString(titleStyle.Render("Select Default AI Tool"))
+		content.WriteString(titleStyle.Render("Default Session Command"))
 		content.WriteString("\n\n")
-		content.WriteString(subtitleStyle.Render("This tool will be pre-selected when creating new sessions:"))
+		content.WriteString(subtitleStyle.Render("This will be pre-selected when creating new sessions:"))
 		content.WriteString("\n\n")
 
 		toolDescriptions := map[string]string{
-			"claude":   "Claude Code - Anthropic's AI coding assistant",
-			"gemini":   "Gemini CLI - Google's AI assistant",
-			"opencode": "OpenCode - Open source AI coding tool",
-			"codex":    "Codex CLI - OpenAI's coding assistant",
-			"shell":    "Shell - No AI tool (plain terminal)",
+			"claude": "Claude Code - Anthropic's AI coding assistant",
+			"shell":  "Shell - No AI tool (plain terminal)",
 		}
 
 		for i, tool := range w.toolOptions {
@@ -489,7 +486,7 @@ func (w *SetupWizard) View() string {
 		}
 
 		content.WriteString("\n")
-		content.WriteString(subtitleStyle.Render("Press Enter to save and start using Agent Deck!"))
+		content.WriteString(subtitleStyle.Render("Press Enter to save and start using Hangar!"))
 		content.WriteString("\n\n")
 		content.WriteString(helpStyle.Render("Enter: save & finish | Esc: back"))
 	}

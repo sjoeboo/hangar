@@ -230,7 +230,7 @@ func (h *HelpOverlay) View() string {
 	}
 	lines = append(lines, "")
 	lines = append(lines, separatorStyle.Render(strings.Repeat("─", separatorWidth)))
-	lines = append(lines, versionStyle.Render("Agent Deck v"+Version))
+	lines = append(lines, versionStyle.Render("Hangar v"+Version))
 
 	totalLines := len(lines)
 

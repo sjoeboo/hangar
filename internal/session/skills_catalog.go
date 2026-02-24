@@ -185,7 +185,7 @@ func defaultSkillSources() map[string]SkillSourceDef {
 	return map[string]SkillSourceDef{
 		defaultSkillSourcePool: {
 			Path:        poolPath,
-			Description: "Managed Agent Deck skill pool",
+			Description: "Managed Hangar skill pool",
 			Enabled:     skillBoolPtr(true),
 		},
 		defaultSkillSourceClaude: {

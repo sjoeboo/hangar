@@ -1221,6 +1221,7 @@ func GetNotificationsSettings() NotificationsConfig {
 			Enabled:  true,
 			MaxShown: 6,
 			ShowAll:  false,
+			Minimal:  true, // hangar default: compact icon+count format
 		}
 	}
 
@@ -1230,8 +1231,9 @@ func GetNotificationsSettings() NotificationsConfig {
 	// Enabled defaults to true for better UX (users expect to see waiting sessions)
 	// Users who have a config file but no [notifications] section get enabled=true
 	if !settings.Enabled && settings.MaxShown == 0 {
-		// Section not explicitly configured, apply default
+		// Section not explicitly configured, apply defaults
 		settings.Enabled = true
+		settings.Minimal = true // hangar default
 	}
 	if settings.MaxShown <= 0 {
 		settings.MaxShown = 6
