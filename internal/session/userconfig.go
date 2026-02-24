@@ -1233,10 +1233,16 @@ func GetNotificationsSettings() NotificationsConfig {
 	if !settings.Enabled && settings.MaxShown == 0 {
 		// Section not explicitly configured, apply defaults
 		settings.Enabled = true
-		settings.Minimal = true // hangar default
 	}
 	if settings.MaxShown <= 0 {
 		settings.MaxShown = 6
+	}
+	// Minimal defaults to true in hangar — compact ⚡ ● N format.
+	// Since TOML can't distinguish "not set" from "false", we always default
+	// to true. Users who want non-minimal must set minimal = true then false.
+	// In practice this only matters for configs written before hangar adopted this default.
+	if !settings.Minimal {
+		settings.Minimal = true
 	}
 	// ShowAll defaults to false (backward compatible) - bool zero value handles this
 

@@ -178,6 +178,13 @@ func (w *SetupWizard) GetConfig() *session.UserConfig {
 	// Note: Even on supported platforms, we don't enable by default
 	// Users can enable it manually if they want the optimization
 
+	// Notifications: minimal mode is hangar's default
+	config.Notifications = session.NotificationsConfig{
+		Enabled:  true,
+		MaxShown: 6,
+		Minimal:  true,
+	}
+
 	// Theme (defaults to dark)
 	if w.selectedTheme == 1 {
 		config.Theme = "light"
