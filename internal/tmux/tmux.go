@@ -1045,10 +1045,17 @@ func (s *Session) ConfigureStatusBar() {
 		// Transition: mantle→primary (clock pill)
 		fmt.Sprintf("#[fg=%s]\uE0B0#[bg=%s,fg=%s,bold] %%H:%%M #[nobold]", oasisPrimary, oasisPrimary, oasisCore)
 
-	// Inactive window tab: surface bg, strong_primary fg
-	winInactive := fmt.Sprintf("#[bg=%s,fg=%s] #I #W ", oasisSurface, oasisStrongPrimary)
-	// Active window tab: secondary (orange) bg, core fg, bold
-	winActive := fmt.Sprintf("#[bg=%s,fg=%s,bold] #I #W #[nobold]", oasisSecondary, oasisCore)
+	// Inactive window tab: rounded pill using powerline caps (U+E0B6 left, U+E0B4 right).
+	// Cap fg = pill bg so the rounded cap blends into the mantle status-bar bg.
+	winInactive := "" +
+		fmt.Sprintf("#[bg=%s,fg=%s]\uE0B6", oasisMantle, oasisSurface) +
+		fmt.Sprintf("#[bg=%s,fg=%s] #I #W ", oasisSurface, oasisStrongPrimary) +
+		fmt.Sprintf("#[bg=%s,fg=%s]\uE0B4", oasisMantle, oasisSurface)
+	// Active window tab: orange pill, bold text
+	winActive := "" +
+		fmt.Sprintf("#[bg=%s,fg=%s]\uE0B6", oasisMantle, oasisSecondary) +
+		fmt.Sprintf("#[bg=%s,fg=%s,bold] #I #W #[nobold]", oasisSecondary, oasisCore) +
+		fmt.Sprintf("#[bg=%s,fg=%s]\uE0B4", oasisMantle, oasisSecondary)
 
 	// PERFORMANCE: Batch all status bar options into a single subprocess call.
 	// Uses tmux command chaining with ; separator (reduces subprocess spawns).

@@ -2,6 +2,7 @@ package ui
 
 import (
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/textinput"
@@ -19,19 +20,22 @@ const (
 	GroupDialogRenameSession
 )
 
-// GroupDialog handles group creation, renaming, and moving sessions
+// GroupDialog handles group/project creation, renaming, and moving sessions
 type GroupDialog struct {
-	visible       bool
-	mode          GroupDialogMode
-	nameInput     textinput.Model
-	width         int
-	height        int
-	groupPath     string   // Current group being edited (for rename) or parent path (for create subgroup)
-	parentName    string   // Display name of parent group (for subgroup creation)
-	groupNames    []string // Available groups (for move)
-	selected      int      // Selected group index (for move)
-	sessionID     string   // Session ID being renamed (for rename session)
-	validationErr string   // Inline validation error displayed inside the dialog
+	visible    bool
+	mode       GroupDialogMode
+	nameInput  textinput.Model
+	pathInput  textinput.Model // only used in Create mode for root-level projects
+	focusIndex int             // 0=name, 1=path (Create root only)
+	width      int
+	height     int
+	groupPath  string   // Current group being edited (for rename) or parent path (for create subgroup)
+	parentName string   // Display name of parent group (for subgroup creation)
+	groupNames []string // Available groups (for move)
+	selected   int      // Selected group index (for move)
+	sessionID  string   // Session ID being renamed (for rename session)
+
+	validationErr string // Inline validation error displayed inside the dialog
 
 	// Tab toggle between Root and Subgroup modes (Issue #111)
 	contextParentPath string // Original cursor context parent path (for toggling back)
@@ -41,25 +45,39 @@ type GroupDialog struct {
 // NewGroupDialog creates a new group dialog
 func NewGroupDialog() *GroupDialog {
 	ti := textinput.New()
-	ti.Placeholder = "Group name"
+	ti.Placeholder = "Project name"
 	ti.CharLimit = 50
 	ti.Width = 30
 
+	pi := textinput.New()
+	pi.Placeholder = "~/path/to/repo"
+	pi.CharLimit = 256
+	pi.Width = 30
+
 	return &GroupDialog{
 		nameInput:  ti,
+		pathInput:  pi,
 		groupNames: []string{},
 	}
 }
 
-// Show shows the dialog in create mode (root level group)
+// isRootCreate returns true when we're creating a root-level project (path input shown).
+func (g *GroupDialog) isRootCreate() bool {
+	return g.mode == GroupDialogCreate && g.groupPath == ""
+}
+
+// Show shows the dialog in create mode (root level group/project)
 func (g *GroupDialog) Show() {
 	g.visible = true
 	g.mode = GroupDialogCreate
 	g.groupPath = "" // No parent = root level
 	g.parentName = ""
+	g.focusIndex = 0
 	g.validationErr = ""
 	g.nameInput.SetValue("")
 	g.nameInput.Focus()
+	g.pathInput.Blur()
+	g.initPathDefault()
 }
 
 // ShowCreateSubgroup shows the dialog for creating a subgroup under a parent
@@ -68,9 +86,11 @@ func (g *GroupDialog) ShowCreateSubgroup(parentPath, parentName string) {
 	g.mode = GroupDialogCreate
 	g.groupPath = parentPath // Parent path for the new subgroup
 	g.parentName = parentName
+	g.focusIndex = 0
 	g.validationErr = ""
 	g.nameInput.SetValue("")
 	g.nameInput.Focus()
+	g.pathInput.Blur()
 }
 
 // ShowCreateWithContext opens the create dialog with cursor context for Tab toggling.
@@ -81,18 +101,21 @@ func (g *GroupDialog) ShowCreateWithContext(parentPath, parentName string) {
 	g.mode = GroupDialogCreate
 	g.contextParentPath = parentPath
 	g.contextParentName = parentName
+	g.focusIndex = 0
 	g.validationErr = ""
 	g.nameInput.SetValue("")
 	g.nameInput.Focus()
+	g.pathInput.Blur()
 
 	if parentPath != "" {
 		// Default to subgroup mode
 		g.groupPath = parentPath
 		g.parentName = parentName
 	} else {
-		// Root mode, no toggle
+		// Root mode
 		g.groupPath = ""
 		g.parentName = ""
+		g.initPathDefault()
 	}
 }
 
@@ -104,13 +127,25 @@ func (g *GroupDialog) ShowCreateWithContextDefaultRoot(parentPath, parentName st
 	g.mode = GroupDialogCreate
 	g.contextParentPath = parentPath
 	g.contextParentName = parentName
+	g.focusIndex = 0
 	g.validationErr = ""
 	g.nameInput.SetValue("")
 	g.nameInput.Focus()
+	g.pathInput.Blur()
 
 	// Default to root mode, Tab toggles to subgroup
 	g.groupPath = ""
 	g.parentName = ""
+	g.initPathDefault()
+}
+
+// initPathDefault pre-populates the path input with the current working directory.
+func (g *GroupDialog) initPathDefault() {
+	if cwd, err := os.Getwd(); err == nil {
+		g.pathInput.SetValue(cwd)
+	} else {
+		g.pathInput.SetValue("")
+	}
 }
 
 // CanToggle returns true when the Tab toggle between Root and Subgroup is available.
@@ -132,7 +167,11 @@ func (g *GroupDialog) ToggleRootSubgroup() {
 		// Currently subgroup → switch to root
 		g.groupPath = ""
 		g.parentName = ""
+		g.initPathDefault()
 	}
+	g.focusIndex = 0
+	g.nameInput.Focus()
+	g.pathInput.Blur()
 	g.validationErr = ""
 }
 
@@ -142,8 +181,10 @@ func (g *GroupDialog) ShowRename(currentPath, currentName string) {
 	g.mode = GroupDialogRename
 	g.groupPath = currentPath
 	g.validationErr = ""
+	g.focusIndex = 0
 	g.nameInput.SetValue(currentName)
 	g.nameInput.Focus()
+	g.pathInput.Blur()
 }
 
 // ShowMove shows the dialog for moving a session to a group
@@ -161,8 +202,10 @@ func (g *GroupDialog) ShowRenameSession(sessionID, currentName string) {
 	g.mode = GroupDialogRenameSession
 	g.sessionID = sessionID
 	g.validationErr = ""
+	g.focusIndex = 0
 	g.nameInput.SetValue(currentName)
 	g.nameInput.Focus()
+	g.pathInput.Blur()
 }
 
 // GetSessionID returns the session ID being renamed
@@ -174,6 +217,7 @@ func (g *GroupDialog) GetSessionID() string {
 func (g *GroupDialog) Hide() {
 	g.visible = false
 	g.nameInput.Blur()
+	g.pathInput.Blur()
 }
 
 // IsVisible returns whether the dialog is visible
@@ -186,9 +230,14 @@ func (g *GroupDialog) Mode() GroupDialogMode {
 	return g.mode
 }
 
-// GetValue returns the input value
+// GetValue returns the name input value
 func (g *GroupDialog) GetValue() string {
 	return strings.TrimSpace(g.nameInput.Value())
+}
+
+// GetPath returns the path input value (only meaningful for root Create mode)
+func (g *GroupDialog) GetPath() string {
+	return strings.TrimSpace(g.pathInput.Value())
 }
 
 // Validate checks if the dialog values are valid and returns an error message if not
@@ -204,7 +253,7 @@ func (g *GroupDialog) Validate() string {
 		if g.mode == GroupDialogRenameSession {
 			return "Session name cannot be empty"
 		}
-		return "Group name cannot be empty"
+		return "Project name cannot be empty"
 	}
 
 	// Check name length
@@ -215,7 +264,15 @@ func (g *GroupDialog) Validate() string {
 	// Check for "/" in group names (would break path hierarchy)
 	if g.mode == GroupDialogCreate || g.mode == GroupDialogRename {
 		if strings.Contains(name, "/") {
-			return "Group name cannot contain '/' character"
+			return "Name cannot contain '/' character"
+		}
+	}
+
+	// Validate path for root-level project creation
+	if g.isRootCreate() {
+		path := strings.TrimSpace(g.pathInput.Value())
+		if path == "" {
+			return "Project path cannot be empty"
 		}
 	}
 
@@ -277,14 +334,33 @@ func (g *GroupDialog) Update(msg tea.KeyMsg) (*GroupDialog, tea.Cmd) {
 		return g, nil
 	}
 
-	// Tab toggles between Root and Subgroup modes
-	if msg.String() == "tab" && g.CanToggle() {
-		g.ToggleRootSubgroup()
-		return g, nil
+	// Tab: in root Create mode cycle between name and path; otherwise toggle Root/Subgroup
+	if msg.String() == "tab" {
+		if g.isRootCreate() {
+			// Cycle focus: name ↔ path
+			if g.focusIndex == 0 {
+				g.focusIndex = 1
+				g.nameInput.Blur()
+				g.pathInput.Focus()
+			} else {
+				g.focusIndex = 0
+				g.pathInput.Blur()
+				g.nameInput.Focus()
+			}
+			return g, nil
+		}
+		if g.CanToggle() {
+			g.ToggleRootSubgroup()
+			return g, nil
+		}
 	}
 
 	var cmd tea.Cmd
-	g.nameInput, cmd = g.nameInput.Update(msg)
+	if g.isRootCreate() && g.focusIndex == 1 {
+		g.pathInput, cmd = g.pathInput.Update(msg)
+	} else {
+		g.nameInput, cmd = g.nameInput.Update(msg)
+	}
 	return g, cmd
 }
 
@@ -306,8 +382,28 @@ func (g *GroupDialog) View() string {
 				Render("Parent: " + g.parentName)
 			content = parentInfo + "\n\n" + g.nameInput.View()
 		} else {
-			title = "Create New Group"
-			content = g.nameInput.View()
+			title = "Create New Project"
+			// Render name + path inputs for root-level creation
+			activeLabelStyle := lipgloss.NewStyle().Foreground(ColorCyan).Bold(true)
+			labelStyle := lipgloss.NewStyle().Foreground(ColorText)
+
+			var b strings.Builder
+			if g.focusIndex == 0 {
+				b.WriteString(activeLabelStyle.Render("▶ Name:"))
+			} else {
+				b.WriteString(labelStyle.Render("  Name:"))
+			}
+			b.WriteString("\n  ")
+			b.WriteString(g.nameInput.View())
+			b.WriteString("\n\n")
+			if g.focusIndex == 1 {
+				b.WriteString(activeLabelStyle.Render("▶ Path:"))
+			} else {
+				b.WriteString(labelStyle.Render("  Path:"))
+			}
+			b.WriteString("\n  ")
+			b.WriteString(g.pathInput.View())
+			content = b.String()
 		}
 
 		// Add Root/Subgroup toggle indicator when Tab toggle is available
@@ -315,7 +411,7 @@ func (g *GroupDialog) View() string {
 			activeStyle := lipgloss.NewStyle().Bold(true).Foreground(ColorAccent)
 			dimStyle := lipgloss.NewStyle().Foreground(ColorTextDim)
 
-			rootTab := "Root"
+			rootTab := "Project"
 			subTab := "Subgroup"
 			var tabs string
 			if g.groupPath == "" {
@@ -328,10 +424,10 @@ func (g *GroupDialog) View() string {
 			content = tabs + "\n\n" + content
 		}
 	case GroupDialogRename:
-		title = "Rename Group"
+		title = "Rename Project"
 		content = g.nameInput.View()
 	case GroupDialogMove:
-		title = "Move to Group"
+		title = "Move to Project"
 		var items []string
 		for i, name := range g.groupNames {
 			if i == g.selected {
@@ -355,7 +451,7 @@ func (g *GroupDialog) View() string {
 	}
 
 	// Responsive dialog width
-	dialogWidth := 44
+	dialogWidth := 50
 	if g.width > 0 && g.width < dialogWidth+10 {
 		dialogWidth = g.width - 10
 		if dialogWidth < 30 {
@@ -367,9 +463,12 @@ func (g *GroupDialog) View() string {
 	titleStyle := DialogTitleStyle.Width(titleWidth)
 	hintStyle := lipgloss.NewStyle().Foreground(ColorComment)
 	var hint string
-	if g.CanToggle() {
+	switch {
+	case g.isRootCreate():
+		hint = hintStyle.Render("Tab next field │ Enter confirm │ Esc cancel")
+	case g.CanToggle():
 		hint = hintStyle.Render("Tab toggle │ Enter confirm │ Esc cancel")
-	} else {
+	default:
 		hint = hintStyle.Render("Enter confirm │ Esc cancel")
 	}
 

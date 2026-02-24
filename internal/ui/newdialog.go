@@ -717,8 +717,8 @@ func (d *NewDialog) View() string {
 	// Title with parent group info
 	content.WriteString(titleStyle.Render("New Session"))
 	content.WriteString("\n")
-	groupInfoStyle := lipgloss.NewStyle().Foreground(ColorPurple) // Purple for group context
-	content.WriteString(groupInfoStyle.Render("  in group: " + d.parentGroupName))
+	groupInfoStyle := lipgloss.NewStyle().Foreground(ColorPurple) // Purple for project context
+	content.WriteString(groupInfoStyle.Render("  in project: " + d.parentGroupName))
 	content.WriteString("\n\n")
 
 	// Project picker step

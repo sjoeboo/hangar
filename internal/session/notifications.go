@@ -268,12 +268,12 @@ func (nm *NotificationManager) SyncFromInstances(instances []*Instance, currentS
 	nm.mu.Lock()
 	defer nm.mu.Unlock()
 
-	// Always compute per-status counts across all non-current sessions (used by minimal mode)
+	// Compute per-status counts across ALL sessions (including the current one).
+	// In minimal mode the pill shows the overall fleet status, so seeing your own
+	// session's state is useful — especially when it's the only session.
 	counts := make(map[Status]int)
 	for _, inst := range instances {
-		if inst.ID != currentSessionID {
-			counts[inst.GetStatusThreadSafe()]++
-		}
+		counts[inst.GetStatusThreadSafe()]++
 	}
 	nm.statusCounts = counts
 

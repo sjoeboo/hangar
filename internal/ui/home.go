@@ -4215,8 +4215,13 @@ func (h *Home) handleGroupDialogKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 					parentPath := h.groupDialog.GetParentPath()
 					h.groupTree.CreateSubgroup(parentPath, name)
 				} else {
-					// Create root-level group
+					// Create root-level project group
 					h.groupTree.CreateGroup(name)
+					// Also register as a Project so the new-session dialog can
+					// pick it up and pre-populate the path.
+					if baseDir := h.groupDialog.GetPath(); baseDir != "" {
+						_ = session.AddProject(name, baseDir, "")
+					}
 				}
 				h.rebuildFlatItems()
 				h.saveInstances() // Persist the new group

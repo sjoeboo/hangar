@@ -766,8 +766,9 @@ func TestMinimalMode_FormatBar_IncludesErrorCount(t *testing.T) {
 	assert.Contains(t, bar, "#ff7979") // error color (oasisRed)
 }
 
-// TestMinimalMode_ExcludesCurrentSession verifies the current session is not counted.
-func TestMinimalMode_ExcludesCurrentSession(t *testing.T) {
+// TestMinimalMode_IncludesCurrentSession verifies the current session IS counted in minimal mode.
+// The pill shows fleet-wide status so you can see your own session's state even when attached.
+func TestMinimalMode_IncludesCurrentSession(t *testing.T) {
 	nm := NewNotificationManager(6, false, true)
 
 	now := time.Now()
@@ -779,8 +780,8 @@ func TestMinimalMode_ExcludesCurrentSession(t *testing.T) {
 	nm.SyncFromInstances(instances, "current")
 	bar := nm.FormatBar()
 
-	// Only "other" should be counted, not "current"
-	assert.Contains(t, bar, "● 1")
+	// Both sessions should be counted (● 2)
+	assert.Contains(t, bar, "● 2")
 	assert.Contains(t, bar, "#53d390") // running color (oasisGreen)
 }
 
