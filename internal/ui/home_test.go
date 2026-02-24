@@ -8,7 +8,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/asheshgoplani/agent-deck/internal/session"
+	"github.com/sjoeboo/hangar/internal/session"
 )
 
 func TestNewHome(t *testing.T) {

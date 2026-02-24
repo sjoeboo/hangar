@@ -26,7 +26,7 @@ const (
 
 // Config holds logging configuration.
 type Config struct {
-	// LogDir is the directory for log files (e.g. ~/.agent-deck)
+	// LogDir is the directory for log files (e.g. ~/.hangar)
 	LogDir string
 
 	// Level is the minimum log level: "debug", "info", "warn", "error"

@@ -10,7 +10,7 @@ import (
 	"time"
 
 	webpush "github.com/SherClockHolmes/webpush-go"
-	"github.com/asheshgoplani/agent-deck/internal/session"
+	"github.com/sjoeboo/hangar/internal/session"
 )
 
 const pushVAPIDKeysFileName = "web_push_vapid_keys.json"

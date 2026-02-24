@@ -17,7 +17,7 @@ import (
 const (
 	skillsDirName            = "skills"
 	skillSourcesFileName     = "sources.toml"
-	projectSkillsDirName     = ".agent-deck"
+	projectSkillsDirName     = ".hangar"
 	projectSkillsManifest    = "skills.toml"
 	projectClaudeSkillsDir   = ".claude/skills"
 	defaultSkillSourcePool   = "pool"
@@ -47,7 +47,7 @@ func (s SkillSourceDef) IsEnabled() bool {
 	return s.Enabled == nil || *s.Enabled
 }
 
-// SkillSourcesConfig is persisted in ~/.agent-deck/skills/sources.toml.
+// SkillSourcesConfig is persisted in ~/.hangar/skills/sources.toml.
 type SkillSourcesConfig struct {
 	Sources map[string]SkillSourceDef `toml:"sources"`
 }
@@ -71,7 +71,7 @@ type SkillCandidate struct {
 	Kind        string `json:"kind"` // "dir" or "file"
 }
 
-// ProjectSkillAttachment is persisted in .agent-deck/skills.toml.
+// ProjectSkillAttachment is persisted in .hangar/skills.toml.
 type ProjectSkillAttachment struct {
 	ID         string `toml:"id"`
 	Name       string `toml:"name"`
@@ -152,7 +152,7 @@ func isContainedIn(basePath, targetPath string) bool {
 	return strings.HasPrefix(normalizedTarget, normalizedBase+string(os.PathSeparator))
 }
 
-// GetSkillsRootPath returns ~/.agent-deck/skills.
+// GetSkillsRootPath returns ~/.hangar/skills.
 func GetSkillsRootPath() (string, error) {
 	base, err := GetAgentDeckDir()
 	if err != nil {
@@ -161,7 +161,7 @@ func GetSkillsRootPath() (string, error) {
 	return filepath.Join(base, skillsDirName), nil
 }
 
-// GetSkillSourcesPath returns ~/.agent-deck/skills/sources.toml.
+// GetSkillSourcesPath returns ~/.hangar/skills/sources.toml.
 func GetSkillSourcesPath() (string, error) {
 	root, err := GetSkillsRootPath()
 	if err != nil {
@@ -170,7 +170,7 @@ func GetSkillSourcesPath() (string, error) {
 	return filepath.Join(root, skillSourcesFileName), nil
 }
 
-// GetSkillPoolPath returns ~/.agent-deck/skills/pool.
+// GetSkillPoolPath returns ~/.hangar/skills/pool.
 func GetSkillPoolPath() (string, error) {
 	root, err := GetSkillsRootPath()
 	if err != nil {
@@ -561,7 +561,7 @@ func ResolveSkillCandidate(skillRef, sourceName string) (*SkillCandidate, error)
 	return &result, nil
 }
 
-// GetProjectSkillsManifestPath returns <project>/.agent-deck/skills.toml.
+// GetProjectSkillsManifestPath returns <project>/.hangar/skills.toml.
 func GetProjectSkillsManifestPath(projectPath string) string {
 	return filepath.Join(projectPath, projectSkillsDirName, projectSkillsManifest)
 }

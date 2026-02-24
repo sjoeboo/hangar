@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/asheshgoplani/agent-deck/internal/session"
+	"github.com/sjoeboo/hangar/internal/session"
 )
 
 // DetectCurrentProfile attempts to detect the active profile from environment.

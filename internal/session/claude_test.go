@@ -66,7 +66,7 @@ func TestGetClaudeConfigDir_ProfileOverride(t *testing.T) {
 	_ = os.Setenv("AGENTDECK_PROFILE", "work")
 	ClearUserConfigCache()
 
-	agentDeckDir := filepath.Join(tmpHome, ".agent-deck")
+	agentDeckDir := filepath.Join(tmpHome, ".hangar")
 	if err := os.MkdirAll(agentDeckDir, 0700); err != nil {
 		t.Fatalf("failed to create agent-deck dir: %v", err)
 	}
@@ -129,7 +129,7 @@ func TestIsClaudeConfigDirExplicit_ProfileOverride(t *testing.T) {
 	_ = os.Setenv("AGENTDECK_PROFILE", "work")
 	ClearUserConfigCache()
 
-	agentDeckDir := filepath.Join(tmpHome, ".agent-deck")
+	agentDeckDir := filepath.Join(tmpHome, ".hangar")
 	if err := os.MkdirAll(agentDeckDir, 0700); err != nil {
 		t.Fatalf("failed to create agent-deck dir: %v", err)
 	}

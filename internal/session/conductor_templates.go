@@ -1,6 +1,6 @@
 package session
 
-// conductorSharedClaudeMDTemplate is the shared CLAUDE.md written to ~/.agent-deck/conductor/CLAUDE.md.
+// conductorSharedClaudeMDTemplate is the shared CLAUDE.md written to ~/.hangar/conductor/CLAUDE.md.
 // It contains CLI reference, protocols, and formats shared by all conductors (mechanism).
 // Agent behavior (rules, auto-response policy) lives in POLICY.md, not here.
 // Claude Code walks up the directory tree, so per-conductor CLAUDE.md files inherit this automatically.
@@ -171,8 +171,8 @@ For any other text, treat it as a conversational message from the user. They mig
 - Keep state.json small (no large output dumps). Store summaries, not full text.
 `
 
-// conductorLearningsTemplate is the default LEARNINGS.md written to ~/.agent-deck/conductor/LEARNINGS.md
-// and ~/.agent-deck/conductor/<name>/LEARNINGS.md.
+// conductorLearningsTemplate is the default LEARNINGS.md written to ~/.hangar/conductor/LEARNINGS.md
+// and ~/.hangar/conductor/<name>/LEARNINGS.md.
 // It provides a structured format for conductors to log orchestration patterns learned from experience.
 // Two tiers: shared (generic patterns across all conductors) and per-conductor (project/person-specific).
 const conductorLearningsTemplate = `# Conductor Learnings
@@ -198,9 +198,9 @@ Orchestration patterns learned from experience. Review at startup and before hea
 ---
 `
 
-// conductorPolicyTemplate is the default POLICY.md written to ~/.agent-deck/conductor/POLICY.md.
+// conductorPolicyTemplate is the default POLICY.md written to ~/.hangar/conductor/POLICY.md.
 // It contains agent behavior rules (auto-response policy, escalation guidelines, response style).
-// Per-conductor overrides can be placed at ~/.agent-deck/conductor/<name>/POLICY.md.
+// Per-conductor overrides can be placed at ~/.hangar/conductor/<name>/POLICY.md.
 const conductorPolicyTemplate = `# Conductor Policy
 
 Operating rules that govern how the conductor behaves.
@@ -238,7 +238,7 @@ This file can be overridden per conductor by placing a POLICY.md in the conducto
 If you're not sure whether to auto-respond, **escalate**. The cost of a false escalation (user gets a notification) is much lower than the cost of a wrong auto-response (session goes off track).
 `
 
-// conductorPerNameClaudeMDTemplate is the per-conductor CLAUDE.md written to ~/.agent-deck/conductor/<name>/CLAUDE.md.
+// conductorPerNameClaudeMDTemplate is the per-conductor CLAUDE.md written to ~/.hangar/conductor/<name>/CLAUDE.md.
 // It contains only the conductor's identity. Shared knowledge is inherited from the parent directory's CLAUDE.md.
 // {NAME} and {PROFILE} placeholders are replaced at setup time.
 const conductorPerNameClaudeMDTemplate = `# Conductor: {NAME} ({PROFILE} profile)
@@ -249,7 +249,7 @@ You are **{NAME}**, a conductor for the **{PROFILE}** profile.
 
 - Your session title is ` + "`" + `conductor-{NAME}` + "`" + `
 - You manage the **{PROFILE}** profile exclusively. Always pass ` + "`" + `-p {PROFILE}` + "`" + ` to all CLI commands.
-- You live in ` + "`" + `~/.agent-deck/conductor/{NAME}/` + "`" + `
+- You live in ` + "`" + `~/.hangar/conductor/{NAME}/` + "`" + `
 - Maintain state in ` + "`" + `./state.json` + "`" + ` and log actions in ` + "`" + `./task-log.md` + "`" + `
 - The bridge (Telegram/Slack) sends you messages from the user and forwards your responses back
 - You receive periodic ` + "`" + `[HEARTBEAT]` + "`" + ` messages with system status
@@ -284,7 +284,7 @@ You are **{NAME}**, a conductor for the **{PROFILE}** profile.
 
 - Your session title is ` + "`" + `conductor-{NAME}` + "`" + `
 - You manage the **{PROFILE}** profile exclusively. Always pass ` + "`" + `-p {PROFILE}` + "`" + ` to all CLI commands.
-- You live in ` + "`" + `~/.agent-deck/conductor/{NAME}/` + "`" + `
+- You live in ` + "`" + `~/.hangar/conductor/{NAME}/` + "`" + `
 - Maintain state in ` + "`" + `./state.json` + "`" + ` and log actions in ` + "`" + `./task-log.md` + "`" + `
 - The bridge (Telegram/Slack) sends you messages from the user and forwards your responses back
 - You receive periodic ` + "`" + `[HEARTBEAT]` + "`" + ` messages with system status
@@ -318,7 +318,7 @@ You are **{NAME}**, a conductor for the **{PROFILE}** profile.
 
 - Your session title is ` + "`" + `conductor-{NAME}` + "`" + `
 - You manage the **{PROFILE}** profile exclusively. Always pass ` + "`" + `-p {PROFILE}` + "`" + ` to all CLI commands.
-- You live in ` + "`" + `~/.agent-deck/conductor/{NAME}/` + "`" + `
+- You live in ` + "`" + `~/.hangar/conductor/{NAME}/` + "`" + `
 - Maintain state in ` + "`" + `./state.json` + "`" + ` and log actions in ` + "`" + `./task-log.md` + "`" + `
 - The bridge (Telegram/Slack) sends you messages from the user and forwards your responses back
 - You receive periodic ` + "`" + `[HEARTBEAT]` + "`" + ` messages with system status
@@ -349,7 +349,7 @@ A thin bridge that:
   B) Forwards conductor responses -> Telegram/Slack
   C) Runs a periodic heartbeat to trigger conductor status checks
 
-Discovers conductors dynamically from meta.json files in ~/.agent-deck/conductor/*/
+Discovers conductors dynamically from meta.json files in ~/.hangar/conductor/*/
 Each conductor has its own name, profile, and heartbeat settings.
 
 Dependencies: pip3 install toml aiogram slack-bolt slack-sdk
@@ -391,7 +391,7 @@ except ImportError:
 # Configuration
 # ---------------------------------------------------------------------------
 
-AGENT_DECK_DIR = Path.home() / ".agent-deck"
+AGENT_DECK_DIR = Path.home() / ".hangar"
 CONFIG_PATH = AGENT_DECK_DIR / "config.toml"
 CONDUCTOR_DIR = AGENT_DECK_DIR / "conductor"
 LOG_PATH = CONDUCTOR_DIR / "bridge.log"
@@ -565,7 +565,7 @@ def run_cli(
 
     If profile is provided, prepends -p <profile> to the command.
     """
-    cmd = ["agent-deck"]
+    cmd = ["hangar"]
     if profile:
         cmd += ["-p", profile]
     cmd += list(args)

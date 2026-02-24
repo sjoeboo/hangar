@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/asheshgoplani/agent-deck/internal/git"
-	"github.com/asheshgoplani/agent-deck/internal/session"
+	"github.com/sjoeboo/hangar/internal/git"
+	"github.com/sjoeboo/hangar/internal/session"
 )
 
 // handleLaunch combines add + start + optional send into a single command.

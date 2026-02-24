@@ -11,7 +11,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/asheshgoplani/agent-deck/internal/logging"
+	"github.com/sjoeboo/hangar/internal/logging"
 )
 
 var pipeLog = logging.ForComponent("pipe")

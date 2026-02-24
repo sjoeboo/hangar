@@ -18,8 +18,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/asheshgoplani/agent-deck/internal/logging"
-	"github.com/asheshgoplani/agent-deck/internal/tmux"
+	"github.com/sjoeboo/hangar/internal/logging"
+	"github.com/sjoeboo/hangar/internal/tmux"
 )
 
 var sessionLog = logging.ForComponent(logging.CompSession)

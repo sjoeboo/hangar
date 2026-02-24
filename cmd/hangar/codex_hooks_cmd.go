@@ -12,7 +12,7 @@ import (
 
 const codexNotifyMarkerBegin = "# BEGIN AGENTDECK CODEX NOTIFY"
 const codexNotifyMarkerEnd = "# END AGENTDECK CODEX NOTIFY"
-const codexNotifyLine = `notify = ["agent-deck", "codex-notify"]`
+const codexNotifyLine = `notify = ["hangar", "codex-notify"]`
 
 var codexNotifyTableRe = regexp.MustCompile(`(?m)^\s*\[notify\]\s*$`)
 var codexNotifyKeyRe = regexp.MustCompile(`(?m)^\s*notify\s*=`)
@@ -274,7 +274,7 @@ func handleCodexHooksInstall() {
 	if codexNotifyKeyRe.MatchString(content) || codexNotifyTableRe.MatchString(content) {
 		fmt.Fprintf(os.Stderr, "Error: existing notify setting found in %s\n", configPath)
 		fmt.Fprintln(os.Stderr, "Please merge manually by setting:")
-		fmt.Fprintln(os.Stderr, `  notify = ["agent-deck", "codex-notify"]`)
+		fmt.Fprintln(os.Stderr, `  notify = ["hangar", "codex-notify"]`)
 		os.Exit(1)
 	}
 

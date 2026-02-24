@@ -4,7 +4,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/asheshgoplani/agent-deck/internal/tmux"
+	"github.com/sjoeboo/hangar/internal/tmux"
 )
 
 // DiscoverExistingTmuxSessions finds all tmux sessions and converts them to instances
@@ -33,13 +33,13 @@ func DiscoverExistingTmuxSessions(existingInstances []*Instance) ([]*Instance, e
 		}
 
 		// For orphaned agent-deck sessions, extract the original title from the tmux name
-		// Format: agentdeck_<title>_<hash> -> extract <title>
+		// Format: hangar_<title>_<hash> -> extract <title>
 		title := sess.DisplayName
 		groupPath := ""
 		isOrphaned := false
 		if strings.HasPrefix(sess.Name, tmux.SessionPrefix) {
 			isOrphaned = true
-			// Extract title from session name: agentdeck_<title>_<8-char-hash>
+			// Extract title from session name: hangar_<title>_<8-char-hash>
 			namePart := strings.TrimPrefix(sess.Name, tmux.SessionPrefix)
 			if lastUnderscore := strings.LastIndex(namePart, "_"); lastUnderscore > 0 {
 				title = namePart[:lastUnderscore]

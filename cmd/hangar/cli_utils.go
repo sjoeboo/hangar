@@ -8,7 +8,7 @@ import (
 	"os/exec"
 	"strings"
 
-	"github.com/asheshgoplani/agent-deck/internal/session"
+	"github.com/sjoeboo/hangar/internal/session"
 )
 
 // normalizeArgs reorders args so flags come before positional arguments.
@@ -290,8 +290,8 @@ func GetCurrentSessionID() string {
 
 	sessionName := strings.TrimSpace(string(output))
 
-	// Parse agent-deck session name: agentdeck_<title>_<id>
-	if !strings.HasPrefix(sessionName, "agentdeck_") {
+	// Parse agent-deck session name: hangar_<title>_<id>
+	if !strings.HasPrefix(sessionName, "hangar_") {
 		return ""
 	}
 

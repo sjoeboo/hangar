@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/asheshgoplani/agent-deck/internal/session"
-	"github.com/asheshgoplani/agent-deck/internal/web"
+	"github.com/sjoeboo/hangar/internal/session"
+	"github.com/sjoeboo/hangar/internal/web"
 )
 
 // buildWebServer parses web-specific flags and returns a ready-to-start server.

@@ -6,9 +6,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/asheshgoplani/agent-deck/internal/logging"
-	"github.com/asheshgoplani/agent-deck/internal/mcppool"
-	"github.com/asheshgoplani/agent-deck/internal/platform"
+	"github.com/sjoeboo/hangar/internal/logging"
+	"github.com/sjoeboo/hangar/internal/mcppool"
+	"github.com/sjoeboo/hangar/internal/platform"
 )
 
 var (

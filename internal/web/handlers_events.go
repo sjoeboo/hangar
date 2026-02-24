@@ -9,7 +9,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/asheshgoplani/agent-deck/internal/logging"
+	"github.com/sjoeboo/hangar/internal/logging"
 )
 
 var (

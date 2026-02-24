@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/asheshgoplani/agent-deck/internal/session"
+	"github.com/sjoeboo/hangar/internal/session"
 	tea "github.com/charmbracelet/bubbletea"
 )
 

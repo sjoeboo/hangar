@@ -10,7 +10,7 @@ import (
 )
 
 // StatusEvent represents a session status change event.
-// Written atomically to ~/.agent-deck/events/ by both the hook handler (Claude)
+// Written atomically to ~/.hangar/events/ by both the hook handler (Claude)
 // and the TUI's background status poller (all tools).
 type StatusEvent struct {
 	InstanceID string `json:"instance_id"`
@@ -25,9 +25,9 @@ type StatusEvent struct {
 func GetEventsDir() string {
 	home, err := os.UserHomeDir()
 	if err != nil {
-		return filepath.Join(os.TempDir(), ".agent-deck", "events")
+		return filepath.Join(os.TempDir(), ".hangar", "events")
 	}
-	return filepath.Join(home, ".agent-deck", "events")
+	return filepath.Join(home, ".hangar", "events")
 }
 
 // WriteStatusEvent atomically writes a status event to the events directory.

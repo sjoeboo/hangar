@@ -15,7 +15,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/asheshgoplani/agent-deck/internal/logging"
+	"github.com/sjoeboo/hangar/internal/logging"
 )
 
 var proxyLog = logging.ForComponent(logging.CompPool)
@@ -145,7 +145,7 @@ func (p *SocketProxy) Start() error {
 		return nil
 	}
 
-	logDir := filepath.Join(os.Getenv("HOME"), ".agent-deck", "logs", "mcppool")
+	logDir := filepath.Join(os.Getenv("HOME"), ".hangar", "logs", "mcppool")
 	_ = os.MkdirAll(logDir, 0755)
 	p.logFile = filepath.Join(logDir, fmt.Sprintf("%s_socket.log", p.name))
 

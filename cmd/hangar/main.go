@@ -21,13 +21,13 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/muesli/termenv"
 
-	"github.com/asheshgoplani/agent-deck/internal/git"
-	"github.com/asheshgoplani/agent-deck/internal/logging"
-	"github.com/asheshgoplani/agent-deck/internal/session"
-	"github.com/asheshgoplani/agent-deck/internal/statedb"
-	"github.com/asheshgoplani/agent-deck/internal/ui"
-	"github.com/asheshgoplani/agent-deck/internal/update"
-	"github.com/asheshgoplani/agent-deck/internal/web"
+	"github.com/sjoeboo/hangar/internal/git"
+	"github.com/sjoeboo/hangar/internal/logging"
+	"github.com/sjoeboo/hangar/internal/session"
+	"github.com/sjoeboo/hangar/internal/statedb"
+	"github.com/sjoeboo/hangar/internal/ui"
+	"github.com/sjoeboo/hangar/internal/update"
+	"github.com/sjoeboo/hangar/internal/web"
 )
 
 const Version = "0.19.14"
@@ -351,7 +351,7 @@ func main() {
 	}()
 
 	// Set up structured logging (JSONL format with rotation)
-	// When AGENTDECK_DEBUG is set, logs go to ~/.agent-deck/debug.log
+	// When AGENTDECK_DEBUG is set, logs go to ~/.hangar/debug.log
 	// When not set, logs are discarded to avoid TUI interference
 	debugMode := os.Getenv("AGENTDECK_DEBUG") != ""
 	if baseDir, err := session.GetAgentDeckDir(); err == nil {
@@ -2147,7 +2147,7 @@ func detectTool(cmd string) string {
 // handleUninstall removes agent-deck from the system
 func handleUninstall(args []string) {
 	fs := flag.NewFlagSet("uninstall", flag.ExitOnError)
-	keepData := fs.Bool("keep-data", false, "Keep ~/.agent-deck/ (sessions, config, logs)")
+	keepData := fs.Bool("keep-data", false, "Keep ~/.hangar/ (sessions, config, logs)")
 	keepTmuxConfig := fs.Bool("keep-tmux-config", false, "Keep tmux configuration")
 	dryRun := fs.Bool("dry-run", false, "Show what would be removed without removing")
 	yes := fs.Bool("y", false, "Skip confirmation prompts")
@@ -2159,7 +2159,7 @@ func handleUninstall(args []string) {
 		fmt.Println()
 		fmt.Println("Options:")
 		fmt.Println("  --dry-run           Show what would be removed without removing")
-		fmt.Println("  --keep-data         Keep ~/.agent-deck/ (sessions, config, logs)")
+		fmt.Println("  --keep-data         Keep ~/.hangar/ (sessions, config, logs)")
 		fmt.Println("  --keep-tmux-config  Keep tmux configuration")
 		fmt.Println("  -y                  Skip confirmation prompts")
 		fmt.Println()
@@ -2185,7 +2185,7 @@ func handleUninstall(args []string) {
 	}
 
 	homeDir, _ := os.UserHomeDir()
-	dataDir := filepath.Join(homeDir, ".agent-deck")
+	dataDir := filepath.Join(homeDir, ".hangar")
 
 	// Track what we find
 	type foundItem struct {
@@ -2198,7 +2198,7 @@ func handleUninstall(args []string) {
 	// Check for Homebrew installation
 	homebrewInstalled := false
 	if _, err := exec.LookPath("brew"); err == nil {
-		cmd := exec.Command("brew", "list", "agent-deck")
+		cmd := exec.Command("brew", "list", "hangar")
 		if cmd.Run() == nil {
 			homebrewInstalled = true
 			foundItems = append(foundItems, foundItem{"homebrew", "", "Homebrew package: agent-deck"})
@@ -2208,9 +2208,9 @@ func handleUninstall(args []string) {
 
 	// Check common binary locations
 	binaryLocations := []string{
-		filepath.Join(homeDir, ".local", "bin", "agent-deck"),
-		"/usr/local/bin/agent-deck",
-		filepath.Join(homeDir, "bin", "agent-deck"),
+		filepath.Join(homeDir, ".local", "bin", "hangar"),
+		"/usr/local/bin/hangar",
+		filepath.Join(homeDir, "bin", "hangar"),
 	}
 
 	for _, loc := range binaryLocations {
@@ -2362,7 +2362,7 @@ func handleUninstall(args []string) {
 	// 1. Homebrew
 	if homebrewInstalled {
 		fmt.Println("Removing Homebrew package...")
-		cmd := exec.Command("brew", "uninstall", "agent-deck")
+		cmd := exec.Command("brew", "uninstall", "hangar")
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
 		if err := cmd.Run(); err != nil {
@@ -2385,7 +2385,7 @@ func handleUninstall(args []string) {
 
 		// Check if we need sudo
 		dir := filepath.Dir(item.path)
-		testFile := filepath.Join(dir, ".agent-deck-write-test")
+		testFile := filepath.Join(dir, ".hangar-write-test")
 		if f, err := os.Create(testFile); err != nil {
 			// Need elevated permissions
 			fmt.Printf("Requires sudo to remove %s\n", item.path)
@@ -2486,7 +2486,7 @@ func handleUninstall(args []string) {
 					)
 					fmt.Printf("Creating backup at %s...\n", backupFile)
 
-					cmd := exec.Command("tar", "-czf", backupFile, "-C", homeDir, ".agent-deck")
+					cmd := exec.Command("tar", "-czf", backupFile, "-C", homeDir, ".hangar")
 					if err := cmd.Run(); err != nil {
 						fmt.Printf("Warning: failed to create backup: %v\n", err)
 					} else {
@@ -2512,7 +2512,7 @@ func handleUninstall(args []string) {
 
 	if *keepData {
 		fmt.Printf("Note: Data directory preserved at %s\n", dataDir)
-		fmt.Println("      Remove manually with: rm -rf ~/.agent-deck")
+		fmt.Println("      Remove manually with: rm -rf ~/.hangar")
 	}
 
 	if *keepTmuxConfig {
@@ -2522,11 +2522,11 @@ func handleUninstall(args []string) {
 
 	fmt.Println()
 	fmt.Println("Thank you for using Agent Deck!")
-	fmt.Println("Feedback: https://github.com/asheshgoplani/agent-deck/issues")
+	fmt.Println("Feedback: https://github.com/sjoeboo/hangar/issues")
 }
 
 // isNestedSession returns true if we're running inside an agent-deck managed tmux session.
-// Uses GetCurrentSessionID() which checks if the current tmux session name matches agentdeck_*.
+// Uses GetCurrentSessionID() which checks if the current tmux session name matches hangar_*.
 func isNestedSession() bool {
 	return GetCurrentSessionID() != ""
 }

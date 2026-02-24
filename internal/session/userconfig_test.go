@@ -198,7 +198,7 @@ func TestSaveUserConfig(t *testing.T) {
 	ClearUserConfigCache()
 
 	// Create agent-deck directory
-	agentDeckDir := filepath.Join(tempDir, ".agent-deck")
+	agentDeckDir := filepath.Join(tempDir, ".hangar")
 	_ = os.MkdirAll(agentDeckDir, 0700)
 
 	// Create config to save
@@ -266,7 +266,7 @@ func TestGetTheme_Light(t *testing.T) {
 	ClearUserConfigCache()
 
 	// Create config with light theme
-	agentDeckDir := filepath.Join(tempDir, ".agent-deck")
+	agentDeckDir := filepath.Join(tempDir, ".hangar")
 	_ = os.MkdirAll(agentDeckDir, 0700)
 	config := &UserConfig{Theme: "light"}
 	_ = SaveUserConfig(config)
@@ -356,7 +356,7 @@ func TestGetWorktreeSettings_FromConfig(t *testing.T) {
 	ClearUserConfigCache()
 
 	// Create config with custom worktree settings
-	agentDeckDir := filepath.Join(tempDir, ".agent-deck")
+	agentDeckDir := filepath.Join(tempDir, ".hangar")
 	_ = os.MkdirAll(agentDeckDir, 0700)
 	config := &UserConfig{
 		Worktree: WorktreeSettings{
@@ -505,7 +505,7 @@ func TestGetPreviewSettings_FromConfig(t *testing.T) {
 	ClearUserConfigCache()
 
 	// Create config with custom preview settings
-	agentDeckDir := filepath.Join(tempDir, ".agent-deck")
+	agentDeckDir := filepath.Join(tempDir, ".hangar")
 	_ = os.MkdirAll(agentDeckDir, 0700)
 
 	// Write config directly to test explicit false
@@ -586,7 +586,7 @@ func TestGetNotificationsSettings(t *testing.T) {
 	ClearUserConfigCache()
 
 	// Create config with custom notification settings
-	agentDeckDir := filepath.Join(tempDir, ".agent-deck")
+	agentDeckDir := filepath.Join(tempDir, ".hangar")
 	_ = os.MkdirAll(agentDeckDir, 0700)
 
 	configPath := filepath.Join(agentDeckDir, "config.toml")
@@ -650,7 +650,7 @@ func TestGetNotificationsSettings_PartialConfig(t *testing.T) {
 	defer os.Setenv("HOME", originalHome)
 	ClearUserConfigCache()
 
-	agentDeckDir := filepath.Join(tempDir, ".agent-deck")
+	agentDeckDir := filepath.Join(tempDir, ".hangar")
 	_ = os.MkdirAll(agentDeckDir, 0700)
 
 	// Config with only enabled set, max_shown should get default
@@ -680,7 +680,7 @@ func TestGetNotificationsSettings_ShowAll(t *testing.T) {
 	defer os.Setenv("HOME", originalHome)
 	ClearUserConfigCache()
 
-	agentDeckDir := filepath.Join(tempDir, ".agent-deck")
+	agentDeckDir := filepath.Join(tempDir, ".hangar")
 	_ = os.MkdirAll(agentDeckDir, 0700)
 
 	// Test with show_all = true
@@ -741,7 +741,7 @@ func TestGetTmuxSettings_InjectStatusLine_Default(t *testing.T) {
 	defer os.Setenv("HOME", originalHome)
 	ClearUserConfigCache()
 
-	agentDeckDir := filepath.Join(tempDir, ".agent-deck")
+	agentDeckDir := filepath.Join(tempDir, ".hangar")
 	_ = os.MkdirAll(agentDeckDir, 0700)
 
 	// Empty config file
@@ -764,7 +764,7 @@ func TestGetTmuxSettings_InjectStatusLine_False(t *testing.T) {
 	defer os.Setenv("HOME", originalHome)
 	ClearUserConfigCache()
 
-	agentDeckDir := filepath.Join(tempDir, ".agent-deck")
+	agentDeckDir := filepath.Join(tempDir, ".hangar")
 	_ = os.MkdirAll(agentDeckDir, 0700)
 
 	configPath := filepath.Join(agentDeckDir, "config.toml")
@@ -790,7 +790,7 @@ func TestGetTmuxSettings_InjectStatusLine_True(t *testing.T) {
 	defer os.Setenv("HOME", originalHome)
 	ClearUserConfigCache()
 
-	agentDeckDir := filepath.Join(tempDir, ".agent-deck")
+	agentDeckDir := filepath.Join(tempDir, ".hangar")
 	_ = os.MkdirAll(agentDeckDir, 0700)
 
 	configPath := filepath.Join(agentDeckDir, "config.toml")

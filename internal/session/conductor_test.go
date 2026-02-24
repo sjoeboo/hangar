@@ -583,7 +583,7 @@ func TestConductorHeartbeatScript_StatusParsingHandlesWhitespace(t *testing.T) {
 func TestInstallSharedClaudeMD_Default(t *testing.T) {
 	// Use actual conductor directory (cleanup after test)
 	homeDir, _ := os.UserHomeDir()
-	conductorDir := filepath.Join(homeDir, ".agent-deck", "conductor")
+	conductorDir := filepath.Join(homeDir, ".hangar", "conductor")
 	claudeMDPath := filepath.Join(conductorDir, "CLAUDE.md")
 
 	// Backup existing file if present
@@ -648,7 +648,7 @@ func TestInstallSharedClaudeMD_CustomSymlink(t *testing.T) {
 
 	// Use actual conductor directory (cleanup after test)
 	homeDir, _ := os.UserHomeDir()
-	conductorDir := filepath.Join(homeDir, ".agent-deck", "conductor")
+	conductorDir := filepath.Join(homeDir, ".hangar", "conductor")
 	claudeMDPath := filepath.Join(conductorDir, "CLAUDE.md")
 
 	// Backup existing file/symlink if present
@@ -705,7 +705,7 @@ func TestInstallSharedClaudeMD_CustomSymlinkCreatesConductorDir(t *testing.T) {
 		t.Fatalf("InstallSharedClaudeMD returned error: %v", err)
 	}
 
-	target := filepath.Join(tmpHome, ".agent-deck", "conductor", "CLAUDE.md")
+	target := filepath.Join(tmpHome, ".hangar", "conductor", "CLAUDE.md")
 	linkDest, err := os.Readlink(target)
 	if err != nil {
 		t.Fatalf("expected symlink at %q: %v", target, err)
@@ -721,7 +721,7 @@ func TestSetupConductor_DefaultTemplate(t *testing.T) {
 
 	// Clean up after test
 	homeDir, _ := os.UserHomeDir()
-	defer os.RemoveAll(filepath.Join(homeDir, ".agent-deck", "conductor", name))
+	defer os.RemoveAll(filepath.Join(homeDir, ".hangar", "conductor", name))
 
 	// Setup without custom path (uses default template)
 	err := SetupConductor(name, profile, true, "test description", "", "")
@@ -777,7 +777,7 @@ func TestSetupConductor_CustomSymlink(t *testing.T) {
 
 	// Clean up after test
 	homeDir, _ := os.UserHomeDir()
-	defer os.RemoveAll(filepath.Join(homeDir, ".agent-deck", "conductor", name))
+	defer os.RemoveAll(filepath.Join(homeDir, ".hangar", "conductor", name))
 
 	// Setup with custom path (creates symlink)
 	err := SetupConductor(name, profile, true, "test description", customPath, "")
@@ -881,7 +881,7 @@ func TestCreateSymlinkWithExpansion_TildeExpansion(t *testing.T) {
 	}
 
 	// Create a temporary subdirectory under $HOME so tilde expansion resolves correctly
-	subDir := filepath.Join(homeDir, ".agent-deck-test-tilde")
+	subDir := filepath.Join(homeDir, ".hangar-test-tilde")
 	if err := os.MkdirAll(subDir, 0o755); err != nil {
 		t.Fatalf("failed to create test dir: %v", err)
 	}
@@ -894,8 +894,8 @@ func TestCreateSymlinkWithExpansion_TildeExpansion(t *testing.T) {
 		t.Fatalf("failed to create source: %v", err)
 	}
 
-	// Use tilde path — expands to $HOME/.agent-deck-test-tilde/test-tilde.md
-	tildePath := filepath.Join("~", ".agent-deck-test-tilde", sourceName)
+	// Use tilde path — expands to $HOME/.hangar-test-tilde/test-tilde.md
+	tildePath := filepath.Join("~", ".hangar-test-tilde", sourceName)
 	targetPath := filepath.Join(t.TempDir(), "link.md")
 
 	// Test symlink creation with tilde expansion
@@ -910,7 +910,7 @@ func TestCreateSymlinkWithExpansion_TildeExpansion(t *testing.T) {
 		t.Fatalf("should be a symlink: %v", err)
 	}
 
-	expectedDest := filepath.Join(homeDir, ".agent-deck-test-tilde", sourceName)
+	expectedDest := filepath.Join(homeDir, ".hangar-test-tilde", sourceName)
 	if linkDest != expectedDest {
 		t.Errorf("symlink should point to %q, got %q", expectedDest, linkDest)
 	}
@@ -938,7 +938,7 @@ func TestGenerateSystemdBridgeService_IncludesAgentDeckDir(t *testing.T) {
 	if strings.Contains(unit, "__PATH__") {
 		t.Error("unit still contains __PATH__ placeholder")
 	}
-	agentDeck := findAgentDeck()
+	agentDeck := findHangar()
 	if agentDeck == "" {
 		t.Skip("agent-deck not found in PATH, skipping directory check")
 	}
@@ -955,7 +955,7 @@ func TestGenerateSystemdHeartbeatService_IncludesAgentDeckDir(t *testing.T) {
 	if strings.Contains(unit, "__PATH__") {
 		t.Error("unit still contains __PATH__ placeholder")
 	}
-	agentDeck := findAgentDeck()
+	agentDeck := findHangar()
 	if agentDeck == "" {
 		t.Skip("agent-deck not found in PATH, skipping directory check")
 	}
@@ -972,7 +972,7 @@ func TestGenerateHeartbeatPlist_IncludesAgentDeckDir(t *testing.T) {
 	if strings.Contains(plist, "__PATH__") {
 		t.Error("plist still contains __PATH__ placeholder")
 	}
-	agentDeck := findAgentDeck()
+	agentDeck := findHangar()
 	if agentDeck == "" {
 		t.Skip("agent-deck not found in PATH, skipping directory check")
 	}
@@ -992,7 +992,7 @@ func TestGenerateLaunchdPlist_IncludesAgentDeckDir(t *testing.T) {
 		t.Error("plist still contains __PATH__ placeholder")
 	}
 	// The plist PATH should include the directory of the agent-deck binary
-	agentDeck := findAgentDeck()
+	agentDeck := findHangar()
 	if agentDeck == "" {
 		t.Skip("agent-deck not found in PATH, skipping directory check")
 	}
@@ -1033,19 +1033,19 @@ func TestBuildDaemonPath(t *testing.T) {
 		},
 		{
 			name:          "local bin prepended",
-			agentDeckPath: "/Users/someone/.local/bin/agent-deck",
+			agentDeckPath: "/Users/someone/.local/bin/hangar",
 			wantPrefix:    "/Users/someone/.local/bin",
 			wantContains:  "/usr/local/bin",
 		},
 		{
 			name:          "homebrew path not duplicated",
-			agentDeckPath: "/opt/homebrew/bin/agent-deck",
+			agentDeckPath: "/opt/homebrew/bin/hangar",
 			wantPrefix:    "/usr/local/bin",
 			wantContains:  "/usr/bin:/bin",
 		},
 		{
 			name:          "custom path included",
-			agentDeckPath: "/custom/tools/bin/agent-deck",
+			agentDeckPath: "/custom/tools/bin/hangar",
 			wantPrefix:    "/custom/tools/bin",
 			wantContains:  "/opt/homebrew/bin",
 		},
@@ -1088,7 +1088,7 @@ func TestCreateSymlinkWithExpansion_MissingSourceError(t *testing.T) {
 func TestInstallPolicyMD_Default(t *testing.T) {
 	// Use actual conductor directory (cleanup after test)
 	homeDir, _ := os.UserHomeDir()
-	conductorDir := filepath.Join(homeDir, ".agent-deck", "conductor")
+	conductorDir := filepath.Join(homeDir, ".hangar", "conductor")
 	policyPath := filepath.Join(conductorDir, "POLICY.md")
 
 	// Backup existing file if present
@@ -1145,7 +1145,7 @@ func TestInstallPolicyMD_CustomSymlink(t *testing.T) {
 
 	// Use actual conductor directory (cleanup after test)
 	homeDir, _ := os.UserHomeDir()
-	conductorDir := filepath.Join(homeDir, ".agent-deck", "conductor")
+	conductorDir := filepath.Join(homeDir, ".hangar", "conductor")
 	policyPath := filepath.Join(conductorDir, "POLICY.md")
 
 	// Backup existing file/symlink if present
@@ -1203,7 +1203,7 @@ func TestSetupConductor_PolicyOverride(t *testing.T) {
 
 	// Clean up after test
 	homeDir, _ := os.UserHomeDir()
-	defer os.RemoveAll(filepath.Join(homeDir, ".agent-deck", "conductor", name))
+	defer os.RemoveAll(filepath.Join(homeDir, ".hangar", "conductor", name))
 
 	// Setup with custom policy path (creates per-conductor symlink)
 	err := SetupConductor(name, profile, true, "test description", "", customPolicyPath)
@@ -1333,7 +1333,7 @@ func TestInstallLearningsMD(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	learningsPath := filepath.Join(tmpHome, ".agent-deck", "conductor", "LEARNINGS.md")
+	learningsPath := filepath.Join(tmpHome, ".hangar", "conductor", "LEARNINGS.md")
 	content, err := os.ReadFile(learningsPath)
 	if err != nil {
 		t.Fatalf("LEARNINGS.md not created: %v", err)
@@ -1355,7 +1355,7 @@ func TestInstallLearningsMDPreservesExisting(t *testing.T) {
 	t.Setenv("HOME", tmpHome)
 
 	// Create the directory and an existing LEARNINGS.md with custom content
-	conductorDir := filepath.Join(tmpHome, ".agent-deck", "conductor")
+	conductorDir := filepath.Join(tmpHome, ".hangar", "conductor")
 	if err := os.MkdirAll(conductorDir, 0o755); err != nil {
 		t.Fatalf("failed to create dir: %v", err)
 	}

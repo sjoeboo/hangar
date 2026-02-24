@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/asheshgoplani/agent-deck/internal/session"
+	"github.com/sjoeboo/hangar/internal/session"
 )
 
 // hookPayload represents the JSON payload Claude Code sends to hooks via stdin.
@@ -20,7 +20,7 @@ type hookPayload struct {
 	Matcher       json.RawMessage `json:"matcher,omitempty"`
 }
 
-// hookStatusFile is the JSON written to ~/.agent-deck/hooks/{instance_id}.json
+// hookStatusFile is the JSON written to ~/.hangar/hooks/{instance_id}.json
 type hookStatusFile struct {
 	Status    string `json:"status"`
 	SessionID string `json:"session_id,omitempty"`
@@ -134,9 +134,9 @@ func writeHookStatus(instanceID, status, sessionID, event string) {
 func getHooksDir() string {
 	home, err := os.UserHomeDir()
 	if err != nil {
-		return filepath.Join(os.TempDir(), ".agent-deck", "hooks")
+		return filepath.Join(os.TempDir(), ".hangar", "hooks")
 	}
-	return filepath.Join(home, ".agent-deck", "hooks")
+	return filepath.Join(home, ".hangar", "hooks")
 }
 
 // cleanStaleHookFiles removes hook status files older than 24 hours.

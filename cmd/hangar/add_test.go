@@ -3,7 +3,7 @@ package main
 import (
 	"testing"
 
-	"github.com/asheshgoplani/agent-deck/internal/session"
+	"github.com/sjoeboo/hangar/internal/session"
 )
 
 // TestMain is in testmain_test.go - sets AGENTDECK_PROFILE=_test

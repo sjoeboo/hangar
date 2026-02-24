@@ -11,8 +11,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/asheshgoplani/agent-deck/internal/logging"
-	"github.com/asheshgoplani/agent-deck/internal/session"
+	"github.com/sjoeboo/hangar/internal/logging"
+	"github.com/sjoeboo/hangar/internal/session"
 )
 
 // Config defines runtime options for the web server.

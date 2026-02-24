@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/asheshgoplani/agent-deck/internal/session"
+	"github.com/sjoeboo/hangar/internal/session"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -46,7 +46,7 @@ type GlobalSearchResult struct {
 	ModTime     time.Time // Last modified time
 	Score       int       // Fuzzy match score (higher = better match)
 	MatchCount  int       // Number of query matches in content
-	InAgentDeck bool      // True if this session is already in Agent Deck
+	InHangar bool      // True if this session is already in Agent Deck
 	InstanceID  string    // Agent Deck instance ID if exists
 }
 
@@ -401,7 +401,7 @@ func (gs *GlobalSearch) View() string {
 
 			// Build line
 			prefix := "  "
-			if result.InAgentDeck {
+			if result.InHangar {
 				prefix = "• "
 			}
 
@@ -669,8 +669,8 @@ func (gs *GlobalSearch) highlightMatches(text, query string) string {
 	return result.String()
 }
 
-// MarkInAgentDeck marks which results are already in Agent Deck
-func (gs *GlobalSearch) MarkInAgentDeck(instances []*session.Instance) {
+// MarkInHangar marks which results are already in Agent Deck
+func (gs *GlobalSearch) MarkInHangar(instances []*session.Instance) {
 	idMap := make(map[string]string) // sessionID -> instanceID
 	for _, inst := range instances {
 		if inst.ClaudeSessionID != "" {
@@ -680,7 +680,7 @@ func (gs *GlobalSearch) MarkInAgentDeck(instances []*session.Instance) {
 
 	for _, result := range gs.results {
 		if instID, ok := idMap[result.SessionID]; ok {
-			result.InAgentDeck = true
+			result.InHangar = true
 			result.InstanceID = instID
 		}
 	}

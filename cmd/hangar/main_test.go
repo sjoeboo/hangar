@@ -5,8 +5,8 @@ import (
 	"os/exec"
 	"testing"
 
-	"github.com/asheshgoplani/agent-deck/internal/session"
-	"github.com/asheshgoplani/agent-deck/internal/ui"
+	"github.com/sjoeboo/hangar/internal/session"
+	"github.com/sjoeboo/hangar/internal/ui"
 )
 
 func TestTmuxAvailable(t *testing.T) {
@@ -51,7 +51,7 @@ func TestNestedSessionAllowsCLICommands(t *testing.T) {
 	})
 
 	// Non-agentdeck tmux session should not be detected as nested
-	t.Run("non_agentdeck_tmux", func(t *testing.T) {
+	t.Run("non_hangar_tmux", func(t *testing.T) {
 		orig := os.Getenv("TMUX")
 		os.Setenv("TMUX", "/tmp/tmux-501/default,12345,0")
 		defer os.Setenv("TMUX", orig)

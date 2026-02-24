@@ -10,8 +10,8 @@ import (
 	"sort"
 	"time"
 
-	"github.com/asheshgoplani/agent-deck/internal/logging"
-	"github.com/asheshgoplani/agent-deck/internal/mcppool"
+	"github.com/sjoeboo/hangar/internal/logging"
+	"github.com/sjoeboo/hangar/internal/mcppool"
 )
 
 var mcpCatLog = logging.ForComponent(logging.CompMCP)
@@ -61,7 +61,7 @@ func tryPoolSocket(pool *mcppool.Pool, name, scope string) (MCPServerConfig, boo
 			socketPath := pool.GetSocketPath(name)
 			mcpCatLog.Info("transport_socket", slog.String("mcp", name), slog.String("scope", scope), slog.String("socket", socketPath))
 			return MCPServerConfig{
-				Command: "agent-deck",
+				Command: "hangar",
 				Args:    []string{"mcp-proxy", socketPath},
 			}, true
 		}
@@ -73,7 +73,7 @@ func tryPoolSocket(pool *mcppool.Pool, name, scope string) (MCPServerConfig, boo
 				slog.String("socket", socketPath),
 				slog.String("detail", "pool.IsRunning=false but socket alive on disk, using disk socket"))
 			return MCPServerConfig{
-				Command: "agent-deck",
+				Command: "hangar",
 				Args:    []string{"mcp-proxy", socketPath},
 			}, true
 		}
@@ -104,7 +104,7 @@ func tryPoolSocket(pool *mcppool.Pool, name, scope string) (MCPServerConfig, boo
 			if socketPath := getExternalSocketPath(name); socketPath != "" {
 				mcpCatLog.Info("external_socket_discovered", slog.String("mcp", name), slog.String("scope", scope), slog.String("socket", socketPath))
 				return MCPServerConfig{
-					Command: "agent-deck",
+					Command: "hangar",
 					Args:    []string{"mcp-proxy", socketPath},
 				}, true
 			}

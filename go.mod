@@ -1,4 +1,4 @@
-module github.com/asheshgoplani/agent-deck
+module github.com/sjoeboo/hangar
 
 go 1.24.0
 

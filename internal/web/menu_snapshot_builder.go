@@ -3,7 +3,7 @@ package web
 import (
 	"time"
 
-	"github.com/asheshgoplani/agent-deck/internal/session"
+	"github.com/sjoeboo/hangar/internal/session"
 )
 
 // BuildMenuSnapshot converts in-memory session/group state into a flattened web DTO.

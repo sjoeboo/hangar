@@ -13,7 +13,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/asheshgoplani/agent-deck/internal/logging"
+	"github.com/sjoeboo/hangar/internal/logging"
 )
 
 var httpLog = logging.ForComponent(logging.CompHTTP)
@@ -141,7 +141,7 @@ func (s *HTTPServer) Start() error {
 	s.mu.Unlock()
 
 	// Create log file
-	logDir := filepath.Join(os.Getenv("HOME"), ".agent-deck", "logs", "http-servers")
+	logDir := filepath.Join(os.Getenv("HOME"), ".hangar", "logs", "http-servers")
 	_ = os.MkdirAll(logDir, 0755)
 	s.logFile = filepath.Join(logDir, fmt.Sprintf("%s.log", s.name))
 

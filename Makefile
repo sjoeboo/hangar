@@ -1,23 +1,23 @@
 .PHONY: build run install clean dev release-local test fmt lint ci
 
-BINARY_NAME=agent-deck
+BINARY_NAME=hangar
 BUILD_DIR=./build
 VERSION=$(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
 LDFLAGS=-ldflags "-X main.Version=$(VERSION)"
 
 # Build the binary
 build:
-	go build $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME) ./cmd/agent-deck
+	go build $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME) ./cmd/hangar
 
 # Run in development
 run:
-	go run ./cmd/agent-deck
+	go run ./cmd/hangar
 
 # Install to /usr/local/bin (requires sudo)
 install: build
 	sudo cp $(BUILD_DIR)/$(BINARY_NAME) /usr/local/bin/$(BINARY_NAME)
 	@echo "✅ Installed to /usr/local/bin/$(BINARY_NAME)"
-	@echo "Run 'agent-deck' to start"
+	@echo "Run 'hangar' to start"
 
 # Install to user's local bin (no sudo required)
 install-user: build
@@ -25,7 +25,7 @@ install-user: build
 	cp $(BUILD_DIR)/$(BINARY_NAME) $(HOME)/.local/bin/$(BINARY_NAME)
 	@echo "✅ Installed to $(HOME)/.local/bin/$(BINARY_NAME)"
 	@echo "Make sure $(HOME)/.local/bin is in your PATH"
-	@echo "Run 'agent-deck' to start"
+	@echo "Run 'hangar' to start"
 
 # Uninstall from /usr/local/bin
 uninstall:
@@ -74,7 +74,7 @@ release-local:
 	@test -n "$$GITHUB_TOKEN" || (echo "ERROR: GITHUB_TOKEN not set" && exit 1)
 	@test -n "$$HOMEBREW_TAP_GITHUB_TOKEN" || (echo "ERROR: HOMEBREW_TAP_GITHUB_TOKEN not set" && exit 1)
 	@TAG=$$(git describe --tags --exact-match 2>/dev/null) || (echo "ERROR: HEAD is not tagged. Run: git tag vX.Y.Z" && exit 1); \
-	CODE_VERSION=$$(grep 'const Version' cmd/agent-deck/main.go | sed 's/.*"\(.*\)".*/\1/'); \
+	CODE_VERSION=$$(grep 'const Version' cmd/hangar/main.go | sed 's/.*"\(.*\)".*/\1/'); \
 	TAG_VERSION=$${TAG#v}; \
 	if [ "$$TAG_VERSION" != "$$CODE_VERSION" ]; then \
 		echo "ERROR: Tag $$TAG ($$TAG_VERSION) != code Version $$CODE_VERSION"; \
@@ -86,4 +86,4 @@ release-local:
 	@echo "=== Running GoReleaser ==="
 	goreleaser release --clean
 	@echo "=== Release complete ==="
-	@echo "Verify: gh release view $$(git describe --tags --exact-match) --repo asheshgoplani/agent-deck"
+	@echo "Verify: gh release view $$(git describe --tags --exact-match) --repo sjoeboo/hangar"

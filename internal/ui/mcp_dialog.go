@@ -6,8 +6,8 @@ import (
 	"time"
 	"unicode"
 
-	"github.com/asheshgoplani/agent-deck/internal/logging"
-	"github.com/asheshgoplani/agent-deck/internal/session"
+	"github.com/sjoeboo/hangar/internal/logging"
+	"github.com/sjoeboo/hangar/internal/session"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
@@ -862,7 +862,7 @@ func (m *MCPDialog) renderEmptyStateHelp() string {
 		highlightStyle.Render("No MCPs configured"),
 		"",
 		helpStyle.Render("To add MCPs, edit:"),
-		pathStyle.Render("  ~/.agent-deck/config.toml"),
+		pathStyle.Render("  ~/.hangar/config.toml"),
 		"",
 		helpStyle.Render("Example:"),
 		helpStyle.Render("  [mcps.example]"),

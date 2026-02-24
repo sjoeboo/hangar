@@ -20,7 +20,7 @@ import (
 func TestWSEndpointTmuxBridgeIntegration(t *testing.T) {
 	requireTmuxForWebIntegration(t)
 
-	sessionName := fmt.Sprintf("agentdeck_web_it_%d", time.Now().UnixNano())
+	sessionName := fmt.Sprintf("hangar_web_it_%d", time.Now().UnixNano())
 	if output, err := exec.Command("tmux", "new-session", "-d", "-s", sessionName).CombinedOutput(); err != nil {
 		t.Skipf("tmux new-session unavailable: %v (%s)", err, strings.TrimSpace(string(output)))
 	}

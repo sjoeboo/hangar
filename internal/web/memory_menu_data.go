@@ -5,7 +5,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/asheshgoplani/agent-deck/internal/session"
+	"github.com/sjoeboo/hangar/internal/session"
 )
 
 // MenuSessionState is a lightweight status/tool update for one session.

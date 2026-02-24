@@ -159,7 +159,7 @@ func TestUpdateBridgePy_NoConductorDir(t *testing.T) {
 	err := UpdateBridgePy()
 	require.NoError(t, err)
 
-	condDir := filepath.Join(tmpHome, ".agent-deck", "conductor")
+	condDir := filepath.Join(tmpHome, ".hangar", "conductor")
 	_, statErr := os.Stat(condDir)
 	assert.True(t, os.IsNotExist(statErr), "conductor dir should not be created when not installed")
 }
@@ -168,7 +168,7 @@ func TestUpdateBridgePy_UsesEmbeddedTemplateAndBacksUpExistingFile(t *testing.T)
 	tmpHome := t.TempDir()
 	t.Setenv("HOME", tmpHome)
 
-	condDir := filepath.Join(tmpHome, ".agent-deck", "conductor")
+	condDir := filepath.Join(tmpHome, ".hangar", "conductor")
 	require.NoError(t, os.MkdirAll(condDir, 0o755))
 
 	bridgePath := filepath.Join(condDir, "bridge.py")
@@ -198,25 +198,25 @@ func TestHomebrewUpgradeHint(t *testing.T) {
 	}{
 		{
 			name:     "mac arm64 cellar",
-			path:     "/opt/homebrew/Cellar/agent-deck/0.19.14/bin/agent-deck",
+			path:     "/opt/homebrew/Cellar/agent-deck/0.19.14/bin/hangar",
 			wantOK:   true,
-			wantHint: "brew upgrade asheshgoplani/tap/agent-deck",
+			wantHint: "brew upgrade sjoeboo/tap/hangar",
 		},
 		{
 			name:     "mac intel cellar",
-			path:     "/usr/local/Cellar/agent-deck/0.19.14/bin/agent-deck",
+			path:     "/usr/local/Cellar/agent-deck/0.19.14/bin/hangar",
 			wantOK:   true,
-			wantHint: "brew upgrade asheshgoplani/tap/agent-deck",
+			wantHint: "brew upgrade sjoeboo/tap/hangar",
 		},
 		{
 			name:     "linuxbrew cellar",
-			path:     "/home/linuxbrew/.linuxbrew/Cellar/agent-deck/0.19.14/bin/agent-deck",
+			path:     "/home/linuxbrew/.linuxbrew/Cellar/agent-deck/0.19.14/bin/hangar",
 			wantOK:   true,
-			wantHint: "brew upgrade asheshgoplani/tap/agent-deck",
+			wantHint: "brew upgrade sjoeboo/tap/hangar",
 		},
 		{
 			name:   "standalone local binary",
-			path:   "/Users/ashesh/.local/bin/agent-deck",
+			path:   "/Users/ashesh/.local/bin/hangar",
 			wantOK: false,
 		},
 	}

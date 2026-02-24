@@ -13,12 +13,12 @@ import (
 
 	"github.com/fsnotify/fsnotify"
 
-	"github.com/asheshgoplani/agent-deck/internal/logging"
+	"github.com/sjoeboo/hangar/internal/logging"
 )
 
 var eventLog = logging.ForComponent(logging.CompSession)
 
-// StatusEventWatcher watches ~/.agent-deck/events/ for new status events
+// StatusEventWatcher watches ~/.hangar/events/ for new status events
 // using fsnotify. Delivers parsed StatusEvent structs via a channel.
 type StatusEventWatcher struct {
 	eventsDir        string

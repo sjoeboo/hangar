@@ -12,8 +12,8 @@ import (
 
 	dark "github.com/thiagokokada/dark-mode-go"
 
-	"github.com/asheshgoplani/agent-deck/internal/platform"
-	"github.com/asheshgoplani/agent-deck/internal/tmux"
+	"github.com/sjoeboo/hangar/internal/platform"
+	"github.com/sjoeboo/hangar/internal/tmux"
 )
 
 // UserConfigFileName is the TOML config file for user preferences
@@ -318,7 +318,7 @@ type ShellSettings struct {
 
 	// InitScript is an optional shell script or command to run before each session
 	// Useful for direnv, nvm, pyenv, etc.
-	// Can be a file path (e.g., "~/.agent-deck/init.sh") or inline command
+	// Can be a file path (e.g., "~/.hangar/init.sh") or inline command
 	// (e.g., 'eval "$(direnv hook bash)"')
 	InitScript string `toml:"init_script"`
 
@@ -1379,7 +1379,7 @@ func CreateExampleConfig() error {
 # yolo_mode = true
 
 # Log file management
-# Agent-deck logs session output to ~/.agent-deck/logs/ for status detection
+# Agent-deck logs session output to ~/.hangar/logs/ for status detection
 # These settings control automatic log maintenance to prevent disk bloat
 [logs]
 # Maximum log file size in MB before truncation (default: 10)

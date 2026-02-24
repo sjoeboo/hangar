@@ -8,9 +8,9 @@ before:
     - go mod tidy
 
 builds:
-  - id: agent-deck
-    main: ./cmd/agent-deck
-    binary: agent-deck
+  - id: hangar
+    main: ./cmd/hangar
+    binary: hangar
     env:
       - CGO_ENABLED=0
     goos:
@@ -54,8 +54,8 @@ changelog:
 
 release:
   github:
-    owner: asheshgoplani
-    name: agent-deck
+    owner: sjoeboo
+    name: hangar
   draft: false
   prerelease: auto
   mode: append
@@ -69,34 +69,34 @@ release:
 
     **Homebrew (recommended):**
     ```bash
-    brew install asheshgoplani/tap/agent-deck
+    brew install sjoeboo/tap/hangar
     ```
 
     **Quick Install:**
     ```bash
-    curl -fsSL https://raw.githubusercontent.com/asheshgoplani/agent-deck/main/install.sh | bash
+    curl -fsSL https://raw.githubusercontent.com/sjoeboo/hangar/main/install.sh | bash
     ```
 
     **Go Install:**
     ```bash
-    go install github.com/asheshgoplani/agent-deck/cmd/agent-deck@v{{.Version}}
+    go install github.com/sjoeboo/hangar/cmd/hangar@v{{.Version}}
     ```
   footer: |
     ---
 
-    **Full Changelog**: https://github.com/asheshgoplani/agent-deck/compare/{{ .PreviousTag }}...{{ .Tag }}
+    **Full Changelog**: https://github.com/sjoeboo/hangar/compare/{{ .PreviousTag }}...{{ .Tag }}
 
 brews:
-  - name: agent-deck
+  - name: hangar
     repository:
-      owner: asheshgoplani
+      owner: sjoeboo
       name: homebrew-tap
       token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
     directory: Formula
-    homepage: "https://github.com/asheshgoplani/agent-deck"
+    homepage: "https://github.com/sjoeboo/hangar"
     description: "Terminal session manager for AI coding agents"
     license: "MIT"
     dependencies:
       - name: tmux
     test: |
-      system "#{bin}/agent-deck", "version"
+      system "#{bin}/hangar", "version"

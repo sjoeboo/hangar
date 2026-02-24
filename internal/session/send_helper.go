@@ -45,17 +45,17 @@ func SendSessionMessageReliable(profile, sessionRef, message string) error {
 
 func agentDeckBinaryPath() string {
 	// In production this should resolve to the installed binary.
-	if p := findAgentDeck(); p != "" {
+	if p := findHangar(); p != "" {
 		return p
 	}
 
 	// Fall back to current executable only if it looks like the agent-deck binary.
 	if exe, err := os.Executable(); err == nil {
 		base := strings.ToLower(filepath.Base(exe))
-		if strings.HasPrefix(base, "agent-deck") {
+		if strings.HasPrefix(base, "hangar") {
 			return exe
 		}
 	}
 
-	return "agent-deck"
+	return "hangar"
 }

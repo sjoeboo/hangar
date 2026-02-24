@@ -323,7 +323,7 @@ func (n *TransitionNotifier) logEvent(event TransitionNotificationEvent) {
 func transitionNotifyStatePath() string {
 	dir, err := GetAgentDeckDir()
 	if err != nil {
-		return filepath.Join(os.TempDir(), ".agent-deck", "runtime", "transition-notify-state.json")
+		return filepath.Join(os.TempDir(), ".hangar", "runtime", "transition-notify-state.json")
 	}
 	return filepath.Join(dir, "runtime", "transition-notify-state.json")
 }
@@ -331,7 +331,7 @@ func transitionNotifyStatePath() string {
 func transitionNotifyLogPath() string {
 	dir, err := GetAgentDeckDir()
 	if err != nil {
-		return filepath.Join(os.TempDir(), ".agent-deck", "logs", "transition-notifier.log")
+		return filepath.Join(os.TempDir(), ".hangar", "logs", "transition-notifier.log")
 	}
 	return filepath.Join(dir, "logs", "transition-notifier.log")
 }

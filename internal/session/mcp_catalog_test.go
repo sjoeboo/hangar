@@ -232,7 +232,7 @@ func TestGetProjectMCPNames(t *testing.T) {
 func TestMCPServerConfigSocketProxy(t *testing.T) {
 	// Verify that socket-proxied MCPs use agent-deck mcp-proxy, not nc
 	config := MCPServerConfig{
-		Command: "agent-deck",
+		Command: "hangar",
 		Args:    []string{"mcp-proxy", "/tmp/agentdeck-mcp-test.sock"},
 	}
 
@@ -246,7 +246,7 @@ func TestMCPServerConfigSocketProxy(t *testing.T) {
 		t.Fatalf("Failed to unmarshal: %v", err)
 	}
 
-	if parsed.Command != "agent-deck" {
+	if parsed.Command != "hangar" {
 		t.Errorf("Expected command 'agent-deck', got %q", parsed.Command)
 	}
 	if len(parsed.Args) != 2 || parsed.Args[0] != "mcp-proxy" {

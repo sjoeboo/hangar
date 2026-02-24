@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/asheshgoplani/agent-deck/internal/platform"
+	"github.com/sjoeboo/hangar/internal/platform"
 )
 
 // ConductorSettings defines conductor (meta-agent orchestration) configuration
@@ -102,7 +102,7 @@ func normalizeConductorProfile(profile string) string {
 	return profile
 }
 
-// ConductorDir returns the base conductor directory (~/.agent-deck/conductor)
+// ConductorDir returns the base conductor directory (~/.hangar/conductor)
 func ConductorDir() (string, error) {
 	dir, err := GetAgentDeckDir()
 	if err != nil {
@@ -111,7 +111,7 @@ func ConductorDir() (string, error) {
 	return filepath.Join(dir, "conductor"), nil
 }
 
-// ConductorNameDir returns the directory for a named conductor (~/.agent-deck/conductor/<name>)
+// ConductorNameDir returns the directory for a named conductor (~/.hangar/conductor/<name>)
 func ConductorNameDir(name string) (string, error) {
 	base, err := ConductorDir()
 	if err != nil {
@@ -378,7 +378,7 @@ func GenerateHeartbeatPlist(name string, intervalMinutes int) (string, error) {
 		return "", err
 	}
 
-	agentDeckPath := findAgentDeck()
+	agentDeckPath := findHangar()
 	if agentDeckPath == "" {
 		return "", fmt.Errorf("agent-deck not found in PATH")
 	}
@@ -424,11 +424,11 @@ func RemoveHeartbeatPlist(name string) error {
 	return os.Remove(path)
 }
 
-// findAgentDeck looks for agent-deck in common locations
-func findAgentDeck() string {
+// findHangar looks for agent-deck in common locations
+func findHangar() string {
 	paths := []string{
-		"/usr/local/bin/agent-deck",
-		"/opt/homebrew/bin/agent-deck",
+		"/usr/local/bin/hangar",
+		"/opt/homebrew/bin/hangar",
 	}
 	for _, p := range paths {
 		if _, err := os.Stat(p); err == nil {
@@ -436,7 +436,7 @@ func findAgentDeck() string {
 		}
 	}
 	for _, dir := range filepath.SplitList(os.Getenv("PATH")) {
-		p := filepath.Join(dir, "agent-deck")
+		p := filepath.Join(dir, "hangar")
 		if _, err := os.Stat(p); err == nil {
 			return p
 		}
@@ -524,7 +524,7 @@ func SetupConductorProfile(profile string) error {
 }
 
 // createSymlinkWithExpansion creates a symlink from target to source, with ~ expansion and validation.
-// target: the symlink path (e.g., ~/.agent-deck/conductor/CLAUDE.md)
+// target: the symlink path (e.g., ~/.hangar/conductor/CLAUDE.md)
 // source: the user's custom file path (e.g., ~/my/custom.md)
 func createSymlinkWithExpansion(target, source string) error {
 	// Expand environment variables and ~ in source path
@@ -971,7 +971,7 @@ func GenerateLaunchdPlist() (string, error) {
 	plist = strings.ReplaceAll(plist, "__BRIDGE_PATH__", bridgePath)
 	plist = strings.ReplaceAll(plist, "__LOG_PATH__", logPath)
 	plist = strings.ReplaceAll(plist, "__HOME__", homeDir)
-	agentDeckPath := findAgentDeck()
+	agentDeckPath := findHangar()
 	plist = strings.ReplaceAll(plist, "__PATH__", buildDaemonPath(agentDeckPath))
 
 	return plist, nil
@@ -1244,7 +1244,7 @@ func GenerateSystemdBridgeService() (string, error) {
 	unit = strings.ReplaceAll(unit, "__BRIDGE_PATH__", bridgePath)
 	unit = strings.ReplaceAll(unit, "__LOG_PATH__", logPath)
 	unit = strings.ReplaceAll(unit, "__HOME__", homeDir)
-	agentDeckPath := findAgentDeck()
+	agentDeckPath := findHangar()
 	unit = strings.ReplaceAll(unit, "__PATH__", buildDaemonPath(agentDeckPath))
 	return unit, nil
 }
@@ -1259,8 +1259,8 @@ func GenerateTransitionNotifierLaunchdPlist() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	agentDeckPath := findAgentDeck()
-	execPath := "agent-deck"
+	agentDeckPath := findHangar()
+	execPath := "hangar"
 	if agentDeckPath != "" {
 		execPath = agentDeckPath
 	}
@@ -1292,8 +1292,8 @@ func GenerateSystemdTransitionNotifierService() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	agentDeckPath := findAgentDeck()
-	execPath := "agent-deck"
+	agentDeckPath := findHangar()
+	execPath := "hangar"
 	if agentDeckPath != "" {
 		execPath = agentDeckPath
 	}
@@ -1328,7 +1328,7 @@ func GenerateSystemdHeartbeatService(name string) (string, error) {
 	unit := strings.ReplaceAll(systemdHeartbeatServiceTemplate, "__NAME__", name)
 	unit = strings.ReplaceAll(unit, "__SCRIPT_PATH__", scriptPath)
 	unit = strings.ReplaceAll(unit, "__HOME__", homeDir)
-	agentDeckPath := findAgentDeck()
+	agentDeckPath := findHangar()
 	unit = strings.ReplaceAll(unit, "__PATH__", buildDaemonPath(agentDeckPath))
 	return unit, nil
 }

@@ -7,7 +7,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/asheshgoplani/agent-deck/internal/logging"
+	"github.com/sjoeboo/hangar/internal/logging"
 )
 
 var migrationLog = logging.ForComponent(logging.CompSession)
@@ -25,19 +25,19 @@ type MigrationResult struct {
 //
 // Old layout:
 //
-//	~/.agent-deck/sessions.json
-//	~/.agent-deck/sessions.json.bak
-//	~/.agent-deck/sessions.json.bak.1
-//	~/.agent-deck/sessions.json.bak.2
+//	~/.hangar/sessions.json
+//	~/.hangar/sessions.json.bak
+//	~/.hangar/sessions.json.bak.1
+//	~/.hangar/sessions.json.bak.2
 //
 // New layout:
 //
-//	~/.agent-deck/config.json
-//	~/.agent-deck/profiles/default/sessions.json
-//	~/.agent-deck/profiles/default/sessions.json.bak
-//	~/.agent-deck/profiles/default/sessions.json.bak.1
-//	~/.agent-deck/profiles/default/sessions.json.bak.2
-//	~/.agent-deck/logs/ (unchanged)
+//	~/.hangar/config.json
+//	~/.hangar/profiles/default/sessions.json
+//	~/.hangar/profiles/default/sessions.json.bak
+//	~/.hangar/profiles/default/sessions.json.bak.1
+//	~/.hangar/profiles/default/sessions.json.bak.2
+//	~/.hangar/logs/ (unchanged)
 func MigrateToProfiles() (*MigrationResult, error) {
 	agentDeckDir, err := GetAgentDeckDir()
 	if err != nil {

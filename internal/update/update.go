@@ -14,12 +14,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/asheshgoplani/agent-deck/internal/session"
+	"github.com/sjoeboo/hangar/internal/session"
 )
 
 const (
 	// GitHubRepo is the repository to check for updates
-	GitHubRepo = "asheshgoplani/agent-deck"
+	GitHubRepo = "sjoeboo/hangar"
 
 	// CacheFileName stores the last update check result
 	CacheFileName = "update-cache.json"
@@ -79,7 +79,7 @@ func getCacheDir() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(home, ".agent-deck"), nil
+	return filepath.Join(home, ".hangar"), nil
 }
 
 // loadCache loads the update cache from disk
@@ -360,7 +360,7 @@ func homebrewUpgradeHint(execPath string) (string, bool) {
 	}
 	for _, prefix := range knownCellars {
 		if strings.HasPrefix(clean, prefix) {
-			return "brew upgrade asheshgoplani/tap/agent-deck", true
+			return "brew upgrade sjoeboo/tap/hangar", true
 		}
 	}
 	return "", false
@@ -536,7 +536,7 @@ func extractBinaryFromTarGz(tarPath string) ([]byte, error) {
 		}
 
 		// Look for the agent-deck binary
-		if header.Typeflag == tar.TypeReg && header.Name == "agent-deck" {
+		if header.Typeflag == tar.TypeReg && header.Name == "hangar" {
 			data, err := io.ReadAll(tr)
 			if err != nil {
 				return nil, err
@@ -557,7 +557,7 @@ func UpdateBridgePy() error {
 		return fmt.Errorf("failed to get home directory: %w", err)
 	}
 
-	conductorDir := filepath.Join(home, ".agent-deck", "conductor")
+	conductorDir := filepath.Join(home, ".hangar", "conductor")
 	bridgePath := filepath.Join(conductorDir, "bridge.py")
 
 	// Check if conductor directory exists

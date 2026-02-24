@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/asheshgoplani/agent-deck/internal/session"
+	"github.com/sjoeboo/hangar/internal/session"
 )
 
 // handleMCP handles all mcp subcommands
@@ -96,7 +96,7 @@ func handleMCPList(args []string) {
 		} else if !quietMode {
 			fmt.Println("No MCPs configured.")
 			fmt.Println()
-			fmt.Println("Define MCPs in ~/.agent-deck/config.toml:")
+			fmt.Println("Define MCPs in ~/.hangar/config.toml:")
 			fmt.Println()
 			fmt.Println("  [mcps.exa]")
 			fmt.Println("  command = \"npx\"")

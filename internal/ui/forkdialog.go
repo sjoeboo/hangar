@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/asheshgoplani/agent-deck/internal/git"
-	"github.com/asheshgoplani/agent-deck/internal/session"
+	"github.com/sjoeboo/hangar/internal/git"
+	"github.com/sjoeboo/hangar/internal/session"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"

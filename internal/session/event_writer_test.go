@@ -70,7 +70,7 @@ func TestWriteStatusEvent(t *testing.T) {
 }
 
 func TestWriteStatusEvent_Integration(t *testing.T) {
-	// Test the actual WriteStatusEvent function (writes to ~/.agent-deck/events/)
+	// Test the actual WriteStatusEvent function (writes to ~/.hangar/events/)
 	event := StatusEvent{
 		InstanceID: "test-integration-" + t.Name(),
 		Title:      "integration-test",

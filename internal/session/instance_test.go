@@ -412,8 +412,8 @@ func TestBuildClaudeCommand_CustomAlias(t *testing.T) {
 	tmpDir := t.TempDir()
 	os.Setenv("HOME", tmpDir)
 
-	// Create ~/.agent-deck/config.toml with custom command
-	configDir := filepath.Join(tmpDir, ".agent-deck")
+	// Create ~/.hangar/config.toml with custom command
+	configDir := filepath.Join(tmpDir, ".hangar")
 	if err := os.MkdirAll(configDir, 0755); err != nil {
 		t.Fatalf("failed to create config dir: %v", err)
 	}

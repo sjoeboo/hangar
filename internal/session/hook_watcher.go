@@ -12,7 +12,7 @@ import (
 
 	"github.com/fsnotify/fsnotify"
 
-	"github.com/asheshgoplani/agent-deck/internal/logging"
+	"github.com/sjoeboo/hangar/internal/logging"
 )
 
 var hookLog = logging.ForComponent(logging.CompSession)
@@ -25,7 +25,7 @@ type HookStatus struct {
 	UpdatedAt time.Time // When this status was received
 }
 
-// StatusFileWatcher watches ~/.agent-deck/hooks/ for status file changes
+// StatusFileWatcher watches ~/.hangar/hooks/ for status file changes
 // and updates instance hook status in real time.
 type StatusFileWatcher struct {
 	hooksDir string
@@ -205,7 +205,7 @@ func (w *StatusFileWatcher) processFile(filePath string) {
 func GetHooksDir() string {
 	home, err := os.UserHomeDir()
 	if err != nil {
-		return filepath.Join(os.TempDir(), ".agent-deck", "hooks")
+		return filepath.Join(os.TempDir(), ".hangar", "hooks")
 	}
-	return filepath.Join(home, ".agent-deck", "hooks")
+	return filepath.Join(home, ".hangar", "hooks")
 }

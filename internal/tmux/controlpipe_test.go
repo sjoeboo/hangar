@@ -105,7 +105,7 @@ func TestControlPipe_DeadSession(t *testing.T) {
 	skipIfNoTmuxServer(t)
 
 	// Try connecting to a non-existent session
-	_, err := NewControlPipe("agentdeck_nonexistent_session_12345")
+	_, err := NewControlPipe("hangar_nonexistent_session_12345")
 	// Should either fail to connect or die quickly
 	if err == nil {
 		// Wait a moment for pipe to realize session doesn't exist

@@ -308,7 +308,7 @@ func TestClaudeBusyRegex_WelcomeBannerFalsePositive(t *testing.T) {
 	bannerLines := []string{
 		"Opus 4.6 is here · $50 free extra usage · Try fast mode or use i…",
 		"Opus 4.6 · Claude Max",
-		"~/.agent-deck/conductor/sre",
+		"~/.hangar/conductor/sre",
 		`❯ Try "create a util logging.py that..."`,
 		"⏵⏵ bypass permissions on (shift+tab to cycle)",
 	}

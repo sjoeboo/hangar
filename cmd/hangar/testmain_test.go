@@ -27,7 +27,7 @@ func TestMain(m *testing.M) {
 
 // cleanupTestSessions kills any tmux sessions created during testing.
 // IMPORTANT: Only match specific known test artifacts, NOT broad patterns.
-// Broad patterns like HasPrefix("agentdeck_test") or Contains("test_") kill
+// Broad patterns like HasPrefix("hangar_test") or Contains("test_") kill
 // real user sessions with "test" in their title. Each test already has
 // defer Kill() which handles cleanup reliably (runs on panic, Fatal, etc).
 func cleanupTestSessions() {

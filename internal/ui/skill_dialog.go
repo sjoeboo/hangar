@@ -7,7 +7,7 @@ import (
 	"time"
 	"unicode"
 
-	"github.com/asheshgoplani/agent-deck/internal/session"
+	"github.com/sjoeboo/hangar/internal/session"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
@@ -470,7 +470,7 @@ func (d *SkillDialog) renderEmptyStateHelp() string {
 		highlightStyle.Render("No pool skills available"),
 		"",
 		helpStyle.Render("Place reusable skills in:"),
-		pathStyle.Render("  ~/.agent-deck/skills/pool"),
+		pathStyle.Render("  ~/.hangar/skills/pool"),
 		"",
 		helpStyle.Render("Only pool skills appear in Available."),
 	}
@@ -484,7 +484,7 @@ func (d *SkillDialog) View() string {
 	}
 
 	title := "Skills Manager"
-	scopeDesc := DimStyle.Render("Writes to: .agent-deck/skills.toml + .claude/skills (project)")
+	scopeDesc := DimStyle.Render("Writes to: .hangar/skills.toml + .claude/skills (project)")
 	sourceTab := lipgloss.NewStyle().Bold(true).Foreground(ColorAccent).Render("[POOL]")
 	sourceLine := "──────────────── " + sourceTab + " ────────────────"
 	if d.tool != "claude" && d.emptyHelpText != "" {

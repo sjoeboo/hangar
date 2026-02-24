@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/asheshgoplani/agent-deck/internal/experiments"
-	"github.com/asheshgoplani/agent-deck/internal/session"
+	"github.com/sjoeboo/hangar/internal/experiments"
+	"github.com/sjoeboo/hangar/internal/session"
 )
 
 // handleTry handles the 'try' subcommand for quick experiments
@@ -42,7 +42,7 @@ func handleTry(profile string, args []string) {
 		fmt.Println("  agent-deck try myproject -c gemini  # Use Gemini instead of Claude")
 		fmt.Println("  agent-deck try myproject --no-session  # Just create folder")
 		fmt.Println()
-		fmt.Println("Config (~/.agent-deck/config.toml):")
+		fmt.Println("Config (~/.hangar/config.toml):")
 		fmt.Println("  [experiments]")
 		fmt.Println("  directory = \"~/src/tries\"    # Base directory for experiments")
 		fmt.Println("  date_prefix = true           # Add YYYY-MM-DD- prefix")

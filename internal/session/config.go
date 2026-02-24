@@ -31,13 +31,13 @@ type Config struct {
 	Version int `json:"version"`
 }
 
-// GetAgentDeckDir returns the base agent-deck directory (~/.agent-deck)
+// GetAgentDeckDir returns the base agent-deck directory (~/.hangar)
 func GetAgentDeckDir() (string, error) {
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
 		return "", fmt.Errorf("failed to get home directory: %w", err)
 	}
-	return filepath.Join(homeDir, ".agent-deck"), nil
+	return filepath.Join(homeDir, ".hangar"), nil
 }
 
 // GetConfigPath returns the path to the global config file

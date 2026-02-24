@@ -45,7 +45,7 @@ func TestHandleCodexNotify_WritesStatus(t *testing.T) {
 
 	origArgs := os.Args
 	defer func() { os.Args = origArgs }()
-	os.Args = []string{"agent-deck", "codex-notify"}
+	os.Args = []string{"hangar", "codex-notify"}
 
 	origStdin := os.Stdin
 	defer func() { os.Stdin = origStdin }()
@@ -84,7 +84,7 @@ func TestHandleCodexNotify_ArgPayload(t *testing.T) {
 
 	origArgs := os.Args
 	defer func() { os.Args = origArgs }()
-	os.Args = []string{"agent-deck", "codex-notify", `{"event":"turn/completed","thread_id":"thr-1"}`}
+	os.Args = []string{"hangar", "codex-notify", `{"event":"turn/completed","thread_id":"thr-1"}`}
 
 	handleCodexNotify()
 
@@ -113,7 +113,7 @@ func TestHandleCodexNotify_JSONRPCMethodPayload(t *testing.T) {
 
 	origArgs := os.Args
 	defer func() { os.Args = origArgs }()
-	os.Args = []string{"agent-deck", "codex-notify", `{"method":"turn/completed","params":{"thread_id":"thr-42"}}`}
+	os.Args = []string{"hangar", "codex-notify", `{"method":"turn/completed","params":{"thread_id":"thr-42"}}`}
 
 	handleCodexNotify()
 

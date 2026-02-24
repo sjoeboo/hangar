@@ -99,8 +99,8 @@ func TestSession_InjectStatusLine_ReconnectSession(t *testing.T) {
 }
 
 func TestSessionPrefix(t *testing.T) {
-	if SessionPrefix != "agentdeck_" {
-		t.Errorf("SessionPrefix = %s, want agentdeck_", SessionPrefix)
+	if SessionPrefix != "hangar_" {
+		t.Errorf("SessionPrefix = %s, want hangar_", SessionPrefix)
 	}
 }
 
@@ -428,10 +428,10 @@ func TestDetectTool(t *testing.T) {
 
 func TestReconnectSession(t *testing.T) {
 	// Test that ReconnectSession properly initializes all fields
-	sess := ReconnectSession("agentdeck_test_abc123", "test", "/tmp", "claude")
+	sess := ReconnectSession("hangar_test_abc123", "test", "/tmp", "claude")
 
-	if sess.Name != "agentdeck_test_abc123" {
-		t.Errorf("Name = %s, want agentdeck_test_abc123", sess.Name)
+	if sess.Name != "hangar_test_abc123" {
+		t.Errorf("Name = %s, want hangar_test_abc123", sess.Name)
 	}
 	if sess.DisplayName != "test" {
 		t.Errorf("DisplayName = %s, want test", sess.DisplayName)
@@ -943,7 +943,7 @@ func TestStatusStrings(t *testing.T) {
 
 // TestReconnectSessionHasStateTracker verifies reconnected sessions work correctly
 func TestReconnectSessionHasStateTracker(t *testing.T) {
-	sess := ReconnectSession("agentdeck_test_123", "my-project", "/home/user/project", "claude")
+	sess := ReconnectSession("hangar_test_123", "my-project", "/home/user/project", "claude")
 
 	// After reconnect, stateTracker starts nil (initialized on first GetStatus)
 	if sess.stateTracker != nil {
@@ -1055,7 +1055,7 @@ func TestStateTrackerPointersAreIndependent(t *testing.T) {
 	sessions := make([]*Session, 3)
 	for i := 0; i < 3; i++ {
 		sessions[i] = ReconnectSession(
-			"agentdeck_test_"+string(rune('a'+i)),
+			"hangar_test_"+string(rune('a'+i)),
 			"project-"+string(rune('a'+i)),
 			"/tmp",
 			"claude",
@@ -1196,7 +1196,7 @@ func TestConcurrentStateUpdates(t *testing.T) {
 // TestReconnectSessionLazyDoesNotConfigure verifies lazy reconnect skips tmux calls
 func TestReconnectSessionLazyDoesNotConfigure(t *testing.T) {
 	// Create a lazy session - should NOT call any tmux commands
-	sess := ReconnectSessionLazy("agentdeck_test_lazy", "lazy-project", "/tmp", "claude", "idle")
+	sess := ReconnectSessionLazy("hangar_test_lazy", "lazy-project", "/tmp", "claude", "idle")
 
 	// Should NOT be configured
 	if sess.IsConfigured() {
@@ -1204,8 +1204,8 @@ func TestReconnectSessionLazyDoesNotConfigure(t *testing.T) {
 	}
 
 	// Should have correct fields
-	if sess.Name != "agentdeck_test_lazy" {
-		t.Errorf("Expected name agentdeck_test_lazy, got %s", sess.Name)
+	if sess.Name != "hangar_test_lazy" {
+		t.Errorf("Expected name hangar_test_lazy, got %s", sess.Name)
 	}
 	if sess.DisplayName != "lazy-project" {
 		t.Errorf("Expected display name lazy-project, got %s", sess.DisplayName)
@@ -1244,7 +1244,7 @@ func TestReconnectSessionLazyRestoresState(t *testing.T) {
 
 // TestEnsureConfiguredIdempotent verifies EnsureConfigured is safe to call multiple times
 func TestEnsureConfiguredIdempotent(t *testing.T) {
-	sess := ReconnectSessionLazy("agentdeck_test_idempotent", "test", "/tmp", "claude", "idle")
+	sess := ReconnectSessionLazy("hangar_test_idempotent", "test", "/tmp", "claude", "idle")
 
 	// Session doesn't exist (no real tmux), so EnsureConfigured should be a no-op
 	sess.EnsureConfigured()
@@ -1262,7 +1262,7 @@ func TestEnsureConfiguredIdempotent(t *testing.T) {
 // TestReconnectSessionWithStatusIdle verifies idle (acknowledged) state is restored
 func TestReconnectSessionWithStatusIdle(t *testing.T) {
 	// Simulate loading a session that was previously acknowledged (idle/gray)
-	sess := ReconnectSessionWithStatus("agentdeck_test_123", "my-project", "/tmp", "claude", "idle")
+	sess := ReconnectSessionWithStatus("hangar_test_123", "my-project", "/tmp", "claude", "idle")
 
 	// Should have stateTracker pre-initialized
 	if sess.stateTracker == nil {
@@ -1283,7 +1283,7 @@ func TestReconnectSessionWithStatusIdle(t *testing.T) {
 // TestReconnectSessionWithStatusWaiting verifies waiting (yellow) state is restored
 func TestReconnectSessionWithStatusWaiting(t *testing.T) {
 	// Simulate loading a session that was waiting (yellow) - needs attention
-	sess := ReconnectSessionWithStatus("agentdeck_test_456", "other-project", "/tmp", "claude", "waiting")
+	sess := ReconnectSessionWithStatus("hangar_test_456", "other-project", "/tmp", "claude", "waiting")
 
 	// Should have stateTracker pre-initialized for waiting sessions too
 	if sess.stateTracker == nil {
@@ -1305,7 +1305,7 @@ func TestReconnectSessionWithStatusWaiting(t *testing.T) {
 // to start as "waiting" and show "active" when content changes
 func TestReconnectSessionWithStatusActive(t *testing.T) {
 	// Simulate loading a session that was active
-	sess := ReconnectSessionWithStatus("agentdeck_test_789", "active-project", "/tmp", "claude", "active")
+	sess := ReconnectSessionWithStatus("hangar_test_789", "active-project", "/tmp", "claude", "active")
 
 	// stateTracker should be pre-initialized (same as "waiting")
 	// Active sessions start as "waiting" until content changes
@@ -1333,7 +1333,7 @@ func TestAppRestartPersistenceFlow(t *testing.T) {
 	// 4. Session should still be idle (gray), not yellow
 
 	// Step 1: Create session as if loaded from storage with status=idle (acknowledged)
-	sess := ReconnectSessionWithStatus("agentdeck_project_abc", "project", "/tmp", "claude", "idle")
+	sess := ReconnectSessionWithStatus("hangar_project_abc", "project", "/tmp", "claude", "idle")
 
 	// Step 2: Simulate first GetStatus call
 	// Since content hasn't changed and acknowledged=true, should return "idle"
@@ -1362,7 +1362,7 @@ func TestAppRestartPersistenceFlow(t *testing.T) {
 // TestNewSessionsStartYellow verifies new/reloaded sessions start yellow
 func TestNewSessionsStartYellow(t *testing.T) {
 	// When a session is loaded with "waiting" status, stateTracker is pre-initialized
-	sess := ReconnectSessionWithStatus("agentdeck_new_xyz", "new-project", "/tmp", "claude", "waiting")
+	sess := ReconnectSessionWithStatus("hangar_new_xyz", "new-project", "/tmp", "claude", "waiting")
 
 	// stateTracker should be pre-initialized with acknowledged=false for "waiting" status
 	if sess.stateTracker == nil {
@@ -2061,8 +2061,8 @@ func TestSessionLogFile(t *testing.T) {
 	sess := NewSession("test-log", t.TempDir())
 
 	logFile := sess.LogFile()
-	assert.Contains(t, logFile, ".agent-deck/logs/")
-	assert.Contains(t, logFile, "agentdeck_test-log")
+	assert.Contains(t, logFile, ".hangar/logs/")
+	assert.Contains(t, logFile, "hangar_test-log")
 	assert.True(t, strings.HasSuffix(logFile, ".log"))
 }
 
@@ -2206,7 +2206,7 @@ func TestSetStatusLeft(t *testing.T) {
 	skipIfNoTmuxServer(t)
 
 	// Create a test session
-	sessionName := "agentdeck_test_notification_" + fmt.Sprintf("%d", time.Now().UnixNano())
+	sessionName := "hangar_test_notification_" + fmt.Sprintf("%d", time.Now().UnixNano())
 	cmd := exec.Command("tmux", "new-session", "-d", "-s", sessionName)
 	if err := cmd.Run(); err != nil {
 		t.Fatalf("Failed to create test session: %v", err)
@@ -2228,7 +2228,7 @@ func TestSetStatusLeft(t *testing.T) {
 func TestClearStatusLeft(t *testing.T) {
 	skipIfNoTmuxServer(t)
 
-	sessionName := "agentdeck_test_notification_" + fmt.Sprintf("%d", time.Now().UnixNano())
+	sessionName := "hangar_test_notification_" + fmt.Sprintf("%d", time.Now().UnixNano())
 	cmd := exec.Command("tmux", "new-session", "-d", "-s", sessionName)
 	if err := cmd.Run(); err != nil {
 		t.Fatalf("Failed to create test session: %v", err)

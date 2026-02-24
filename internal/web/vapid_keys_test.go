@@ -32,7 +32,7 @@ func TestEnsurePushVAPIDKeysCreatesAndReuses(t *testing.T) {
 		t.Fatalf("expected persisted keys to be reused")
 	}
 
-	path := filepath.Join(home, ".agent-deck", "profiles", "test-profile", pushVAPIDKeysFileName)
+	path := filepath.Join(home, ".hangar", "profiles", "test-profile", pushVAPIDKeysFileName)
 	if _, err := os.Stat(path); err != nil {
 		t.Fatalf("expected vapid keys file to exist: %v", err)
 	}

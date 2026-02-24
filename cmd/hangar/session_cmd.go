@@ -10,11 +10,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/asheshgoplani/agent-deck/internal/clipboard"
-	"github.com/asheshgoplani/agent-deck/internal/git"
-	"github.com/asheshgoplani/agent-deck/internal/profile"
-	"github.com/asheshgoplani/agent-deck/internal/session"
-	"github.com/asheshgoplani/agent-deck/internal/tmux"
+	"github.com/sjoeboo/hangar/internal/clipboard"
+	"github.com/sjoeboo/hangar/internal/git"
+	"github.com/sjoeboo/hangar/internal/profile"
+	"github.com/sjoeboo/hangar/internal/session"
+	"github.com/sjoeboo/hangar/internal/tmux"
 )
 
 // handleSession dispatches session subcommands
@@ -988,10 +988,10 @@ func findSessionByTmux(instances []*session.Instance) *session.Instance {
 	sessionName := parts[0]
 	currentPath := parts[1]
 
-	// Parse agent-deck session name: agentdeck_<title>_<id>
-	if strings.HasPrefix(sessionName, "agentdeck_") {
-		// Extract title (everything between agentdeck_ and the last _id)
-		withoutPrefix := strings.TrimPrefix(sessionName, "agentdeck_")
+	// Parse agent-deck session name: hangar_<title>_<id>
+	if strings.HasPrefix(sessionName, "hangar_") {
+		// Extract title (everything between hangar_ and the last _id)
+		withoutPrefix := strings.TrimPrefix(sessionName, "hangar_")
 		lastUnderscore := strings.LastIndex(withoutPrefix, "_")
 		if lastUnderscore > 0 {
 			title := withoutPrefix[:lastUnderscore]
@@ -1055,8 +1055,8 @@ func showTmuxSessionInfo(out *CLIOutput, jsonOutput bool) {
 	// Parse title from session name
 	title := sessionName
 	idFragment := ""
-	if strings.HasPrefix(sessionName, "agentdeck_") {
-		withoutPrefix := strings.TrimPrefix(sessionName, "agentdeck_")
+	if strings.HasPrefix(sessionName, "hangar_") {
+		withoutPrefix := strings.TrimPrefix(sessionName, "hangar_")
 		lastUnderscore := strings.LastIndex(withoutPrefix, "_")
 		if lastUnderscore > 0 {
 			title = withoutPrefix[:lastUnderscore]

@@ -214,21 +214,21 @@ func TestFlattenWithNestedGroupsCollapsed(t *testing.T) {
 // TestSubgroupSortingWithUnrelatedRoots verifies that subgroups stay with their
 // parent root and are not sorted between unrelated root groups.
 // This was a bug where "agent-deck/github-issues" would sort between "My Sessions"
-// and "agent-deck" because full path comparison doesn't respect tree hierarchy.
+// and "hangar" because full path comparison doesn't respect tree hierarchy.
 func TestSubgroupSortingWithUnrelatedRoots(t *testing.T) {
 	tree := NewGroupTree([]*Instance{})
 
 	// Create root groups with names that alphabetically interleave
-	// "My Sessions" (M) < "agent-deck" (a) in ASCII (uppercase < lowercase)
+	// "My Sessions" (M) < "hangar" (a) in ASCII (uppercase < lowercase)
 	// But "agent-deck/github-issues" would sort before "my-sessions" by full path
 	tree.CreateGroup("My Sessions") // path: my-sessions
-	tree.CreateGroup("agent-deck")  // path: agent-deck
+	tree.CreateGroup("hangar")  // path: agent-deck
 	tree.CreateGroup("ard")         // path: ard
-	tree.CreateSubgroup("agent-deck", "github-issues")
+	tree.CreateSubgroup("hangar", "github-issues")
 
 	// Expand all so subgroups are visible
 	tree.ExpandGroup("my-sessions")
-	tree.ExpandGroup("agent-deck")
+	tree.ExpandGroup("hangar")
 	tree.ExpandGroup("ard")
 
 	// Flatten the tree
@@ -243,7 +243,7 @@ func TestSubgroupSortingWithUnrelatedRoots(t *testing.T) {
 	}
 
 	// Verify: github-issues must come immediately after agent-deck, not before my-sessions
-	agentDeckPos := positions["agent-deck"]
+	agentDeckPos := positions["hangar"]
 	githubIssuesPos := positions["agent-deck/github-issues"]
 	mySessionsPos := positions["my-sessions"]
 	ardPos := positions["ard"]
@@ -948,7 +948,7 @@ func TestGetRootPath(t *testing.T) {
 		{"parent/child", "parent"},
 		{"a/b/c", "a"},
 		{"my-sessions", "my-sessions"},
-		{"agent-deck/github-issues", "agent-deck"},
+		{"agent-deck/github-issues", "hangar"},
 		{"deep/nested/path/here", "deep"},
 	}
 

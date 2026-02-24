@@ -18,7 +18,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/asheshgoplani/agent-deck/internal/logging"
+	"github.com/sjoeboo/hangar/internal/logging"
 	"golang.org/x/sync/singleflight"
 )
 
@@ -30,7 +30,7 @@ var mcpLog = logging.ForComponent(logging.CompMCP)
 // Callers should preserve previous state rather than transitioning to error/inactive.
 var ErrCaptureTimeout = errors.New("capture-pane timed out")
 
-const SessionPrefix = "agentdeck_"
+const SessionPrefix = "hangar_"
 
 // Session cache - reduces subprocess spawns from O(n) to O(1) per tick
 // Instead of calling `tmux has-session` and `tmux display-message` for each session,
@@ -606,13 +606,13 @@ func (s *Session) SetInjectStatusLine(inject bool) {
 }
 
 // LogFile returns the path to this session's log file
-// Logs are stored in ~/.agent-deck/logs/<session-name>.log
+// Logs are stored in ~/.hangar/logs/<session-name>.log
 func (s *Session) LogFile() string {
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
 		homeDir = "/tmp"
 	}
-	logDir := filepath.Join(homeDir, ".agent-deck", "logs")
+	logDir := filepath.Join(homeDir, ".hangar", "logs")
 	return filepath.Join(logDir, s.Name+".log")
 }
 
@@ -622,7 +622,7 @@ func LogDir() string {
 	if err != nil {
 		homeDir = "/tmp"
 	}
-	return filepath.Join(homeDir, ".agent-deck", "logs")
+	return filepath.Join(homeDir, ".hangar", "logs")
 }
 
 // NewSession creates a new Session instance with a unique name
@@ -3376,7 +3376,7 @@ func GetAckSignalPath() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(homeDir, ".agent-deck", "ack-signal"), nil
+	return filepath.Join(homeDir, ".hangar", "ack-signal"), nil
 }
 
 // ReadAndClearAckSignal reads the session ID from the signal file and deletes it.
