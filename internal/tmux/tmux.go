@@ -993,10 +993,30 @@ func (s *Session) Exists() bool {
 	return cmd.Run() == nil
 }
 
-// ConfigureStatusBar sets up the tmux status bar with session info
-// Shows: notification bar on left (managed by NotificationManager), session info on right
-// NOTE: status-left is reserved for the notification bar showing waiting sessions
-// This function only configures status-right to avoid overwriting notification bar
+// oasis_lagoon_dark color palette constants used throughout the status bar theme.
+const (
+	oasisCore          = "#101825" // darkest bg (clock fg, active window fg)
+	oasisMantle        = "#1a283f" // status bar bg
+	oasisSurface       = "#22385c" // raised surfaces, inactive windows, notification pill bg
+	oasisPrimary       = "#58b8fd" // active accent / clock bg, notification icon color
+	oasisStrongPrimary = "#1ca0fd" // inactive window fg
+	oasisSecondary     = "#f8b471" // orange — active window tab bg
+	oasisFg            = "#d9e6fa" // foreground text
+	oasisGreen         = "#53d390" // running sessions
+	oasisYellow        = "#f0e68c" // waiting sessions
+	oasisRed           = "#ff7979" // error sessions
+	oasisDim           = "#8fb0d0" // idle / dim text
+)
+
+// ConfigureStatusBar sets up the tmux status bar with the oasis_lagoon_dark theme.
+//
+// Layout:
+//   - status-left:  managed by NotificationManager (hangar session icons)
+//   - status-right: session-name pill + folder pill + clock pill (powerline style)
+//   - window-status: inactive = surface/strong_primary, active = secondary/core bold
+//
+// NOTE: status-left is reserved for the notification bar showing waiting sessions.
+// This function only configures status-right and window formatting.
 func (s *Session) ConfigureStatusBar() {
 	// Skip status bar injection if disabled by user config
 	if !s.injectStatusLine {
@@ -1009,20 +1029,41 @@ func (s *Session) ConfigureStatusBar() {
 		folderName = "~"
 	}
 
-	// Right side: detach hint + session title with folder path
-	// The hint uses subtle gray (#565f89) so it doesn't compete with session info
-	rightStatus := fmt.Sprintf("#[fg=#565f89]ctrl+q detach#[default] │ 📁 %s | %s ", s.DisplayName, folderName)
+	// oasis_lagoon_dark powerline status-right:
+	//   [session-name pill] [folder pill] [clock pill]
+	//
+	// Powerline transitions use a block char (█) to fake a capsule edge with a
+	// contrasting background.  The sequence is:
+	//   <surface-bg> session name  <primary-bg><core-fg> folder  <core-bg><primary-fg> HH:MM
+	//
+	// Each pill is padded with one space on each side for breathing room.
+	rightStatus := "" +
+		// Session name pill: surface bg, fg color, bold
+		fmt.Sprintf("#[bg=%s,fg=%s,bold] %s #[nobold]", oasisSurface, oasisPrimary, s.DisplayName) +
+		// Transition: surface→mantle then folder pill bg starts
+		fmt.Sprintf("#[bg=%s,fg=%s]\uE0B0#[bg=%s,fg=%s] #{b:pane_current_path} ", oasisMantle, oasisSurface, oasisMantle, oasisFg) +
+		// Transition: mantle→primary (clock pill)
+		fmt.Sprintf("#[fg=%s]\uE0B0#[bg=%s,fg=%s,bold] %%H:%%M #[nobold]", oasisPrimary, oasisPrimary, oasisCore)
 
-	// PERFORMANCE: Batch all 5 status bar options into single subprocess call
-	// Uses tmux command chaining with \; separator (73% reduction in subprocess calls)
-	// Before: 5 separate exec.Command calls = 5 subprocess spawns
-	// After: 1 exec.Command call = 1 subprocess spawn
+	// Inactive window tab: surface bg, strong_primary fg
+	winInactive := fmt.Sprintf("#[bg=%s,fg=%s] #I #W ", oasisSurface, oasisStrongPrimary)
+	// Active window tab: secondary (orange) bg, core fg, bold
+	winActive := fmt.Sprintf("#[bg=%s,fg=%s,bold] #I #W #[nobold]", oasisSecondary, oasisCore)
+
+	// PERFORMANCE: Batch all status bar options into a single subprocess call.
+	// Uses tmux command chaining with ; separator (reduces subprocess spawns).
 	cmd := exec.Command("tmux",
+		// Global status bar appearance
 		"set-option", "-t", s.Name, "status", "on", ";",
-		"set-option", "-t", s.Name, "status-style", "bg=#1a1b26,fg=#a9b1d6", ";",
+		"set-option", "-t", s.Name, "status-style", fmt.Sprintf("bg=%s,fg=%s", oasisMantle, oasisFg), ";",
 		"set-option", "-t", s.Name, "status-left-length", "120", ";",
+		"set-option", "-t", s.Name, "status-right-length", "120", ";",
+		// Right side: session + folder + clock pills
 		"set-option", "-t", s.Name, "status-right", rightStatus, ";",
-		"set-option", "-t", s.Name, "status-right-length", "80")
+		// Window tabs
+		"set-window-option", "-t", s.Name, "window-status-format", winInactive, ";",
+		"set-window-option", "-t", s.Name, "window-status-current-format", winActive, ";",
+		"set-window-option", "-t", s.Name, "window-status-separator", "")
 	_ = cmd.Run()
 }
 

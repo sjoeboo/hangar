@@ -705,15 +705,15 @@ func TestMinimalMode_FormatBar_ShowsIconsAndCounts(t *testing.T) {
 	nm.SyncFromInstances(instances, "")
 	bar := nm.FormatBar()
 
-	// Should contain ⚡ prefix, each icon+count, │ separator, and status colors
+	// Should contain ⚡ prefix, each icon+count, │ separator, and oasis_lagoon_dark status colors
 	assert.Contains(t, bar, "⚡")
 	assert.Contains(t, bar, "● 2")
 	assert.Contains(t, bar, "◐ 1")
 	assert.Contains(t, bar, "○ 1")
 	assert.Contains(t, bar, "│")
-	assert.Contains(t, bar, "#9ece6a") // running color
-	assert.Contains(t, bar, "#e0af68") // waiting color
-	assert.Contains(t, bar, "#787fa0") // idle color
+	assert.Contains(t, bar, "#53d390") // running color (oasisGreen)
+	assert.Contains(t, bar, "#f0e68c") // waiting color (oasisYellow)
+	assert.Contains(t, bar, "#8fb0d0") // idle color (oasisDim)
 }
 
 // TestMinimalMode_FormatBar_SkipsZeroCounts verifies that statuses with 0 sessions
@@ -762,8 +762,8 @@ func TestMinimalMode_FormatBar_IncludesErrorCount(t *testing.T) {
 
 	assert.Contains(t, bar, "◐ 1")
 	assert.Contains(t, bar, "✕ 2")
-	assert.Contains(t, bar, "#e0af68") // waiting color
-	assert.Contains(t, bar, "#f7768e") // error color
+	assert.Contains(t, bar, "#f0e68c") // waiting color (oasisYellow)
+	assert.Contains(t, bar, "#ff7979") // error color (oasisRed)
 }
 
 // TestMinimalMode_ExcludesCurrentSession verifies the current session is not counted.
@@ -781,7 +781,7 @@ func TestMinimalMode_ExcludesCurrentSession(t *testing.T) {
 
 	// Only "other" should be counted, not "current"
 	assert.Contains(t, bar, "● 1")
-	assert.Contains(t, bar, "#9ece6a") // running color
+	assert.Contains(t, bar, "#53d390") // running color (oasisGreen)
 }
 
 // TestMinimalMode_NoEntries verifies GetEntries returns empty in minimal mode —
@@ -827,6 +827,6 @@ func TestMinimalMode_OnlySingleStatus(t *testing.T) {
 
 	// Only waiting — single group has no │ separator
 	assert.Contains(t, bar, "◐ 3")
-	assert.Contains(t, bar, "#e0af68") // waiting color
+	assert.Contains(t, bar, "#f0e68c") // waiting color (oasisYellow)
 	assert.NotContains(t, bar, "│")
 }

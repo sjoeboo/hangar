@@ -189,37 +189,61 @@ func (nm *NotificationManager) FormatBar() string {
 	return "⚡ " + strings.Join(parts, " ")
 }
 
-// statusColor returns the tmux fg color escape for a given status, matching the TUI palette.
+// oasis_lagoon_dark status bar palette (mirrors constants in internal/tmux/tmux.go).
+// Duplicated here to avoid a cross-package import cycle.
+const (
+	notifBg      = "#22385c" // oasisSurface — notification pill background
+	notifAccent  = "#58b8fd" // oasisPrimary — ⚡ prefix and default icon color
+	notifMantle  = "#1a283f" // oasisMantle — transition color
+	notifGreen   = "#53d390" // running
+	notifYellow  = "#f0e68c" // waiting
+	notifDim     = "#8fb0d0" // idle
+	notifRed     = "#ff7979" // error
+)
+
+// statusColor returns the tmux fg color escape for a given status, using the oasis_lagoon_dark palette.
 func statusColor(status Status) string {
 	switch status {
 	case StatusRunning:
-		return "#9ece6a" // green
+		return notifGreen
 	case StatusWaiting:
-		return "#e0af68" // yellow
+		return notifYellow
 	case StatusIdle:
-		return "#787fa0" // dim/muted
+		return notifDim
 	case StatusError:
-		return "#f7768e" // red
+		return notifRed
 	default:
-		return "#787fa0"
+		return notifDim
 	}
 }
 
-// formatBarMinimal renders the compact icon+count format: ⚡ ● 2 │ ◐ 3 │ ○ 1  (with tmux colors)
+// formatBarMinimal renders the notification pill in oasis_lagoon_dark style.
+//
+// Visual format (left side of status bar):
+//
+//	[surface-pill] ⚡ ● 2 │ ◐ 1 │ ○ 3 [/pill]
+//
+// The pill uses surface (#22385c) background with a powerline right-cap (U+E0B0)
+// that blends into the mantle status bar background.
 // Called with nm.mu read lock already held.
 func (nm *NotificationManager) formatBarMinimal() string {
 	var parts []string
 	// Render in a consistent order: running, waiting, idle, error
 	for _, s := range []Status{StatusRunning, StatusWaiting, StatusIdle, StatusError} {
 		if n := nm.statusCounts[s]; n > 0 {
-			colored := fmt.Sprintf("#[fg=%s]%s %d#[default]", statusColor(s), statusIcon(s), n)
+			colored := fmt.Sprintf("#[fg=%s]%s %d", statusColor(s), statusIcon(s), n)
 			parts = append(parts, colored)
 		}
 	}
 	if len(parts) == 0 {
 		return ""
 	}
-	return "⚡ " + strings.Join(parts, " │ ") + "  "
+	// Pill: surface bg, primary ⚡, icon counts, then powerline cap back to mantle
+	pill := fmt.Sprintf("#[bg=%s,fg=%s] ⚡ %s #[bg=%s,fg=%s]\uE0B0#[default]",
+		notifBg, notifAccent,
+		strings.Join(parts, fmt.Sprintf(" #[fg=%s]│ ", notifDim)),
+		notifMantle, notifBg)
+	return pill
 }
 
 // statusIcon returns the Unicode icon for a given session status
