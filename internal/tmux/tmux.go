@@ -772,7 +772,7 @@ func (s *Session) EnsureConfigured() {
 
 	// Run deferred configuration
 	s.ConfigureStatusBar()
-	_ = s.EnableMouseMode()
+	// Note: mouse mode is enabled conditionally in attachSession() based on config.
 
 	s.configured = true
 	statusLog.Debug("lazy_config_completed", slog.String("session", s.DisplayName))

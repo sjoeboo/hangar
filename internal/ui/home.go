@@ -3574,6 +3574,17 @@ func (h *Home) handleMouseMsg(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 		return h, nil
 	}
 
+	// Do not process mouse events when any modal dialog is open
+	if h.setupWizard.IsVisible() || h.settingsPanel.IsVisible() ||
+		h.helpOverlay.IsVisible() || h.search.IsVisible() ||
+		h.globalSearch.IsVisible() || h.newDialog.IsVisible() ||
+		h.groupDialog.IsVisible() || h.forkDialog.IsVisible() ||
+		h.confirmDialog.IsVisible() || h.mcpDialog.IsVisible() ||
+		h.skillDialog.IsVisible() || h.geminiModelDialog.IsVisible() ||
+		h.sessionPickerDialog.IsVisible() || h.worktreeFinishDialog.IsVisible() {
+		return h, nil
+	}
+
 	switch msg.Button {
 	case tea.MouseButtonWheelUp:
 		if h.cursor > 0 {
