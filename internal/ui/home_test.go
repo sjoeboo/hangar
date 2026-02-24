@@ -1143,3 +1143,17 @@ func TestHandleMouseMsg(t *testing.T) {
 		}
 	})
 }
+
+func TestAttachSessionMouseModeConfig(t *testing.T) {
+	// Verify GetMouseMode accessor works correctly.
+	// The integration (EnableMouseMode called on attach) requires a real tmux session.
+	s := session.TmuxSettings{}
+	if s.GetMouseMode() != false {
+		t.Error("default MouseMode should be false")
+	}
+	tr := true
+	s.MouseMode = &tr
+	if !s.GetMouseMode() {
+		t.Error("MouseMode should be true when set")
+	}
+}

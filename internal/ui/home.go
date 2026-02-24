@@ -5330,6 +5330,14 @@ func (h *Home) attachSession(inst *session.Instance) tea.Cmd {
 	// which were skipped during lazy loading for TUI startup performance
 	tmuxSess.EnsureConfigured()
 
+	// Enable tmux mouse mode if configured (allows clicking status bar to switch windows)
+	cfg, _ := session.LoadUserConfig()
+	if cfg != nil && cfg.Tmux.GetMouseMode() {
+		if err := tmuxSess.EnableMouseMode(); err != nil {
+			uiLog.Warn("enable_mouse_mode_failed", slog.Any("error", err))
+		}
+	}
+
 	// Sync session IDs to tmux environment for resume functionality
 	// (Deferred from load time for performance)
 	inst.SyncSessionIDsToTmux()
