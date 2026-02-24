@@ -808,3 +808,25 @@ inject_status_line = true
 		t.Error("GetInjectStatusLine should be true when set to true")
 	}
 }
+
+func TestTmuxSettingsGetMouseMode(t *testing.T) {
+	// nil pointer → default false
+	s := TmuxSettings{}
+	if s.GetMouseMode() != false {
+		t.Error("expected GetMouseMode() default to be false")
+	}
+
+	// explicit true
+	tr := true
+	s2 := TmuxSettings{MouseMode: &tr}
+	if s2.GetMouseMode() != true {
+		t.Error("expected GetMouseMode() to return true when set")
+	}
+
+	// explicit false
+	fa := false
+	s3 := TmuxSettings{MouseMode: &fa}
+	if s3.GetMouseMode() != false {
+		t.Error("expected GetMouseMode() to return false when set")
+	}
+}
