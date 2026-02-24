@@ -57,6 +57,11 @@ func runAutoMigration(jsonOutput bool) {
 		fmt.Fprintf(os.Stderr, "Warning: learnings migration check failed: %v\n", err)
 	}
 
+	migratedHeartbeatScripts, err := session.MigrateConductorHeartbeatScripts()
+	if err != nil && !jsonOutput {
+		fmt.Fprintf(os.Stderr, "Warning: heartbeat script migration check failed: %v\n", err)
+	}
+
 	if !jsonOutput {
 		for _, name := range migratedLegacy {
 			fmt.Printf("  [migrated] Legacy conductor: %s\n", name)
@@ -66,6 +71,9 @@ func runAutoMigration(jsonOutput bool) {
 		}
 		for _, name := range migratedLearnings {
 			fmt.Printf("  [migrated] Added learnings: %s\n", name)
+		}
+		for _, name := range migratedHeartbeatScripts {
+			fmt.Printf("  [migrated] Refreshed heartbeat script: %s\n", name)
 		}
 	}
 }

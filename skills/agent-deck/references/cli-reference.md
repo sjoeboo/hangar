@@ -34,14 +34,37 @@ agent-deck add [path] [options]
 |------|-------------|
 | `-t, --title` | Session title |
 | `-g, --group` | Group path |
-| `-c, --cmd` | Command (claude, gemini, opencode, codex, custom) |
+| `-c, --cmd` | Tool/command (claude, gemini, opencode, codex, custom) |
+| `--wrapper` | Wrapper command; use `{command}` placeholder |
 | `--parent` | Parent session (creates child) |
+| `--no-parent` | Disable automatic parent linking |
 | `--mcp` | Attach MCP (repeatable) |
 
 ```bash
 agent-deck add -t "My Project" -c claude .
 agent-deck add -t "Child" --parent "Parent" -c claude /tmp/x
+agent-deck add -g ard --no-parent -c claude .
+agent-deck add -c "codex --dangerously-bypass-approvals-and-sandbox" .
 agent-deck add -t "Research" -c claude --mcp exa --mcp firecrawl /tmp/r
+```
+
+Notes:
+- Parent auto-link is enabled by default when `AGENT_DECK_SESSION_ID` is present and neither `--parent` nor `--no-parent` is passed.
+- `--parent` and `--no-parent` are mutually exclusive.
+- If `--cmd` contains extra args and no explicit `--wrapper` is provided, agent-deck auto-generates a wrapper to preserve those args.
+
+### launch - Create + start (+ optional message)
+
+```bash
+agent-deck launch [path] [options]
+```
+
+Examples:
+
+```bash
+agent-deck launch . -c claude -m "Review this module"
+agent-deck launch . -g ard --no-parent -c claude -m "Review dataset"
+agent-deck launch . -c "codex --dangerously-bypass-approvals-and-sandbox"
 ```
 
 ### list - List sessions
@@ -361,7 +384,9 @@ agent-deck conductor list [--profile <name>]
 - `setup` creates `~/.agent-deck/conductor/<name>/` plus `meta.json` and registers `conductor-<name>` session in the selected profile.
 - `setup` also installs shared `~/.agent-deck/conductor/CLAUDE.md` (or symlink via `--shared-claude-md`).
 - Heartbeat timers run per conductor (default every 15 minutes) and can be disabled with `--no-heartbeat`.
+- Heartbeat sends use non-blocking `session send --no-wait -q` to avoid timeout churn when sessions are busy.
 - Bridge daemon is installed only when Telegram and/or Slack is configured in `[conductor]`.
+- Transition notifier daemon (`agent-deck notify-daemon`) is installed by setup and sends event nudges on `running -> waiting|error|idle` transitions (parent first, then conductor fallback).
 
 ## Session Resolution
 

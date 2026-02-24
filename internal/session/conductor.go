@@ -464,7 +464,7 @@ func buildDaemonPath(agentDeckPath string) string {
 // conductorHeartbeatScript is the shell script that sends a heartbeat to a conductor session
 const conductorHeartbeatScript = `#!/bin/bash
 # Heartbeat for conductor: {NAME} (profile: {PROFILE})
-# Sends a check-in message to the conductor session
+# Sends a check-in message to the conductor session (non-blocking)
 
 SESSION="conductor-{NAME}"
 PROFILE="{PROFILE}"
@@ -473,7 +473,7 @@ PROFILE="{PROFILE}"
 STATUS=$(agent-deck -p "$PROFILE" session show "$SESSION" --json 2>/dev/null | tr -d '\n' | sed -n 's/.*"status"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
 
 if [ "$STATUS" = "idle" ] || [ "$STATUS" = "waiting" ]; then
-    agent-deck -p "$PROFILE" session send "$SESSION" "Heartbeat: Check all sessions in the {PROFILE} profile. List any waiting sessions, auto-respond where safe, and report what needs my attention."
+    agent-deck -p "$PROFILE" session send "$SESSION" "Heartbeat: Check all sessions in the {PROFILE} profile. List any waiting sessions, auto-respond where safe, and report what needs my attention." --no-wait -q
 fi
 `
 
@@ -854,6 +854,58 @@ func MigrateConductorLearnings() ([]string, error) {
 	sharedPath := filepath.Join(base, "LEARNINGS.md")
 	if _, err := os.Stat(sharedPath); os.IsNotExist(err) {
 		_ = os.WriteFile(sharedPath, []byte(conductorLearningsTemplate), 0o644)
+	}
+
+	return migrated, nil
+}
+
+// MigrateConductorHeartbeatScripts refreshes managed heartbeat scripts to the
+// current template without touching custom user-authored scripts.
+func MigrateConductorHeartbeatScripts() ([]string, error) {
+	conductors, err := ListConductors()
+	if err != nil {
+		return nil, err
+	}
+
+	var migrated []string
+	for _, meta := range conductors {
+		dir, err := ConductorNameDir(meta.Name)
+		if err != nil {
+			continue
+		}
+
+		scriptPath := filepath.Join(dir, "heartbeat.sh")
+		expected := strings.ReplaceAll(conductorHeartbeatScript, "{NAME}", meta.Name)
+		expected = strings.ReplaceAll(expected, "{PROFILE}", normalizeConductorProfile(meta.Profile))
+		if normalizeConductorProfile(meta.Profile) == DefaultProfile {
+			expected = strings.ReplaceAll(expected, `-p "$PROFILE" `, "")
+		}
+
+		existing, err := os.ReadFile(scriptPath)
+		if err != nil {
+			if os.IsNotExist(err) {
+				if writeErr := os.WriteFile(scriptPath, []byte(expected), 0o755); writeErr == nil {
+					migrated = append(migrated, meta.Name)
+				}
+			}
+			continue
+		}
+
+		existingStr := string(existing)
+		managedScript := strings.Contains(existingStr, "# Heartbeat for conductor:") &&
+			strings.Contains(existingStr, `SESSION="conductor-`)
+		if !managedScript {
+			continue
+		}
+
+		if strings.TrimSpace(existingStr) == strings.TrimSpace(expected) {
+			continue
+		}
+
+		if err := os.WriteFile(scriptPath, []byte(expected), 0o755); err != nil {
+			return migrated, fmt.Errorf("failed to refresh heartbeat script for %s: %w", meta.Name, err)
+		}
+		migrated = append(migrated, meta.Name)
 	}
 
 	return migrated, nil

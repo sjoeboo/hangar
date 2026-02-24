@@ -210,3 +210,71 @@ func TestNormalizeArgsIntegration(t *testing.T) {
 		})
 	}
 }
+
+func TestResolveSessionCommand(t *testing.T) {
+	tests := []struct {
+		name            string
+		raw             string
+		explicitWrapper string
+		wantTool        string
+		wantWrapper     string
+		wantNote        bool
+		wantRawCommand  bool
+	}{
+		{
+			name:           "plain tool uses tool command",
+			raw:            "codex",
+			wantTool:       "codex",
+			wantWrapper:    "",
+			wantNote:       false,
+			wantRawCommand: false,
+		},
+		{
+			name:           "tool with args auto-wrapper",
+			raw:            "codex --dangerously-bypass-approvals-and-sandbox",
+			wantTool:       "codex",
+			wantWrapper:    "{command} --dangerously-bypass-approvals-and-sandbox",
+			wantNote:       true,
+			wantRawCommand: false,
+		},
+		{
+			name:           "generic shell command kept raw",
+			raw:            "bash -lc 'echo hi'",
+			wantTool:       "shell",
+			wantWrapper:    "",
+			wantNote:       false,
+			wantRawCommand: true,
+		},
+		{
+			name:            "explicit wrapper wins",
+			raw:             "codex --dangerously-bypass-approvals-and-sandbox",
+			explicitWrapper: "{command} --my-wrapper-flag",
+			wantTool:        "codex",
+			wantWrapper:     "{command} --my-wrapper-flag",
+			wantNote:        false,
+			wantRawCommand:  false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tool, command, wrapper, note := resolveSessionCommand(tt.raw, tt.explicitWrapper)
+
+			if tool != tt.wantTool {
+				t.Fatalf("tool = %q, want %q", tool, tt.wantTool)
+			}
+			if wrapper != tt.wantWrapper {
+				t.Fatalf("wrapper = %q, want %q", wrapper, tt.wantWrapper)
+			}
+			if (note != "") != tt.wantNote {
+				t.Fatalf("note present = %v, want %v (note=%q)", note != "", tt.wantNote, note)
+			}
+			if command == "" {
+				t.Fatal("command should not be empty")
+			}
+			if tt.wantRawCommand && command != tt.raw {
+				t.Fatalf("command = %q, want raw %q", command, tt.raw)
+			}
+		})
+	}
+}

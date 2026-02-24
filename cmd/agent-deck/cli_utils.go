@@ -57,6 +57,72 @@ func normalizeArgs(fs *flag.FlagSet, args []string) []string {
 	return append(flags, positional...)
 }
 
+// firstNonEmpty returns the first non-empty string after trimming whitespace.
+func firstNonEmpty(values ...string) string {
+	for _, v := range values {
+		if strings.TrimSpace(v) != "" {
+			return strings.TrimSpace(v)
+		}
+	}
+	return ""
+}
+
+// resolveSessionCommand normalizes the user-provided --cmd/-c input.
+//
+// Behavior:
+//   - Plain tool name (e.g. "claude", "codex"): use built-in/default command.
+//   - Tool with extra args (e.g. "codex --dangerously-bypass-approvals-and-sandbox"):
+//     keep tool detection but forward extra args via wrapper so they are not lost.
+//   - Generic shell command: keep full command as-is.
+//   - Explicit wrapper always wins.
+func resolveSessionCommand(rawCommand, explicitWrapper string) (toolName, command, wrapper, note string) {
+	raw := strings.TrimSpace(rawCommand)
+	wrapper = strings.TrimSpace(explicitWrapper)
+	if raw == "" {
+		return "", "", wrapper, ""
+	}
+
+	toolName = detectTool(raw)
+	base, extra := splitFirstWord(raw)
+
+	// No explicit wrapper provided and command looks like "tool arg1 arg2".
+	// Preserve extra args by turning them into wrapper suffix.
+	if wrapper == "" && extra != "" {
+		baseTool := detectTool(base)
+		if baseTool != "shell" {
+			toolName = baseTool
+			if toolDef := session.GetToolDef(toolName); toolDef != nil {
+				command = toolDef.Command
+			} else {
+				command = base
+			}
+			wrapper = strings.TrimSpace("{command} " + extra)
+			note = fmt.Sprintf("parsed --cmd as tool '%s' and forwarded extra args via wrapper", toolName)
+			return toolName, command, wrapper, note
+		}
+	}
+
+	if toolDef := session.GetToolDef(toolName); toolDef != nil {
+		command = toolDef.Command
+	} else {
+		command = raw
+	}
+	return toolName, command, wrapper, note
+}
+
+func splitFirstWord(raw string) (string, string) {
+	s := strings.TrimSpace(raw)
+	if s == "" {
+		return "", ""
+	}
+	for i, r := range s {
+		if r == ' ' || r == '\t' || r == '\n' || r == '\r' {
+			return s[:i], strings.TrimSpace(s[i+1:])
+		}
+	}
+	return s, ""
+}
+
 // CLIOutput handles consistent output formatting across all CLI commands
 type CLIOutput struct {
 	jsonMode  bool

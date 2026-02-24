@@ -20,9 +20,9 @@ func handleLaunch(profile string, args []string) {
 	titleShort := fs.String("t", "", "Session title (short)")
 	group := fs.String("group", "", "Group path (defaults to parent folder)")
 	groupShort := fs.String("g", "", "Group path (short)")
-	command := fs.String("cmd", "", "Command to run (e.g., 'claude', 'gemini')")
-	commandShort := fs.String("c", "", "Command to run (short)")
-	wrapper := fs.String("wrapper", "", "Wrapper command (use {command} to include tool command)")
+	command := fs.String("cmd", "", "Tool/command to run (e.g., 'claude' or 'codex --dangerously-bypass-approvals-and-sandbox')")
+	commandShort := fs.String("c", "", "Tool/command to run (short)")
+	wrapper := fs.String("wrapper", "", "Wrapper command (use {command} to include tool command; auto-generated when --cmd includes extra args)")
 	message := fs.String("message", "", "Initial message to send once agent is ready")
 	messageShort := fs.String("m", "", "Initial message to send (short)")
 	noWait := fs.Bool("no-wait", false, "Don't wait for agent to be ready before sending message")
@@ -68,6 +68,8 @@ func handleLaunch(profile string, args []string) {
 		fmt.Println("  agent-deck launch /path/to/project -t \"My Agent\" -c claude -g work")
 		fmt.Println("  agent-deck launch . -c claude --mcp memory -m \"Research topic X\"")
 		fmt.Println("  agent-deck launch . -c claude -m \"Fix bug\" --no-wait")
+		fmt.Println("  agent-deck launch . -c \"codex --dangerously-bypass-approvals-and-sandbox\"")
+		fmt.Println("  agent-deck launch . -g ard --no-parent -c claude -m \"Run review\"")
 	}
 
 	// Reorder args: move path to end so flags are parsed correctly
@@ -112,7 +114,8 @@ func handleLaunch(profile string, args []string) {
 	// Merge flags
 	sessionTitle := mergeFlags(*title, *titleShort)
 	sessionGroup := mergeFlags(*group, *groupShort)
-	sessionCommand := mergeFlags(*command, *commandShort)
+	sessionCommandInput := mergeFlags(*command, *commandShort)
+	sessionCommandTool, sessionCommandResolved, sessionWrapperResolved, sessionCommandNote := resolveSessionCommand(sessionCommandInput, *wrapper)
 	sessionParent := mergeFlags(*parent, *parentShort)
 	if sessionParent != "" && *noParent {
 		out.Error("--parent and --no-parent cannot be used together", ErrCodeInvalidOperation)
@@ -129,7 +132,7 @@ func handleLaunch(profile string, args []string) {
 
 	// Validate --resume-session requires Claude
 	if *resumeSession != "" {
-		tool := detectTool(sessionCommand)
+		tool := firstNonEmpty(sessionCommandTool, detectTool(sessionCommandInput))
 		if tool != "claude" {
 			out.Error("--resume-session only works with Claude sessions (-c claude)", ErrCodeInvalidOperation)
 			os.Exit(1)
@@ -255,17 +258,13 @@ func handleLaunch(profile string, args []string) {
 		newInstance.SetParentWithPath(parentInstance.ID, parentInstance.ProjectPath)
 	}
 
-	if sessionCommand != "" {
-		newInstance.Tool = detectTool(sessionCommand)
-		if toolDef := session.GetToolDef(newInstance.Tool); toolDef != nil {
-			newInstance.Command = toolDef.Command
-		} else {
-			newInstance.Command = sessionCommand
-		}
+	if sessionCommandInput != "" {
+		newInstance.Tool = firstNonEmpty(sessionCommandTool, detectTool(sessionCommandInput))
+		newInstance.Command = sessionCommandResolved
 	}
 
-	if *wrapper != "" {
-		newInstance.Wrapper = *wrapper
+	if sessionWrapperResolved != "" {
+		newInstance.Wrapper = sessionWrapperResolved
 	}
 
 	if worktreePath != "" {
@@ -360,6 +359,16 @@ func handleLaunch(profile string, args []string) {
 		"tool":    newInstance.Tool,
 		"group":   newInstance.GroupPath,
 		"profile": storage.Profile(),
+	}
+	if sessionCommandInput != "" {
+		jsonData["command"] = sessionCommandInput
+		jsonData["resolved_command"] = newInstance.Command
+		if newInstance.Wrapper != "" {
+			jsonData["wrapper"] = newInstance.Wrapper
+		}
+		if sessionCommandNote != "" {
+			jsonData["command_note"] = sessionCommandNote
+		}
 	}
 	if initialMessage != "" {
 		jsonData["message"] = initialMessage

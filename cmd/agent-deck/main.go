@@ -665,9 +665,9 @@ func handleAdd(profile string, args []string) {
 	titleShort := fs.String("t", "", "Session title (short)")
 	group := fs.String("group", "", "Group path (defaults to parent folder)")
 	groupShort := fs.String("g", "", "Group path (short)")
-	command := fs.String("cmd", "", "Command to run (e.g., 'claude', 'opencode')")
-	commandShort := fs.String("c", "", "Command to run (short)")
-	wrapper := fs.String("wrapper", "", "Wrapper command (use {command} to include tool command, e.g., 'nvim +\"terminal {command}\"')")
+	command := fs.String("cmd", "", "Tool/command to run (e.g., 'claude' or 'codex --dangerously-bypass-approvals-and-sandbox')")
+	commandShort := fs.String("c", "", "Tool/command to run (short)")
+	wrapper := fs.String("wrapper", "", "Wrapper command (use {command} to include tool command; auto-generated when --cmd includes extra args)")
 	parent := fs.String("parent", "", "Parent session (creates sub-session, inherits group)")
 	parentShort := fs.String("p", "", "Parent session (short)")
 	noParent := fs.Bool("no-parent", false, "Disable automatic parent linking")
@@ -714,6 +714,8 @@ func handleAdd(profile string, args []string) {
 		fmt.Println("  agent-deck add -t \"Sub-task\" --parent \"Main Project\"  # Create sub-session")
 		fmt.Println("  agent-deck add -t \"Research\" -c claude --mcp memory --mcp sequential-thinking /tmp/x")
 		fmt.Println("  agent-deck add -c opencode --wrapper \"nvim +'terminal {command}' +'startinsert'\" .")
+		fmt.Println("  agent-deck add -c \"codex --dangerously-bypass-approvals-and-sandbox\" .")
+		fmt.Println("  agent-deck add -g ard --no-parent -c claude .")
 		fmt.Println("  agent-deck add --quick -c claude .   # Auto-generated name")
 		fmt.Println()
 		fmt.Println("Worktree Examples:")
@@ -747,7 +749,8 @@ func handleAdd(profile string, args []string) {
 	// Merge short and long flags
 	sessionTitle := mergeFlags(*title, *titleShort)
 	sessionGroup := mergeFlags(*group, *groupShort)
-	sessionCommand := mergeFlags(*command, *commandShort)
+	sessionCommandInput := mergeFlags(*command, *commandShort)
+	sessionCommandTool, sessionCommandResolved, sessionWrapperResolved, sessionCommandNote := resolveSessionCommand(sessionCommandInput, *wrapper)
 	sessionParent := mergeFlags(*parent, *parentShort)
 	if sessionParent != "" && *noParent {
 		fmt.Println("Error: --parent and --no-parent cannot be used together")
@@ -756,7 +759,7 @@ func handleAdd(profile string, args []string) {
 
 	// Validate --resume-session requires Claude
 	if *resumeSession != "" {
-		tool := detectTool(sessionCommand)
+		tool := firstNonEmpty(sessionCommandTool, detectTool(sessionCommandInput))
 		if tool != "claude" {
 			fmt.Println("Error: --resume-session only works with Claude sessions (-c claude)")
 			os.Exit(1)
@@ -960,19 +963,14 @@ func handleAdd(profile string, args []string) {
 	}
 
 	// Set command if provided
-	if sessionCommand != "" {
-		newInstance.Tool = detectTool(sessionCommand)
-		// For custom tools, resolve the actual shell command (e.g. "glm" → "claude")
-		if toolDef := session.GetToolDef(newInstance.Tool); toolDef != nil {
-			newInstance.Command = toolDef.Command
-		} else {
-			newInstance.Command = sessionCommand
-		}
+	if sessionCommandInput != "" {
+		newInstance.Tool = firstNonEmpty(sessionCommandTool, detectTool(sessionCommandInput))
+		newInstance.Command = sessionCommandResolved
 	}
 
 	// Set wrapper if provided
-	if *wrapper != "" {
-		newInstance.Wrapper = *wrapper
+	if sessionWrapperResolved != "" {
+		newInstance.Wrapper = sessionWrapperResolved
 	}
 
 	// Set worktree fields if created
@@ -1046,8 +1044,14 @@ func handleAdd(profile string, args []string) {
 	humanLines = append(humanLines, fmt.Sprintf("  Path:    %s", path))
 	humanLines = append(humanLines, fmt.Sprintf("  Group:   %s", newInstance.GroupPath))
 	humanLines = append(humanLines, fmt.Sprintf("  ID:      %s", newInstance.ID))
-	if sessionCommand != "" {
-		humanLines = append(humanLines, fmt.Sprintf("  Cmd:     %s", sessionCommand))
+	if sessionCommandInput != "" {
+		humanLines = append(humanLines, fmt.Sprintf("  Cmd:     %s", sessionCommandInput))
+		if newInstance.Wrapper != "" {
+			humanLines = append(humanLines, fmt.Sprintf("  Wrapper: %s", newInstance.Wrapper))
+		}
+		if sessionCommandNote != "" {
+			humanLines = append(humanLines, fmt.Sprintf("  Note:    %s", sessionCommandNote))
+		}
 	}
 	if len(mcpFlags) > 0 {
 		humanLines = append(humanLines, fmt.Sprintf("  MCPs:    %s", strings.Join(mcpFlags, ", ")))
@@ -1077,8 +1081,15 @@ func handleAdd(profile string, args []string) {
 		"group":   newInstance.GroupPath,
 		"profile": storage.Profile(),
 	}
-	if sessionCommand != "" {
-		jsonData["command"] = sessionCommand
+	if sessionCommandInput != "" {
+		jsonData["command"] = sessionCommandInput
+		jsonData["resolved_command"] = newInstance.Command
+		if newInstance.Wrapper != "" {
+			jsonData["wrapper"] = newInstance.Wrapper
+		}
+		if sessionCommandNote != "" {
+			jsonData["command_note"] = sessionCommandNote
+		}
 	}
 	if len(mcpFlags) > 0 {
 		jsonData["mcps"] = mcpFlags
