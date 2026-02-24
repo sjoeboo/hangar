@@ -6195,7 +6195,9 @@ func (h *Home) renderDualColumnLayout(contentHeight int) string {
 	var b strings.Builder
 
 	// Calculate panel widths (35% left, 65% right for more preview space)
-	leftWidth := int(float64(h.width) * 0.35)
+
+
+	leftWidth := h.getLeftPanelWidth()
 	rightWidth := h.width - leftWidth - 3 // -3 for separator
 
 	// Panel title is exactly 2 lines (title + underline)
@@ -6782,7 +6784,50 @@ func (h *Home) helpKey(key, desc string) string {
 	return keyStyle.Render(key) + " " + descStyle.Render(desc)
 }
 
+// getLeftPanelWidth returns the width of the left session-list panel in dual layout.
+func (h *Home) getLeftPanelWidth() int {
+	return int(float64(h.width) * 0.35)
+}
+
 // renderSessionList renders the left panel with hierarchical session list
+
+// listItemAt returns the flatItems index for the given screen coordinates (0-indexed),
+// or -1 if the coordinates don't correspond to a visible list item.
+func (h *Home) listItemAt(x, y int) int {
+	// In dual layout, clicks in the right panel are ignored.
+	if h.getLayoutMode() == LayoutModeDual {
+		leftWidth := h.getLeftPanelWidth()
+		if x >= leftWidth {
+			return -1
+		}
+	}
+
+	// Compute the screen row of the first list item.
+	updateBannerHeight := 0
+	if h.updateInfo != nil && h.updateInfo.Available {
+		updateBannerHeight = 1
+	}
+	maintenanceBannerHeight := 0
+	if h.maintenanceMsg != "" {
+		maintenanceBannerHeight = 1
+	}
+	// listStartRow: top bar (1) + filter bar (1) + optional banners + panel title+underline (2)
+
+	listStartRow := 1 + 1 + updateBannerHeight + maintenanceBannerHeight + 2
+	if h.viewOffset > 0 {
+		listStartRow++ // "more above" indicator occupies the first list row
+	}
+
+	if y < listStartRow {
+		return -1
+	}
+
+	idx := h.viewOffset + (y - listStartRow)
+	if idx < 0 || idx >= len(h.flatItems) {
+		return -1
+	}
+	return idx
+}
 func (h *Home) renderSessionList(width, height int) string {
 	var b strings.Builder
 
