@@ -712,6 +712,7 @@ func (m *MCPDef) HasAutoStartServer() bool {
 //
 //	[tmux]
 //	inject_status_line = false
+//	mouse_mode = true
 //	options = { "allow-passthrough" = "all", "history-limit" = "50000" }
 type TmuxSettings struct {
 	// InjectStatusLine controls whether agent-deck injects a custom status line
