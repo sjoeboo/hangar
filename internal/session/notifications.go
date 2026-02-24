@@ -189,14 +189,31 @@ func (nm *NotificationManager) FormatBar() string {
 	return "⚡ " + strings.Join(parts, " ")
 }
 
-// formatBarMinimal renders the compact icon+count format: ⚡ ● 2 │ ◐ 3 │ ○ 1
+// statusColor returns the tmux fg color escape for a given status, matching the TUI palette.
+func statusColor(status Status) string {
+	switch status {
+	case StatusRunning:
+		return "#9ece6a" // green
+	case StatusWaiting:
+		return "#e0af68" // yellow
+	case StatusIdle:
+		return "#787fa0" // dim/muted
+	case StatusError:
+		return "#f7768e" // red
+	default:
+		return "#787fa0"
+	}
+}
+
+// formatBarMinimal renders the compact icon+count format: ⚡ ● 2 │ ◐ 3 │ ○ 1  (with tmux colors)
 // Called with nm.mu read lock already held.
 func (nm *NotificationManager) formatBarMinimal() string {
 	var parts []string
 	// Render in a consistent order: running, waiting, idle, error
 	for _, s := range []Status{StatusRunning, StatusWaiting, StatusIdle, StatusError} {
 		if n := nm.statusCounts[s]; n > 0 {
-			parts = append(parts, fmt.Sprintf("%s %d", statusIcon(s), n))
+			colored := fmt.Sprintf("#[fg=%s]%s %d#[default]", statusColor(s), statusIcon(s), n)
+			parts = append(parts, colored)
 		}
 	}
 	if len(parts) == 0 {

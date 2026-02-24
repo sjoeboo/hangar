@@ -705,8 +705,15 @@ func TestMinimalMode_FormatBar_ShowsIconsAndCounts(t *testing.T) {
 	nm.SyncFromInstances(instances, "")
 	bar := nm.FormatBar()
 
-	// Should show counts with │ separator, ⚡ prefix, and trailing spaces
-	assert.Equal(t, "⚡ ● 2 │ ◐ 1 │ ○ 1  ", bar)
+	// Should contain ⚡ prefix, each icon+count, │ separator, and status colors
+	assert.Contains(t, bar, "⚡")
+	assert.Contains(t, bar, "● 2")
+	assert.Contains(t, bar, "◐ 1")
+	assert.Contains(t, bar, "○ 1")
+	assert.Contains(t, bar, "│")
+	assert.Contains(t, bar, "#9ece6a") // running color
+	assert.Contains(t, bar, "#e0af68") // waiting color
+	assert.Contains(t, bar, "#787fa0") // idle color
 }
 
 // TestMinimalMode_FormatBar_SkipsZeroCounts verifies that statuses with 0 sessions
@@ -724,7 +731,8 @@ func TestMinimalMode_FormatBar_SkipsZeroCounts(t *testing.T) {
 	nm.SyncFromInstances(instances, "")
 	bar := nm.FormatBar()
 
-	assert.Equal(t, "⚡ ● 1 │ ○ 1  ", bar)
+	assert.Contains(t, bar, "● 1")
+	assert.Contains(t, bar, "○ 1")
 	assert.NotContains(t, bar, "◐") // No waiting sessions
 	assert.NotContains(t, bar, "✕") // No error sessions
 }
@@ -752,7 +760,10 @@ func TestMinimalMode_FormatBar_IncludesErrorCount(t *testing.T) {
 	nm.SyncFromInstances(instances, "")
 	bar := nm.FormatBar()
 
-	assert.Equal(t, "⚡ ◐ 1 │ ✕ 2  ", bar)
+	assert.Contains(t, bar, "◐ 1")
+	assert.Contains(t, bar, "✕ 2")
+	assert.Contains(t, bar, "#e0af68") // waiting color
+	assert.Contains(t, bar, "#f7768e") // error color
 }
 
 // TestMinimalMode_ExcludesCurrentSession verifies the current session is not counted.
@@ -769,7 +780,8 @@ func TestMinimalMode_ExcludesCurrentSession(t *testing.T) {
 	bar := nm.FormatBar()
 
 	// Only "other" should be counted, not "current"
-	assert.Equal(t, "⚡ ● 1  ", bar)
+	assert.Contains(t, bar, "● 1")
+	assert.Contains(t, bar, "#9ece6a") // running color
 }
 
 // TestMinimalMode_NoEntries verifies GetEntries returns empty in minimal mode —
@@ -813,7 +825,8 @@ func TestMinimalMode_OnlySingleStatus(t *testing.T) {
 	nm.SyncFromInstances(instances, "")
 	bar := nm.FormatBar()
 
-	// Only waiting, no │ separator needed for a single group
-	assert.Equal(t, "⚡ ◐ 3  ", bar)
+	// Only waiting — single group has no │ separator
+	assert.Contains(t, bar, "◐ 3")
+	assert.Contains(t, bar, "#e0af68") // waiting color
 	assert.NotContains(t, bar, "│")
 }
