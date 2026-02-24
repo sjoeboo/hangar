@@ -3187,6 +3187,9 @@ func (h *Home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return h, nil
 
+	case tea.MouseMsg:
+		return h.handleMouseMsg(msg)
+
 	case tea.KeyMsg:
 		// Track user activity for adaptive status updates
 		h.lastUserInputTime = time.Now()
@@ -3560,6 +3563,79 @@ func (h *Home) handleNewDialogKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 	h.newDialog, cmd = h.newDialog.Update(msg)
 	return h, cmd
+}
+
+// handleMouseMsg processes mouse events for the session list.
+// Single left-click moves the cursor; double-click attaches the session.
+// Group rows toggle on single click. Scroll wheel scrolls the list.
+func (h *Home) handleMouseMsg(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
+	// Only handle press events (ignore release/motion)
+	if msg.Action != tea.MouseActionPress {
+		return h, nil
+	}
+
+	switch msg.Button {
+	case tea.MouseButtonWheelUp:
+		if h.cursor > 0 {
+			h.cursor--
+			h.syncViewport()
+		}
+		return h, nil
+
+	case tea.MouseButtonWheelDown:
+		if h.cursor < len(h.flatItems)-1 {
+			h.cursor++
+			h.syncViewport()
+		}
+		return h, nil
+
+	case tea.MouseButtonLeft:
+		idx := h.listItemAt(msg.X, msg.Y)
+		if idx < 0 || idx >= len(h.flatItems) {
+			return h, nil
+		}
+
+		item := h.flatItems[idx]
+
+		// Group row: single click toggles expand/collapse
+		if item.Type == session.ItemTypeGroup {
+			h.cursor = idx
+			h.groupTree.ToggleGroup(item.Path)
+			h.rebuildFlatItems()
+			// Reposition cursor to the (possibly moved) group row
+			for i, fi := range h.flatItems {
+				if fi.Type == session.ItemTypeGroup && fi.Path == item.Path {
+					h.cursor = i
+					break
+				}
+			}
+			h.saveGroupState()
+			return h, nil
+		}
+
+		// Session row: check for double-click
+		const doubleClickThreshold = 300 * time.Millisecond
+		isDoubleClick := idx == h.lastClickIndex &&
+			!h.lastClickTime.IsZero() &&
+			time.Since(h.lastClickTime) < doubleClickThreshold
+
+		// Always update tracking state
+		h.lastClickIndex = idx
+		h.lastClickTime = time.Now()
+
+		// Move cursor to clicked row
+		h.cursor = idx
+		h.syncViewport()
+
+		if isDoubleClick && item.Session != nil && item.Session.Exists() {
+			h.isAttaching.Store(true)
+			return h, h.attachSession(item.Session)
+		}
+
+		return h, nil
+	}
+
+	return h, nil
 }
 
 // handleMainKey handles keys in main view
