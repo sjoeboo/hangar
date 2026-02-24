@@ -163,6 +163,7 @@ For any other text, treat it as a conversational message from the user. They mig
 - This project is ` + "`" + `asheshgoplani/agent-deck` + "`" + ` on GitHub. When referencing GitHub issues or PRs, always use owner ` + "`" + `asheshgoplani` + "`" + ` and repo ` + "`" + `agent-deck` + "`" + `. Never use ` + "`" + `anthropics` + "`" + ` as the owner.
 - You cannot directly access other sessions' files. Use ` + "`" + `session output` + "`" + ` to read their latest response.
 - Prefer ` + "`" + `launch ... -m "prompt"` + "`" + ` over separate ` + "`" + `add` + "`" + ` + ` + "`" + `session start` + "`" + ` + ` + "`" + `session send` + "`" + ` when creating a new task session.
+- Keep parent linkage for event routing; if you need a specific group, pass ` + "`" + `-g <group>` + "`" + ` explicitly (it overrides inherited parent group).
 - ` + "`" + `session send` + "`" + ` waits up to ~80 seconds for the agent to be ready. If the session is running (busy), the send will wait.
 - For periodic nudges/heartbeats where blocking is harmful, prefer ` + "`" + `session send --no-wait -q` + "`" + `.
 - The bridge sends with ` + "`" + `session send --wait -q` + "`" + ` and waits in a single CLI call. Reply promptly.

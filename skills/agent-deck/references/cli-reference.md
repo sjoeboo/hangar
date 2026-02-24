@@ -43,7 +43,7 @@ agent-deck add [path] [options]
 ```bash
 agent-deck add -t "My Project" -c claude .
 agent-deck add -t "Child" --parent "Parent" -c claude /tmp/x
-agent-deck add -g ard --no-parent -c claude .
+agent-deck add -g ard --parent "conductor-ard" -c claude .
 agent-deck add -c "codex --dangerously-bypass-approvals-and-sandbox" .
 agent-deck add -t "Research" -c claude --mcp exa --mcp firecrawl /tmp/r
 ```
@@ -51,6 +51,7 @@ agent-deck add -t "Research" -c claude --mcp exa --mcp firecrawl /tmp/r
 Notes:
 - Parent auto-link is enabled by default when `AGENT_DECK_SESSION_ID` is present and neither `--parent` nor `--no-parent` is passed.
 - `--parent` and `--no-parent` are mutually exclusive.
+- Explicit `-g/--group` overrides inherited parent group.
 - If `--cmd` contains extra args and no explicit `--wrapper` is provided, agent-deck auto-generates a wrapper to preserve those args.
 
 ### launch - Create + start (+ optional message)
@@ -63,7 +64,7 @@ Examples:
 
 ```bash
 agent-deck launch . -c claude -m "Review this module"
-agent-deck launch . -g ard --no-parent -c claude -m "Review dataset"
+agent-deck launch . -g ard -c claude -m "Review dataset"
 agent-deck launch . -c "codex --dangerously-bypass-approvals-and-sandbox"
 ```
 

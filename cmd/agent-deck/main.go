@@ -749,6 +749,7 @@ func handleAdd(profile string, args []string) {
 	// Merge short and long flags
 	sessionTitle := mergeFlags(*title, *titleShort)
 	sessionGroup := mergeFlags(*group, *groupShort)
+	explicitGroupProvided := strings.TrimSpace(sessionGroup) != ""
 	sessionCommandInput := mergeFlags(*command, *commandShort)
 	sessionCommandTool, sessionCommandResolved, sessionWrapperResolved, sessionCommandNote := resolveSessionCommand(sessionCommandInput, *wrapper)
 	sessionParent := mergeFlags(*parent, *parentShort)
@@ -796,13 +797,11 @@ func handleAdd(profile string, args []string) {
 			fmt.Printf("Error: cannot create sub-session of a sub-session (single level only)\n")
 			os.Exit(1)
 		}
-		// Inherit group from parent
-		sessionGroup = parentInstance.GroupPath
+		sessionGroup = resolveGroupSelection(sessionGroup, parentInstance.GroupPath, explicitGroupProvided)
 	} else if !*noParent {
 		parentInstance = resolveAutoParentInstance(instances)
 		if parentInstance != nil && !parentInstance.IsSubSession() {
-			// Inherit group from auto-parent too.
-			sessionGroup = parentInstance.GroupPath
+			sessionGroup = resolveGroupSelection(sessionGroup, parentInstance.GroupPath, explicitGroupProvided)
 		} else {
 			parentInstance = nil
 		}

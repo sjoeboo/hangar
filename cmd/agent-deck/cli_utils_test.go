@@ -278,3 +278,45 @@ func TestResolveSessionCommand(t *testing.T) {
 		})
 	}
 }
+
+func TestResolveGroupSelection(t *testing.T) {
+	tests := []struct {
+		name                  string
+		currentGroup          string
+		parentGroup           string
+		explicitGroupProvided bool
+		want                  string
+	}{
+		{
+			name:                  "explicit group wins over parent",
+			currentGroup:          "ard",
+			parentGroup:           "conductor",
+			explicitGroupProvided: true,
+			want:                  "ard",
+		},
+		{
+			name:                  "inherit parent when no explicit group",
+			currentGroup:          "",
+			parentGroup:           "conductor",
+			explicitGroupProvided: false,
+			want:                  "conductor",
+		},
+		{
+			name:                  "no explicit group and empty parent",
+			currentGroup:          "",
+			parentGroup:           "",
+			explicitGroupProvided: false,
+			want:                  "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := resolveGroupSelection(tt.currentGroup, tt.parentGroup, tt.explicitGroupProvided)
+			if got != tt.want {
+				t.Fatalf("resolveGroupSelection(%q, %q, %v) = %q, want %q",
+					tt.currentGroup, tt.parentGroup, tt.explicitGroupProvided, got, tt.want)
+			}
+		})
+	}
+}

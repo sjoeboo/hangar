@@ -123,6 +123,16 @@ func splitFirstWord(raw string) (string, string) {
 	return s, ""
 }
 
+// resolveGroupSelection applies parent-group inheritance rules.
+// If the user explicitly provided -g/--group, keep that value.
+// Otherwise inherit the parent's group.
+func resolveGroupSelection(currentGroup, parentGroup string, explicitGroupProvided bool) string {
+	if explicitGroupProvided {
+		return currentGroup
+	}
+	return parentGroup
+}
+
 // CLIOutput handles consistent output formatting across all CLI commands
 type CLIOutput struct {
 	jsonMode  bool

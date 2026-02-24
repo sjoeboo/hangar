@@ -228,14 +228,15 @@ Both Telegram and Slack can run simultaneously — the bridge daemon handles bot
 # Inherit current conductor as parent (default when AGENT_DECK_SESSION_ID is set)
 agent-deck -p work launch . -t "child-task" -c claude -m "Do task"
 
-# Explicitly opt out of parent auto-link (use this when you want a custom group)
-agent-deck -p work launch . -t "review-phantom" -g ard --no-parent -c claude -m "Review dataset"
+# Keep parent notifications and still force a custom group
+agent-deck -p work launch . -t "review-phantom" -g ard -c claude -m "Review dataset"
 
 # Tool command with extra args is supported directly
 agent-deck -p work launch . -c "codex --dangerously-bypass-approvals-and-sandbox"
 ```
 
 When `--cmd` includes extra args, agent-deck auto-wraps the tool command so args are preserved reliably.
+Use `--no-parent` only when you explicitly want to disable parent routing/notifications.
 
 ### Multi-Tool Support
 
