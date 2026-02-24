@@ -222,9 +222,6 @@ func main() {
 		case "session":
 			handleSession(profile, args[1:])
 			return
-		case "group":
-			handleGroup(profile, args[1:])
-			return
 		case "project":
 			handleProject(profile, args[1:])
 			return

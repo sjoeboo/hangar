@@ -3674,30 +3674,8 @@ func (h *Home) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// Record time for potential gg detection
 		h.lastGTime = time.Now()
 
-		// Create new group with context-aware Tab toggle (Issue #111):
-		// - Group header: defaults to subgroup, Tab toggles to root
-		// - Grouped session: defaults to root, Tab toggles to subgroup
-		// - Ungrouped item: root only, no toggle
-		if h.cursor < len(h.flatItems) {
-			item := h.flatItems[h.cursor]
-			if item.Type == session.ItemTypeGroup {
-				// On group header: default to subgroup mode
-				h.groupDialog.ShowCreateWithContext(item.Group.Path, item.Group.Name)
-			} else if item.Type == session.ItemTypeSession && item.Session != nil && item.Session.GroupPath != "" {
-				// On grouped session: default to root, Tab toggles to subgroup
-				gPath := item.Session.GroupPath
-				gName := gPath
-				if idx := strings.LastIndex(gPath, "/"); idx >= 0 {
-					gName = gPath[idx+1:]
-				}
-				h.groupDialog.ShowCreateWithContextDefaultRoot(gPath, gName)
-			} else {
-				// Ungrouped: root only, no toggle
-				h.groupDialog.ShowCreateWithContext("", "")
-			}
-		} else {
-			h.groupDialog.ShowCreateWithContext("", "")
-		}
+		// Create new project (always root-level)
+		h.groupDialog.Show()
 		return h, nil
 
 	case "r":
@@ -4210,21 +4188,14 @@ func (h *Home) handleGroupDialogKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case GroupDialogCreate:
 			name := h.groupDialog.GetValue()
 			if name != "" {
-				if h.groupDialog.HasParent() {
-					// Create subgroup under parent
-					parentPath := h.groupDialog.GetParentPath()
-					h.groupTree.CreateSubgroup(parentPath, name)
-				} else {
-					// Create root-level project group
-					h.groupTree.CreateGroup(name)
-					// Also register as a Project so the new-session dialog can
-					// pick it up and pre-populate the path.
-					if baseDir := h.groupDialog.GetPath(); baseDir != "" {
-						_ = session.AddProject(name, baseDir, "")
-					}
+				h.groupTree.CreateGroup(name)
+				// Register as a Project so the new-session dialog can
+				// pick it up and pre-populate the path.
+				if baseDir := h.groupDialog.GetPath(); baseDir != "" {
+					_ = session.AddProject(name, baseDir, "")
 				}
 				h.rebuildFlatItems()
-				h.saveInstances() // Persist the new group
+				h.saveInstances() // Persist the new project
 			}
 		case GroupDialogRename:
 			name := h.groupDialog.GetValue()
