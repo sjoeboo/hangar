@@ -940,3 +940,83 @@ func TestRestartSessionCmdSessionMissingReturnsError(t *testing.T) {
 		t.Fatalf("unexpected error: %v", restarted.err)
 	}
 }
+
+func TestListItemAt(t *testing.T) {
+	makeItems := func(n int) []session.Item {
+		items := make([]session.Item, n)
+		for i := range items {
+			items[i] = session.Item{Type: session.ItemTypeSession}
+		}
+		return items
+	}
+
+	t.Run("basic click hits correct item", func(t *testing.T) {
+		h := NewHome()
+		h.width = 120
+		h.height = 30
+		h.flatItems = makeItems(5)
+		h.viewOffset = 0
+		// listStartRow = 4 (no banners, viewOffset=0)
+		// row 4 → item 0, row 5 → item 1, row 6 → item 2
+		if got := h.listItemAt(5, 4); got != 0 {
+			t.Errorf("row 4 → want 0, got %d", got)
+		}
+		if got := h.listItemAt(5, 6); got != 2 {
+			t.Errorf("row 6 → want 2, got %d", got)
+		}
+	})
+
+	t.Run("click above list returns -1", func(t *testing.T) {
+		h := NewHome()
+		h.width = 120
+		h.height = 30
+		h.flatItems = makeItems(5)
+		if got := h.listItemAt(5, 0); got != -1 {
+			t.Errorf("row 0 → want -1, got %d", got)
+		}
+		if got := h.listItemAt(5, 3); got != -1 {
+			t.Errorf("row 3 → want -1, got %d", got)
+		}
+	})
+
+	t.Run("click beyond items returns -1", func(t *testing.T) {
+		h := NewHome()
+		h.width = 120
+		h.height = 30
+		h.flatItems = makeItems(3)
+		// listStartRow=4, items at rows 4,5,6 → row 7 is out of bounds
+		if got := h.listItemAt(5, 7); got != -1 {
+			t.Errorf("row beyond items → want -1, got %d", got)
+		}
+	})
+
+	t.Run("dual layout: click in right panel returns -1", func(t *testing.T) {
+		h := NewHome()
+		h.width = 120 // dual layout (>=80)
+		h.height = 30
+		h.flatItems = makeItems(5)
+		leftWidth := int(float64(120) * 0.35) // = 42
+		// click at x=50 is in the right panel
+		if got := h.listItemAt(50, 4); got != -1 {
+			t.Errorf("right panel click → want -1, got %d", got)
+		}
+		// click at x=41 is in left panel
+		if got := h.listItemAt(leftWidth-1, 4); got != 0 {
+			t.Errorf("left panel click → want 0, got %d", got)
+		}
+	})
+
+	t.Run("viewOffset shifts item mapping", func(t *testing.T) {
+		h := NewHome()
+		h.width = 120
+		h.height = 30
+		h.flatItems = makeItems(10)
+		h.viewOffset = 3
+		// viewOffset>0 adds 1 row for "more above" indicator
+		// listStartRow = 4 + 1 = 5
+		// row 5 → item 3 (viewOffset + 0)
+		if got := h.listItemAt(5, 5); got != 3 {
+			t.Errorf("row 5 with viewOffset=3 → want 3, got %d", got)
+		}
+	})
+}
