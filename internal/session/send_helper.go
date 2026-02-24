@@ -59,3 +59,23 @@ func agentDeckBinaryPath() string {
 
 	return "hangar"
 }
+
+// findHangar searches common install locations and PATH for the hangar binary.
+func findHangar() string {
+	paths := []string{
+		"/usr/local/bin/hangar",
+		"/opt/homebrew/bin/hangar",
+	}
+	for _, p := range paths {
+		if _, err := os.Stat(p); err == nil {
+			return p
+		}
+	}
+	for _, dir := range filepath.SplitList(os.Getenv("PATH")) {
+		p := filepath.Join(dir, "hangar")
+		if _, err := os.Stat(p); err == nil {
+			return p
+		}
+	}
+	return ""
+}

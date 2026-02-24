@@ -27,7 +27,6 @@ import (
 	"github.com/sjoeboo/hangar/internal/statedb"
 	"github.com/sjoeboo/hangar/internal/ui"
 	"github.com/sjoeboo/hangar/internal/update"
-	"github.com/sjoeboo/hangar/internal/web"
 )
 
 const Version = "0.19.14"
@@ -190,9 +189,6 @@ func main() {
 		_ = os.Setenv("AGENTDECK_PROFILE", profile)
 	}
 
-	var webEnabled bool
-	var webArgs []string
-
 	// Handle subcommands
 	if len(args) > 0 {
 		switch args[0] {
@@ -248,30 +244,17 @@ func main() {
 		case "launch":
 			handleLaunch(profile, args[1:])
 			return
-		case "conductor":
-			handleConductor(profile, args[1:])
-			return
 		case "worktree", "wt":
 			handleWorktree(profile, args[1:])
 			return
-		case "web":
-			webEnabled = true
-			webArgs = append(webArgs, args[1:]...)
-			// fall through to TUI launch below
 		case "uninstall":
 			handleUninstall(args[1:])
 			return
 		case "hook-handler":
 			handleHookHandler()
 			return
-		case "codex-notify":
-			handleCodexNotify()
-			return
 		case "hooks":
 			handleHooks(args[1:])
-			return
-		case "codex-hooks":
-			handleCodexHooks(args[1:])
 			return
 		case "notify-daemon":
 			handleNotifyDaemon(args[1:])
@@ -427,32 +410,6 @@ func main() {
 
 	// Start TUI with the specified profile
 	homeModel := ui.NewHomeWithProfileAndMode(profile)
-
-	// Start web server alongside TUI if "web" subcommand was used
-	if webEnabled {
-		effectiveProfile := session.GetEffectiveProfile(profile)
-		fallbackMenuData := web.NewSessionDataService(effectiveProfile)
-		liveMenuData := web.NewMemoryMenuData(fallbackMenuData)
-		homeModel.SetWebMenuData(liveMenuData)
-
-		server, err := buildWebServer(effectiveProfile, webArgs, liveMenuData)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error: web server setup failed: %v\n", err)
-			os.Exit(1)
-		}
-		go func() {
-			if err := server.Start(); err != nil {
-				logging.ForComponent(logging.CompWeb).Error("web_server_error",
-					slog.String("error", err.Error()))
-			}
-		}()
-		fmt.Printf("Web server: http://%s\n", server.Addr())
-		defer func() {
-			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-			defer cancel()
-			_ = server.Shutdown(ctx)
-		}()
-	}
 
 	p := tea.NewProgram(
 		homeModel,

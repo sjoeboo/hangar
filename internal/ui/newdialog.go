@@ -18,8 +18,6 @@ type NewDialog struct {
 	pathInput            textinput.Model
 	commandInput         textinput.Model
 	claudeOptions        *ClaudeOptionsPanel // Claude-specific options (concrete for value extraction)
-	geminiOptions        *YoloOptionsPanel   // Gemini YOLO panel (concrete for value extraction)
-	codexOptions         *YoloOptionsPanel   // Codex YOLO panel (concrete for value extraction)
 	toolOptions          OptionsPanel        // Currently active tool options panel (nil if none)
 	focusIndex           int                 // 0=name, 1=path, 2=command, 3+=options
 	width                int
@@ -44,7 +42,7 @@ type NewDialog struct {
 // buildPresetCommands returns the list of commands for the picker,
 // including any custom tools from config.toml.
 func buildPresetCommands() []string {
-	presets := []string{"", "claude", "gemini", "opencode", "codex"}
+	presets := []string{"", "claude"}
 	if customTools := session.GetCustomToolNames(); len(customTools) > 0 {
 		presets = append(presets, customTools...)
 	}
@@ -91,8 +89,6 @@ func NewNewDialog() *NewDialog {
 		commandInput:    commandInput,
 		branchInput:     branchInput,
 		claudeOptions:   NewClaudeOptionsPanel(),
-		geminiOptions:   NewYoloOptionsPanel("Gemini", "YOLO mode - auto-approve all"),
-		codexOptions:    NewYoloOptionsPanel("Codex", "YOLO mode - bypass approvals and sandbox"),
 		focusIndex:      0,
 		visible:         false,
 		presetCommands:  buildPresetCommands(),
@@ -123,8 +119,6 @@ func (d *NewDialog) ShowInGroup(groupPath, groupName, defaultPath string) {
 	d.pathCycler.Reset()          // clear stale autocomplete matches from previous show
 	d.pathInput.Blur()
 	d.claudeOptions.Blur()
-	d.geminiOptions.Blur()
-	d.codexOptions.Blur()
 	// Keep commandCursor at previously set default (don't reset to 0)
 	d.updateToolOptions()
 	// Reset worktree fields
@@ -141,11 +135,7 @@ func (d *NewDialog) ShowInGroup(groupPath, groupName, defaultPath string) {
 		}
 	}
 	// Initialize tool options from global config
-	d.geminiOptions.SetDefaults(false)
-	d.codexOptions.SetDefaults(false)
 	if userConfig, err := session.LoadUserConfig(); err == nil && userConfig != nil {
-		d.geminiOptions.SetDefaults(userConfig.Gemini.YoloMode)
-		d.codexOptions.SetDefaults(userConfig.Codex.YoloMode)
 		d.claudeOptions.SetDefaults(userConfig)
 	}
 }
@@ -265,16 +255,6 @@ func (d *NewDialog) GetValuesWithWorktree() (name, path, command, branch string,
 	return
 }
 
-// IsGeminiYoloMode returns whether YOLO mode is enabled for Gemini
-func (d *NewDialog) IsGeminiYoloMode() bool {
-	return d.geminiOptions.GetYoloMode()
-}
-
-// GetCodexYoloMode returns the Codex YOLO mode state
-func (d *NewDialog) GetCodexYoloMode() bool {
-	return d.codexOptions.GetYoloMode()
-}
-
 // GetSelectedCommand returns the currently selected command/tool
 func (d *NewDialog) GetSelectedCommand() string {
 	if d.commandCursor >= 0 && d.commandCursor < len(d.presetCommands) {
@@ -354,10 +334,6 @@ func (d *NewDialog) updateToolOptions() {
 	switch d.GetSelectedCommand() {
 	case "claude":
 		d.toolOptions = d.claudeOptions
-	case "gemini":
-		d.toolOptions = d.geminiOptions
-	case "codex":
-		d.toolOptions = d.codexOptions
 	default:
 		d.toolOptions = nil
 	}
@@ -369,8 +345,6 @@ func (d *NewDialog) updateFocus() {
 	d.commandInput.Blur()
 	d.branchInput.Blur()
 	d.claudeOptions.Blur()
-	d.geminiOptions.Blur()
-	d.codexOptions.Blur()
 
 	switch d.focusIndex {
 	case 0:

@@ -28,7 +28,6 @@ import (
 	"github.com/sjoeboo/hangar/internal/statedb"
 	"github.com/sjoeboo/hangar/internal/tmux"
 	"github.com/sjoeboo/hangar/internal/update"
-	"github.com/sjoeboo/hangar/internal/web"
 )
 
 // Version is set by main.go for update checking
@@ -68,9 +67,6 @@ const (
 	// Prevents runaway log growth that can crash the system
 	logMaintenanceInterval = 5 * time.Minute
 
-	// analyticsCacheTTL - how long analytics data remains valid before refresh
-	// Analytics don't change frequently, so 5s is a good balance between freshness and performance
-	analyticsCacheTTL = 5 * time.Second
 )
 
 // UI spacing constants (2-char grid system)
@@ -99,15 +95,6 @@ const (
 	LayoutModeSingle  = "single"  // <50 cols: list only
 	LayoutModeStacked = "stacked" // 50-79 cols: vertical stack
 	LayoutModeDual    = "dual"    // 80+ cols: side-by-side
-)
-
-// PreviewMode defines what to show in the preview pane
-type PreviewMode int
-
-const (
-	PreviewModeBoth      PreviewMode = iota // Show both analytics and output (default)
-	PreviewModeOutput                       // Show output only (content preview)
-	PreviewModeAnalytics                    // Show analytics only
 )
 
 // Responsive breakpoints for empty state content tiers
@@ -154,26 +141,15 @@ type Home struct {
 	skillDialog          *SkillDialog          // For managing project skills
 	setupWizard          *SetupWizard          // For first-run setup
 	settingsPanel        *SettingsPanel        // For editing settings
-	analyticsPanel       *AnalyticsPanel       // For displaying session analytics
 	geminiModelDialog    *GeminiModelDialog    // For selecting Gemini model
 	sessionPickerDialog  *SessionPickerDialog  // For sending output to another session
 	worktreeFinishDialog *WorktreeFinishDialog // For finishing worktree sessions (merge + cleanup)
-
-	// Analytics cache (async fetching with TTL)
-	currentAnalytics       *session.SessionAnalytics                  // Current analytics for selected session (Claude)
-	currentGeminiAnalytics *session.GeminiSessionAnalytics            // Current analytics for selected session (Gemini)
-	analyticsSessionID     string                                     // Session ID for current analytics
-	analyticsFetchingID    string                                     // ID currently being fetched (prevents duplicates)
-	analyticsCache         map[string]*session.SessionAnalytics       // TTL cache: sessionID -> analytics (Claude)
-	geminiAnalyticsCache   map[string]*session.GeminiSessionAnalytics // TTL cache: sessionID -> analytics (Gemini)
-	analyticsCacheTime     map[string]time.Time                       // TTL cache: sessionID -> cache timestamp
 
 	// State
 	cursor         int            // Selected item index in flatItems
 	viewOffset     int            // First visible item index (for scrolling)
 	isAttaching    atomic.Bool    // Prevents View() output during attach (fixes Bubble Tea Issue #431) - atomic for thread safety
 	statusFilter   session.Status // Filter sessions by status ("" = all, or specific status)
-	previewMode    PreviewMode    // What to show in preview pane (both, output-only, analytics-only)
 	err            error
 	errTime        time.Time  // When error occurred (for auto-dismiss)
 	isReloading    bool       // Visual feedback during auto-reload
@@ -227,10 +203,6 @@ type Home struct {
 
 	// File watcher for external changes (auto-reload)
 	storageWatcher *StorageWatcher
-
-	// Optional in-memory web menu data sink for web mode.
-	webMenuData   *web.MemoryMenuData
-	webMenuDataMu sync.RWMutex
 
 	// System theme watcher (active when theme="system"; nil otherwise)
 	themeWatcher *ThemeWatcher
@@ -329,11 +301,10 @@ type reloadState struct {
 	viewOffset      int             // Scroll position
 }
 
-// uiState persists cursor, preview mode, and status filter across restarts
+// uiState persists cursor and status filter across restarts
 type uiState struct {
 	CursorSessionID string `json:"cursor_session_id,omitempty"`
 	CursorGroupPath string `json:"cursor_group_path,omitempty"`
-	PreviewMode     int    `json:"preview_mode"`
 	StatusFilter    string `json:"status_filter,omitempty"`
 }
 
@@ -409,14 +380,6 @@ type previewFetchedMsg struct {
 // PERFORMANCE: Delays preview fetch during rapid navigation
 type previewDebounceMsg struct {
 	sessionID string
-}
-
-// analyticsFetchedMsg is sent when async analytics parsing is complete
-type analyticsFetchedMsg struct {
-	sessionID       string
-	analytics       *session.SessionAnalytics
-	geminiAnalytics *session.GeminiSessionAnalytics
-	err             error
 }
 
 // MaintenanceCompleteMsg is the exported type for sending from main.go via p.Send()
@@ -529,7 +492,6 @@ func NewHomeWithProfileAndMode(profile string) *Home {
 		skillDialog:          NewSkillDialog(),
 		setupWizard:          NewSetupWizard(),
 		settingsPanel:        NewSettingsPanel(),
-		analyticsPanel:       NewAnalyticsPanel(),
 		geminiModelDialog:    NewGeminiModelDialog(),
 		sessionPickerDialog:  NewSessionPickerDialog(),
 		worktreeFinishDialog: NewWorktreeFinishDialog(),
@@ -543,9 +505,6 @@ func NewHomeWithProfileAndMode(profile string) *Home {
 		flatItems:            []session.Item{},
 		previewCache:         make(map[string]string),
 		previewCacheTime:     make(map[string]time.Time),
-		analyticsCache:       make(map[string]*session.SessionAnalytics),
-		geminiAnalyticsCache: make(map[string]*session.GeminiSessionAnalytics),
-		analyticsCacheTime:   make(map[string]time.Time),
 		launchingSessions:    make(map[string]time.Time),
 		resumingSessions:     make(map[string]time.Time),
 		mcpLoadingSessions:   make(map[string]time.Time),
@@ -733,70 +692,6 @@ func NewHomeWithProfileAndMode(profile string) *Home {
 	return h
 }
 
-// SetWebMenuData configures an optional in-memory menu sink for web mode.
-func (h *Home) SetWebMenuData(menuData *web.MemoryMenuData) {
-	h.webMenuDataMu.Lock()
-	h.webMenuData = menuData
-	h.webMenuDataMu.Unlock()
-	if !h.initialLoading {
-		h.publishWebMenuSnapshot()
-	}
-}
-
-func (h *Home) getWebMenuData() *web.MemoryMenuData {
-	h.webMenuDataMu.RLock()
-	defer h.webMenuDataMu.RUnlock()
-	return h.webMenuData
-}
-
-func (h *Home) publishWebMenuSnapshot() {
-	menuData := h.getWebMenuData()
-	if menuData == nil || h.groupTree == nil {
-		return
-	}
-
-	h.instancesMu.RLock()
-	instancesCopy := make([]*session.Instance, len(h.instances))
-	copy(instancesCopy, h.instances)
-	h.instancesMu.RUnlock()
-
-	groupTreeCopy := h.groupTree.ShallowCopyForSave()
-	groupsData := make([]*session.GroupData, 0, len(groupTreeCopy.GroupList))
-	for _, g := range groupTreeCopy.GroupList {
-		if g == nil {
-			continue
-		}
-		groupsData = append(groupsData, &session.GroupData{
-			Name:        g.Name,
-			Path:        g.Path,
-			Expanded:    g.Expanded,
-			Order:       g.Order,
-			DefaultPath: g.DefaultPath,
-		})
-	}
-
-	menuData.SetSnapshot(web.BuildMenuSnapshot(h.profile, instancesCopy, groupsData, time.Now()))
-}
-
-func (h *Home) publishWebSessionStates(instances []*session.Instance) {
-	menuData := h.getWebMenuData()
-	if menuData == nil || len(instances) == 0 {
-		return
-	}
-
-	states := make(map[string]web.MenuSessionState, len(instances))
-	for _, inst := range instances {
-		if inst == nil {
-			continue
-		}
-		states[inst.ID] = web.MenuSessionState{
-			Status: inst.GetStatusThreadSafe(),
-			Tool:   inst.GetToolThreadSafe(),
-		}
-	}
-	menuData.UpdateSessionStates(states, time.Now())
-}
-
 // preserveState captures current UI state before reload
 func (h *Home) preserveState() reloadState {
 	state := reloadState{
@@ -952,8 +847,6 @@ func (h *Home) rebuildFlatItems() {
 	// Adjust viewport if cursor is out of view
 	h.syncViewport()
 
-	// Publish an updated web snapshot when menu structure/session list changes.
-	h.publishWebMenuSnapshot()
 }
 
 // syncViewport ensures the cursor is visible within the viewport
@@ -1301,19 +1194,11 @@ func (h *Home) invalidatePreviewCache(sessionID string) {
 	h.previewCacheMu.Unlock()
 }
 
-// pruneAnalyticsCache removes stale entries from analytics and log activity caches.
+// pruneActivityCache removes stale entries from log activity caches.
 // Called periodically from the tick handler to prevent unbounded map growth.
 func (h *Home) pruneAnalyticsCache() {
 	const maxAge = 10 * time.Minute
 	now := time.Now()
-
-	for id, t := range h.analyticsCacheTime {
-		if now.Sub(t) > maxAge {
-			delete(h.analyticsCache, id)
-			delete(h.geminiAnalyticsCache, id)
-			delete(h.analyticsCacheTime, id)
-		}
-	}
 
 	h.logActivityMu.Lock()
 	for id, t := range h.lastLogActivity {
@@ -1527,78 +1412,6 @@ func (h *Home) detectOpenCodeSessionCmd(inst *session.Instance) tea.Cmd {
 			sessionID:  inst.OpenCodeSessionID,
 		}
 	}
-}
-
-// getAnalyticsForSession returns cached analytics if still valid (within TTL)
-// Returns nil if cache miss or expired, triggering async fetch
-func (h *Home) getAnalyticsForSession(inst *session.Instance) *session.SessionAnalytics {
-	if inst == nil {
-		return nil
-	}
-
-	// Check cache
-	if cached, ok := h.analyticsCache[inst.ID]; ok {
-		if time.Since(h.analyticsCacheTime[inst.ID]) < analyticsCacheTTL {
-			return cached
-		}
-	}
-
-	return nil // Will trigger async fetch
-}
-
-// fetchAnalytics returns a command that asynchronously parses session analytics
-// This keeps View() pure (no blocking I/O) as per Bubble Tea best practices
-func (h *Home) fetchAnalytics(inst *session.Instance) tea.Cmd {
-	if inst == nil {
-		return nil
-	}
-	sessionID := inst.ID
-
-	fetchTool := inst.GetToolThreadSafe()
-	if fetchTool == "claude" {
-		claudeSessionID := inst.ClaudeSessionID
-		return func() tea.Msg {
-			// Get JSONL path for this session
-			jsonlPath := inst.GetJSONLPath()
-			if jsonlPath == "" {
-				// No JSONL path available - return empty analytics
-				return analyticsFetchedMsg{
-					sessionID: sessionID,
-					analytics: nil,
-					err:       nil,
-				}
-			}
-
-			// Parse the JSONL file
-			analytics, err := session.ParseSessionJSONL(jsonlPath)
-			if err != nil {
-				uiLog.Warn("analytics_parse_failed", slog.String("session_id", sessionID), slog.String("claude_session_id", claudeSessionID), slog.String("error", err.Error()))
-				return analyticsFetchedMsg{
-					sessionID: sessionID,
-					analytics: nil,
-					err:       err,
-				}
-			}
-
-			return analyticsFetchedMsg{
-				sessionID: sessionID,
-				analytics: analytics,
-				err:       nil,
-			}
-		}
-	} else if fetchTool == "gemini" {
-		return func() tea.Msg {
-			// Gemini analytics are updated via UpdateGeminiSession which is called in background
-			// during UpdateStatus(). We just return the current snapshot.
-			return analyticsFetchedMsg{
-				sessionID:       sessionID,
-				geminiAnalytics: inst.GeminiAnalytics,
-				err:             nil,
-			}
-		}
-	}
-
-	return nil
 }
 
 // getSelectedSession returns the currently selected session, or nil if a group is selected
@@ -1828,7 +1641,6 @@ func (h *Home) backgroundStatusUpdate() {
 	// Invalidate cache if status changed
 	if statusChanged.Load() {
 		h.cachedStatusCounts.valid.Store(false)
-		h.publishWebSessionStates(instances)
 	}
 
 	// SQLite sync: heartbeat, status writes, ack reads (enables multi-instance coordination)
@@ -2147,7 +1959,6 @@ func (h *Home) processStatusUpdate(req statusUpdateRequest) {
 	// This reduces View() overhead by keeping cache valid when no changes occurred
 	if statusChanged {
 		h.cachedStatusCounts.valid.Store(false)
-		h.publishWebSessionStates(instancesCopy)
 	}
 }
 
@@ -2515,10 +2326,6 @@ func (h *Home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		h.cachedStatusCounts.valid.Store(false)
 		// Invalidate preview cache for deleted session
 		h.invalidatePreviewCache(msg.deletedID)
-		// Clean up analytics caches for deleted session
-		delete(h.analyticsCache, msg.deletedID)
-		delete(h.geminiAnalyticsCache, msg.deletedID)
-		delete(h.analyticsCacheTime, msg.deletedID)
 		h.logActivityMu.Lock()
 		delete(h.lastLogActivity, msg.deletedID)
 		h.logActivityMu.Unlock()
@@ -2849,56 +2656,6 @@ func (h *Home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				cmds = append(cmds, h.fetchPreview(inst))
 			}
 
-			// Analytics fetch (for Claude/Gemini sessions with analytics enabled)
-			// Use TTL cache - only fetch if cache miss/expired and not already fetching
-			tickTool := inst.GetToolThreadSafe()
-			if (tickTool == "claude" || tickTool == "gemini") && h.analyticsFetchingID != inst.ID {
-				if tickTool == "claude" {
-					cached := h.getAnalyticsForSession(inst)
-					if cached != nil {
-						// Use cached analytics
-						if h.analyticsSessionID != inst.ID {
-							h.currentAnalytics = cached
-							h.currentGeminiAnalytics = nil
-							h.analyticsSessionID = inst.ID
-							h.analyticsPanel.SetAnalytics(cached)
-						}
-					} else {
-						// Cache miss or expired - fetch new analytics
-						config, _ := session.LoadUserConfig()
-						if config != nil && config.GetShowAnalytics() {
-							h.analyticsFetchingID = inst.ID
-							cmds = append(cmds, h.fetchAnalytics(inst))
-						}
-					}
-				} else if tickTool == "gemini" {
-					// Check Gemini cache
-					var cached *session.GeminiSessionAnalytics
-					if c, ok := h.geminiAnalyticsCache[inst.ID]; ok {
-						if time.Since(h.analyticsCacheTime[inst.ID]) < analyticsCacheTTL {
-							cached = c
-						}
-					}
-
-					if cached != nil {
-						// Use cached analytics
-						if h.analyticsSessionID != inst.ID {
-							h.currentGeminiAnalytics = cached
-							h.currentAnalytics = nil
-							h.analyticsSessionID = inst.ID
-							h.analyticsPanel.SetGeminiAnalytics(cached)
-						}
-					} else {
-						// Cache miss or expired - fetch new analytics
-						config, _ := session.LoadUserConfig()
-						if config != nil && config.GetShowAnalytics() {
-							h.analyticsFetchingID = inst.ID
-							cmds = append(cmds, h.fetchAnalytics(inst))
-						}
-					}
-				}
-			}
-
 			// Worktree dirty status check (lazy, 10s TTL)
 			if inst.IsWorktree() && inst.WorktreePath != "" {
 				h.worktreeDirtyMu.Lock()
@@ -2934,42 +2691,6 @@ func (h *Home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			h.previewCacheTime[msg.sessionID] = time.Now()
 		}
 		h.previewCacheMu.Unlock()
-		return h, nil
-
-	case analyticsFetchedMsg:
-		// Async analytics parsing complete - update TTL cache
-		h.analyticsFetchingID = ""
-		if msg.err == nil && msg.sessionID != "" {
-			// Update cache timestamp
-			h.analyticsCacheTime[msg.sessionID] = time.Now()
-
-			if msg.analytics != nil {
-				// Store Claude analytics in TTL cache
-				h.analyticsCache[msg.sessionID] = msg.analytics
-				// Update current analytics for display
-				h.currentAnalytics = msg.analytics
-				h.currentGeminiAnalytics = nil
-				h.analyticsSessionID = msg.sessionID
-				// Update analytics panel with new data
-				h.analyticsPanel.SetAnalytics(msg.analytics)
-			} else if msg.geminiAnalytics != nil {
-				// Store Gemini analytics in TTL cache
-				h.geminiAnalyticsCache[msg.sessionID] = msg.geminiAnalytics
-				// Update current analytics for display
-				h.currentGeminiAnalytics = msg.geminiAnalytics
-				h.currentAnalytics = nil
-				h.analyticsSessionID = msg.sessionID
-				// Update analytics panel with new data
-				h.analyticsPanel.SetGeminiAnalytics(msg.geminiAnalytics)
-			} else {
-				// Both nil - clear display if it's the current session
-				if h.analyticsSessionID == msg.sessionID {
-					h.currentAnalytics = nil
-					h.currentGeminiAnalytics = nil
-					h.analyticsPanel.SetAnalytics(nil)
-				}
-			}
-		}
 		return h, nil
 
 	case worktreeDirtyCheckMsg:
@@ -3014,9 +2735,6 @@ func (h *Home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Invalidate caches
 		h.cachedStatusCounts.valid.Store(false)
 		h.invalidatePreviewCache(msg.sessionID)
-		delete(h.analyticsCache, msg.sessionID)
-		delete(h.geminiAnalyticsCache, msg.sessionID)
-		delete(h.analyticsCacheTime, msg.sessionID)
 		h.worktreeDirtyMu.Lock()
 		delete(h.worktreeDirtyCache, msg.sessionID)
 		delete(h.worktreeDirtyCacheTs, msg.sessionID)
@@ -3535,10 +3253,6 @@ func (h *Home) handleNewDialogKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		var toolOptionsJSON json.RawMessage
 		if command == "claude" && claudeOpts != nil {
 			toolOptionsJSON, _ = session.MarshalToolOptions(claudeOpts)
-		} else if command == "codex" {
-			yolo := h.newDialog.GetCodexYoloMode()
-			codexOpts := &session.CodexOptions{YoloMode: &yolo}
-			toolOptionsJSON, _ = session.MarshalToolOptions(codexOpts)
 		}
 
 		if _, err := os.Stat(path); os.IsNotExist(err) {
@@ -3550,9 +3264,7 @@ func (h *Home) handleNewDialogKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		h.newDialog.Hide()
 		h.clearError()
 
-		geminiYoloMode := h.newDialog.IsGeminiYoloMode()
-
-		return h, h.createSessionInGroupWithWorktreeAndOptions(name, path, command, groupPath, worktreePath, worktreeRepoRoot, branchName, geminiYoloMode, toolOptionsJSON)
+		return h, h.createSessionInGroupWithWorktreeAndOptions(name, path, command, groupPath, worktreePath, worktreeRepoRoot, branchName, toolOptionsJSON)
 
 	case "esc":
 		h.newDialog.Hide()
@@ -4188,11 +3900,6 @@ func (h *Home) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return h, nil
 
-	case "v":
-		// Toggle preview mode (cycle: both → output-only → analytics-only → both)
-		h.previewMode = (h.previewMode + 1) % 3
-		return h, nil
-
 	case "y":
 		// Toggle Gemini YOLO mode (requires restart)
 		if h.cursor < len(h.flatItems) {
@@ -4391,7 +4098,7 @@ func (h *Home) handleConfirmDialogKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				h.setError(fmt.Errorf("failed to create directory: %w", err))
 				return h, nil
 			}
-			return h, h.createSessionInGroupWithWorktreeAndOptions(name, path, command, groupPath, "", "", "", false, pendingToolOpts)
+			return h, h.createSessionInGroupWithWorktreeAndOptions(name, path, command, groupPath, "", "", "", pendingToolOpts)
 		case "n", "N", "esc":
 			h.confirmDialog.Hide()
 			return h, nil
@@ -4953,7 +4660,6 @@ func (h *Home) saveUIState() {
 	}
 
 	state := uiState{
-		PreviewMode:  int(h.previewMode),
 		StatusFilter: string(h.statusFilter),
 	}
 
@@ -5003,16 +4709,15 @@ func (h *Home) loadUIState() {
 		return
 	}
 
-	// Apply preview mode and status filter immediately
-	h.previewMode = PreviewMode(state.PreviewMode)
+	// Apply status filter immediately
 	h.statusFilter = session.Status(state.StatusFilter)
 
 	// Defer cursor restoration until flatItems are populated
 	h.pendingCursorRestore = &state
 }
 
-// createSessionInGroupWithWorktreeAndOptions creates a new session with full options including YOLO mode and tool options
-func (h *Home) createSessionInGroupWithWorktreeAndOptions(name, path, command, groupPath, worktreePath, worktreeRepoRoot, worktreeBranch string, geminiYoloMode bool, toolOptionsJSON json.RawMessage) tea.Cmd {
+// createSessionInGroupWithWorktreeAndOptions creates a new session with full options and tool options
+func (h *Home) createSessionInGroupWithWorktreeAndOptions(name, path, command, groupPath, worktreePath, worktreeRepoRoot, worktreeBranch string, toolOptionsJSON json.RawMessage) tea.Cmd {
 	return func() tea.Msg {
 		// Check tmux availability before creating session
 		if err := tmux.IsTmuxAvailable(); err != nil {
@@ -5023,14 +4728,8 @@ func (h *Home) createSessionInGroupWithWorktreeAndOptions(name, path, command, g
 		switch command {
 		case "claude":
 			tool = "claude"
-		case "gemini":
-			tool = "gemini"
 		case "aider":
 			tool = "aider"
-		case "codex":
-			tool = "codex"
-		case "opencode":
-			tool = "opencode"
 		default:
 			// Check custom tools: tool identity stays as the custom name (e.g. "glm")
 			// so config lookup works, but command resolves to the actual binary (e.g. "claude")
@@ -5055,12 +4754,7 @@ func (h *Home) createSessionInGroupWithWorktreeAndOptions(name, path, command, g
 			inst.WorktreeBranch = worktreeBranch
 		}
 
-		// Set Gemini YOLO mode if enabled (per-session override)
-		if geminiYoloMode && tool == "gemini" {
-			inst.GeminiYoloMode = &geminiYoloMode
-		}
-
-		// Apply generic tool options (claude, codex, etc.)
+		// Apply generic tool options (claude, etc.)
 		if len(toolOptionsJSON) > 0 {
 			inst.ToolOptionsJSON = toolOptionsJSON
 		}
@@ -5109,7 +4803,6 @@ func (h *Home) quickCreateSession() tea.Cmd {
 	tool := ""
 	command := ""
 	var toolOptionsJSON json.RawMessage
-	geminiYoloMode := false
 
 	if sourceSession != nil {
 		// Cursor on a session: inherit from THAT session (duplicate-like)
@@ -5118,9 +4811,6 @@ func (h *Home) quickCreateSession() tea.Cmd {
 		command = sourceSession.Command
 		if len(sourceSession.ToolOptionsJSON) > 0 {
 			toolOptionsJSON = sourceSession.ToolOptionsJSON
-		}
-		if sourceSession.GeminiYoloMode != nil && *sourceSession.GeminiYoloMode {
-			geminiYoloMode = true
 		}
 	} else {
 		// Cursor on a group header: use group defaults + most recent session
@@ -5143,9 +4833,6 @@ func (h *Home) quickCreateSession() tea.Cmd {
 			command = mostRecent.Command
 			if len(mostRecent.ToolOptionsJSON) > 0 {
 				toolOptionsJSON = mostRecent.ToolOptionsJSON
-			}
-			if mostRecent.GeminiYoloMode != nil && *mostRecent.GeminiYoloMode {
-				geminiYoloMode = true
 			}
 		}
 		h.instancesMu.RUnlock()
@@ -5181,7 +4868,7 @@ func (h *Home) quickCreateSession() tea.Cmd {
 	return h.createSessionInGroupWithWorktreeAndOptions(
 		name, projectPath, command, groupPath,
 		"", "", "", // no worktree
-		geminiYoloMode, toolOptionsJSON,
+		toolOptionsJSON,
 	)
 }
 
@@ -6689,8 +6376,7 @@ func (h *Home) renderHelpBarCompact() string {
 			}
 			if item.Session != nil && (item.Session.Tool == "claude" || item.Session.Tool == "gemini") {
 				contextHints = append(contextHints, h.helpKeyShort("m", "MCP"))
-				contextHints = append(contextHints, h.helpKeyShort("v", h.previewModeShort()))
-			}
+				}
 			if item.Session != nil && item.Session.Tool == "claude" {
 				contextHints = append(contextHints, h.helpKeyShort("s", "Skills"))
 			}
@@ -6734,18 +6420,6 @@ func (h *Home) helpKeyShort(key, desc string) string {
 		Bold(true)
 	descStyle := lipgloss.NewStyle().Foreground(ColorText)
 	return keyStyle.Render(key) + descStyle.Render(desc)
-}
-
-// previewModeShort returns a short description of current preview mode for help bar
-func (h *Home) previewModeShort() string {
-	switch h.previewMode {
-	case PreviewModeOutput:
-		return "Out"
-	case PreviewModeAnalytics:
-		return "Stats"
-	default:
-		return "Both"
-	}
 }
 
 // renderHelpBarFull renders context-aware keyboard shortcuts with visual grouping (100+ cols)
@@ -6794,7 +6468,6 @@ func (h *Home) renderHelpBarFull() string {
 			// Show MCP Manager and preview mode toggle for Claude and Gemini sessions
 			if item.Session != nil && (item.Session.Tool == "claude" || item.Session.Tool == "gemini") {
 				primaryHints = append(primaryHints, h.helpKey("m", "MCP"))
-				primaryHints = append(primaryHints, h.helpKey("v", h.previewModeShort()))
 			}
 			if item.Session != nil && item.Session.Tool == "claude" {
 				primaryHints = append(primaryHints, h.helpKey("s", "Skills"))
@@ -8050,19 +7723,7 @@ func (h *Home) renderPreviewPane(width, height int) string {
 
 	// Check preview settings for what to show
 	config, _ := session.LoadUserConfig()
-	showAnalytics := config != nil && config.GetShowAnalytics() && (selected.Tool == "claude" || selected.Tool == "gemini")
 	showOutput := config == nil || config.GetShowOutput() // Default to true if config fails
-
-	// Apply preview mode override (v key cycles through modes)
-	switch h.previewMode {
-	case PreviewModeOutput:
-		showAnalytics = false
-		showOutput = true
-	case PreviewModeAnalytics:
-		// showAnalytics keeps its default value (only available for Claude/Gemini)
-		showOutput = false
-		// PreviewModeBoth: use config settings (default)
-	}
 
 	// Check if session is launching/resuming (for animation priority)
 	_, isSessionLaunching := h.launchingSessions[selected.ID]
@@ -8070,41 +7731,12 @@ func (h *Home) renderPreviewPane(width, height int) string {
 	_, isSessionForking := h.forkingSessions[selected.ID]
 	isStartingUp := isSessionLaunching || isSessionResuming || isSessionForking
 
-	// Analytics panel (for Claude/Gemini sessions with analytics enabled)
-	// Skip showing "Loading analytics..." during startup - let the launch animation take focus
-	if showAnalytics && !isStartingUp {
-		analyticsHeader := renderSectionDivider("Analytics", width-4)
-		b.WriteString(analyticsHeader)
-		b.WriteString("\n")
-
-		// Check if we have analytics for this session
-		if h.analyticsSessionID == selected.ID && (h.currentAnalytics != nil || h.currentGeminiAnalytics != nil) {
-			// Pass display settings from config
-			if config != nil {
-				h.analyticsPanel.SetDisplaySettings(config.Preview.GetAnalyticsSettings())
-			}
-			h.analyticsPanel.SetSize(width-4, height/2)
-			b.WriteString(h.analyticsPanel.View())
-			b.WriteString("\n")
-		} else {
-			// Analytics not yet loaded
-			loadingStyle := lipgloss.NewStyle().
-				Foreground(ColorText).
-				Italic(true)
-			b.WriteString(loadingStyle.Render("Loading analytics..."))
-			b.WriteString("\n\n")
-		}
-	}
-
 	// If output is disabled AND not starting up, return early
 	// (We want to show the launch animation even if output is normally disabled)
 	if !showOutput && !isStartingUp {
-		// If analytics was also not shown, display session info card as fallback
-		if !showAnalytics {
-			infoCard := h.renderSessionInfoCard(selected, width, height)
-			b.WriteString("\n")
-			b.WriteString(infoCard)
-		}
+		infoCard := h.renderSessionInfoCard(selected, width, height)
+		b.WriteString("\n")
+		b.WriteString(infoCard)
 
 		// Pad output to exact height to prevent layout shifts
 		content := b.String()

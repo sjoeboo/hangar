@@ -1646,3 +1646,50 @@ func GetMCPDef(name string) *MCPDef {
 	}
 	return nil
 }
+
+// ConductorSettings defines conductor (meta-agent orchestration) settings.
+// Kept as a stub so config.toml files with [conductor] sections parse without errors.
+type ConductorSettings struct {
+	Enabled           bool             `toml:"enabled"`
+	HeartbeatInterval int              `toml:"heartbeat_interval"`
+	Profiles          []string         `toml:"profiles"`
+	Telegram          TelegramSettings `toml:"telegram"`
+	Slack             SlackSettings    `toml:"slack"`
+}
+
+// TelegramSettings defines Telegram bot configuration (stub; conductor is removed).
+type TelegramSettings struct {
+	Token  string `toml:"token"`
+	UserID int64  `toml:"user_id"`
+}
+
+// SlackSettings defines Slack bot configuration (stub; conductor is removed).
+type SlackSettings struct {
+	BotToken string `toml:"bot_token"`
+	AppToken string `toml:"app_token"`
+}
+
+// ConductorMeta holds metadata about a conductor instance (stub; conductor is removed).
+type ConductorMeta struct {
+	Name              string `json:"name"`
+	Profile           string `json:"profile"`
+	HeartbeatEnabled  bool   `json:"heartbeat_enabled"`
+	HeartbeatInterval int    `json:"heartbeat_interval"`
+	Description       string `json:"description,omitempty"`
+	CreatedAt         string `json:"created_at"`
+}
+
+// ConductorSessionTitle returns the tmux session title for a conductor (stub).
+func ConductorSessionTitle(name string) string {
+	return fmt.Sprintf("conductor-%s", name)
+}
+
+// ListConductorsForProfile returns conductors for a profile (stub; always empty).
+func ListConductorsForProfile(_ string) ([]ConductorMeta, error) {
+	return nil, nil
+}
+
+// InstallBridgeScript is a stub; conductor bridge is no longer installed.
+func InstallBridgeScript() error {
+	return nil
+}
