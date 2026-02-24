@@ -340,9 +340,9 @@ func (i *Instance) buildClaudeCommandWithMessage(baseCommand, message string) st
 		configDirPrefix = fmt.Sprintf("CLAUDE_CONFIG_DIR=%s ", configDir)
 	}
 
-	// AGENTDECK_INSTANCE_ID is set as an inline env var so Claude's hook subprocesses
+	// HANGAR_INSTANCE_ID is set as an inline env var so Claude's hook subprocesses
 	// can identify which agent-deck session they belong to.
-	instanceIDPrefix := fmt.Sprintf("AGENTDECK_INSTANCE_ID=%s ", i.ID)
+	instanceIDPrefix := fmt.Sprintf("HANGAR_INSTANCE_ID=%s ", i.ID)
 	configDirPrefix = instanceIDPrefix + configDirPrefix
 
 	// Get options - either from instance or create defaults from config
@@ -375,7 +375,7 @@ func (i *Instance) buildClaudeCommandWithMessage(baseCommand, message string) st
 				}
 				// Session was never interacted with - use --session-id with same UUID
 				// This handles the case where session was started but no message was sent
-				bashExportPrefix := fmt.Sprintf("export AGENTDECK_INSTANCE_ID=%s; ", i.ID)
+				bashExportPrefix := fmt.Sprintf("export HANGAR_INSTANCE_ID=%s; ", i.ID)
 				if IsClaudeConfigDirExplicit() {
 					configDir := GetClaudeConfigDir()
 					bashExportPrefix += fmt.Sprintf("export CLAUDE_CONFIG_DIR=%s; ", configDir)
@@ -399,7 +399,7 @@ func (i *Instance) buildClaudeCommandWithMessage(baseCommand, message string) st
 		// Reason: Commands with $(...) get wrapped in `bash -c` for fish compatibility (#47),
 		// and shell aliases are not available in non-interactive bash shells.
 		//
-		bashExportPrefix := fmt.Sprintf("export AGENTDECK_INSTANCE_ID=%s; ", i.ID)
+		bashExportPrefix := fmt.Sprintf("export HANGAR_INSTANCE_ID=%s; ", i.ID)
 		if IsClaudeConfigDirExplicit() {
 			configDir := GetClaudeConfigDir()
 			bashExportPrefix += fmt.Sprintf("export CLAUDE_CONFIG_DIR=%s; ", configDir)
@@ -622,7 +622,7 @@ func (i *Instance) buildCodexCommand(baseCommand string) string {
 	}
 
 	envPrefix := i.buildEnvSourceCommand()
-	agentdeckEnvPrefix := fmt.Sprintf("AGENTDECK_INSTANCE_ID=%s AGENTDECK_TITLE=%q AGENTDECK_TOOL=%s ",
+	agentdeckEnvPrefix := fmt.Sprintf("HANGAR_INSTANCE_ID=%s HANGAR_TITLE=%q HANGAR_TOOL=%s ",
 		i.ID, i.Title, i.Tool)
 	envPrefix += agentdeckEnvPrefix
 
@@ -1335,9 +1335,9 @@ func (i *Instance) Start() error {
 		return fmt.Errorf("failed to start tmux session: %w", err)
 	}
 
-	// Set AGENTDECK_INSTANCE_ID for Claude hooks to identify this session
+	// Set HANGAR_INSTANCE_ID for Claude hooks to identify this session
 	// This enables real-time status updates via Stop/SessionStart hooks
-	if err := i.tmuxSession.SetEnvironment("AGENTDECK_INSTANCE_ID", i.ID); err != nil {
+	if err := i.tmuxSession.SetEnvironment("HANGAR_INSTANCE_ID", i.ID); err != nil {
 		sessionLog.Warn("set_instance_id_failed", slog.String("error", err.Error()))
 	}
 
@@ -1419,9 +1419,9 @@ func (i *Instance) StartWithMessage(message string) error {
 		return fmt.Errorf("failed to start tmux session: %w", err)
 	}
 
-	// Set AGENTDECK_INSTANCE_ID for Claude hooks to identify this session
+	// Set HANGAR_INSTANCE_ID for Claude hooks to identify this session
 	// This enables real-time status updates via Stop/SessionStart hooks
-	if err := i.tmuxSession.SetEnvironment("AGENTDECK_INSTANCE_ID", i.ID); err != nil {
+	if err := i.tmuxSession.SetEnvironment("HANGAR_INSTANCE_ID", i.ID); err != nil {
 		sessionLog.Warn("set_instance_id_failed", slog.String("error", err.Error()))
 	}
 
@@ -3335,9 +3335,9 @@ func (i *Instance) Restart() error {
 
 	mcpLog.Debug("restart_start_succeeded")
 
-	// Set AGENTDECK_INSTANCE_ID for Claude hooks to identify this session
+	// Set HANGAR_INSTANCE_ID for Claude hooks to identify this session
 	// This enables real-time status updates via Stop/SessionStart hooks
-	if err := i.tmuxSession.SetEnvironment("AGENTDECK_INSTANCE_ID", i.ID); err != nil {
+	if err := i.tmuxSession.SetEnvironment("HANGAR_INSTANCE_ID", i.ID); err != nil {
 		sessionLog.Warn("set_instance_id_failed", slog.String("error", err.Error()))
 	}
 
@@ -3382,9 +3382,9 @@ func (i *Instance) buildClaudeResumeCommand() string {
 		configDirPrefix = fmt.Sprintf("CLAUDE_CONFIG_DIR=%s ", configDir)
 	}
 
-	// AGENTDECK_INSTANCE_ID is set as an inline env var so hook subprocesses
+	// HANGAR_INSTANCE_ID is set as an inline env var so hook subprocesses
 	// can identify which agent-deck session they belong to.
-	instanceIDPrefix := fmt.Sprintf("AGENTDECK_INSTANCE_ID=%s ", i.ID)
+	instanceIDPrefix := fmt.Sprintf("HANGAR_INSTANCE_ID=%s ", i.ID)
 	configDirPrefix = instanceIDPrefix + configDirPrefix
 
 	// Get per-session permission settings (falls back to config if not persisted)

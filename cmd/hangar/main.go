@@ -65,7 +65,7 @@ func printUpdateNotice() {
 	}
 
 	// Print update notice to stderr so it doesn't interfere with JSON output
-	fmt.Fprintf(os.Stderr, "\n💡 Update available: v%s → v%s (run: agent-deck update)\n",
+	fmt.Fprintf(os.Stderr, "\n💡 Update available: v%s → v%s (run: hangar update)\n",
 		info.CurrentVersion, info.LatestVersion)
 }
 
@@ -83,7 +83,7 @@ func promptForUpdate() bool {
 
 	// If auto_update is disabled, just show notification (don't prompt)
 	if !settings.AutoUpdate {
-		fmt.Fprintf(os.Stderr, "\n💡 Update available: v%s → v%s (run: agent-deck update)\n",
+		fmt.Fprintf(os.Stderr, "\n💡 Update available: v%s → v%s (run: hangar update)\n",
 			info.CurrentVersion, info.LatestVersion)
 		return false
 	}
@@ -98,7 +98,7 @@ func promptForUpdate() bool {
 
 	// Default to yes (empty or "y" or "yes")
 	if response != "" && response != "y" && response != "yes" {
-		fmt.Println("Skipped. Run 'agent-deck update' later.")
+		fmt.Println("Skipped. Run 'hangar update' later.")
 		return false
 	}
 
@@ -108,7 +108,7 @@ func promptForUpdate() bool {
 		return false
 	}
 
-	fmt.Println("Restart agent-deck to use the new version.")
+	fmt.Println("Restart hangar to use the new version.")
 	return true
 }
 
@@ -116,8 +116,8 @@ func promptForUpdate() bool {
 // Prefers TrueColor for best visuals, falls back to ANSI256 for compatibility.
 func initColorProfile() {
 	// Allow user override via environment variable
-	// AGENTDECK_COLOR: truecolor, 256, 16, none
-	if colorEnv := os.Getenv("AGENTDECK_COLOR"); colorEnv != "" {
+	// HANGAR_COLOR: truecolor, 256, 16, none
+	if colorEnv := os.Getenv("HANGAR_COLOR"); colorEnv != "" {
 		switch strings.ToLower(colorEnv) {
 		case "truecolor", "true", "24bit":
 			lipgloss.SetColorProfile(termenv.TrueColor)
@@ -186,14 +186,14 @@ func main() {
 	if profile != "" {
 		// Propagate explicit profile selection so config lookups (e.g., per-profile Claude config)
 		// resolve consistently across all command paths in this process.
-		_ = os.Setenv("AGENTDECK_PROFILE", profile)
+		_ = os.Setenv("HANGAR_PROFILE", profile)
 	}
 
 	// Handle subcommands
 	if len(args) > 0 {
 		switch args[0] {
 		case "version", "--version", "-v":
-			fmt.Printf("Agent Deck v%s\n", Version)
+			fmt.Printf("Hangar v%s\n", Version)
 			return
 		case "help", "--help", "-h":
 			printHelp()
@@ -230,7 +230,7 @@ func main() {
 			return
 		case "mcp-proxy":
 			if len(args) < 2 {
-				fmt.Fprintln(os.Stderr, "Usage: agent-deck mcp-proxy <socket-path>")
+				fmt.Fprintln(os.Stderr, "Usage: hangar mcp-proxy <socket-path>")
 				os.Exit(1)
 			}
 			runMCPProxy(args[1])
@@ -265,14 +265,14 @@ func main() {
 	// Block TUI launch inside a managed session to prevent infinite nesting.
 	// CLI commands (add, session start/stop, mcp attach, etc.) still work fine.
 	if isNestedSession() {
-		fmt.Fprintln(os.Stderr, "Error: Cannot launch the agent-deck TUI inside an agent-deck session.")
+		fmt.Fprintln(os.Stderr, "Error: Cannot launch the hangar TUI inside an hangar session.")
 		fmt.Fprintln(os.Stderr, "This would create a recursive nested session.")
 		fmt.Fprintln(os.Stderr, "")
 		fmt.Fprintln(os.Stderr, "CLI commands work inside sessions. For example:")
-		fmt.Fprintln(os.Stderr, "  agent-deck add /path -t \"Title\"    # Add a new session")
-		fmt.Fprintln(os.Stderr, "  agent-deck session start <id>      # Start a session")
-		fmt.Fprintln(os.Stderr, "  agent-deck mcp attach <id> <mcp>   # Attach MCP")
-		fmt.Fprintln(os.Stderr, "  agent-deck list                    # List sessions")
+		fmt.Fprintln(os.Stderr, "  hangar add /path -t \"Title\"    # Add a new session")
+		fmt.Fprintln(os.Stderr, "  hangar session start <id>      # Start a session")
+		fmt.Fprintln(os.Stderr, "  hangar mcp attach <id> <mcp>   # Attach MCP")
+		fmt.Fprintln(os.Stderr, "  hangar list                    # List sessions")
 		fmt.Fprintln(os.Stderr, "")
 		fmt.Fprintln(os.Stderr, "To open the TUI, detach first with Ctrl+Q.")
 		os.Exit(1)
@@ -294,7 +294,7 @@ func main() {
 	// Check if tmux is available
 	if _, err := exec.LookPath("tmux"); err != nil {
 		fmt.Println("Error: tmux not found in PATH")
-		fmt.Println("\nAgent Deck requires tmux. Install with:")
+		fmt.Println("\nHangar requires tmux. Install with:")
 		fmt.Println("  brew install tmux")
 		os.Exit(1)
 	}
@@ -314,7 +314,7 @@ func main() {
 		if db := statedb.GetGlobal(); db != nil {
 			isFirst, electErr := db.ElectPrimary(30 * time.Second)
 			if electErr == nil && !isFirst {
-				fmt.Println("Error: agent-deck is already running for this profile")
+				fmt.Println("Error: hangar is already running for this profile")
 				fmt.Println("Set [instances] allow_multiple = true in config.toml to allow multiple instances")
 				os.Exit(1)
 			}
@@ -334,9 +334,9 @@ func main() {
 	}()
 
 	// Set up structured logging (JSONL format with rotation)
-	// When AGENTDECK_DEBUG is set, logs go to ~/.hangar/debug.log
+	// When HANGAR_DEBUG is set, logs go to ~/.hangar/debug.log
 	// When not set, logs are discarded to avoid TUI interference
-	debugMode := os.Getenv("AGENTDECK_DEBUG") != ""
+	debugMode := os.Getenv("HANGAR_DEBUG") != ""
 	if baseDir, err := session.GetAgentDeckDir(); err == nil {
 		logCfg := logging.Config{
 			Debug:                 debugMode,
@@ -570,7 +570,7 @@ func generateUniqueTitle(instances []*session.Instance, baseTitle, path string) 
 func resolveAutoParentInstance(instances []*session.Instance) *session.Instance {
 	candidates := []string{
 		strings.TrimSpace(os.Getenv("AGENT_DECK_SESSION_ID")),
-		strings.TrimSpace(os.Getenv("AGENTDECK_INSTANCE_ID")),
+		strings.TrimSpace(os.Getenv("HANGAR_INSTANCE_ID")),
 	}
 
 	if tmuxCurrent := strings.TrimSpace(GetCurrentSessionID()); tmuxCurrent != "" {
@@ -652,9 +652,9 @@ func handleAdd(profile string, args []string) {
 	resumeSession := fs.String("resume-session", "", "Claude session ID to resume (skips new session creation)")
 
 	fs.Usage = func() {
-		fmt.Println("Usage: agent-deck add [path] [options]")
+		fmt.Println("Usage: hangar add [path] [options]")
 		fmt.Println()
-		fmt.Println("Add a new session to Agent Deck.")
+		fmt.Println("Add a new session to Hangar.")
 		fmt.Println()
 		fmt.Println("Arguments:")
 		fmt.Println("  [path]    Project directory (defaults to current directory)")
@@ -663,22 +663,22 @@ func handleAdd(profile string, args []string) {
 		fs.PrintDefaults()
 		fmt.Println()
 		fmt.Println("Examples:")
-		fmt.Println("  agent-deck add                       # Use current directory")
-		fmt.Println("  agent-deck add /path/to/project")
-		fmt.Println("  agent-deck add -t \"My Project\" -g \"work\"")
-		fmt.Println("  agent-deck add -c claude .")
-		fmt.Println("  agent-deck -p work add               # Add to 'work' profile")
-		fmt.Println("  agent-deck add -t \"Sub-task\" --parent \"Main Project\"  # Create sub-session")
-		fmt.Println("  agent-deck add -t \"Research\" -c claude --mcp memory --mcp sequential-thinking /tmp/x")
-		fmt.Println("  agent-deck add -c opencode --wrapper \"nvim +'terminal {command}' +'startinsert'\" .")
-		fmt.Println("  agent-deck add -c \"codex --dangerously-bypass-approvals-and-sandbox\" .")
-		fmt.Println("  agent-deck add -g ard --no-parent -c claude .")
-		fmt.Println("  agent-deck add --quick -c claude .   # Auto-generated name")
+		fmt.Println("  hangar add                       # Use current directory")
+		fmt.Println("  hangar add /path/to/project")
+		fmt.Println("  hangar add -t \"My Project\" -g \"work\"")
+		fmt.Println("  hangar add -c claude .")
+		fmt.Println("  hangar -p work add               # Add to 'work' profile")
+		fmt.Println("  hangar add -t \"Sub-task\" --parent \"Main Project\"  # Create sub-session")
+		fmt.Println("  hangar add -t \"Research\" -c claude --mcp memory --mcp sequential-thinking /tmp/x")
+		fmt.Println("  hangar add -c opencode --wrapper \"nvim +'terminal {command}' +'startinsert'\" .")
+		fmt.Println("  hangar add -c \"codex --dangerously-bypass-approvals-and-sandbox\" .")
+		fmt.Println("  hangar add -g ard --no-parent -c claude .")
+		fmt.Println("  hangar add --quick -c claude .   # Auto-generated name")
 		fmt.Println()
 		fmt.Println("Worktree Examples:")
-		fmt.Println("  agent-deck add -w feature/login .    # Create worktree for existing branch")
-		fmt.Println("  agent-deck add -w feature/new -b .   # Create worktree with new branch")
-		fmt.Println("  agent-deck add --worktree fix/bug-123 --new-branch /path/to/repo")
+		fmt.Println("  hangar add -w feature/login .    # Create worktree for existing branch")
+		fmt.Println("  hangar add -w feature/new -b .   # Create worktree with new branch")
+		fmt.Println("  hangar add --worktree fix/bug-123 --new-branch /path/to/repo")
 	}
 
 	// Reorder args: move path to end so flags are parsed correctly
@@ -866,7 +866,7 @@ func handleAdd(profile string, args []string) {
 		// Check if worktree already exists
 		if _, err := os.Stat(worktreePath); err == nil {
 			fmt.Fprintf(os.Stderr, "Error: worktree already exists at %s\n", worktreePath)
-			fmt.Fprintf(os.Stderr, "Tip: Use 'agent-deck add %s' to add the existing worktree\n", worktreePath)
+			fmt.Fprintf(os.Stderr, "Tip: Use 'hangar add %s' to add the existing worktree\n", worktreePath)
 			os.Exit(1)
 		}
 
@@ -1024,8 +1024,8 @@ func handleAdd(profile string, args []string) {
 	}
 	humanLines = append(humanLines, "")
 	humanLines = append(humanLines, "Next steps:")
-	humanLines = append(humanLines, fmt.Sprintf("  agent-deck session start %s   # Start the session", sessionTitle))
-	humanLines = append(humanLines, "  agent-deck                         # Open TUI and press Enter to attach")
+	humanLines = append(humanLines, fmt.Sprintf("  hangar session start %s   # Start the session", sessionTitle))
+	humanLines = append(humanLines, "  hangar                         # Open TUI and press Enter to attach")
 
 	// Build JSON data
 	jsonData := map[string]interface{}{
@@ -1078,7 +1078,7 @@ func handleList(profile string, args []string) {
 	allProfiles := fs.Bool("all", false, "List sessions from all profiles")
 
 	fs.Usage = func() {
-		fmt.Println("Usage: agent-deck list [options]")
+		fmt.Println("Usage: hangar list [options]")
 		fmt.Println()
 		fmt.Println("List all sessions.")
 		fmt.Println()
@@ -1086,9 +1086,9 @@ func handleList(profile string, args []string) {
 		fs.PrintDefaults()
 		fmt.Println()
 		fmt.Println("Examples:")
-		fmt.Println("  agent-deck list                    # List from default profile")
-		fmt.Println("  agent-deck -p work list            # List from 'work' profile")
-		fmt.Println("  agent-deck list --all              # List from all profiles")
+		fmt.Println("  hangar list                    # List from default profile")
+		fmt.Println("  hangar -p work list            # List from 'work' profile")
+		fmt.Println("  hangar list --all              # List from all profiles")
 	}
 
 	if err := fs.Parse(normalizeArgs(fs, args)); err != nil {
@@ -1279,14 +1279,14 @@ func handleRemove(profile string, args []string) {
 	quietShort := fs.Bool("q", false, "Minimal output (short)")
 
 	fs.Usage = func() {
-		fmt.Println("Usage: agent-deck remove <id|title>")
+		fmt.Println("Usage: hangar remove <id|title>")
 		fmt.Println()
 		fmt.Println("Remove a session by ID or title.")
 		fmt.Println()
 		fmt.Println("Examples:")
-		fmt.Println("  agent-deck remove abc12345")
-		fmt.Println("  agent-deck remove \"My Project\"")
-		fmt.Println("  agent-deck -p work remove abc12345   # Remove from 'work' profile")
+		fmt.Println("  hangar remove abc12345")
+		fmt.Println("  hangar remove \"My Project\"")
+		fmt.Println("  hangar -p work remove abc12345   # Remove from 'work' profile")
 	}
 
 	if err := fs.Parse(normalizeArgs(fs, args)); err != nil {
@@ -1331,7 +1331,7 @@ func handleRemove(profile string, args []string) {
 		// Only warn if the session actually existed (ignore "not found" errors)
 		if inst.Exists() && !*jsonOutput {
 			fmt.Printf("Warning: failed to kill tmux session: %v\n", err)
-			fmt.Println("Session removed from Agent Deck but may still be running in tmux")
+			fmt.Println("Session removed from Hangar but may still be running in tmux")
 		}
 	}
 
@@ -1387,14 +1387,14 @@ func handleRename(profile string, args []string) {
 	quietShort := fs.Bool("q", false, "Minimal output (short)")
 
 	fs.Usage = func() {
-		fmt.Println("Usage: agent-deck rename <id|title> <new-title>")
+		fmt.Println("Usage: hangar rename <id|title> <new-title>")
 		fmt.Println()
 		fmt.Println("Rename a session by ID or title.")
 		fmt.Println()
 		fmt.Println("Examples:")
-		fmt.Println("  agent-deck rename abc12345 \"New Name\"")
-		fmt.Println("  agent-deck rename \"Old Name\" \"New Name\"")
-		fmt.Println("  agent-deck -p work rename abc12345 \"New Name\"   # Rename in 'work' profile")
+		fmt.Println("  hangar rename abc12345 \"New Name\"")
+		fmt.Println("  hangar rename \"Old Name\" \"New Name\"")
+		fmt.Println("  hangar -p work rename abc12345 \"New Name\"   # Rename in 'work' profile")
 	}
 
 	if err := fs.Parse(normalizeArgs(fs, args)); err != nil {
@@ -1502,7 +1502,7 @@ func handleStatus(profile string, args []string) {
 	jsonOutput := fs.Bool("json", false, "Output as JSON")
 
 	fs.Usage = func() {
-		fmt.Println("Usage: agent-deck status [options]")
+		fmt.Println("Usage: hangar status [options]")
 		fmt.Println()
 		fmt.Println("Show a summary of session statuses.")
 		fmt.Println()
@@ -1510,10 +1510,10 @@ func handleStatus(profile string, args []string) {
 		fs.PrintDefaults()
 		fmt.Println()
 		fmt.Println("Examples:")
-		fmt.Println("  agent-deck status              # Quick summary")
-		fmt.Println("  agent-deck status -v           # Detailed list")
-		fmt.Println("  agent-deck status -q           # Just waiting count")
-		fmt.Println("  agent-deck -p work status      # Status for 'work' profile")
+		fmt.Println("  hangar status              # Quick summary")
+		fmt.Println("  hangar status -v           # Detailed list")
+		fmt.Println("  hangar status -q           # Just waiting count")
+		fmt.Println("  hangar -p work status      # Status for 'work' profile")
 	}
 
 	if err := fs.Parse(normalizeArgs(fs, args)); err != nil {
@@ -1695,9 +1695,9 @@ func handleProfile(args []string) {
 }
 
 func printProfileHelp() {
-	fmt.Println("Usage: agent-deck profile <command>")
+	fmt.Println("Usage: hangar profile <command>")
 	fmt.Println()
-	fmt.Println("Manage named Agent Deck profiles.")
+	fmt.Println("Manage named Hangar profiles.")
 	fmt.Println()
 	fmt.Println("Commands:")
 	fmt.Println("  list              List all profiles")
@@ -1707,15 +1707,15 @@ func printProfileHelp() {
 }
 
 func printProfileCreateHelp() {
-	fmt.Println("Usage: agent-deck profile create <name>")
+	fmt.Println("Usage: hangar profile create <name>")
 }
 
 func printProfileDeleteHelp() {
-	fmt.Println("Usage: agent-deck profile delete <name>")
+	fmt.Println("Usage: hangar profile delete <name>")
 }
 
 func printProfileDefaultHelp() {
-	fmt.Println("Usage: agent-deck profile default [name]")
+	fmt.Println("Usage: hangar profile default [name]")
 }
 
 func isHelpArg(arg string) bool {
@@ -1754,7 +1754,7 @@ func handleProfileList(out *CLIOutput, jsonMode bool) {
 
 	if len(profiles) == 0 {
 		fmt.Println("No profiles found.")
-		fmt.Println("Run 'agent-deck' to create the default profile automatically.")
+		fmt.Println("Run 'hangar' to create the default profile automatically.")
 		return
 	}
 
@@ -1825,7 +1825,7 @@ func handleUpdate(args []string) {
 	checkOnly := fs.Bool("check", false, "Only check for updates, don't install")
 
 	fs.Usage = func() {
-		fmt.Println("Usage: agent-deck update [options]")
+		fmt.Println("Usage: hangar update [options]")
 		fmt.Println()
 		fmt.Println("Check for and install updates (always checks GitHub for latest).")
 		fmt.Println()
@@ -1833,15 +1833,15 @@ func handleUpdate(args []string) {
 		fs.PrintDefaults()
 		fmt.Println()
 		fmt.Println("Examples:")
-		fmt.Println("  agent-deck update           # Check and install if available")
-		fmt.Println("  agent-deck update --check   # Only check, don't install")
+		fmt.Println("  hangar update           # Check and install if available")
+		fmt.Println("  hangar update --check   # Only check, don't install")
 	}
 
 	if err := fs.Parse(normalizeArgs(fs, args)); err != nil {
 		os.Exit(1)
 	}
 
-	fmt.Printf("Agent Deck v%s\n", Version)
+	fmt.Printf("Hangar v%s\n", Version)
 	fmt.Println("Checking for updates...")
 
 	// Always force check when user explicitly runs 'update' command
@@ -1864,7 +1864,7 @@ func handleUpdate(args []string) {
 	displayChangelog(info.CurrentVersion, info.LatestVersion)
 
 	if *checkOnly {
-		fmt.Println("\nRun 'agent-deck update' to install.")
+		fmt.Println("\nRun 'hangar update' to install.")
 		return
 	}
 
@@ -1889,11 +1889,11 @@ func handleUpdate(args []string) {
 	// Update bridge.py if conductor is installed
 	if err := update.UpdateBridgePy(); err != nil {
 		fmt.Printf("Warning: Failed to update bridge.py: %v\n", err)
-		fmt.Println("  You can manually refresh it with: agent-deck conductor setup <name>")
+		fmt.Println("  You can manually refresh it with: hangar conductor setup <name>")
 	}
 
 	fmt.Printf("\n✓ Updated to v%s\n", info.LatestVersion)
-	fmt.Println("  Restart agent-deck to use the new version.")
+	fmt.Println("  Restart hangar to use the new version.")
 }
 
 // displayChangelog fetches and displays changelog between versions
@@ -1941,10 +1941,10 @@ func drainStdin() {
 }
 
 func printHelp() {
-	fmt.Printf("Agent Deck v%s\n", Version)
+	fmt.Printf("Hangar v%s\n", Version)
 	fmt.Println("Terminal session manager for AI coding agents")
 	fmt.Println()
-	fmt.Println("Usage: agent-deck [-p profile] [command]")
+	fmt.Println("Usage: hangar [-p profile] [command]")
 	fmt.Println()
 	fmt.Println("Global Options:")
 	fmt.Println("  -p, --profile <name>   Use specific profile (default: 'default')")
@@ -1959,56 +1959,27 @@ func printHelp() {
 	fmt.Println("  rename, mv       Rename a session")
 	fmt.Println("  status           Show session status summary")
 	fmt.Println("  session          Manage session lifecycle")
-	fmt.Println("  mcp              Manage MCP servers")
-	fmt.Println("  skill            Manage Claude skills")
-	fmt.Println("  codex-hooks      Manage Codex notify hook integration")
 	fmt.Println("  group            Manage groups")
 	fmt.Println("  worktree, wt     Manage git worktrees")
-	fmt.Println("  web              Start TUI with web UI server running alongside")
-	fmt.Println("  conductor        Manage conductor meta-agent orchestration")
 	fmt.Println("  profile          Manage profiles")
 	fmt.Println("  update           Check for and install updates")
-	fmt.Println("  uninstall        Uninstall Agent Deck")
+	fmt.Println("  uninstall        Uninstall Hangar")
 	fmt.Println("  version          Show version")
 	fmt.Println("  help             Show this help")
 	fmt.Println()
 	fmt.Println("Session Commands:")
 	fmt.Println("  session start <id>        Start a session's tmux process")
 	fmt.Println("  session stop <id>         Stop session process")
-	fmt.Println("  session restart <id>      Restart session (reload MCPs)")
+	fmt.Println("  session restart <id>      Restart session")
 	fmt.Println("  session fork <id>         Fork Claude session with context")
 	fmt.Println("  session attach <id>       Attach to session interactively")
 	fmt.Println("  session show [id]         Show session details")
-	fmt.Println()
-	fmt.Println("MCP Commands:")
-	fmt.Println("  mcp list                  List available MCPs from config.toml")
-	fmt.Println("  mcp attached [id]         Show MCPs attached to a session")
-	fmt.Println("  mcp attach <id> <mcp>     Attach MCP to session")
-	fmt.Println("  mcp detach <id> <mcp>     Detach MCP from session")
-	fmt.Println()
-	fmt.Println("Skill Commands:")
-	fmt.Println("  skill list                List discoverable skills")
-	fmt.Println("  skill attached [id]       Show skills attached to a session")
-	fmt.Println("  skill attach <id> <name>  Attach skill to session project")
-	fmt.Println("  skill detach <id> <name>  Detach skill from session project")
-	fmt.Println("  skill source list         List global skill sources")
-	fmt.Println()
-	fmt.Println("Codex Hook Commands:")
-	fmt.Println("  codex-hooks install       Install or upgrade Codex notify hook")
-	fmt.Println("  codex-hooks uninstall     Remove Codex notify hook")
-	fmt.Println("  codex-hooks status        Show Codex hook install status")
 	fmt.Println()
 	fmt.Println("Group Commands:")
 	fmt.Println("  group list                List all groups")
 	fmt.Println("  group create <name>       Create a new group")
 	fmt.Println("  group delete <name>       Delete a group")
 	fmt.Println("  group move <id> <group>   Move session to group")
-	fmt.Println()
-	fmt.Println("Conductor Commands:")
-	fmt.Println("  conductor setup           Set up conductor (Telegram bridge + sessions)")
-	fmt.Println("  conductor teardown        Stop conductor and remove bridge daemon")
-	fmt.Println("  conductor status          Show conductor health across profiles")
-	fmt.Println("  conductor list            List configured conductors")
 	fmt.Println()
 	fmt.Println("Worktree Commands:")
 	fmt.Println("  worktree list             List worktrees with session associations")
@@ -2022,32 +1993,23 @@ func printHelp() {
 	fmt.Println("  profile default [name]    Show or set default profile")
 	fmt.Println()
 	fmt.Println("Examples:")
-	fmt.Println("  agent-deck                            # Start TUI with default profile")
-	fmt.Println("  agent-deck -p work                    # Start TUI with 'work' profile")
-	fmt.Println("  agent-deck add .                      # Add current directory")
-	fmt.Println("  agent-deck add -t \"My App\" -g dev .   # With title and group")
-	fmt.Println("  agent-deck session start my-project   # Start a session")
-	fmt.Println("  agent-deck session show               # Show current session (in tmux)")
-	fmt.Println("  agent-deck mcp list --json            # List MCPs as JSON")
-	fmt.Println("  agent-deck mcp attach my-app exa      # Attach MCP to session")
-	fmt.Println("  agent-deck skill attach my-app react  # Attach skill to project")
-	fmt.Println("  agent-deck group move my-app work     # Move session to group")
-	fmt.Println("  agent-deck web                        # TUI + web server on 127.0.0.1:8420")
-	fmt.Println("  agent-deck web --listen :9000         # TUI + web on custom port")
-	fmt.Println("  agent-deck web --read-only            # TUI + web in read-only mode")
-	fmt.Println("  agent-deck web --token secret         # TUI + web with auth token")
-	fmt.Println("  agent-deck web --help                 # Show web command flags")
+	fmt.Println("  hangar                            # Start TUI with default profile")
+	fmt.Println("  hangar -p work                    # Start TUI with 'work' profile")
+	fmt.Println("  hangar add .                      # Add current directory")
+	fmt.Println("  hangar add -t \"My App\" -g dev .   # With title and group")
+	fmt.Println("  hangar session start my-project   # Start a session")
+	fmt.Println("  hangar session show               # Show current session (in tmux)")
+	fmt.Println("  hangar group move my-app work     # Move session to group")
+	fmt.Println("  hangar worktree list              # List git worktrees")
 	fmt.Println()
 	fmt.Println("Environment Variables:")
-	fmt.Println("  AGENTDECK_PROFILE    Default profile to use")
-	fmt.Println("  AGENTDECK_COLOR      Color mode: truecolor, 256, 16, none")
+	fmt.Println("  HANGAR_PROFILE    Default profile to use")
+	fmt.Println("  HANGAR_COLOR      Color mode: truecolor, 256, 16, none")
 	fmt.Println()
 	fmt.Println("Keyboard shortcuts (in TUI):")
 	fmt.Println("  n          New session")
 	fmt.Println("  g          New group")
 	fmt.Println("  Enter      Attach to session")
-	fmt.Println("  m          MCP Manager")
-	fmt.Println("  s          Skills Manager (Claude)")
 	fmt.Println("  M          Move session to group")
 	fmt.Println("  r          Rename session/group")
 	fmt.Println("  R          Restart session")
@@ -2101,7 +2063,7 @@ func detectTool(cmd string) string {
 	}
 }
 
-// handleUninstall removes agent-deck from the system
+// handleUninstall removes hangar from the system
 func handleUninstall(args []string) {
 	fs := flag.NewFlagSet("uninstall", flag.ExitOnError)
 	keepData := fs.Bool("keep-data", false, "Keep ~/.hangar/ (sessions, config, logs)")
@@ -2110,9 +2072,9 @@ func handleUninstall(args []string) {
 	yes := fs.Bool("y", false, "Skip confirmation prompts")
 
 	fs.Usage = func() {
-		fmt.Println("Usage: agent-deck uninstall [options]")
+		fmt.Println("Usage: hangar uninstall [options]")
 		fmt.Println()
-		fmt.Println("Uninstall Agent Deck from your system.")
+		fmt.Println("Uninstall Hangar from your system.")
 		fmt.Println()
 		fmt.Println("Options:")
 		fmt.Println("  --dry-run           Show what would be removed without removing")
@@ -2121,10 +2083,10 @@ func handleUninstall(args []string) {
 		fmt.Println("  -y                  Skip confirmation prompts")
 		fmt.Println()
 		fmt.Println("Examples:")
-		fmt.Println("  agent-deck uninstall              # Interactive uninstall")
-		fmt.Println("  agent-deck uninstall --dry-run    # Preview what would be removed")
-		fmt.Println("  agent-deck uninstall --keep-data  # Remove binary only, keep sessions")
-		fmt.Println("  agent-deck uninstall -y           # Uninstall without prompts")
+		fmt.Println("  hangar uninstall              # Interactive uninstall")
+		fmt.Println("  hangar uninstall --dry-run    # Preview what would be removed")
+		fmt.Println("  hangar uninstall --keep-data  # Remove binary only, keep sessions")
+		fmt.Println("  hangar uninstall -y           # Uninstall without prompts")
 	}
 
 	if err := fs.Parse(normalizeArgs(fs, args)); err != nil {
@@ -2132,7 +2094,7 @@ func handleUninstall(args []string) {
 	}
 
 	fmt.Println("╔════════════════════════════════════════╗")
-	fmt.Println("║       Agent Deck Uninstaller           ║")
+	fmt.Println("║       Hangar Uninstaller           ║")
 	fmt.Println("╚════════════════════════════════════════╝")
 	fmt.Println()
 
@@ -2158,7 +2120,7 @@ func handleUninstall(args []string) {
 		cmd := exec.Command("brew", "list", "hangar")
 		if cmd.Run() == nil {
 			homebrewInstalled = true
-			foundItems = append(foundItems, foundItem{"homebrew", "", "Homebrew package: agent-deck"})
+			foundItems = append(foundItems, foundItem{"homebrew", "", "Homebrew package: hangar"})
 			fmt.Println("Found: Homebrew installation")
 		}
 	}
@@ -2242,7 +2204,7 @@ func handleUninstall(args []string) {
 	// Check for tmux config
 	tmuxConf := filepath.Join(homeDir, ".tmux.conf")
 	if data, err := os.ReadFile(tmuxConf); err == nil {
-		if strings.Contains(string(data), "# agent-deck configuration") {
+		if strings.Contains(string(data), "# hangar configuration") {
 			foundItems = append(foundItems, foundItem{"tmux", tmuxConf, "tmux configuration block"})
 			fmt.Println("Found: tmux configuration in ~/.tmux.conf")
 		}
@@ -2252,14 +2214,14 @@ func handleUninstall(args []string) {
 
 	// Nothing found?
 	if len(foundItems) == 0 {
-		fmt.Println("Agent Deck does not appear to be installed.")
+		fmt.Println("Hangar does not appear to be installed.")
 		fmt.Println()
 		fmt.Println("Checked locations:")
 		for _, loc := range binaryLocations {
 			fmt.Printf("  - %s\n", loc)
 		}
 		fmt.Printf("  - %s\n", dataDir)
-		fmt.Printf("  - %s (for agent-deck config)\n", tmuxConf)
+		fmt.Printf("  - %s (for hangar config)\n", tmuxConf)
 		return
 	}
 
@@ -2270,7 +2232,7 @@ func handleUninstall(args []string) {
 	for _, item := range foundItems {
 		switch item.itemType {
 		case "homebrew":
-			fmt.Println("  • Homebrew package: agent-deck")
+			fmt.Println("  • Homebrew package: hangar")
 		case "binary", "binary-symlink":
 			fmt.Printf("  • Binary: %s\n", item.path)
 		case "data":
@@ -2392,10 +2354,10 @@ func handleUninstall(args []string) {
 				fmt.Printf("Warning: failed to create backup: %v\n", err)
 			}
 
-			// Remove the agent-deck config block
+			// Remove the hangar config block
 			content := string(data)
-			startMarker := "# agent-deck configuration"
-			endMarker := "# End agent-deck configuration"
+			startMarker := "# hangar configuration"
+			endMarker := "# End hangar configuration"
 
 			startIdx := strings.Index(content, startMarker)
 			endIdx := strings.Index(content, endMarker)
@@ -2439,7 +2401,7 @@ func handleUninstall(args []string) {
 				if strings.ToLower(response) != "n" {
 					backupFile := filepath.Join(
 						homeDir,
-						fmt.Sprintf("agent-deck-backup-%s.tar.gz", time.Now().Format("20060102-150405")),
+						fmt.Sprintf("hangar-backup-%s.tar.gz", time.Now().Format("20060102-150405")),
 					)
 					fmt.Printf("Creating backup at %s...\n", backupFile)
 
@@ -2474,15 +2436,15 @@ func handleUninstall(args []string) {
 
 	if *keepTmuxConfig {
 		fmt.Println("Note: tmux config preserved in ~/.tmux.conf")
-		fmt.Println("      Remove the '# agent-deck configuration' block manually if desired")
+		fmt.Println("      Remove the '# hangar configuration' block manually if desired")
 	}
 
 	fmt.Println()
-	fmt.Println("Thank you for using Agent Deck!")
+	fmt.Println("Thank you for using Hangar!")
 	fmt.Println("Feedback: https://github.com/sjoeboo/hangar/issues")
 }
 
-// isNestedSession returns true if we're running inside an agent-deck managed tmux session.
+// isNestedSession returns true if we're running inside an hangar managed tmux session.
 // Uses GetCurrentSessionID() which checks if the current tmux session name matches hangar_*.
 func isNestedSession() bool {
 	return GetCurrentSessionID() != ""

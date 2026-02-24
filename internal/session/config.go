@@ -299,7 +299,7 @@ func SetDefaultProfile(profile string) error {
 
 // GetEffectiveProfile returns the profile to use, considering:
 // 1. Explicitly provided profile (from -p flag)
-// 2. Environment variable AGENTDECK_PROFILE
+// 2. Environment variable HANGAR_PROFILE
 // 3. Config default profile
 // 4. Fallback to "default"
 func GetEffectiveProfile(explicit string) string {
@@ -307,7 +307,7 @@ func GetEffectiveProfile(explicit string) string {
 		return explicit
 	}
 
-	if envProfile := os.Getenv("AGENTDECK_PROFILE"); envProfile != "" {
+	if envProfile := os.Getenv("HANGAR_PROFILE"); envProfile != "" {
 		return envProfile
 	}
 

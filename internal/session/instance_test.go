@@ -2088,7 +2088,7 @@ func TestBuildClaudeExtraFlags_NilOpts(t *testing.T) {
 	}
 }
 
-// TestBuildClaudeCommand_ExportsInstanceID verifies that AGENTDECK_INSTANCE_ID
+// TestBuildClaudeCommand_ExportsInstanceID verifies that HANGAR_INSTANCE_ID
 // is included in the command string for Claude sessions.
 func TestBuildClaudeCommand_ExportsInstanceID(t *testing.T) {
 	origConfigDir := os.Getenv("CLAUDE_CONFIG_DIR")
@@ -2107,14 +2107,14 @@ func TestBuildClaudeCommand_ExportsInstanceID(t *testing.T) {
 	inst := NewInstanceWithTool("test", "/tmp/test", "claude")
 	cmd := inst.buildClaudeCommand("claude")
 
-	// AGENTDECK_INSTANCE_ID should be in the command as an env var prefix
-	expectedPrefix := "AGENTDECK_INSTANCE_ID=" + inst.ID
+	// HANGAR_INSTANCE_ID should be in the command as an env var prefix
+	expectedPrefix := "HANGAR_INSTANCE_ID=" + inst.ID
 	if !strings.Contains(cmd, expectedPrefix) {
 		t.Errorf("Command should contain %q, got: %s", expectedPrefix, cmd)
 	}
 }
 
-// TestBuildClaudeResumeCommand_ExportsInstanceID verifies that AGENTDECK_INSTANCE_ID
+// TestBuildClaudeResumeCommand_ExportsInstanceID verifies that HANGAR_INSTANCE_ID
 // is included in the resume command string.
 func TestBuildClaudeResumeCommand_ExportsInstanceID(t *testing.T) {
 	origConfigDir := os.Getenv("CLAUDE_CONFIG_DIR")
@@ -2135,7 +2135,7 @@ func TestBuildClaudeResumeCommand_ExportsInstanceID(t *testing.T) {
 
 	cmd := inst.buildClaudeResumeCommand()
 
-	expectedPrefix := "AGENTDECK_INSTANCE_ID=" + inst.ID
+	expectedPrefix := "HANGAR_INSTANCE_ID=" + inst.ID
 	if !strings.Contains(cmd, expectedPrefix) {
 		t.Errorf("Resume command should contain %q, got: %s", expectedPrefix, cmd)
 	}

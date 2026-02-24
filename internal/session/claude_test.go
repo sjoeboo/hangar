@@ -44,14 +44,14 @@ func TestGetClaudeConfigDir_EnvOverride(t *testing.T) {
 func TestGetClaudeConfigDir_ProfileOverride(t *testing.T) {
 	tmpHome := t.TempDir()
 	origHome := os.Getenv("HOME")
-	origProfile := os.Getenv("AGENTDECK_PROFILE")
+	origProfile := os.Getenv("HANGAR_PROFILE")
 	origClaudeDir := os.Getenv("CLAUDE_CONFIG_DIR")
 	defer func() {
 		_ = os.Setenv("HOME", origHome)
 		if origProfile != "" {
-			_ = os.Setenv("AGENTDECK_PROFILE", origProfile)
+			_ = os.Setenv("HANGAR_PROFILE", origProfile)
 		} else {
-			_ = os.Unsetenv("AGENTDECK_PROFILE")
+			_ = os.Unsetenv("HANGAR_PROFILE")
 		}
 		if origClaudeDir != "" {
 			_ = os.Setenv("CLAUDE_CONFIG_DIR", origClaudeDir)
@@ -63,7 +63,7 @@ func TestGetClaudeConfigDir_ProfileOverride(t *testing.T) {
 
 	_ = os.Setenv("HOME", tmpHome)
 	_ = os.Unsetenv("CLAUDE_CONFIG_DIR")
-	_ = os.Setenv("AGENTDECK_PROFILE", "work")
+	_ = os.Setenv("HANGAR_PROFILE", "work")
 	ClearUserConfigCache()
 
 	agentDeckDir := filepath.Join(tmpHome, ".hangar")
@@ -88,7 +88,7 @@ config_dir = "~/.claude-work"
 	}
 
 	// Unknown profile should fall back to global [claude].config_dir
-	_ = os.Setenv("AGENTDECK_PROFILE", "unknown")
+	_ = os.Setenv("HANGAR_PROFILE", "unknown")
 	ClearUserConfigCache()
 	got = GetClaudeConfigDir()
 	want = filepath.Join(tmpHome, ".claude-global")
@@ -107,14 +107,14 @@ config_dir = "~/.claude-work"
 func TestIsClaudeConfigDirExplicit_ProfileOverride(t *testing.T) {
 	tmpHome := t.TempDir()
 	origHome := os.Getenv("HOME")
-	origProfile := os.Getenv("AGENTDECK_PROFILE")
+	origProfile := os.Getenv("HANGAR_PROFILE")
 	origClaudeDir := os.Getenv("CLAUDE_CONFIG_DIR")
 	defer func() {
 		_ = os.Setenv("HOME", origHome)
 		if origProfile != "" {
-			_ = os.Setenv("AGENTDECK_PROFILE", origProfile)
+			_ = os.Setenv("HANGAR_PROFILE", origProfile)
 		} else {
-			_ = os.Unsetenv("AGENTDECK_PROFILE")
+			_ = os.Unsetenv("HANGAR_PROFILE")
 		}
 		if origClaudeDir != "" {
 			_ = os.Setenv("CLAUDE_CONFIG_DIR", origClaudeDir)
@@ -126,7 +126,7 @@ func TestIsClaudeConfigDirExplicit_ProfileOverride(t *testing.T) {
 
 	_ = os.Setenv("HOME", tmpHome)
 	_ = os.Unsetenv("CLAUDE_CONFIG_DIR")
-	_ = os.Setenv("AGENTDECK_PROFILE", "work")
+	_ = os.Setenv("HANGAR_PROFILE", "work")
 	ClearUserConfigCache()
 
 	agentDeckDir := filepath.Join(tmpHome, ".hangar")

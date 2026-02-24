@@ -59,7 +59,7 @@ func mapEventToStatus(event string) string {
 // Reads JSON from stdin, maps the event to a status, and writes a status file.
 // Always exits 0 to avoid blocking Claude Code.
 func handleHookHandler() {
-	instanceID := os.Getenv("AGENTDECK_INSTANCE_ID")
+	instanceID := os.Getenv("HANGAR_INSTANCE_ID")
 	if instanceID == "" {
 		// No instance ID means this Claude session isn't managed by agent-deck.
 		// Exit silently without error.

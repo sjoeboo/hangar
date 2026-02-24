@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-// TestMain is in testmain_test.go - sets AGENTDECK_PROFILE=_test
+// TestMain is in testmain_test.go - sets HANGAR_PROFILE=_test
 
 // =============================================================================
 // Tests for Worktree Commands

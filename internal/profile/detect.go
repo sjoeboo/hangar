@@ -10,13 +10,13 @@ import (
 
 // DetectCurrentProfile attempts to detect the active profile from environment.
 // Priority order:
-// 1. AGENTDECK_PROFILE environment variable (explicit)
+// 1. HANGAR_PROFILE environment variable (explicit)
 // 2. CLAUDE_CONFIG_DIR environment variable (inferred from Claude profile)
 // 3. Config default profile
 // 4. Fallback to "default"
 func DetectCurrentProfile() string {
 	// Priority 1: Explicit environment variable
-	if profile := os.Getenv("AGENTDECK_PROFILE"); profile != "" {
+	if profile := os.Getenv("HANGAR_PROFILE"); profile != "" {
 		return profile
 	}
 

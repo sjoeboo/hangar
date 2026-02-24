@@ -25,7 +25,7 @@ func skipIfNoTmuxServer(t *testing.T) {
 // CRITICAL: This was missing and caused test data to overwrite production sessions!
 func TestMain(m *testing.M) {
 	// Force _test profile for all tests in this package
-	os.Setenv("AGENTDECK_PROFILE", "_test")
+	os.Setenv("HANGAR_PROFILE", "_test")
 
 	// Run tests
 	code := m.Run()

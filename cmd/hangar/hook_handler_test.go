@@ -114,8 +114,8 @@ func TestHookHandler_WritesStatusFile(t *testing.T) {
 }
 
 func TestHookHandler_MissingInstanceID(t *testing.T) {
-	// When AGENTDECK_INSTANCE_ID is not set, handleHookHandler should return silently
-	os.Unsetenv("AGENTDECK_INSTANCE_ID")
+	// When HANGAR_INSTANCE_ID is not set, handleHookHandler should return silently
+	os.Unsetenv("HANGAR_INSTANCE_ID")
 
 	// This should not panic or produce any output
 	handleHookHandler()

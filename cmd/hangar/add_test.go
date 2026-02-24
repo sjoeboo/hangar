@@ -6,7 +6,7 @@ import (
 	"github.com/sjoeboo/hangar/internal/session"
 )
 
-// TestMain is in testmain_test.go - sets AGENTDECK_PROFILE=_test
+// TestMain is in testmain_test.go - sets HANGAR_PROFILE=_test
 
 // =============================================================================
 // Tests for isDuplicateSession
