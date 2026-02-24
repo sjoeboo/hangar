@@ -1020,3 +1020,126 @@ func TestListItemAt(t *testing.T) {
 		}
 	})
 }
+
+func TestHandleMouseMsg(t *testing.T) {
+	makeSessionItems := func(n int) []session.Item {
+		items := make([]session.Item, n)
+		for i := range items {
+			inst := &session.Instance{}
+			items[i] = session.Item{Type: session.ItemTypeSession, Session: inst}
+		}
+		return items
+	}
+
+	t.Run("single left click moves cursor", func(t *testing.T) {
+		h := NewHome()
+		h.width = 120
+		h.height = 30
+		h.flatItems = makeSessionItems(5)
+		h.cursor = 0
+
+		// listStartRow=4 (no banners, viewOffset=0), Y=5 → item 1
+		msg := tea.MouseMsg{Button: tea.MouseButtonLeft, Action: tea.MouseActionPress, X: 5, Y: 5}
+		model, _ := h.Update(msg)
+		updated := model.(*Home)
+		if updated.cursor != 1 {
+			t.Errorf("expected cursor=1 after click row 5, got %d", updated.cursor)
+		}
+	})
+
+	t.Run("click above list does not move cursor", func(t *testing.T) {
+		h := NewHome()
+		h.width = 120
+		h.height = 30
+		h.flatItems = makeSessionItems(5)
+		h.cursor = 2
+
+		// Y=0 is above the list (listStartRow=4)
+		msg := tea.MouseMsg{Button: tea.MouseButtonLeft, Action: tea.MouseActionPress, X: 5, Y: 0}
+		model, _ := h.Update(msg)
+		updated := model.(*Home)
+		if updated.cursor != 2 {
+			t.Errorf("expected cursor unchanged at 2, got %d", updated.cursor)
+		}
+	})
+
+	t.Run("first click records tracking state", func(t *testing.T) {
+		h := NewHome()
+		h.width = 120
+		h.height = 30
+		h.flatItems = makeSessionItems(5)
+		h.cursor = 0
+
+		// Y=4 → listStartRow=4 → item 0
+		msg := tea.MouseMsg{Button: tea.MouseButtonLeft, Action: tea.MouseActionPress, X: 5, Y: 4}
+		model, _ := h.Update(msg)
+		h = model.(*Home)
+		if h.lastClickIndex != 0 {
+			t.Errorf("expected lastClickIndex=0 after first click, got %d", h.lastClickIndex)
+		}
+		if h.lastClickTime.IsZero() {
+			t.Error("expected lastClickTime to be set after first click")
+		}
+	})
+
+	t.Run("scroll wheel up moves cursor up", func(t *testing.T) {
+		h := NewHome()
+		h.width = 120
+		h.height = 30
+		h.flatItems = makeSessionItems(20)
+		h.viewOffset = 5
+		h.cursor = 5
+
+		msg := tea.MouseMsg{Button: tea.MouseButtonWheelUp, Action: tea.MouseActionPress, X: 5, Y: 10}
+		model, _ := h.Update(msg)
+		updated := model.(*Home)
+		if updated.cursor >= 5 {
+			t.Errorf("expected cursor to move up after wheel up, got %d", updated.cursor)
+		}
+	})
+
+	t.Run("scroll wheel down moves cursor down", func(t *testing.T) {
+		h := NewHome()
+		h.width = 120
+		h.height = 30
+		h.flatItems = makeSessionItems(20)
+		h.cursor = 0
+
+		msg := tea.MouseMsg{Button: tea.MouseButtonWheelDown, Action: tea.MouseActionPress, X: 5, Y: 10}
+		model, _ := h.Update(msg)
+		updated := model.(*Home)
+		if updated.cursor <= 0 {
+			t.Errorf("expected cursor to move down after wheel down, got %d", updated.cursor)
+		}
+	})
+
+	t.Run("click on group item toggles group", func(t *testing.T) {
+		h := NewHome()
+		h.width = 120
+		h.height = 30
+
+		// Build a GroupTree manually with one expanded group
+		gt := session.NewGroupTree([]*session.Instance{})
+		grp := &session.Group{Name: "test", Path: "test", Expanded: true, Sessions: []*session.Instance{}}
+		gt.Groups["test"] = grp
+		gt.GroupList = append(gt.GroupList, grp)
+		gt.Expanded["test"] = true
+
+		h.groupTree = gt
+		h.flatItems = []session.Item{
+			{Type: session.ItemTypeGroup, Group: grp, Path: "test"},
+		}
+		h.cursor = 0
+
+		// Y=4 → listStartRow=4 → item 0 (the group)
+		msg := tea.MouseMsg{Button: tea.MouseButtonLeft, Action: tea.MouseActionPress, X: 5, Y: 4}
+		model, _ := h.Update(msg)
+		updated := model.(*Home)
+
+		// After toggling, the group should be collapsed
+		// Check via the Expanded map (false or absent = collapsed)
+		if updated.groupTree.Expanded["test"] {
+			t.Error("expected group to be collapsed after click, but Expanded[\"test\"] is still true")
+		}
+	})
+}
