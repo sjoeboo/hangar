@@ -3461,12 +3461,41 @@ func (h *Home) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return h, nil
 
-	case "G": // Open global search (fall back to local search if index not available)
-		if h.globalSearchIndex != nil {
-			h.globalSearch.SetSize(h.width, h.height)
-			h.globalSearch.Show()
-		} else {
-			h.search.Show()
+	case "G": // Launch lazygit in a new tmux window for the selected session's directory
+		if h.cursor < len(h.flatItems) {
+			item := h.flatItems[h.cursor]
+			var workDir string
+			if item.Type == session.ItemTypeSession && item.Session != nil {
+				workDir = item.Session.ProjectPath
+			}
+			if workDir == "" {
+				if cwd, err := os.Getwd(); err == nil {
+					workDir = cwd
+				}
+			}
+			sessionName := ""
+			if item.Type == session.ItemTypeSession && item.Session != nil {
+				if ts := item.Session.GetTmuxSession(); ts != nil {
+					sessionName = ts.Name
+				}
+			}
+			if sessionName == "" {
+				// Fall back to any active tmux session name
+				for _, inst := range h.instances {
+					if ts := inst.GetTmuxSession(); ts != nil {
+						sessionName = ts.Name
+						break
+					}
+				}
+			}
+			if sessionName != "" {
+				wdir := workDir
+				return h, func() tea.Msg {
+					cmd := exec.Command("tmux", "new-window", "-t", sessionName, "-c", wdir, "-n", "lazygit", "lazygit")
+					_ = cmd.Run()
+					return nil
+				}
+			}
 		}
 		return h, nil
 
@@ -3657,7 +3686,7 @@ func (h *Home) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return h, nil
 
 	case "g":
-		// Vi-style gg to jump to top (#38) - check for double-tap first
+		// Vi-style gg to jump to top — single g just arms the timer
 		if time.Since(h.lastGTime) < 500*time.Millisecond {
 			// Double g - jump to top
 			if len(h.flatItems) > 0 {
@@ -3671,9 +3700,10 @@ func (h *Home) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			return h, nil
 		}
-		// Record time for potential gg detection
 		h.lastGTime = time.Now()
+		return h, nil
 
+	case "p":
 		// Create new project (always root-level)
 		h.groupDialog.Show()
 		return h, nil
@@ -6125,11 +6155,11 @@ func (h *Home) renderHelpBarMinimal() string {
 	// Context-specific keys (left side)
 	var contextKeys string
 	if len(h.flatItems) == 0 {
-		contextKeys = keyStyle.Render("n") + " " + keyStyle.Render("N") + " " + keyStyle.Render("i") + " " + keyStyle.Render("g")
+		contextKeys = keyStyle.Render("n") + " " + keyStyle.Render("N") + " " + keyStyle.Render("i") + " " + keyStyle.Render("p")
 	} else if h.cursor < len(h.flatItems) {
 		item := h.flatItems[h.cursor]
 		if item.Type == session.ItemTypeGroup {
-			contextKeys = keyStyle.Render("⏎") + " " + keyStyle.Render("n") + " " + keyStyle.Render("N") + " " + keyStyle.Render("g")
+			contextKeys = keyStyle.Render("⏎") + " " + keyStyle.Render("n") + " " + keyStyle.Render("N") + " " + keyStyle.Render("p")
 		} else {
 			contextKeys = keyStyle.Render("⏎") + " " + keyStyle.Render("n") + " " + keyStyle.Render("N") + " " + keyStyle.Render("R")
 			if item.Session != nil && item.Session.CanFork() {
@@ -6260,7 +6290,7 @@ func (h *Home) renderHelpBarFull() string {
 		primaryHints = []string{
 			h.helpKey("n/N", "New/Quick"),
 			h.helpKey("i", "Import"),
-			h.helpKey("g", "Group"),
+			h.helpKey("p", "Project"),
 		}
 	} else if h.cursor < len(h.flatItems) {
 		item := h.flatItems[h.cursor]
@@ -6269,7 +6299,7 @@ func (h *Home) renderHelpBarFull() string {
 			primaryHints = []string{
 				h.helpKey("Tab", "Toggle"),
 				h.helpKey("n/N", "New/Quick"),
-				h.helpKey("g", "Group"),
+				h.helpKey("p", "Project"),
 			}
 			secondaryHints = []string{
 				h.helpKey("r", "Rename"),
@@ -6280,7 +6310,7 @@ func (h *Home) renderHelpBarFull() string {
 			primaryHints = []string{
 				h.helpKey("Enter", "Attach"),
 				h.helpKey("n/N", "New/Quick"),
-				h.helpKey("g", "Group"),
+				h.helpKey("p", "Project"),
 				h.helpKey("R", "Restart"),
 			}
 			// Only show fork hints if session has a valid Claude session ID

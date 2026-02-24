@@ -251,7 +251,7 @@ func (cp *ControlPipe) SendCommand(command string) (string, error) {
 // CapturePaneVia sends capture-pane through the control mode pipe.
 // Returns the pane content without spawning any subprocess.
 func (cp *ControlPipe) CapturePaneVia() (string, error) {
-	return cp.SendCommand(fmt.Sprintf("capture-pane -t %s -p -J", cp.sessionName))
+	return cp.SendCommand(fmt.Sprintf("capture-pane -t %s -p -e", cp.sessionName))
 }
 
 // OutputEvents returns a channel that fires when the session produces output.

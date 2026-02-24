@@ -1464,7 +1464,7 @@ func (s *Session) CapturePane() (string, error) {
 		// Subprocess fallback: -J joins wrapped lines, 3s timeout
 		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 		defer cancel()
-		cmd := exec.CommandContext(ctx, "tmux", "capture-pane", "-t", s.Name, "-p", "-J")
+		cmd := exec.CommandContext(ctx, "tmux", "capture-pane", "-t", s.Name, "-p", "-e")
 		output, err := cmd.Output()
 		if err != nil {
 			if ctx.Err() == context.DeadlineExceeded {
@@ -1497,7 +1497,7 @@ func (s *Session) CapturePaneFresh() (string, error) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, "tmux", "capture-pane", "-t", s.Name, "-p", "-J")
+	cmd := exec.CommandContext(ctx, "tmux", "capture-pane", "-t", s.Name, "-p", "-e")
 	output, err := cmd.Output()
 	if err != nil {
 		if ctx.Err() == context.DeadlineExceeded {
@@ -1519,7 +1519,7 @@ func (s *Session) CaptureFullHistory() (string, error) {
 	// Limit to last 2000 lines to balance content availability with memory usage
 	// AI agent conversations can be long - 2000 lines captures ~40-80 screens of content
 	// -J joins wrapped lines and trims trailing spaces so hashes don't change on resize
-	cmd := exec.Command("tmux", "capture-pane", "-t", s.Name, "-p", "-J", "-S", "-2000")
+	cmd := exec.Command("tmux", "capture-pane", "-t", s.Name, "-p", "-e", "-S", "-2000")
 	output, err := cmd.Output()
 	if err != nil {
 		return "", fmt.Errorf("failed to capture history: %w", err)
