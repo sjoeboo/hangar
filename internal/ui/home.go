@@ -137,8 +137,6 @@ type Home struct {
 	forkDialog           *ForkDialog           // For forking sessions
 	confirmDialog        *ConfirmDialog        // For confirming destructive actions
 	helpOverlay          *HelpOverlay          // For showing keyboard shortcuts
-	mcpDialog            *MCPDialog            // For managing MCPs
-	skillDialog          *SkillDialog          // For managing project skills
 	setupWizard          *SetupWizard          // For first-run setup
 	settingsPanel        *SettingsPanel        // For editing settings
 	geminiModelDialog    *GeminiModelDialog    // For selecting Gemini model
@@ -219,7 +217,6 @@ type Home struct {
 	// Launching animation state (for newly created sessions)
 	launchingSessions  map[string]time.Time // sessionID -> creation time
 	resumingSessions   map[string]time.Time // sessionID -> resume time (for restart/resume)
-	mcpLoadingSessions map[string]time.Time // sessionID -> MCP reload time
 	forkingSessions    map[string]time.Time // sessionID -> fork start time (fork in progress)
 	animationFrame     int                  // Current frame for spinner animation
 
@@ -332,8 +329,6 @@ type loadSessionsMsg struct {
 	groups       []*session.GroupData
 	err          error
 	restoreState *reloadState // Optional state to restore after reload
-	poolProxies  int          // Number of socket proxies started
-	poolError    error        // Pool initialization error
 	loadMtime    time.Time    // File mtime at load time (for external change detection)
 }
 
@@ -488,8 +483,6 @@ func NewHomeWithProfileAndMode(profile string) *Home {
 		forkDialog:           NewForkDialog(),
 		confirmDialog:        NewConfirmDialog(),
 		helpOverlay:          NewHelpOverlay(),
-		mcpDialog:            NewMCPDialog(),
-		skillDialog:          NewSkillDialog(),
 		setupWizard:          NewSetupWizard(),
 		settingsPanel:        NewSettingsPanel(),
 		geminiModelDialog:    NewGeminiModelDialog(),
@@ -507,7 +500,6 @@ func NewHomeWithProfileAndMode(profile string) *Home {
 		previewCacheTime:     make(map[string]time.Time),
 		launchingSessions:    make(map[string]time.Time),
 		resumingSessions:     make(map[string]time.Time),
-		mcpLoadingSessions:   make(map[string]time.Time),
 		forkingSessions:      make(map[string]time.Time),
 		lastLogActivity:      make(map[string]time.Time),
 		worktreeDirtyCache:   make(map[string]bool),
@@ -1160,19 +1152,6 @@ func (h *Home) loadSessions() tea.Msg {
 	instances, groups, err := h.storage.LoadWithGroups()
 	msg := loadSessionsMsg{instances: instances, groups: groups, err: err, loadMtime: loadMtime}
 
-	// Initialize pool AFTER sessions are loaded
-	userConfig, configErr := session.LoadUserConfig()
-	if configErr == nil && userConfig != nil && userConfig.MCPPool.Enabled {
-		pool, poolErr := session.InitializeGlobalPool(h.ctx, userConfig, instances)
-		if poolErr != nil {
-			mcpUILog.Warn("pool_init_failed", slog.String("error", poolErr.Error()))
-			msg.poolError = poolErr
-		} else if pool != nil {
-			proxies := pool.ListServers()
-			mcpUILog.Info("pool_initialized", slog.Int("proxies", len(proxies)))
-			msg.poolProxies = len(proxies)
-		}
-	}
 
 	return msg
 }
@@ -1282,9 +1261,6 @@ func (h *Home) hasActiveAnimation(sessionID string) bool {
 		startTime = t
 		hasAnimation = true
 	} else if t, ok := h.resumingSessions[sessionID]; ok {
-		startTime = t
-		hasAnimation = true
-	} else if t, ok := h.mcpLoadingSessions[sessionID]; ok {
 		startTime = t
 		hasAnimation = true
 	}
@@ -2442,9 +2418,6 @@ func (h *Home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Save the updated session state (new tmux session name)
 			h.saveInstances()
 		}
-		// NOTE: Do NOT delete from mcpLoadingSessions here!
-		// The animation should continue until Claude is ready (detected via preview content)
-		// or until the timeout expires (handled by cleanup logic in tickMsg handler)
 		return h, nil
 
 	case mcpRestartedMsg:
@@ -2457,8 +2430,6 @@ func (h *Home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			msg.session.CaptureLoadedMCPs()
 			h.invalidatePreviewCache(msg.session.ID)
 			h.saveInstances()
-			// NOTE: Do NOT delete from mcpLoadingSessions here!
-			// Animation continues until Claude is ready or timeout expires
 			mcpUILog.Debug("mcp_reload_initiated", slog.String("session_id", msg.session.ID))
 		}
 		return h, nil
@@ -2870,7 +2841,6 @@ func (h *Home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Note: cleanupExpiredAnimations accesses instanceByID which is thread-safe on main goroutine
 		h.cleanupExpiredAnimations(h.launchingSessions, claudeTimeout, defaultTimeout)
 		h.cleanupExpiredAnimations(h.resumingSessions, claudeTimeout, defaultTimeout)
-		h.cleanupExpiredAnimations(h.mcpLoadingSessions, claudeTimeout, defaultTimeout)
 		h.cleanupExpiredAnimations(h.forkingSessions, claudeTimeout, defaultTimeout)
 
 		// Notification bar sync handled by background worker (syncNotificationsBackground)
@@ -2993,12 +2963,6 @@ func (h *Home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if h.confirmDialog.IsVisible() {
 			return h.handleConfirmDialogKey(msg)
-		}
-		if h.mcpDialog.IsVisible() {
-			return h.handleMCPDialogKey(msg)
-		}
-		if h.skillDialog.IsVisible() {
-			return h.handleSkillDialogKey(msg)
 		}
 		if h.geminiModelDialog.IsVisible() {
 			d, cmd := h.geminiModelDialog.Update(msg)
@@ -3291,8 +3255,7 @@ func (h *Home) handleMouseMsg(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 		h.helpOverlay.IsVisible() || h.search.IsVisible() ||
 		h.globalSearch.IsVisible() || h.newDialog.IsVisible() ||
 		h.groupDialog.IsVisible() || h.forkDialog.IsVisible() ||
-		h.confirmDialog.IsVisible() || h.mcpDialog.IsVisible() ||
-		h.skillDialog.IsVisible() || h.geminiModelDialog.IsVisible() ||
+		h.confirmDialog.IsVisible() || h.geminiModelDialog.IsVisible() ||
 		h.sessionPickerDialog.IsVisible() || h.worktreeFinishDialog.IsVisible() {
 		return h, nil
 	}
@@ -3608,20 +3571,6 @@ func (h *Home) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return h, nil
 
-	case "m":
-		// MCP Manager - for Claude and Gemini sessions
-		if h.cursor < len(h.flatItems) {
-			item := h.flatItems[h.cursor]
-			if item.Type == session.ItemTypeSession && item.Session != nil &&
-				(item.Session.Tool == "claude" || item.Session.Tool == "gemini") {
-				h.mcpDialog.SetSize(h.width, h.height)
-				if err := h.mcpDialog.Show(item.Session.ProjectPath, item.Session.ID, item.Session.Tool); err != nil {
-					h.setError(err)
-				}
-			}
-		}
-		return h, nil
-
 	case "f":
 		// Quick fork session (same title with " (fork)" suffix)
 		// Only available when session has a valid Claude session ID
@@ -3653,20 +3602,6 @@ func (h *Home) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				}
 				if item.Session.CanFork() {
 					return h, h.forkSessionWithDialog(item.Session)
-				}
-			}
-		}
-		return h, nil
-
-	case "s":
-		// Skills Manager - currently for Claude sessions
-		if h.cursor < len(h.flatItems) {
-			item := h.flatItems[h.cursor]
-			if item.Type == session.ItemTypeSession && item.Session != nil &&
-				item.Session.Tool == "claude" {
-				h.skillDialog.SetSize(h.width, h.height)
-				if err := h.skillDialog.Show(item.Session.ProjectPath, item.Session.ID, item.Session.Tool); err != nil {
-					h.setError(err)
 				}
 			}
 		}
@@ -4077,11 +4012,11 @@ func (h *Home) handleConfirmDialogKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case "k", "K":
 			h.confirmDialog.Hide()
 			h.isQuitting = true
-			return h, h.performQuit(false)
+			return h, h.performQuit()
 		case "s", "S":
 			h.confirmDialog.Hide()
 			h.isQuitting = true
-			return h, h.performQuit(true)
+			return h, h.performQuit()
 		case "esc":
 			h.confirmDialog.Hide()
 			h.isQuitting = false
@@ -4176,32 +4111,21 @@ func (h *Home) handleConfirmDialogKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 // tryQuit checks if MCP pool is running and shows confirmation dialog, or quits directly
 func (h *Home) tryQuit() (tea.Model, tea.Cmd) {
-	// Check if pool is enabled and has running MCPs
-	userConfig, _ := session.LoadUserConfig()
-	if userConfig != nil && userConfig.MCPPool.Enabled {
-		runningCount := session.GetGlobalPoolRunningCount()
-		if runningCount > 0 {
-			// Show quit confirmation dialog
-			h.confirmDialog.ShowQuitWithPool(runningCount)
-			return h, nil
-		}
-	}
 	// No pool running, quit directly (shutdown = true by default for clean exit)
 	h.isQuitting = true
-	return h, h.performQuit(true)
+	return h, h.performQuit()
 }
 
 // performQuit triggers the quitting splash screen and schedules final shutdown
-// shutdownPool: true = shutdown MCP pool, false = leave running in background
-func (h *Home) performQuit(shutdownPool bool) tea.Cmd {
+func (h *Home) performQuit() tea.Cmd {
 	return tea.Tick(100*time.Millisecond, func(_ time.Time) tea.Msg {
-		return quitMsg(shutdownPool)
+		return quitMsg(true)
 	})
 }
 
 // performFinalShutdown performs the actual cleanup logic before exiting
 // This is called via quitMsg after the splash screen has had time to render
-func (h *Home) performFinalShutdown(shutdownPool bool) tea.Cmd {
+func (h *Home) performFinalShutdown(_ bool) tea.Cmd {
 	return func() tea.Msg {
 		// Signal background worker to stop
 		h.cancel()
@@ -4244,10 +4168,6 @@ func (h *Home) performFinalShutdown(shutdownPool bool) tea.Cmd {
 		if h.globalSearchIndex != nil {
 			h.globalSearchIndex.Close()
 		}
-		// Shutdown or disconnect from MCP pool based on user choice
-		if err := session.ShutdownGlobalPool(shutdownPool); err != nil {
-			mcpUILog.Warn("pool_shutdown_error", slog.String("error", err.Error()))
-		}
 		// Release primary claim and unregister from the heartbeat table
 		if db := statedb.GetGlobal(); db != nil {
 			_ = db.ResignPrimary()
@@ -4261,96 +4181,6 @@ func (h *Home) performFinalShutdown(shutdownPool bool) tea.Cmd {
 		h.saveInstances()
 
 		return tea.Quit()
-	}
-}
-
-// handleMCPDialogKey handles keys when MCP dialog is visible
-func (h *Home) handleMCPDialogKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	switch msg.String() {
-	case "enter":
-		// DEBUG: Log entry point
-		mcpUILog.Debug("dialog_enter_pressed")
-
-		// Apply changes and close dialog
-		hasChanged := h.mcpDialog.HasChanged()
-		mcpUILog.Debug("dialog_has_changed", slog.Bool("changed", hasChanged))
-
-		if hasChanged {
-			// Apply changes (saves state + writes .mcp.json)
-			if err := h.mcpDialog.Apply(); err != nil {
-				mcpUILog.Debug("dialog_apply_failed", slog.String("error", err.Error()))
-				h.setError(err)
-				h.mcpDialog.Hide() // Hide dialog even on error
-				return h, nil
-			}
-			mcpUILog.Debug("dialog_apply_succeeded")
-
-			// Find the session by ID (stored when dialog opened - same as Shift+S uses)
-			sessionID := h.mcpDialog.GetSessionID()
-			mcpUILog.Debug("dialog_looking_for_session", slog.String("session_id", sessionID))
-
-			// O(1) lookup - no lock needed as Update() runs on main goroutine
-			targetInst := h.getInstanceByID(sessionID)
-			if targetInst != nil {
-				mcpUILog.Debug("dialog_session_found", slog.String("session_id", targetInst.ID), slog.String("title", targetInst.Title))
-			}
-
-			if targetInst != nil {
-				mcpUILog.Debug("dialog_restarting_session", slog.String("session_id", targetInst.ID))
-				// Track as MCP loading for animation in preview pane
-				h.mcpLoadingSessions[targetInst.ID] = time.Now()
-				// Set flag to skip MCP regeneration (Apply just wrote the config)
-				targetInst.SkipMCPRegenerate = true
-				// Restart the session to apply MCP changes
-				h.mcpDialog.Hide()
-				return h, h.restartSession(targetInst)
-			} else {
-				mcpUILog.Debug("dialog_session_not_found", slog.String("session_id", sessionID))
-			}
-		}
-		mcpUILog.Debug("dialog_hiding_without_restart")
-		h.mcpDialog.Hide()
-		return h, nil
-
-	case "esc":
-		h.mcpDialog.Hide()
-		return h, nil
-
-	default:
-		h.mcpDialog.Update(msg)
-		return h, nil
-	}
-}
-
-// handleSkillDialogKey handles keys when Skills dialog is visible
-func (h *Home) handleSkillDialogKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	switch msg.String() {
-	case "enter":
-		hasChanged := h.skillDialog.HasChanged()
-		if hasChanged {
-			if err := h.skillDialog.Apply(); err != nil {
-				h.setError(err)
-				h.skillDialog.Hide()
-				return h, nil
-			}
-
-			sessionID := h.skillDialog.GetSessionID()
-			targetInst := h.getInstanceByID(sessionID)
-			if targetInst != nil && targetInst.Tool == "claude" {
-				h.skillDialog.Hide()
-				return h, h.restartSession(targetInst)
-			}
-		}
-		h.skillDialog.Hide()
-		return h, nil
-
-	case "esc":
-		h.skillDialog.Hide()
-		return h, nil
-
-	default:
-		h.skillDialog.Update(msg)
-		return h, nil
 	}
 }
 
@@ -5385,12 +5215,6 @@ func (h *Home) View() string {
 	}
 	if h.confirmDialog.IsVisible() {
 		return h.confirmDialog.View()
-	}
-	if h.mcpDialog.IsVisible() {
-		return h.mcpDialog.View()
-	}
-	if h.skillDialog.IsVisible() {
-		return h.skillDialog.View()
 	}
 	if h.geminiModelDialog.IsVisible() {
 		return h.geminiModelDialog.View()
@@ -7761,36 +7585,28 @@ func (h *Home) renderPreviewPane(width, height int) string {
 	// Check if this session is launching (newly created), resuming (restarted), or forking
 	launchTime, isLaunching := h.launchingSessions[selected.ID]
 	resumeTime, isResuming := h.resumingSessions[selected.ID]
-	mcpLoadTime, isMcpLoading := h.mcpLoadingSessions[selected.ID]
 	forkTime, isForking := h.forkingSessions[selected.ID]
 
 	// Determine if we should show animation (launch, resume, MCP loading, or forking)
 	// For Claude: show for minimum 6 seconds, then check for ready indicators
 	// For others: show for first 3 seconds after creation
 	showLaunchingAnimation := false
-	showMcpLoadingAnimation := false
 	showForkingAnimation := isForking // Show forking animation immediately
 	var animationStartTime time.Time
 	if isLaunching {
 		animationStartTime = launchTime
 	} else if isResuming {
 		animationStartTime = resumeTime
-	} else if isMcpLoading {
-		animationStartTime = mcpLoadTime
 	}
 
 	// Apply STATUS-BASED animation logic (matches hasActiveAnimation exactly)
 	// Animation shows until session is ready, detected via status or content
-	if isLaunching || isResuming || isMcpLoading {
+	if isLaunching || isResuming {
 		timeSinceStart := time.Since(animationStartTime)
 
 		// Brief minimum to prevent flicker
 		if timeSinceStart < launchAnimationMinDuration(selected.Tool) {
-			if isMcpLoading {
-				showMcpLoadingAnimation = true
-			} else {
-				showLaunchingAnimation = true
-			}
+			showLaunchingAnimation = true
 		} else if timeSinceStart < 15*time.Second {
 			// STATUS-BASED CHECK: Session ready when Running/Waiting/Idle
 			sessionReady := selected.Status == session.StatusRunning ||
@@ -7821,20 +7637,12 @@ func (h *Home) renderPreviewPane(width, height int) string {
 					}
 
 					if !agentReady {
-						if isMcpLoading {
-							showMcpLoadingAnimation = true
-						} else {
-							showLaunchingAnimation = true
-						}
+						showLaunchingAnimation = true
 					}
 				} else {
 					// Non-Claude/Gemini: ready if substantial content
 					if len(strings.TrimSpace(previewContent)) <= 50 {
-						if isMcpLoading {
-							showMcpLoadingAnimation = true
-						} else {
-							showLaunchingAnimation = true
-						}
+						showLaunchingAnimation = true
 					}
 				}
 			}
@@ -7851,10 +7659,6 @@ func (h *Home) renderPreviewPane(width, height int) string {
 	if showForkingAnimation {
 		b.WriteString("\n")
 		b.WriteString(h.renderForkingState(selected, width, forkTime))
-	} else if showMcpLoadingAnimation {
-		// Show MCP loading animation when reloading MCPs
-		b.WriteString("\n")
-		b.WriteString(h.renderMcpLoadingState(selected, width, mcpLoadTime))
 	} else if showLaunchingAnimation {
 		// Show launching animation for new sessions
 		b.WriteString("\n")

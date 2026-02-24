@@ -139,8 +139,8 @@ func TestSetupWizard_IsComplete(t *testing.T) {
 func TestSetupWizard_ToolOptions(t *testing.T) {
 	wizard := NewSetupWizard()
 
-	// Verify tool options
-	expectedTools := []string{"claude", "gemini", "opencode", "codex", "shell"}
+	// Verify tool options (hangar only supports claude and shell)
+	expectedTools := []string{"claude", "shell"}
 	if len(wizard.toolOptions) != len(expectedTools) {
 		t.Errorf("Tool options count: got %d, want %d", len(wizard.toolOptions), len(expectedTools))
 	}
@@ -216,13 +216,14 @@ func TestSetupWizard_NonClaudeToolConfig(t *testing.T) {
 	wizard := NewSetupWizard()
 	wizard.Show()
 
-	// Select Gemini
+	// Select Shell (index 1, the only non-Claude option)
+	// Shell is a generic option and does not set a DefaultTool value.
 	wizard.selectedTool = 1
 
 	config := wizard.GetConfig()
 
-	if config.DefaultTool != "gemini" {
-		t.Errorf("DefaultTool: got %q, want %q", config.DefaultTool, "gemini")
+	if config.DefaultTool != "" {
+		t.Errorf("DefaultTool: got %q, want empty string for shell selection", config.DefaultTool)
 	}
 
 	// Claude settings should use defaults (not overwritten)

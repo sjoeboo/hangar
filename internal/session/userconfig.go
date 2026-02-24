@@ -12,7 +12,6 @@ import (
 
 	dark "github.com/thiagokokada/dark-mode-go"
 
-	"github.com/sjoeboo/hangar/internal/platform"
 	"github.com/sjoeboo/hangar/internal/tmux"
 )
 
@@ -73,8 +72,6 @@ type UserConfig struct {
 	// Logs defines session log management settings
 	Logs LogSettings `toml:"logs"`
 
-	// MCPPool defines HTTP MCP pool settings for shared MCP servers
-	MCPPool MCPPoolSettings `toml:"mcp_pool"`
 
 	// Updates defines auto-update settings
 	Updates UpdateSettings `toml:"updates"`
@@ -117,46 +114,6 @@ type ProfileSettings struct {
 type ProfileClaudeSettings struct {
 	// ConfigDir overrides [claude].config_dir for this profile only.
 	ConfigDir string `toml:"config_dir"`
-}
-
-// MCPPoolSettings defines HTTP MCP pool configuration
-type MCPPoolSettings struct {
-	// Enabled enables HTTP pool mode (default: false)
-	Enabled bool `toml:"enabled"`
-
-	// AutoStart starts pool when agent-deck launches (default: true)
-	AutoStart bool `toml:"auto_start"`
-
-	// PortStart is the first port in the pool range (default: 8001)
-	PortStart int `toml:"port_start"`
-
-	// PortEnd is the last port in the pool range (default: 8050)
-	PortEnd int `toml:"port_end"`
-
-	// StartOnDemand starts MCPs lazily on first attach (default: false)
-	StartOnDemand bool `toml:"start_on_demand"`
-
-	// ShutdownOnExit stops HTTP servers when agent-deck quits (default: true)
-	ShutdownOnExit bool `toml:"shutdown_on_exit"`
-
-	// PoolMCPs is the list of MCPs to run in pool mode
-	// Empty = auto-detect common MCPs (memory, exa, firecrawl, etc.)
-	PoolMCPs []string `toml:"pool_mcps"`
-
-	// FallbackStdio uses stdio for MCPs without socket support (default: true)
-	FallbackStdio bool `toml:"fallback_to_stdio"`
-
-	// ShowStatus shows pool status in TUI (default: true)
-	ShowStatus bool `toml:"show_pool_status"`
-
-	// PoolAll pools all MCPs by default (default: false)
-	PoolAll bool `toml:"pool_all"`
-
-	// ExcludeMCPs excludes specific MCPs from pool when pool_all = true
-	ExcludeMCPs []string `toml:"exclude_mcps"`
-
-	// SocketWaitTimeout is seconds to wait for socket to become ready (default: 5)
-	SocketWaitTimeout int `toml:"socket_wait_timeout"`
 }
 
 // LogSettings defines log file management configuration
@@ -1285,58 +1242,6 @@ func GetInstanceSettings() InstanceSettings {
 	return config.Instances
 }
 
-// getMCPPoolConfigSection returns the MCP pool config section based on platform
-// On unsupported platforms (WSL1, Windows), it's commented out with explanation
-func getMCPPoolConfigSection() string {
-	header := `
-# ============================================================================
-# MCP Socket Pool (Advanced)
-# ============================================================================
-# The MCP pool shares MCP processes across multiple Claude sessions via Unix
-# domain sockets. This reduces memory usage when running many sessions.
-#
-# PLATFORM SUPPORT:
-#   macOS/Linux: Full support
-#   WSL2: Full support
-#   WSL1: NOT SUPPORTED (Unix sockets unreliable)
-#   Windows: NOT SUPPORTED
-#
-# When pooling is disabled or unsupported, MCPs use stdio mode (default).
-# Both modes work identically - pooling is just a memory optimization.
-
-`
-	if platform.SupportsUnixSockets() {
-		// Platform supports pooling - show enabled example
-		return header + `# Uncomment to enable MCP socket pooling:
-# [mcp_pool]
-# enabled = true
-# pool_all = true           # Pool all MCPs defined above
-# fallback_to_stdio = true  # Fall back to stdio if socket fails
-# exclude_mcps = []         # MCPs to exclude from pooling
-`
-	}
-
-	// Platform doesn't support pooling - explain why it's disabled
-	p := platform.Detect()
-	reason := "Unix sockets not supported"
-	tip := ""
-
-	switch p {
-	case platform.PlatformWSL1:
-		reason = "WSL1 detected - Unix sockets unreliable"
-		tip = "\n# TIP: Upgrade to WSL2 for socket pooling support:\n#      wsl --set-version <distro> 2\n"
-	case platform.PlatformWindows:
-		reason = "Windows detected - Unix sockets not available"
-	}
-
-	return header + fmt.Sprintf(`# MCP pool is DISABLED on this platform: %s
-# MCPs will use stdio mode (works fine, just uses more memory with many sessions).
-%s
-# [mcp_pool]
-# enabled = false  # Cannot be enabled on this platform
-`, reason, tip)
-}
-
 // CreateExampleConfig creates an example config file if none exists
 func CreateExampleConfig() error {
 	configPath, err := GetUserConfigPath()
@@ -1584,8 +1489,6 @@ auto_cleanup = true
 # busy_patterns = ["only-this-pattern"]
 `
 
-	// Add platform-aware MCP pool section
-	exampleConfig += getMCPPoolConfigSection()
 
 	// Ensure directory exists
 	dir := filepath.Dir(configPath)
@@ -1604,17 +1507,6 @@ func GetAvailableMCPs() map[string]MCPDef {
 		return make(map[string]MCPDef)
 	}
 	return config.MCPs
-}
-
-// GetAvailableMCPNames returns sorted list of MCP names from config.toml
-func GetAvailableMCPNames() []string {
-	mcps := GetAvailableMCPs()
-	names := make([]string, 0, len(mcps))
-	for name := range mcps {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-	return names
 }
 
 // GetMCPDefaultScope returns the configured default MCP scope.

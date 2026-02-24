@@ -279,7 +279,6 @@ func (s *SettingsPanel) GetConfig() *session.UserConfig {
 	if s.originalConfig != nil {
 		config.MCPs = s.originalConfig.MCPs
 		config.Tools = s.originalConfig.Tools
-		config.MCPPool = s.originalConfig.MCPPool
 		config.Profiles = s.originalConfig.Profiles
 		// Keep global Claude config when editing profile-specific override.
 		if s.claudeConfigIsScope {

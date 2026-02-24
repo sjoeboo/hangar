@@ -51,8 +51,8 @@ func TestDialogSetSize(t *testing.T) {
 func TestDialogPresetCommands(t *testing.T) {
 	d := NewNewDialog()
 
-	// Should have shell (empty), claude, gemini, opencode, codex
-	expectedCommands := []string{"", "claude", "gemini", "opencode", "codex"}
+	// Should have shell (empty) and claude only
+	expectedCommands := []string{"", "claude"}
 
 	if len(d.presetCommands) != len(expectedCommands) {
 		t.Errorf("Expected %d preset commands, got %d", len(expectedCommands), len(d.presetCommands))

@@ -61,34 +61,22 @@ func WriteGeminiMCPSettings(enabledNames []string) error {
 
 	// Get available MCPs from agent-deck config.toml
 	availableMCPs := GetAvailableMCPs()
-	pool := GetGlobalPool()
 
 	mcpServers := make(map[string]MCPServerConfig)
 	for _, name := range enabledNames {
 		if def, ok := availableMCPs[name]; ok {
-			// Check if should use socket pool mode
-			if pool != nil && pool.ShouldPool(name) && pool.IsRunning(name) {
-				// Use Unix socket
-				socketPath := pool.GetSocketPath(name)
-				mcpServers[name] = MCPServerConfig{
-					Command: "nc",
-					Args:    []string{"-U", socketPath},
-				}
-			} else {
-				// Use stdio mode
-				args := def.Args
-				if args == nil {
-					args = []string{}
-				}
-				env := def.Env
-				if env == nil {
-					env = map[string]string{}
-				}
-				mcpServers[name] = MCPServerConfig{
-					Command: def.Command,
-					Args:    args,
-					Env:     env,
-				}
+			args := def.Args
+			if args == nil {
+				args = []string{}
+			}
+			env := def.Env
+			if env == nil {
+				env = map[string]string{}
+			}
+			mcpServers[name] = MCPServerConfig{
+				Command: def.Command,
+				Args:    args,
+				Env:     env,
 			}
 		}
 	}

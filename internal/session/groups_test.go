@@ -222,7 +222,7 @@ func TestSubgroupSortingWithUnrelatedRoots(t *testing.T) {
 	// "My Sessions" (M) < "hangar" (a) in ASCII (uppercase < lowercase)
 	// But "agent-deck/github-issues" would sort before "my-sessions" by full path
 	tree.CreateGroup("My Sessions") // path: my-sessions
-	tree.CreateGroup("hangar")  // path: agent-deck
+	tree.CreateGroup("hangar")  // path: hangar
 	tree.CreateGroup("ard")         // path: ard
 	tree.CreateSubgroup("hangar", "github-issues")
 
@@ -242,25 +242,25 @@ func TestSubgroupSortingWithUnrelatedRoots(t *testing.T) {
 		}
 	}
 
-	// Verify: github-issues must come immediately after agent-deck, not before my-sessions
-	agentDeckPos := positions["hangar"]
-	githubIssuesPos := positions["agent-deck/github-issues"]
+	// Verify: github-issues must come immediately after hangar, not before my-sessions
+	hangarPos := positions["hangar"]
+	githubIssuesPos := positions["hangar/github-issues"]
 	mySessionsPos := positions["my-sessions"]
 	ardPos := positions["ard"]
 
-	// agent-deck/github-issues should come right after agent-deck
-	if githubIssuesPos != agentDeckPos+1 {
-		t.Errorf("github-issues (pos %d) should come right after agent-deck (pos %d)",
-			githubIssuesPos, agentDeckPos)
+	// hangar/github-issues should come right after hangar
+	if githubIssuesPos != hangarPos+1 {
+		t.Errorf("github-issues (pos %d) should come right after hangar (pos %d)",
+			githubIssuesPos, hangarPos)
 	}
 
-	// my-sessions should NOT be between agent-deck and github-issues
-	if mySessionsPos > agentDeckPos && mySessionsPos < githubIssuesPos {
-		t.Errorf("my-sessions (pos %d) should not be between agent-deck (pos %d) and github-issues (pos %d)",
-			mySessionsPos, agentDeckPos, githubIssuesPos)
+	// my-sessions should NOT be between hangar and github-issues
+	if mySessionsPos > hangarPos && mySessionsPos < githubIssuesPos {
+		t.Errorf("my-sessions (pos %d) should not be between hangar (pos %d) and github-issues (pos %d)",
+			mySessionsPos, hangarPos, githubIssuesPos)
 	}
 
-	// ard should come after both agent-deck and github-issues (same root family, then ard)
+	// ard should come after both hangar and github-issues (same root family, then ard)
 	if ardPos < githubIssuesPos {
 		t.Errorf("ard (pos %d) should come after github-issues (pos %d)",
 			ardPos, githubIssuesPos)
@@ -948,7 +948,7 @@ func TestGetRootPath(t *testing.T) {
 		{"parent/child", "parent"},
 		{"a/b/c", "a"},
 		{"my-sessions", "my-sessions"},
-		{"agent-deck/github-issues", "hangar"},
+		{"hangar/github-issues", "hangar"},
 		{"deep/nested/path/here", "deep"},
 	}
 

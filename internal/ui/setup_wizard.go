@@ -169,15 +169,6 @@ func (w *SetupWizard) GetConfig() *session.UserConfig {
 		NotifyInCLI:        true,
 	}
 
-	// Set MCP pool settings based on platform
-	// Only enable on platforms that support Unix sockets
-	config.MCPPool = session.MCPPoolSettings{
-		Enabled:       false, // Disabled by default, user can enable if desired
-		FallbackStdio: true,  // Always fall back to stdio if sockets fail
-	}
-	// Note: Even on supported platforms, we don't enable by default
-	// Users can enable it manually if they want the optimization
-
 	// Notifications: minimal mode is hangar's default
 	config.Notifications = session.NotificationsConfig{
 		Enabled:  true,

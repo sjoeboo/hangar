@@ -222,19 +222,6 @@ func main() {
 		case "session":
 			handleSession(profile, args[1:])
 			return
-		case "mcp":
-			handleMCP(profile, args[1:])
-			return
-		case "skill":
-			handleSkill(profile, args[1:])
-			return
-		case "mcp-proxy":
-			if len(args) < 2 {
-				fmt.Fprintln(os.Stderr, "Usage: hangar mcp-proxy <socket-path>")
-				os.Exit(1)
-			}
-			runMCPProxy(args[1])
-			return
 		case "group":
 			handleGroup(profile, args[1:])
 			return
@@ -271,7 +258,6 @@ func main() {
 		fmt.Fprintln(os.Stderr, "CLI commands work inside sessions. For example:")
 		fmt.Fprintln(os.Stderr, "  hangar add /path -t \"Title\"    # Add a new session")
 		fmt.Fprintln(os.Stderr, "  hangar session start <id>      # Start a session")
-		fmt.Fprintln(os.Stderr, "  hangar mcp attach <id> <mcp>   # Attach MCP")
 		fmt.Fprintln(os.Stderr, "  hangar list                    # List sessions")
 		fmt.Fprintln(os.Stderr, "")
 		fmt.Fprintln(os.Stderr, "To open the TUI, detach first with Ctrl+Q.")
