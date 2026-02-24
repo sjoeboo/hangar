@@ -374,7 +374,10 @@ Additional resources:
 
 ### Updates
 
-Agent Deck checks for updates automatically. Run `agent-deck update` to install, or set `auto_update = true` in [config.toml](skills/agent-deck/references/config-reference.md) for automatic updates.
+Agent Deck checks for updates automatically.
+- Standalone/manual install: run `agent-deck update` to install.
+- Homebrew install: run `brew upgrade asheshgoplani/tap/agent-deck`.
+- Optional: set `auto_update = true` in [config.toml](skills/agent-deck/references/config-reference.md) for automatic update prompts.
 
 ## FAQ
 

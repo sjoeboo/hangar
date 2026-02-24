@@ -282,6 +282,9 @@ func PerformUpdate(downloadURL string) error {
 	if err != nil {
 		return fmt.Errorf("failed to resolve symlinks: %w", err)
 	}
+	if upgradeCmd, ok := homebrewUpgradeHint(execPath); ok {
+		return fmt.Errorf("homebrew-managed install detected at %s; use `%s`", execPath, upgradeCmd)
+	}
 
 	// Download the release
 	fmt.Printf("Downloading from %s...\n", downloadURL)
@@ -344,6 +347,23 @@ func PerformUpdate(downloadURL string) error {
 
 	fmt.Println("✓ Update complete!")
 	return nil
+}
+
+func homebrewUpgradeHint(execPath string) (string, bool) {
+	clean := filepath.Clean(execPath)
+	// Homebrew-managed binaries resolve to Cellar paths. Self-overwriting these
+	// can leave installs in a bad state; prefer brew-managed upgrades.
+	knownCellars := []string{
+		"/opt/homebrew/Cellar/agent-deck/",
+		"/usr/local/Cellar/agent-deck/",
+		"/home/linuxbrew/.linuxbrew/Cellar/agent-deck/",
+	}
+	for _, prefix := range knownCellars {
+		if strings.HasPrefix(clean, prefix) {
+			return "brew upgrade asheshgoplani/tap/agent-deck", true
+		}
+	}
+	return "", false
 }
 
 // ChangelogEntry represents a single version's changelog

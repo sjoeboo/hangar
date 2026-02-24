@@ -188,3 +188,44 @@ func TestUpdateBridgePy_UsesEmbeddedTemplateAndBacksUpExistingFile(t *testing.T)
 	assert.True(t, strings.Contains(string(newContent), "Conductor Bridge: Telegram & Slack"),
 		"bridge.py should be refreshed from the embedded multi-platform template")
 }
+
+func TestHomebrewUpgradeHint(t *testing.T) {
+	tests := []struct {
+		name     string
+		path     string
+		wantOK   bool
+		wantHint string
+	}{
+		{
+			name:     "mac arm64 cellar",
+			path:     "/opt/homebrew/Cellar/agent-deck/0.19.14/bin/agent-deck",
+			wantOK:   true,
+			wantHint: "brew upgrade asheshgoplani/tap/agent-deck",
+		},
+		{
+			name:     "mac intel cellar",
+			path:     "/usr/local/Cellar/agent-deck/0.19.14/bin/agent-deck",
+			wantOK:   true,
+			wantHint: "brew upgrade asheshgoplani/tap/agent-deck",
+		},
+		{
+			name:     "linuxbrew cellar",
+			path:     "/home/linuxbrew/.linuxbrew/Cellar/agent-deck/0.19.14/bin/agent-deck",
+			wantOK:   true,
+			wantHint: "brew upgrade asheshgoplani/tap/agent-deck",
+		},
+		{
+			name:   "standalone local binary",
+			path:   "/Users/ashesh/.local/bin/agent-deck",
+			wantOK: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			hint, ok := homebrewUpgradeHint(tt.path)
+			assert.Equal(t, tt.wantOK, ok)
+			assert.Equal(t, tt.wantHint, hint)
+		})
+	}
+}
