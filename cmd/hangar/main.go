@@ -225,6 +225,9 @@ func main() {
 		case "group":
 			handleGroup(profile, args[1:])
 			return
+		case "project":
+			handleProject(profile, args[1:])
+			return
 		case "try":
 			handleTry(profile, args[1:])
 			return
@@ -854,6 +857,17 @@ func handleAdd(profile string, args []string) {
 			fmt.Fprintf(os.Stderr, "Error: worktree already exists at %s\n", worktreePath)
 			fmt.Fprintf(os.Stderr, "Tip: Use 'hangar add %s' to add the existing worktree\n", worktreePath)
 			os.Exit(1)
+		}
+
+		// Optionally fast-forward the base branch before creating the worktree
+		if wtSettings.AutoUpdateBase {
+			baseBranch, _ := git.GetDefaultBranch(repoRoot)
+			if baseBranch == "" {
+				baseBranch = "main"
+			}
+			if err := git.UpdateBaseBranch(repoRoot, baseBranch); err != nil {
+				fmt.Fprintf(os.Stderr, "Warning: failed to update base branch: %v\n", err)
+			}
 		}
 
 		// Create worktree
@@ -1946,6 +1960,7 @@ func printHelp() {
 	fmt.Println("  status           Show session status summary")
 	fmt.Println("  session          Manage session lifecycle")
 	fmt.Println("  group            Manage groups")
+	fmt.Println("  project          Manage projects (git repo pointers)")
 	fmt.Println("  worktree, wt     Manage git worktrees")
 	fmt.Println("  profile          Manage profiles")
 	fmt.Println("  update           Check for and install updates")
@@ -1986,6 +2001,7 @@ func printHelp() {
 	fmt.Println("  hangar session start my-project   # Start a session")
 	fmt.Println("  hangar session show               # Show current session (in tmux)")
 	fmt.Println("  hangar group move my-app work     # Move session to group")
+	fmt.Println("  hangar project list/add/remove    # Manage projects")
 	fmt.Println("  hangar worktree list              # List git worktrees")
 	fmt.Println()
 	fmt.Println("Environment Variables:")

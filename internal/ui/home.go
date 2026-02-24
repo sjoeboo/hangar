@@ -3201,6 +3201,17 @@ func (h *Home) handleNewDialogKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				return h, nil
 			}
 
+			// Optionally fast-forward the base branch before creating the worktree
+			if wtSettings.AutoUpdateBase {
+				baseBranch, _ := git.GetDefaultBranch(repoRoot)
+				if baseBranch == "" {
+					baseBranch = "main"
+				}
+				if err := git.UpdateBaseBranch(repoRoot, baseBranch); err != nil {
+					slog.Warn("base_branch_update_failed", "error", err)
+				}
+			}
+
 			// Create worktree
 			if err := git.CreateWorktree(repoRoot, worktreePath, branchName); err != nil {
 				h.newDialog.SetError(fmt.Sprintf("Failed to create worktree: %v", err))
@@ -4317,6 +4328,17 @@ func (h *Home) handleForkDialogKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 					if err := os.MkdirAll(filepath.Dir(worktreePath), 0755); err != nil {
 						h.forkDialog.SetError(fmt.Sprintf("Failed to create directory: %v", err))
 						return h, nil
+					}
+
+					// Optionally fast-forward the base branch before creating the worktree
+					if wtSettings.AutoUpdateBase {
+						baseBranch, _ := git.GetDefaultBranch(repoRoot)
+						if baseBranch == "" {
+							baseBranch = "main"
+						}
+						if err := git.UpdateBaseBranch(repoRoot, baseBranch); err != nil {
+							slog.Warn("base_branch_update_failed", "error", err)
+						}
 					}
 
 					if err := git.CreateWorktree(repoRoot, worktreePath, branchName); err != nil {

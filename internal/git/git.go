@@ -3,6 +3,7 @@ package git
 
 import (
 	"bufio"
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -10,6 +11,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"time"
 )
 
 // Worktree represents a git worktree
@@ -424,5 +426,30 @@ func PruneWorktrees(repoDir string) error {
 	if err != nil {
 		return fmt.Errorf("failed to prune worktrees: %s: %w", strings.TrimSpace(string(output)), err)
 	}
+	return nil
+}
+
+// UpdateBaseBranch fast-forward pulls the base branch in repoPath.
+// Returns nil if the pull succeeds or there is nothing to pull.
+// Returns an error on failure so callers can warn but continue.
+func UpdateBaseBranch(repoPath, branch string) error {
+	const timeout = 15 * time.Second
+
+	// Step 1: fetch origin
+	fetchCtx, fetchCancel := context.WithTimeout(context.Background(), timeout)
+	defer fetchCancel()
+	fetchCmd := exec.CommandContext(fetchCtx, "git", "-C", repoPath, "fetch", "origin")
+	if output, err := fetchCmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("fetch failed: %s: %w", strings.TrimSpace(string(output)), err)
+	}
+
+	// Step 2: fast-forward merge
+	mergeCtx, mergeCancel := context.WithTimeout(context.Background(), timeout)
+	defer mergeCancel()
+	mergeCmd := exec.CommandContext(mergeCtx, "git", "-C", repoPath, "merge", "--ff-only", "origin/"+branch)
+	if output, err := mergeCmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("merge --ff-only failed: %s: %w", strings.TrimSpace(string(output)), err)
+	}
+
 	return nil
 }
