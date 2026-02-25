@@ -97,7 +97,7 @@ func NewNewDialog() *NewDialog {
 		focusIndex:      0,
 		visible:         false,
 		presetCommands:  buildPresetCommands(),
-		commandCursor:   0,
+		commandCursor:   1, // default to claude
 		parentGroupPath: "default",
 		parentGroupName: "default",
 		worktreeEnabled: false,
@@ -126,8 +126,8 @@ func (d *NewDialog) ShowInGroup(groupPath, groupName, defaultPath string) {
 	d.claudeOptions.Blur()
 	// Keep commandCursor at previously set default (don't reset to 0)
 	d.updateToolOptions()
-	// Reset worktree fields
-	d.worktreeEnabled = false
+	// Reset worktree fields — default to enabled
+	d.worktreeEnabled = true
 	d.branchInput.SetValue("")
 	d.branchAutoSet = false
 	// Set path input to group's default path if provided, otherwise use current working directory
@@ -156,6 +156,21 @@ func (d *NewDialog) ShowInGroup(groupPath, groupName, defaultPath string) {
 		d.focusIndex = 0
 		d.nameInput.Focus()
 	}
+}
+
+// ShowInGroupWithWorktree shows the dialog with worktree mode pre-enabled and a branch name pre-filled.
+// The project is locked to defaultPath — the project picker step is skipped entirely.
+// Used when creating a session from a todo item.
+func (d *NewDialog) ShowInGroupWithWorktree(groupPath, groupName, defaultPath, branchName string) {
+	d.ShowInGroup(groupPath, groupName, defaultPath)
+	// Skip project picker — project is determined by the todo's scope.
+	d.projectStep = false
+	d.projectSelected = true
+	d.nameInput.SetValue(branchName)
+	d.nameInput.Focus()
+	d.worktreeEnabled = true
+	d.branchInput.SetValue(branchName)
+	d.branchAutoSet = true
 }
 
 // refreshProjectList loads current projects and rebuilds d.projectList.
