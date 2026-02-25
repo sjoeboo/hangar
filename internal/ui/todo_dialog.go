@@ -88,15 +88,23 @@ func (d *TodoDialog) Hide() { d.visible = false }
 func (d *TodoDialog) SetSize(w, h int) {
 	d.width = w
 	d.height = h
-	d.titleInput.Width = w/2 - 6
-	d.descInput.Width = w/2 - 6
+	inputWidth := w/2 - 6
+	if inputWidth < 10 {
+		inputWidth = 10
+	}
+	d.titleInput.Width = inputWidth
+	d.descInput.Width = inputWidth
 }
 
 // SetTodos replaces the current todo list (used after reloads).
 func (d *TodoDialog) SetTodos(todos []*session.Todo) {
 	d.todos = todos
-	if len(d.todos) > 0 && d.cursor >= len(d.todos) {
-		d.cursor = len(d.todos) - 1
+	if d.cursor >= len(d.todos) {
+		if len(d.todos) > 0 {
+			d.cursor = len(d.todos) - 1
+		} else {
+			d.cursor = 0
+		}
 	}
 }
 
@@ -368,14 +376,18 @@ func (d *TodoDialog) viewList() string {
 	}
 
 	innerWidth := d.width - 10
+	if innerWidth < 20 {
+		innerWidth = 20
+	}
 	for i, t := range d.todos {
 		statusSt := todoStatusStyle(t.Status)
 		icon := statusSt.Render(todoStatusIcon(t.Status))
 		label := statusSt.Render(todoStatusLabel(t.Status))
 
 		titleCol := t.Title
-		if len(titleCol) > innerWidth-15 {
-			titleCol = titleCol[:innerWidth-18] + "..."
+		truncAt := innerWidth - 18
+		if truncAt > 0 && len(titleCol) > innerWidth-15 {
+			titleCol = titleCol[:truncAt] + "..."
 		}
 
 		gap := innerWidth - len(titleCol) - len(todoStatusLabel(t.Status)) - 4
