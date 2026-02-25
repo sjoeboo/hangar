@@ -82,6 +82,11 @@ func todoToRow(t *Todo) *statedb.TodoRow {
 
 // LoadTodos returns all todos for the given project path.
 func (s *Storage) LoadTodos(projectPath string) ([]*Todo, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.db == nil {
+		return nil, fmt.Errorf("storage database not initialized")
+	}
 	rows, err := s.db.LoadTodos(projectPath)
 	if err != nil {
 		return nil, err
@@ -93,24 +98,45 @@ func (s *Storage) LoadTodos(projectPath string) ([]*Todo, error) {
 	return todos, nil
 }
 
-// SaveTodo inserts or updates a todo.
+// SaveTodo inserts or updates a todo. Updates todo.UpdatedAt to the current time before saving.
 func (s *Storage) SaveTodo(todo *Todo) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.db == nil {
+		return fmt.Errorf("storage database not initialized")
+	}
 	todo.UpdatedAt = time.Now()
 	return s.db.SaveTodo(todoToRow(todo))
 }
 
 // DeleteTodo removes a todo by ID.
 func (s *Storage) DeleteTodo(id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.db == nil {
+		return fmt.Errorf("storage database not initialized")
+	}
 	return s.db.DeleteTodo(id)
 }
 
 // UpdateTodoStatus updates a todo's status and linked session ID.
 func (s *Storage) UpdateTodoStatus(id string, status TodoStatus, sessionID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.db == nil {
+		return fmt.Errorf("storage database not initialized")
+	}
 	return s.db.UpdateTodoStatus(id, string(status), sessionID)
 }
 
-// OrphanTodosForSession sets status to "orphaned" for any todo linked to the given session.
+// OrphanTodosForSession sets status to "orphaned" for the todo linked to the given session.
+// The todo-session relationship is 1:1 by design; at most one todo will be affected.
 func (s *Storage) OrphanTodosForSession(sessionID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.db == nil {
+		return fmt.Errorf("storage database not initialized")
+	}
 	row, err := s.db.FindTodoBySessionID(sessionID)
 	if err != nil || row == nil {
 		return err
@@ -118,8 +144,14 @@ func (s *Storage) OrphanTodosForSession(sessionID string) error {
 	return s.db.UpdateTodoStatus(row.ID, "orphaned", sessionID)
 }
 
-// DeleteTodosForSession removes any todo linked to the given session.
+// DeleteTodosForSession removes the todo linked to the given session.
+// The todo-session relationship is 1:1 by design; at most one todo will be affected.
 func (s *Storage) DeleteTodosForSession(sessionID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.db == nil {
+		return fmt.Errorf("storage database not initialized")
+	}
 	row, err := s.db.FindTodoBySessionID(sessionID)
 	if err != nil || row == nil {
 		return err
@@ -129,6 +161,11 @@ func (s *Storage) DeleteTodosForSession(sessionID string) error {
 
 // FindTodoBySessionID returns the todo linked to the given session, or nil.
 func (s *Storage) FindTodoBySessionID(sessionID string) (*Todo, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.db == nil {
+		return nil, fmt.Errorf("storage database not initialized")
+	}
 	row, err := s.db.FindTodoBySessionID(sessionID)
 	if err != nil || row == nil {
 		return nil, err
