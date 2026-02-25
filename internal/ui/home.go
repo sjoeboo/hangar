@@ -3000,7 +3000,27 @@ func (h *Home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			h.previewCacheMu.Unlock()
 		}
-		return h, tea.Batch(h.tick(), previewCmd)
+		// PR fetch for currently selected worktree session (if missing or TTL expired)
+		// Handles startup case where no navigation ever fires previewDebounceMsg
+		var prCmd tea.Cmd
+		if selected != nil && h.ghPath != "" && selected.IsWorktree() && selected.WorktreePath != "" {
+			h.prCacheMu.Lock()
+			cacheTs, hasCached := h.prCacheTs[selected.ID]
+			needsFetch := !hasCached || time.Since(cacheTs) > 60*time.Second
+			if needsFetch {
+				h.prCacheTs[selected.ID] = time.Now() // Prevent duplicate fetches
+			}
+			h.prCacheMu.Unlock()
+			if needsFetch {
+				sid := selected.ID
+				wtPath := selected.WorktreePath
+				ghPath := h.ghPath
+				prCmd = func() tea.Msg {
+					return fetchPRInfo(sid, wtPath, ghPath)
+				}
+			}
+		}
+		return h, tea.Batch(h.tick(), previewCmd, prCmd)
 
 	case globalSearchDebounceMsg, globalSearchResultsMsg:
 		// Route async global search messages to the global search component
