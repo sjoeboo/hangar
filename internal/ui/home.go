@@ -7003,6 +7003,7 @@ func (h *Home) renderSessionItem(b *strings.Builder, item session.Item, selected
 		h.prCacheMu.Unlock()
 		if hasPR && pr != nil {
 			var badgeStyle lipgloss.Style
+			validState := true
 			switch pr.State {
 			case "OPEN":
 				badgeStyle = PRBadgeOpen
@@ -7011,9 +7012,9 @@ func (h *Home) renderSessionItem(b *strings.Builder, item session.Item, selected
 			case "CLOSED":
 				badgeStyle = PRBadgeClosed
 			default:
-				// DRAFT and unknown states: no badge
+				validState = false // DRAFT and unknown states: no badge
 			}
-			if pr.State == "OPEN" || pr.State == "MERGED" || pr.State == "CLOSED" {
+			if validState {
 				if selected {
 					badgeStyle = SessionStatusSelStyle
 				}
