@@ -146,10 +146,31 @@ func (d *NewDialog) ShowInGroup(groupPath, groupName, defaultPath string) {
 	// Refresh project list and show project picker if projects exist
 	d.refreshProjectList()
 	if len(d.projectList) > 1 { // more than just "Enter path manually"
-		d.projectStep = true
-		d.projectSelected = false
-		d.projectCursor = 0
-		d.focusIndex = 0
+		// If defaultPath matches a known project, auto-select it and skip the picker
+		autoSelectedIdx := -1
+		if defaultPath != "" {
+			if projects, err := session.ListProjects(); err == nil {
+				for i, p := range projects {
+					if p.BaseDir == defaultPath {
+						autoSelectedIdx = i
+						break
+					}
+				}
+			}
+		}
+		if autoSelectedIdx >= 0 {
+			d.projectCursor = autoSelectedIdx
+			d.applySelectedProject()
+			d.projectStep = false
+			d.projectSelected = true
+			d.focusIndex = 0
+			d.nameInput.Focus()
+		} else {
+			d.projectStep = true
+			d.projectSelected = false
+			d.projectCursor = 0
+			d.focusIndex = 0
+		}
 	} else {
 		d.projectStep = false
 		d.projectSelected = true
