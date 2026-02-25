@@ -1523,7 +1523,23 @@ func (h *Home) getDefaultPathForGroup(groupPath string) string {
 	if h.groupTree == nil {
 		return ""
 	}
-	return h.groupTree.DefaultPathForGroup(groupPath)
+	if p := h.groupTree.DefaultPathForGroup(groupPath); p != "" {
+		return p
+	}
+	// Backward-compat fallback: look up the path in the projects registry by
+	// group name, for groups created before DefaultPath was stored on the tree.
+	group, exists := h.groupTree.Groups[groupPath]
+	if !exists {
+		return ""
+	}
+	if projects, err := session.LoadProjects(); err == nil {
+		for _, proj := range projects {
+			if proj.Name == group.Name && proj.BaseDir != "" {
+				return proj.BaseDir
+			}
+		}
+	}
+	return ""
 }
 
 // statusWorker runs in a background goroutine with its own ticker
@@ -4455,11 +4471,14 @@ func (h *Home) handleGroupDialogKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case GroupDialogCreate:
 			name := h.groupDialog.GetValue()
 			if name != "" {
-				h.groupTree.CreateGroup(name)
+				group := h.groupTree.CreateGroup(name)
 				// Register as a Project so the new-session dialog can
 				// pick it up and pre-populate the path.
 				if baseDir := h.groupDialog.GetPath(); baseDir != "" {
 					_ = session.AddProject(name, baseDir, "")
+					// Also persist the path on the group tree so todos and
+					// the todo dialog work even before any session is created.
+					h.groupTree.SetDefaultPathForGroup(group.Path, baseDir)
 				}
 				h.rebuildFlatItems()
 				h.saveInstances() // Persist the new project
