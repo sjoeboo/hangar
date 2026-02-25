@@ -8369,46 +8369,26 @@ func (h *Home) renderGroupPreview(group *session.Group, width, height int) strin
 	// Todos section
 	if projectPath := h.getDefaultPathForGroup(group.Path); projectPath != "" {
 		if todos, err := h.storage.LoadTodos(projectPath); err == nil && len(todos) > 0 {
-			b.WriteString(renderSectionDivider("Todos", width-4))
+			b.WriteString(renderSectionDivider(fmt.Sprintf("Todos (%d)", len(todos)), width-4))
 			b.WriteString("\n")
 
-			// Count by status
-			todoCount, inProgressCount, inReviewCount, doneCount, orphanedCount := 0, 0, 0, 0, 0
-			for _, t := range todos {
-				switch t.Status {
-				case session.TodoStatusTodo:
-					todoCount++
-				case session.TodoStatusInProgress:
-					inProgressCount++
-				case session.TodoStatusInReview:
-					inReviewCount++
-				case session.TodoStatusDone:
-					doneCount++
-				case session.TodoStatusOrphaned:
-					orphanedCount++
+			maxTodos := 6
+			for i, t := range todos {
+				if i >= maxTodos {
+					b.WriteString(DimStyle.Render(fmt.Sprintf("  ... +%d more", len(todos)-i)))
+					b.WriteString("\n")
+					break
 				}
+				st := todoStatusStyle(t.Status)
+				icon := st.Render(todoStatusIcon(t.Status))
+				title := t.Title
+				maxTitleWidth := width - 8
+				if maxTitleWidth > 0 && len(title) > maxTitleWidth {
+					title = title[:maxTitleWidth-3] + "..."
+				}
+				b.WriteString(fmt.Sprintf("  %s %s\n", icon, lipgloss.NewStyle().Foreground(ColorText).Render(title)))
 			}
-
-			var todoStatuses []string
-			if inProgressCount > 0 {
-				todoStatuses = append(todoStatuses, lipgloss.NewStyle().Foreground(ColorCyan).Render(fmt.Sprintf("● %d in progress", inProgressCount)))
-			}
-			if inReviewCount > 0 {
-				todoStatuses = append(todoStatuses, lipgloss.NewStyle().Foreground(ColorYellow).Render(fmt.Sprintf("⟳ %d in review", inReviewCount)))
-			}
-			if todoCount > 0 {
-				todoStatuses = append(todoStatuses, lipgloss.NewStyle().Foreground(ColorTextDim).Render(fmt.Sprintf("○ %d todo", todoCount)))
-			}
-			if doneCount > 0 {
-				todoStatuses = append(todoStatuses, lipgloss.NewStyle().Foreground(ColorGreen).Render(fmt.Sprintf("✓ %d done", doneCount)))
-			}
-			if orphanedCount > 0 {
-				todoStatuses = append(todoStatuses, lipgloss.NewStyle().Foreground(ColorRed).Render(fmt.Sprintf("! %d orphaned", orphanedCount)))
-			}
-			if len(todoStatuses) > 0 {
-				b.WriteString(strings.Join(todoStatuses, "  "))
-				b.WriteString("\n\n")
-			}
+			b.WriteString("\n")
 		}
 	}
 

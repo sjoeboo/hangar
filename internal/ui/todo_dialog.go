@@ -406,10 +406,19 @@ func (d *TodoDialog) viewList() string {
 		}
 		rows = append(rows, line)
 
-		// Show session hint for linked todos
-		if t.SessionID != "" {
-			hint := "   └─ session linked"
-			rows = append(rows, lipgloss.NewStyle().Foreground(lipgloss.Color("#5a6a7a")).Render(hint))
+		// For the selected item, show description and session hint
+		if i == d.cursor {
+			if t.Description != "" {
+				desc := t.Description
+				maxDescWidth := innerWidth - 5
+				if maxDescWidth > 0 && len(desc) > maxDescWidth {
+					desc = desc[:maxDescWidth-3] + "..."
+				}
+				rows = append(rows, lipgloss.NewStyle().Foreground(lipgloss.Color("#8a9aaa")).Render("   "+desc))
+			}
+			if t.SessionID != "" {
+				rows = append(rows, lipgloss.NewStyle().Foreground(lipgloss.Color("#5a6a7a")).Render("   └─ session linked"))
+			}
 		}
 	}
 
