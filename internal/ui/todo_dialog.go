@@ -198,14 +198,14 @@ func (d *TodoDialog) GetPickedStatus() session.TodoStatus {
 }
 
 // HandleKey processes a keypress and returns the action the caller should take.
-func (d *TodoDialog) HandleKey(key string) TodoAction {
+func (d *TodoDialog) HandleKey(msg tea.KeyMsg) TodoAction {
 	switch d.mode {
 	case todoModeList:
-		return d.handleListKey(key)
+		return d.handleListKey(msg.String())
 	case todoModeNew, todoModeEdit:
-		return d.handleFormKey(key)
+		return d.handleFormKey(msg)
 	case todoModeStatus:
-		return d.handleStatusKey(key)
+		return d.handleStatusKey(msg.String())
 	}
 	return TodoActionNone
 }
@@ -248,9 +248,10 @@ func (d *TodoDialog) handleListKey(key string) TodoAction {
 	return TodoActionNone
 }
 
-func (d *TodoDialog) handleFormKey(key string) TodoAction {
+func (d *TodoDialog) handleFormKey(msg tea.KeyMsg) TodoAction {
+	key := msg.String()
 	switch key {
-	case "tab":
+	case "tab", "shift+tab":
 		if d.formFocus == 0 {
 			d.formFocus = 1
 			d.titleInput.Blur()
@@ -271,10 +272,11 @@ func (d *TodoDialog) handleFormKey(key string) TodoAction {
 		d.mode = todoModeList
 		d.errorMsg = ""
 	default:
+		// Pass the real tea.KeyMsg to preserve Type (backspace, arrows, ctrl+w, etc.)
 		if d.formFocus == 0 {
-			d.titleInput, _ = d.titleInput.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(key)})
+			d.titleInput, _ = d.titleInput.Update(msg)
 		} else {
-			d.descInput, _ = d.descInput.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(key)})
+			d.descInput, _ = d.descInput.Update(msg)
 		}
 	}
 	return TodoActionNone
