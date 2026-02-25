@@ -8749,15 +8749,23 @@ func (h *Home) showTodoDialog() tea.Cmd {
 		return nil
 	}
 	item := h.flatItems[h.cursor]
-	var projectPath string
+	var projectPath, groupPath, groupName string
 	if item.Type == session.ItemTypeSession && item.Session != nil {
 		if item.Session.WorktreeRepoRoot != "" {
 			projectPath = item.Session.WorktreeRepoRoot
 		} else {
 			projectPath = item.Session.ProjectPath
 		}
+		groupPath = item.Session.GroupPath
+		if item.Session.GroupPath != "" && h.groupTree != nil {
+			if g, ok := h.groupTree.Groups[item.Session.GroupPath]; ok {
+				groupName = g.Name
+			}
+		}
 	} else if item.Type == session.ItemTypeGroup && item.Group != nil {
 		projectPath = h.getDefaultPathForGroup(item.Group.Path)
+		groupPath = item.Group.Path
+		groupName = item.Group.Name
 	}
 	if projectPath == "" {
 		return nil
@@ -8768,7 +8776,7 @@ func (h *Home) showTodoDialog() tea.Cmd {
 		return nil
 	}
 	h.todoDialog.SetSize(h.width, h.height)
-	h.todoDialog.Show(projectPath, todos)
+	h.todoDialog.Show(projectPath, groupPath, groupName, todos)
 	return nil
 }
 
@@ -8861,10 +8869,14 @@ func (h *Home) handleTodoDialogKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			return h, nil
 		}
-		// Create new session+worktree for this todo
+		// Create new session+worktree for this todo, placed in the same group as the project.
 		projectPath := h.todoDialog.projectPath
-		groupPath := session.DefaultGroupPath
-		groupName := session.DefaultGroupName
+		groupPath := h.todoDialog.groupPath
+		groupName := h.todoDialog.groupName
+		if groupPath == "" {
+			groupPath = session.DefaultGroupPath
+			groupName = session.DefaultGroupName
+		}
 		branchName := TodoBranchName(todo.Title)
 		h.pendingTodoID = todo.ID
 		h.todoDialog.Hide()

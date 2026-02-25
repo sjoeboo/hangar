@@ -27,6 +27,8 @@ type TodoDialog struct {
 	width       int
 	height      int
 	projectPath string
+	groupPath   string // group this project belongs to
+	groupName   string
 	todos       []*session.Todo
 	cursor      int
 	mode        todoDialogMode
@@ -72,9 +74,11 @@ func NewTodoDialog() *TodoDialog {
 func (d *TodoDialog) IsVisible() bool { return d.visible }
 
 // Show opens the dialog for the given project path with the given todos.
-func (d *TodoDialog) Show(projectPath string, todos []*session.Todo) {
+func (d *TodoDialog) Show(projectPath, groupPath, groupName string, todos []*session.Todo) {
 	d.visible = true
 	d.projectPath = projectPath
+	d.groupPath = groupPath
+	d.groupName = groupName
 	d.todos = todos
 	d.cursor = 0
 	d.mode = todoModeList
