@@ -142,12 +142,15 @@ type Home struct {
 	geminiModelDialog    *GeminiModelDialog    // For selecting Gemini model
 	sessionPickerDialog  *SessionPickerDialog  // For sending output to another session
 	worktreeFinishDialog *WorktreeFinishDialog // For finishing worktree sessions (merge + cleanup)
+	sendTextDialog       *SendTextDialog       // For sending text to a session without attaching
+	sendTextTargetID     string                // Session ID targeted by sendTextDialog
 
 	// State
 	cursor         int            // Selected item index in flatItems
 	viewOffset     int            // First visible item index (for scrolling)
 	isAttaching    atomic.Bool    // Prevents View() output during attach (fixes Bubble Tea Issue #431) - atomic for thread safety
 	statusFilter   session.Status // Filter sessions by status ("" = all, or specific status)
+	sortMode       string         // "" = default, "status" = running→waiting→idle
 	err            error
 	errTime        time.Time  // When error occurred (for auto-dismiss)
 	isReloading    bool       // Visual feedback during auto-reload
@@ -191,6 +194,12 @@ type Home struct {
 	worktreeDirtyCache   map[string]bool      // sessionID -> isDirty
 	worktreeDirtyCacheTs map[string]time.Time // sessionID -> cache timestamp
 	worktreeDirtyMu      sync.Mutex           // Protects dirty cache maps
+
+	// PR status cache (lazy, 60s TTL, requires gh CLI)
+	ghPath    string                      // path to gh binary; empty if not installed
+	prCache   map[string]*prCacheEntry    // sessionID -> PR info (nil = no PR found)
+	prCacheTs map[string]time.Time        // sessionID -> when last fetched/triggered
+	prCacheMu sync.Mutex                  // Protects prCache and prCacheTs
 
 	// Memory management: periodic cache pruning
 	lastCachePrune time.Time
@@ -405,6 +414,12 @@ type sendOutputResultMsg struct {
 	err         error
 }
 
+// sendTextResultMsg is sent when async send-text-to-session completes
+type sendTextResultMsg struct {
+	targetTitle string
+	err         error
+}
+
 // systemThemeMsg is sent when the OS dark mode setting changes.
 type systemThemeMsg struct {
 	dark bool
@@ -417,14 +432,33 @@ type worktreeDirtyCheckMsg struct {
 	err       error
 }
 
+// prCacheEntry holds the result of a gh pr view query for a worktree branch.
+type prCacheEntry struct {
+	Number        int
+	Title         string
+	State         string // OPEN, DRAFT, MERGED, CLOSED
+	URL           string // Full PR URL for OSC 8 hyperlink
+	ChecksPassed  int    // Number of passing CI checks
+	ChecksFailed  int    // Number of failing CI checks
+	ChecksPending int    // Number of pending/in-progress CI checks
+	HasChecks     bool   // True if statusCheckRollup was non-empty
+}
+
+// prFetchedMsg is sent when an async PR lookup completes.
+type prFetchedMsg struct {
+	sessionID string
+	pr        *prCacheEntry // nil if no PR found or gh unavailable
+}
+
 // worktreeFinishResultMsg is sent when the worktree finish operation completes
 type worktreeFinishResultMsg struct {
 	sessionID    string
 	sessionTitle string
-	targetBranch string
-	merged       bool
 	err          error
 }
+
+// lazygitReadyMsg is sent when lazygit window is ready to attach
+type lazygitReadyMsg struct{ session *session.Instance }
 
 // statusUpdateRequest is sent to the background worker with current viewport info
 type statusUpdateRequest struct {
@@ -488,6 +522,7 @@ func NewHomeWithProfileAndMode(profile string) *Home {
 		geminiModelDialog:    NewGeminiModelDialog(),
 		sessionPickerDialog:  NewSessionPickerDialog(),
 		worktreeFinishDialog: NewWorktreeFinishDialog(),
+		sendTextDialog:       NewSendTextDialog(),
 		cursor:               0,
 		initialLoading:       true, // Show splash until sessions load
 		ctx:                  ctx,
@@ -504,6 +539,8 @@ func NewHomeWithProfileAndMode(profile string) *Home {
 		lastLogActivity:      make(map[string]time.Time),
 		worktreeDirtyCache:   make(map[string]bool),
 		worktreeDirtyCacheTs: make(map[string]time.Time),
+		prCache:              make(map[string]*prCacheEntry),
+		prCacheTs:            make(map[string]time.Time),
 		statusTrigger:        make(chan statusUpdateRequest, 1), // Buffered to avoid blocking
 		statusWorkerDone:     make(chan struct{}),
 		logUpdateChan:        make(chan *session.Instance, 100), // Buffered to absorb bursts
@@ -511,6 +548,9 @@ func NewHomeWithProfileAndMode(profile string) *Home {
 		undoStack:            make([]deletedSessionEntry, 0, 10),
 		pendingTitleChanges:  make(map[string]string),
 	}
+
+	// Detect gh CLI once at startup for PR status display in the preview pane.
+	h.ghPath, _ = exec.LookPath("gh")
 
 	// Keep settings panel profile-aware so profile overrides (e.g., Claude config dir)
 	// are displayed and edited in the correct scope.
@@ -588,7 +628,7 @@ func NewHomeWithProfileAndMode(profile string) *Home {
 
 	// Initialize global search
 	// DISABLED: Global search opens 884+ directory watchers and loads 4.4 GB of JSONL
-	// content into memory, causing agent-deck to balloon to 6+ GB and get OOM-killed.
+	// content into memory, causing hangar to balloon to 6+ GB and get OOM-killed.
 	// TODO: Fix by limiting watched dirs and enforcing balanced tier for large datasets.
 	h.globalSearch = NewGlobalSearch()
 	// claudeDir := session.GetClaudeConfigDir()
@@ -836,9 +876,63 @@ func (h *Home) rebuildFlatItems() {
 	if h.cursor < 0 {
 		h.cursor = 0
 	}
+	// Apply status sort if active
+	if h.sortMode == "status" {
+		h.sortSessionsByStatus()
+	}
+
 	// Adjust viewport if cursor is out of view
 	h.syncViewport()
 
+}
+
+// sortSessionsByStatus sorts sessions within each group by status priority:
+// PR+running > PR+waiting > running > waiting > idle/error
+func (h *Home) sortSessionsByStatus() {
+	priority := func(item session.Item) int {
+		if item.Type != session.ItemTypeSession || item.Session == nil {
+			return -1
+		}
+		sess := item.Session
+		hasPR := false
+		h.prCacheMu.Lock()
+		if pr, ok := h.prCache[sess.ID]; ok && pr != nil && pr.URL != "" {
+			hasPR = true
+		}
+		h.prCacheMu.Unlock()
+		status := sess.GetStatusThreadSafe()
+		switch {
+		case hasPR && status == session.StatusRunning:
+			return 0
+		case hasPR:
+			return 1
+		case status == session.StatusRunning:
+			return 2
+		case status == session.StatusWaiting:
+			return 3
+		default:
+			return 4
+		}
+	}
+
+	// Sort runs of consecutive session items between group items
+	i := 0
+	for i < len(h.flatItems) {
+		if h.flatItems[i].Type != session.ItemTypeSession {
+			i++
+			continue
+		}
+		// Find the extent of this session run
+		start := i
+		for i < len(h.flatItems) && h.flatItems[i].Type == session.ItemTypeSession {
+			i++
+		}
+		// Sort [start, i)
+		run := h.flatItems[start:i]
+		sort.SliceStable(run, func(a, b int) bool {
+			return priority(run[a]) < priority(run[b])
+		})
+	}
 }
 
 // syncViewport ensures the cursor is visible within the viewport
@@ -957,7 +1051,7 @@ func (h *Home) syncViewport() {
 // All notification sync is now handled by syncNotificationsBackground() which runs
 // every 2s in the background worker, including during tea.Exec pauses.
 
-// getAttachedSessionID returns the instance ID of the currently attached agentdeck session.
+// getAttachedSessionID returns the instance ID of the currently attached hangar session.
 // This detects which session the user is viewing, even if they switched via tmux directly.
 func (h *Home) getAttachedSessionID() string {
 	attachedSessions, err := tmux.GetAttachedSessions()
@@ -968,7 +1062,7 @@ func (h *Home) getAttachedSessionID() string {
 	h.instancesMu.RLock()
 	defer h.instancesMu.RUnlock()
 
-	// Find the first attached agentdeck session
+	// Find the first attached hangar session
 	for _, sessName := range attachedSessions {
 		for _, inst := range h.instances {
 			if ts := inst.GetTmuxSession(); ts != nil && ts.Name == sessName {
@@ -2646,6 +2740,25 @@ func (h *Home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 
+			// PR status check (lazy, 60s TTL, requires gh CLI)
+			if h.ghPath != "" && inst.IsWorktree() && inst.WorktreePath != "" {
+				h.prCacheMu.Lock()
+				cacheTs, hasCached := h.prCacheTs[inst.ID]
+				needsFetch := !hasCached || time.Since(cacheTs) > 60*time.Second
+				if needsFetch {
+					h.prCacheTs[inst.ID] = time.Now() // Prevent duplicate fetches
+				}
+				h.prCacheMu.Unlock()
+				if needsFetch {
+					sid := inst.ID
+					wtPath := inst.WorktreePath
+					ghPath := h.ghPath
+					cmds = append(cmds, func() tea.Msg {
+						return fetchPRInfo(sid, wtPath, ghPath)
+					})
+				}
+			}
+
 			if len(cmds) > 0 {
 				return h, tea.Batch(cmds...)
 			}
@@ -2675,6 +2788,21 @@ func (h *Home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Also update the finish dialog if it's open for this session
 		if h.worktreeFinishDialog.IsVisible() && h.worktreeFinishDialog.GetSessionID() == msg.sessionID && msg.err == nil {
 			h.worktreeFinishDialog.SetDirtyStatus(msg.isDirty)
+		}
+		return h, nil
+
+	case prFetchedMsg:
+		// Update PR cache (nil pr means no PR found — still record so we don't re-fetch immediately)
+		h.prCacheMu.Lock()
+		h.prCache[msg.sessionID] = msg.pr
+		h.prCacheTs[msg.sessionID] = time.Now()
+		h.prCacheMu.Unlock()
+		return h, nil
+
+	case lazygitReadyMsg:
+		if msg.session != nil {
+			h.isAttaching.Store(true)
+			return h, h.attachSession(msg.session)
 		}
 		return h, nil
 
@@ -2710,6 +2838,10 @@ func (h *Home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		delete(h.worktreeDirtyCache, msg.sessionID)
 		delete(h.worktreeDirtyCacheTs, msg.sessionID)
 		h.worktreeDirtyMu.Unlock()
+		h.prCacheMu.Lock()
+		delete(h.prCache, msg.sessionID)
+		delete(h.prCacheTs, msg.sessionID)
+		h.prCacheMu.Unlock()
 		h.logActivityMu.Lock()
 		delete(h.lastLogActivity, msg.sessionID)
 		h.logActivityMu.Unlock()
@@ -2728,11 +2860,7 @@ func (h *Home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		h.forceSaveInstances()
 
 		// Show success message
-		successMsg := fmt.Sprintf("Finished worktree '%s'", msg.sessionTitle)
-		if msg.merged {
-			successMsg += fmt.Sprintf(", merged into %s", msg.targetBranch)
-		}
-		h.setError(fmt.Errorf("%s", successMsg))
+		h.setError(fmt.Errorf("Finished worktree '%s'", msg.sessionTitle))
 		return h, nil
 
 	case copyResultMsg:
@@ -2748,6 +2876,14 @@ func (h *Home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			h.setError(fmt.Errorf("failed to send to %s: %v", msg.targetTitle, msg.err))
 		} else {
 			h.setError(fmt.Errorf("Sent %d lines from '%s' to '%s'", msg.lineCount, msg.sourceTitle, msg.targetTitle))
+		}
+		return h, nil
+
+	case sendTextResultMsg:
+		if msg.err != nil {
+			h.setError(fmt.Errorf("failed to send text to %s: %v", msg.targetTitle, msg.err))
+		} else {
+			h.setError(fmt.Errorf("Text sent to '%s'", msg.targetTitle))
 		}
 		return h, nil
 
@@ -2972,6 +3108,9 @@ func (h *Home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if h.sessionPickerDialog.IsVisible() {
 			return h.handleSessionPickerDialogKey(msg)
 		}
+		if h.sendTextDialog.IsVisible() {
+			return h.handleSendTextDialogKey(msg)
+		}
 		if h.worktreeFinishDialog.IsVisible() {
 			return h.handleWorktreeFinishDialogKey(msg)
 		}
@@ -3053,7 +3192,7 @@ func (h *Home) handleGlobalSearchKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 // handleGlobalSearchSelection handles selection from global search
 func (h *Home) handleGlobalSearchSelection(result *GlobalSearchResult) tea.Cmd {
-	// Check if session already exists in Agent Deck
+	// Check if session already exists in Hangar
 	h.instancesMu.RLock()
 	for _, inst := range h.instances {
 		if inst.ClaudeSessionID == result.SessionID {
@@ -3087,7 +3226,7 @@ func (h *Home) jumpToSession(inst *session.Instance) {
 	}
 }
 
-// createSessionFromGlobalSearch creates a new Agent Deck session from global search result
+// createSessionFromGlobalSearch creates a new Hangar session from global search result
 func (h *Home) createSessionFromGlobalSearch(result *GlobalSearchResult) tea.Cmd {
 	return func() tea.Msg {
 		// Derive title from CWD or session ID
@@ -3159,6 +3298,14 @@ func (h *Home) getCurrentGroupPath() string {
 func (h *Home) handleNewDialogKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "enter":
+		// When in the project-picker step, delegate Enter to the dialog so it
+		// advances to the name input instead of trying to validate/create a session.
+		if h.newDialog.IsChoosingProject() {
+			var cmd tea.Cmd
+			h.newDialog, cmd = h.newDialog.Update(msg)
+			return h, cmd
+		}
+
 		// Validate before creating session
 		if validationErr := h.newDialog.Validate(); validationErr != "" {
 			h.newDialog.SetError(validationErr)
@@ -3267,7 +3414,8 @@ func (h *Home) handleMouseMsg(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 		h.globalSearch.IsVisible() || h.newDialog.IsVisible() ||
 		h.groupDialog.IsVisible() || h.forkDialog.IsVisible() ||
 		h.confirmDialog.IsVisible() || h.geminiModelDialog.IsVisible() ||
-		h.sessionPickerDialog.IsVisible() || h.worktreeFinishDialog.IsVisible() {
+		h.sessionPickerDialog.IsVisible() || h.sendTextDialog.IsVisible() ||
+		h.worktreeFinishDialog.IsVisible() {
 		return h, nil
 	}
 
@@ -3490,10 +3638,10 @@ func (h *Home) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			if sessionName != "" {
 				wdir := workDir
+				sess := item.Session
 				return h, func() tea.Msg {
-					cmd := exec.Command("tmux", "new-window", "-t", sessionName, "-c", wdir, "-n", "lazygit", "lazygit")
-					_ = cmd.Run()
-					return nil
+					exec.Command("tmux", "new-window", "-t", sessionName, "-c", wdir, "-n", "lazygit", "lazygit").Run()
+					return lazygitReadyMsg{session: sess}
 				}
 			}
 		}
@@ -3667,13 +3815,8 @@ func (h *Home) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 					h.setError(fmt.Errorf("session '%s' is not a worktree", inst.Title))
 					return h, nil
 				}
-				// Determine default target branch
-				defaultBranch := "main"
-				if detected, err := git.GetDefaultBranch(inst.WorktreeRepoRoot); err == nil {
-					defaultBranch = detected
-				}
 				h.worktreeFinishDialog.SetSize(h.width, h.height)
-				h.worktreeFinishDialog.Show(inst.ID, inst.Title, inst.WorktreeBranch, inst.WorktreeRepoRoot, inst.WorktreePath, defaultBranch)
+				h.worktreeFinishDialog.Show(inst.ID, inst.Title, inst.WorktreeBranch, inst.WorktreeRepoRoot, inst.WorktreePath)
 				// Trigger async dirty check
 				sid := inst.ID
 				wtPath := inst.WorktreePath
@@ -3913,18 +4056,29 @@ func (h *Home) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return h, nil
 
+	case "o":
+		// Open PR URL in browser
+		if h.cursor < len(h.flatItems) {
+			item := h.flatItems[h.cursor]
+			if item.Session != nil {
+				h.prCacheMu.Lock()
+				pr, hasPR := h.prCache[item.Session.ID]
+				h.prCacheMu.Unlock()
+				if hasPR && pr.URL != "" {
+					exec.Command("open", pr.URL).Start() //nolint:errcheck
+				}
+			}
+		}
+		return h, nil
+
 	case "x":
-		// Send session output to another session
+		// Send text to a session without attaching
 		if h.cursor < len(h.flatItems) {
 			item := h.flatItems[h.cursor]
 			if item.Type == session.ItemTypeSession && item.Session != nil {
-				others := h.getOtherActiveSessions(item.Session.ID)
-				if len(others) == 0 {
-					h.setError(fmt.Errorf("no other sessions to send to"))
-					return h, nil
-				}
-				h.sessionPickerDialog.SetSize(h.width, h.height)
-				h.sessionPickerDialog.Show(item.Session, h.instances)
+				h.sendTextTargetID = item.Session.ID
+				h.sendTextDialog.SetSize(h.width, h.height)
+				h.sendTextDialog.Show(item.Session.Title)
 			}
 		}
 		return h, nil
@@ -4015,6 +4169,15 @@ func (h *Home) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			h.statusFilter = "" // Toggle off
 		} else {
 			h.statusFilter = session.StatusError
+		}
+		h.rebuildFlatItems()
+		return h, nil
+
+	case "~":
+		if h.sortMode == "" {
+			h.sortMode = "status"
+		} else {
+			h.sortMode = ""
 		}
 		h.rebuildFlatItems()
 		return h, nil
@@ -5173,6 +5336,7 @@ func (h *Home) updateSizes() {
 	h.confirmDialog.SetSize(h.width, h.height)
 	h.geminiModelDialog.SetSize(h.width, h.height)
 	h.worktreeFinishDialog.SetSize(h.width, h.height)
+	h.sendTextDialog.SetSize(h.width, h.height)
 }
 
 // View renders the UI
@@ -5249,6 +5413,9 @@ func (h *Home) View() string {
 	}
 	if h.sessionPickerDialog.IsVisible() {
 		return h.sessionPickerDialog.View()
+	}
+	if h.sendTextDialog.IsVisible() {
+		return h.sendTextDialog.View()
 	}
 	if h.worktreeFinishDialog.IsVisible() {
 		return h.worktreeFinishDialog.View()
@@ -5349,7 +5516,7 @@ func (h *Home) View() string {
 			Bold(true).
 			MaxWidth(h.width).
 			Align(lipgloss.Center)
-		updateText := fmt.Sprintf(" ⬆ Update available: v%s → v%s (run: agent-deck update) ",
+		updateText := fmt.Sprintf(" ⬆ Update available: v%s → v%s (run: hangar update) ",
 			h.updateInfo.CurrentVersion, h.updateInfo.LatestVersion)
 		b.WriteString(updateStyle.Render(updateText))
 		b.WriteString("\n")
@@ -6226,14 +6393,16 @@ func (h *Home) renderHelpBarCompact() string {
 			if item.Session != nil && item.Session.CanFork() {
 				contextHints = append(contextHints, h.helpKeyShort("f", "Fork"))
 			}
-			if item.Session != nil && (item.Session.Tool == "claude" || item.Session.Tool == "gemini") {
-				contextHints = append(contextHints, h.helpKeyShort("m", "MCP"))
-				}
-			if item.Session != nil && item.Session.Tool == "claude" {
-				contextHints = append(contextHints, h.helpKeyShort("s", "Skills"))
-			}
 			contextHints = append(contextHints, h.helpKeyShort("c", "Copy"))
 			contextHints = append(contextHints, h.helpKeyShort("x", "Send"))
+			if item.Session != nil {
+				h.prCacheMu.Lock()
+				pr, hasPR := h.prCache[item.Session.ID]
+				h.prCacheMu.Unlock()
+				if hasPR && pr.URL != "" {
+					contextHints = append(contextHints, h.helpKeyShort("o", "PR"))
+				}
+			}
 		}
 	}
 
@@ -6317,15 +6486,16 @@ func (h *Home) renderHelpBarFull() string {
 			if item.Session != nil && item.Session.CanFork() {
 				primaryHints = append(primaryHints, h.helpKey("f/F", "Fork"))
 			}
-			// Show MCP Manager and preview mode toggle for Claude and Gemini sessions
-			if item.Session != nil && (item.Session.Tool == "claude" || item.Session.Tool == "gemini") {
-				primaryHints = append(primaryHints, h.helpKey("m", "MCP"))
-			}
-			if item.Session != nil && item.Session.Tool == "claude" {
-				primaryHints = append(primaryHints, h.helpKey("s", "Skills"))
-			}
 			primaryHints = append(primaryHints, h.helpKey("c", "Copy"))
 			primaryHints = append(primaryHints, h.helpKey("x", "Send"))
+			if item.Session != nil {
+				h.prCacheMu.Lock()
+				pr, hasPR := h.prCache[item.Session.ID]
+				h.prCacheMu.Unlock()
+				if hasPR && pr.URL != "" {
+					primaryHints = append(primaryHints, h.helpKey("o", "Open PR"))
+				}
+			}
 			secondaryHints = []string{
 				h.helpKey("r", "Rename"),
 				h.helpKey("M", "Move"),
@@ -7144,6 +7314,79 @@ func (h *Home) renderPreviewPane(width, height int) string {
 			b.WriteString("\n")
 		}
 
+		// PR status (from gh CLI, lazy-cached with 60s TTL)
+		if h.ghPath != "" {
+			h.prCacheMu.Lock()
+			pr, hasPR := h.prCache[selected.ID]
+			_, hasTs := h.prCacheTs[selected.ID]
+			h.prCacheMu.Unlock()
+
+			if !hasTs || (hasTs && !hasPR) {
+				// Not yet fetched, or fetch in flight
+				b.WriteString(wtLabelStyle.Render("PR:      "))
+				b.WriteString(lipgloss.NewStyle().Foreground(ColorComment).Render("checking..."))
+				b.WriteString("\n")
+			} else if pr != nil {
+				stateStyle := lipgloss.NewStyle()
+				stateLabel := strings.ToLower(pr.State)
+				switch pr.State {
+				case "OPEN":
+					stateStyle = stateStyle.Foreground(ColorGreen)
+				case "DRAFT":
+					stateStyle = stateStyle.Foreground(ColorComment)
+				case "MERGED":
+					stateStyle = stateStyle.Foreground(ColorPurple)
+				case "CLOSED":
+					stateStyle = stateStyle.Foreground(ColorRed)
+				}
+				prNumStyle := lipgloss.NewStyle().Foreground(ColorAccent).Bold(true).Underline(true)
+				// Truncate title to fit the available width
+				titleMax := width - 4 - 9 - 6 - len(stateLabel) - 3
+				title := pr.Title
+				if titleMax > 10 && runewidth.StringWidth(title) > titleMax {
+					title = runewidth.Truncate(title, titleMax, "...")
+				}
+				b.WriteString(wtLabelStyle.Render("PR:      "))
+				b.WriteString(prNumStyle.Render(fmt.Sprintf("#%d", pr.Number)))
+				b.WriteString(" ")
+				b.WriteString(stateStyle.Render(stateLabel))
+				b.WriteString(wtValueStyle.Render(" · " + title))
+				b.WriteString("\n")
+				// URL on its own line — terminals (iTerm2, WezTerm, etc.) auto-detect
+				// plain URLs and make them clickable on hover, no escape sequences needed.
+				// OSC 8 is stripped by lipgloss's MaxWidth.Render() in the layout pass.
+				if pr.URL != "" {
+					urlStyle := lipgloss.NewStyle().Foreground(ColorComment)
+					urlMax := width - 4 - 9 // account for label indent
+					displayURL := pr.URL
+					if runewidth.StringWidth(displayURL) > urlMax && urlMax > 15 {
+						displayURL = runewidth.Truncate(displayURL, urlMax, "…")
+					}
+					b.WriteString(wtLabelStyle.Render("         "))
+					b.WriteString(urlStyle.Render(displayURL))
+					b.WriteString("\n")
+				}
+
+				// CI checks summary line
+				if pr.HasChecks {
+					b.WriteString(wtLabelStyle.Render("Checks:  "))
+					var parts []string
+					if pr.ChecksFailed > 0 {
+						parts = append(parts, lipgloss.NewStyle().Foreground(ColorRed).Render(fmt.Sprintf("✗ %d failed", pr.ChecksFailed)))
+					}
+					if pr.ChecksPending > 0 {
+						parts = append(parts, lipgloss.NewStyle().Foreground(ColorYellow).Render(fmt.Sprintf("● %d running", pr.ChecksPending)))
+					}
+					if pr.ChecksPassed > 0 {
+						parts = append(parts, lipgloss.NewStyle().Foreground(ColorGreen).Render(fmt.Sprintf("✓ %d passed", pr.ChecksPassed)))
+					}
+					b.WriteString(strings.Join(parts, "  "))
+					b.WriteString("\n")
+				}
+			}
+			// pr == nil means no PR found; omit line silently
+		}
+
 		// Repo root (truncated)
 		if selected.WorktreeRepoRoot != "" {
 			repoPath := truncatePath(selected.WorktreeRepoRoot, width-4-9)
@@ -7745,7 +7988,6 @@ func (h *Home) renderPreviewPane(width, height int) string {
 			lines = lines[len(lines)-maxLines:]
 		}
 
-		previewStyle := lipgloss.NewStyle().Foreground(ColorText)
 		maxWidth := width - 4
 		if maxWidth < 10 {
 			maxWidth = 10
@@ -7766,17 +8008,13 @@ func (h *Home) renderPreviewPane(width, height int) string {
 		const maxConsecutiveEmpty = 2 // Allow up to 2 consecutive empty lines
 
 		for _, line := range lines {
-			// Strip ANSI codes for accurate width measurement
-			cleanLine := tmux.StripANSI(line)
-
-			// Strip control characters (\r, \b, etc.) that can corrupt terminal
-			// rendering. tmux capture-pane output may contain carriage returns
-			// which, inside JoinHorizontal, move the cursor to column 0 and
-			// overwrite the left panel content on that line.
-			cleanLine = stripControlChars(cleanLine)
+			// Plain version (no ANSI, no control chars) used only for measurement and
+			// empty-line detection. renderLine keeps ANSI escape sequences for display.
+			plainLine := stripControlChars(tmux.StripANSI(line))
+			renderLine := stripControlCharsPreserveANSI(line)
 
 			// Handle empty lines - preserve some for readability
-			trimmed := strings.TrimSpace(cleanLine)
+			trimmed := strings.TrimSpace(plainLine)
 			if trimmed == "" {
 				consecutiveEmpty++
 				if consecutiveEmpty <= maxConsecutiveEmpty {
@@ -7786,13 +8024,15 @@ func (h *Home) renderPreviewPane(width, height int) string {
 			}
 			consecutiveEmpty = 0 // Reset counter on non-empty line
 
-			// Truncate based on display width (handles CJK, emoji correctly)
-			displayWidth := runewidth.StringWidth(cleanLine)
+			// Truncate based on display width (handles CJK, emoji correctly).
+			// Fall back to plain when truncating — can't safely split mid-escape.
+			displayWidth := runewidth.StringWidth(plainLine)
 			if displayWidth > maxWidth {
-				cleanLine = runewidth.Truncate(cleanLine, maxWidth-3, "...")
+				renderLine = runewidth.Truncate(plainLine, maxWidth-3, "...")
 			}
 
-			b.WriteString(previewStyle.Render(cleanLine))
+			// Don't wrap with previewStyle.Render — tmux ANSI sequences handle styling.
+			b.WriteString(renderLine)
 			b.WriteString("\n")
 		}
 	}
@@ -7833,6 +8073,65 @@ func stripControlChars(s string) string {
 	return strings.Map(func(r rune) rune {
 		if r < 0x20 && r != '\n' && r != '\t' {
 			return -1 // Drop the character
+		}
+		return r
+	}, s)
+}
+
+// fetchPRInfo runs "gh pr view" in the given worktree directory and returns PR
+// metadata for the branch currently checked out there. Returns a nil pr if no
+// PR exists, if gh is not installed, or if the command fails for any reason.
+func fetchPRInfo(sessionID, worktreePath, ghPath string) prFetchedMsg {
+	type ghCheck struct {
+		Status     string `json:"status"`     // QUEUED, IN_PROGRESS, COMPLETED, WAITING, PENDING, REQUESTED
+		Conclusion string `json:"conclusion"` // SUCCESS, FAILURE, CANCELLED, SKIPPED, TIMED_OUT, etc.
+	}
+	type ghPR struct {
+		Number             int       `json:"number"`
+		Title              string    `json:"title"`
+		State              string    `json:"state"`
+		URL                string    `json:"url"`
+		StatusCheckRollup  []ghCheck `json:"statusCheckRollup"`
+	}
+	cmd := exec.Command(ghPath, "pr", "view", "--json", "number,title,state,url,statusCheckRollup")
+	cmd.Dir = worktreePath
+	out, err := cmd.Output()
+	if err != nil {
+		return prFetchedMsg{sessionID: sessionID, pr: nil}
+	}
+	var pr ghPR
+	if err := json.Unmarshal(out, &pr); err != nil {
+		return prFetchedMsg{sessionID: sessionID, pr: nil}
+	}
+	entry := &prCacheEntry{
+		Number:    pr.Number,
+		Title:     pr.Title,
+		State:     pr.State,
+		URL:       pr.URL,
+		HasChecks: len(pr.StatusCheckRollup) > 0,
+	}
+	for _, c := range pr.StatusCheckRollup {
+		switch c.Status {
+		case "COMPLETED":
+			switch c.Conclusion {
+			case "SUCCESS", "SKIPPED", "NEUTRAL":
+				entry.ChecksPassed++
+			default: // FAILURE, CANCELLED, TIMED_OUT, ACTION_REQUIRED
+				entry.ChecksFailed++
+			}
+		default: // QUEUED, IN_PROGRESS, WAITING, PENDING, REQUESTED
+			entry.ChecksPending++
+		}
+	}
+	return prFetchedMsg{sessionID: sessionID, pr: entry}
+}
+
+// stripControlCharsPreserveANSI removes C0 control chars but keeps ESC (0x1b)
+// so that ANSI escape sequences captured via tmux capture-pane -e pass through.
+func stripControlCharsPreserveANSI(s string) string {
+	return strings.Map(func(r rune) rune {
+		if r < 0x20 && r != '\n' && r != '\t' && r != 0x1b {
+			return -1
 		}
 		return r
 	}, s)
@@ -8022,7 +8321,7 @@ func (h *Home) renderGroupPreview(group *session.Group, width, height int) strin
 	// Keyboard hints at bottom
 	b.WriteString("\n")
 	hintStyle := lipgloss.NewStyle().Foreground(ColorComment).Italic(true)
-	b.WriteString(hintStyle.Render("Tab toggle • R rename • d delete • g subgroup"))
+	b.WriteString(hintStyle.Render("Tab toggle • R rename • d delete • p project"))
 
 	// CRITICAL: Enforce width constraint on ALL lines to prevent overflow into left panel
 	maxWidth := width - 2
@@ -8170,6 +8469,46 @@ func (h *Home) sendOutputToSession(source, target *session.Instance) tea.Cmd {
 	}
 }
 
+// handleSendTextDialogKey handles key events when the send-text dialog is visible.
+func (h *Home) handleSendTextDialogKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	action := h.sendTextDialog.HandleKey(msg.String())
+	switch action {
+	case "confirm":
+		text := h.sendTextDialog.GetText()
+		h.sendTextDialog.Hide()
+		if text != "" && h.sendTextTargetID != "" {
+			targetID := h.sendTextTargetID
+			h.sendTextTargetID = ""
+			return h, h.sendTextToSession(targetID, text)
+		}
+		return h, nil
+	case "close":
+		h.sendTextTargetID = ""
+		return h, nil
+	default:
+		h.sendTextDialog.Update(msg)
+		return h, nil
+	}
+}
+
+// sendTextToSession returns a tea.Cmd that sends text to the session with the given ID.
+func (h *Home) sendTextToSession(targetID, text string) tea.Cmd {
+	return func() tea.Msg {
+		inst := h.instanceByID[targetID]
+		if inst == nil {
+			return sendTextResultMsg{err: fmt.Errorf("session not found")}
+		}
+		tmuxSession := inst.GetTmuxSession()
+		if tmuxSession == nil {
+			return sendTextResultMsg{targetTitle: inst.Title, err: fmt.Errorf("session has no tmux pane")}
+		}
+		if err := tmuxSession.SendKeysAndEnter(text); err != nil {
+			return sendTextResultMsg{targetTitle: inst.Title, err: fmt.Errorf("send failed: %w", err)}
+		}
+		return sendTextResultMsg{targetTitle: inst.Title}
+	}
+}
+
 // handleSessionPickerDialogKey handles key events when the session picker is visible.
 func (h *Home) handleSessionPickerDialogKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
@@ -8200,7 +8539,7 @@ func (h *Home) handleWorktreeFinishDialogKey(msg tea.KeyMsg) (tea.Model, tea.Cmd
 
 	case "confirm":
 		// Execute the finish operation
-		mergeEnabled, targetBranch, keepBranch := h.worktreeFinishDialog.GetOptions()
+		keepBranch := h.worktreeFinishDialog.GetOptions()
 		h.worktreeFinishDialog.SetExecuting(true)
 
 		sid := h.worktreeFinishDialog.sessionID
@@ -8214,61 +8553,28 @@ func (h *Home) handleWorktreeFinishDialogKey(msg tea.KeyMsg) (tea.Model, tea.Cmd
 		inst := h.instanceByID[sid]
 		h.instancesMu.RUnlock()
 
-		return h, h.finishWorktree(inst, sid, sTitle, branch, repoRoot, wtPath, mergeEnabled, targetBranch, keepBranch)
-
-	case "input":
-		// Pass through to text input
-		h.worktreeFinishDialog.UpdateTargetInput(msg)
-		return h, nil
+		return h, h.finishWorktree(inst, sid, sTitle, branch, repoRoot, wtPath, keepBranch)
 	}
 
 	return h, nil
 }
 
 // finishWorktree performs the worktree finish operation asynchronously:
-// merge branch, remove worktree, delete branch, kill session, remove from storage
-func (h *Home) finishWorktree(inst *session.Instance, sessionID, sessionTitle, branchName, repoRoot, worktreePath string, mergeEnabled bool, targetBranch string, keepBranch bool) tea.Cmd {
+// remove worktree, delete branch, kill session, remove from storage
+func (h *Home) finishWorktree(inst *session.Instance, sessionID, sessionTitle, branchName, repoRoot, worktreePath string, keepBranch bool) tea.Cmd {
 	return func() tea.Msg {
-		merged := false
-
-		// Step 1: Merge (if requested)
-		if mergeEnabled {
-			// Checkout target branch in main repo
-			cmd := exec.Command("git", "-C", repoRoot, "checkout", targetBranch)
-			checkoutOutput, err := cmd.CombinedOutput()
-			if err != nil {
-				return worktreeFinishResultMsg{
-					sessionID: sessionID, sessionTitle: sessionTitle,
-					err: fmt.Errorf("failed to checkout %s: %s", targetBranch, strings.TrimSpace(string(checkoutOutput))),
-				}
-			}
-
-			// Merge the worktree branch
-			if err := git.MergeBranch(repoRoot, branchName); err != nil {
-				// Abort the merge to leave things clean
-				abortCmd := exec.Command("git", "-C", repoRoot, "merge", "--abort")
-				_ = abortCmd.Run()
-				return worktreeFinishResultMsg{
-					sessionID: sessionID, sessionTitle: sessionTitle,
-					err: fmt.Errorf("merge failed (aborted): %v", err),
-				}
-			}
-			merged = true
-		}
-
-		// Step 2: Remove worktree
+		// Step 1: Remove worktree
 		if _, statErr := os.Stat(worktreePath); !os.IsNotExist(statErr) {
 			_ = git.RemoveWorktree(repoRoot, worktreePath, false)
 		}
 		_ = git.PruneWorktrees(repoRoot)
 
-		// Step 3: Delete branch (if not keeping)
+		// Step 2: Delete branch (if not keeping)
 		if !keepBranch {
-			// Use force delete if we merged (branch is fully merged), regular delete otherwise
-			_ = git.DeleteBranch(repoRoot, branchName, merged)
+			_ = git.DeleteBranch(repoRoot, branchName, false)
 		}
 
-		// Step 4: Kill tmux session
+		// Step 3: Kill tmux session
 		if inst != nil && inst.Exists() {
 			_ = inst.Kill()
 		}
@@ -8276,8 +8582,6 @@ func (h *Home) finishWorktree(inst *session.Instance, sessionID, sessionTitle, b
 		return worktreeFinishResultMsg{
 			sessionID:    sessionID,
 			sessionTitle: sessionTitle,
-			targetBranch: targetBranch,
-			merged:       merged,
 		}
 	}
 }

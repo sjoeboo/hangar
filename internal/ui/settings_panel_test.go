@@ -55,17 +55,12 @@ func TestSettingsPanel_LoadConfig(t *testing.T) {
 			MaxLines:      5000,
 			RemoveOrphans: false,
 		},
-		GlobalSearch: session.GlobalSearchSettings{
-			Enabled:    true,
-			Tier:       "instant",
-			RecentDays: 60,
-		},
 	}
 	panel.LoadConfig(config)
 
-	// Check tool selection (gemini should be index 1)
-	if panel.selectedTool != 1 {
-		t.Errorf("selectedTool: got %d, want 1 (gemini)", panel.selectedTool)
+	// gemini is no longer in toolValues, so selectedTool should be 2 (None)
+	if panel.selectedTool != 2 {
+		t.Errorf("selectedTool: got %d, want 2 (None for unknown tool)", panel.selectedTool)
 	}
 	if !panel.dangerousMode {
 		t.Error("dangerousMode should be true")
@@ -87,16 +82,6 @@ func TestSettingsPanel_LoadConfig(t *testing.T) {
 	}
 	if panel.removeOrphans {
 		t.Error("removeOrphans should be false")
-	}
-	if !panel.globalSearchEnabled {
-		t.Error("globalSearchEnabled should be true")
-	}
-	// "instant" should be index 1
-	if panel.searchTier != 1 {
-		t.Errorf("searchTier: got %d, want 1 (instant)", panel.searchTier)
-	}
-	if panel.recentDays != 60 {
-		t.Errorf("recentDays: got %d, want 60", panel.recentDays)
 	}
 }
 
@@ -138,11 +123,9 @@ func TestSettingsPanel_LoadConfig_DefaultTool(t *testing.T) {
 		expected int
 	}{
 		{"claude", "claude", 0},
-		{"gemini", "gemini", 1},
-		{"opencode", "opencode", 2},
-		{"codex", "codex", 3},
-		{"empty", "", 4}, // None
-		{"unknown", "unknown-tool", 4},
+		{"shell", "shell", 1},
+		{"empty", "", 2},       // None
+		{"unknown", "unknown-tool", 2},
 	}
 
 	for _, tt := range tests {
@@ -159,40 +142,9 @@ func TestSettingsPanel_LoadConfig_DefaultTool(t *testing.T) {
 	}
 }
 
-func TestSettingsPanel_LoadConfig_SearchTier(t *testing.T) {
-	panel := NewSettingsPanel()
-
-	tests := []struct {
-		name     string
-		tier     string
-		expected int
-	}{
-		{"auto", "auto", 0},
-		{"instant", "instant", 1},
-		{"balanced", "balanced", 2},
-		{"empty", "", 0},
-		{"unknown", "unknown", 0},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			config := &session.UserConfig{
-				GlobalSearch: session.GlobalSearchSettings{
-					Tier: tt.tier,
-				},
-			}
-			panel.LoadConfig(config)
-			if panel.searchTier != tt.expected {
-				t.Errorf("LoadConfig tier %q: searchTier = %d, want %d",
-					tt.tier, panel.searchTier, tt.expected)
-			}
-		})
-	}
-}
-
 func TestSettingsPanel_GetConfig(t *testing.T) {
 	panel := NewSettingsPanel()
-	panel.selectedTool = 2 // opencode
+	panel.selectedTool = 1 // shell
 	panel.dangerousMode = true
 	panel.claudeConfigDir = "~/.claude-custom"
 	panel.checkForUpdates = false
@@ -200,14 +152,11 @@ func TestSettingsPanel_GetConfig(t *testing.T) {
 	panel.logMaxSizeMB = 15
 	panel.logMaxLines = 8000
 	panel.removeOrphans = false
-	panel.globalSearchEnabled = true
-	panel.searchTier = 2 // balanced
-	panel.recentDays = 45
 
 	config := panel.GetConfig()
 
-	if config.DefaultTool != "opencode" {
-		t.Errorf("DefaultTool: got %q, want %q", config.DefaultTool, "opencode")
+	if config.DefaultTool != "shell" {
+		t.Errorf("DefaultTool: got %q, want %q", config.DefaultTool, "shell")
 	}
 	if !config.Claude.GetDangerousMode() {
 		t.Error("DangerousMode should be true")
@@ -229,15 +178,6 @@ func TestSettingsPanel_GetConfig(t *testing.T) {
 	}
 	if config.Logs.RemoveOrphans {
 		t.Error("RemoveOrphans should be false")
-	}
-	if !config.GlobalSearch.Enabled {
-		t.Error("GlobalSearch.Enabled should be true")
-	}
-	if config.GlobalSearch.Tier != "balanced" {
-		t.Errorf("Tier: got %q, want %q", config.GlobalSearch.Tier, "balanced")
-	}
-	if config.GlobalSearch.RecentDays != 45 {
-		t.Errorf("RecentDays: got %d, want 45", config.GlobalSearch.RecentDays)
 	}
 }
 
@@ -299,10 +239,8 @@ func TestSettingsPanel_GetConfig_ToolMapping(t *testing.T) {
 		expected string
 	}{
 		{"claude", 0, "claude"},
-		{"gemini", 1, "gemini"},
-		{"opencode", 2, "opencode"},
-		{"codex", 3, "codex"},
-		{"none", 4, ""},
+		{"shell", 1, "shell"},
+		{"none", 2, ""},
 	}
 
 	for _, tt := range tests {
@@ -312,31 +250,6 @@ func TestSettingsPanel_GetConfig_ToolMapping(t *testing.T) {
 			if config.DefaultTool != tt.expected {
 				t.Errorf("GetConfig for tool index %d: DefaultTool = %q, want %q",
 					tt.index, config.DefaultTool, tt.expected)
-			}
-		})
-	}
-}
-
-func TestSettingsPanel_GetConfig_TierMapping(t *testing.T) {
-	panel := NewSettingsPanel()
-
-	tests := []struct {
-		name     string
-		index    int
-		expected string
-	}{
-		{"auto", 0, "auto"},
-		{"instant", 1, "instant"},
-		{"balanced", 2, "balanced"},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			panel.searchTier = tt.index
-			config := panel.GetConfig()
-			if config.GlobalSearch.Tier != tt.expected {
-				t.Errorf("GetConfig for tier index %d: Tier = %q, want %q",
-					tt.index, config.GlobalSearch.Tier, tt.expected)
 			}
 		})
 	}
@@ -519,17 +432,8 @@ func TestSettingsPanel_NeedsRestart(t *testing.T) {
 	panel := NewSettingsPanel()
 	panel.Show()
 
-	// Initially should not need restart
 	if panel.NeedsRestart() {
 		t.Error("Should not need restart initially")
-	}
-
-	// Navigate to global search settings and change
-	panel.cursor = int(SettingGlobalSearchEnabled)
-	panel.Update(tea.KeyMsg{Type: tea.KeySpace})
-
-	if !panel.NeedsRestart() {
-		t.Error("Should need restart after changing global search setting")
 	}
 }
 
@@ -560,12 +464,10 @@ func TestSettingsPanel_View_Visible(t *testing.T) {
 		"Light",
 		"DEFAULT TOOL",
 		"Claude",
-		"Gemini",
 		"CLAUDE",
 		"Dangerous mode",
 		"UPDATES",
 		"LOGS",
-		"GLOBAL SEARCH",
 	}
 
 	for _, elem := range expectedElements {

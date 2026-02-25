@@ -240,7 +240,7 @@ func (c *ConfirmDialog) View() string {
 
 	case ConfirmInstallHooks:
 		title = "Claude Code Hooks"
-		warning = "Agent-deck can install Claude Code lifecycle hooks\nfor real-time status detection (instant green/yellow/gray)."
+		warning = "Hangar can install Claude Code lifecycle hooks\nfor real-time status detection (instant green/yellow/gray)."
 		details = "This writes to your Claude settings.json (preserves existing settings).\nNew/restarted sessions will use hooks; existing sessions continue unchanged.\nYou can disable later with: hooks_enabled = false in config.toml"
 		borderColor = ColorAccent
 

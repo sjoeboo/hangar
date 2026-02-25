@@ -18,46 +18,47 @@ const (
 // currentTheme holds the active theme (set at init)
 var currentTheme Theme = ThemeDark
 
-// Dark Theme - Tokyo Night
+// Dark Theme - Oasis Lagoon
 var darkColors = struct {
 	Bg, Surface, Border, Text, TextDim  lipgloss.Color
 	Accent, Purple, Cyan, Green, Yellow lipgloss.Color
 	Orange, Red, Comment                lipgloss.Color
 }{
-	Bg:      lipgloss.Color("#1a1b26"),
-	Surface: lipgloss.Color("#24283b"),
-	Border:  lipgloss.Color("#414868"),
-	Text:    lipgloss.Color("#c0caf5"),
-	TextDim: lipgloss.Color("#787fa0"),
-	Accent:  lipgloss.Color("#7aa2f7"),
-	Purple:  lipgloss.Color("#bb9af7"),
-	Cyan:    lipgloss.Color("#7dcfff"),
-	Green:   lipgloss.Color("#9ece6a"),
-	Yellow:  lipgloss.Color("#e0af68"),
-	Orange:  lipgloss.Color("#ff9e64"),
-	Red:     lipgloss.Color("#f7768e"),
-	Comment: lipgloss.Color("#787fa0"),
+	Bg:      lipgloss.Color("#101825"), // bg.core
+	Surface: lipgloss.Color("#22385C"), // bg.surface
+	Border:  lipgloss.Color("#264870"), // mid-navy
+	Text:    lipgloss.Color("#D9E6FA"), // fg.core
+	TextDim: lipgloss.Color("#8FB0D0"), // blue-gray dim
+	Accent:  lipgloss.Color("#58B8FD"), // lagoon primary blue
+	Purple:  lipgloss.Color("#C695FF"), // terminal magenta
+	Cyan:    lipgloss.Color("#68C0B6"), // terminal cyan/teal
+	Green:   lipgloss.Color("#53D390"), // cactus green
+	Yellow:  lipgloss.Color("#F0E68C"), // khaki
+	Orange:  lipgloss.Color("#F8B471"), // sunrise orange
+	Red:     lipgloss.Color("#FF7979"), // terminal red
+	Comment: lipgloss.Color("#4D88A7"), // fg.comment
 }
 
-// Light Theme - Tokyo Night Light variant
+// Light Theme - Oasis Dawn
+// Derived from oasis.nvim palette: light_terminal colors + lagoon/teal numeric scales
 var lightColors = struct {
 	Bg, Surface, Border, Text, TextDim  lipgloss.Color
 	Accent, Purple, Cyan, Green, Yellow lipgloss.Color
 	Orange, Red, Comment                lipgloss.Color
 }{
-	Bg:      lipgloss.Color("#d5d6db"),
-	Surface: lipgloss.Color("#e9e9ec"),
-	Border:  lipgloss.Color("#9699a3"),
-	Text:    lipgloss.Color("#343b58"),
-	TextDim: lipgloss.Color("#6a6d7c"),
-	Accent:  lipgloss.Color("#34548a"),
-	Purple:  lipgloss.Color("#7847bd"),
-	Cyan:    lipgloss.Color("#166775"),
-	Green:   lipgloss.Color("#485e30"),
-	Yellow:  lipgloss.Color("#8f5e15"),
-	Orange:  lipgloss.Color("#965027"),
-	Red:     lipgloss.Color("#8c4351"),
-	Comment: lipgloss.Color("#6a6d7c"),
+	Bg:      lipgloss.Color("#EEF4FF"), // lagoon[50] - lightest lagoon tint
+	Surface: lipgloss.Color("#D0E8FE"), // lagoon[100] - soft blue surface
+	Border:  lipgloss.Color("#B2DCFE"), // lagoon[200] - medium lagoon border
+	Text:    lipgloss.Color("#10426d"), // light_terminal.bright_blue - dark navy text
+	TextDim: lipgloss.Color("#1f3f71"), // light_terminal.bright_blue variant
+	Accent:  lipgloss.Color("#1670AD"), // lagoon[800] - medium lagoon accent
+	Purple:  lipgloss.Color("#46259f"), // light_terminal.magenta
+	Cyan:    lipgloss.Color("#064658"), // light_terminal.cyan
+	Green:   lipgloss.Color("#1b491d"), // light_terminal.green
+	Yellow:  lipgloss.Color("#6b2e00"), // light_terminal.yellow
+	Orange:  lipgloss.Color("#533c00"), // light_terminal.bright_yellow
+	Red:     lipgloss.Color("#663021"), // light_terminal.red
+	Comment: lipgloss.Color("#0D4266"), // lagoon[900] - deep lagoon comment
 }
 
 // Active color variables (set by InitTheme)

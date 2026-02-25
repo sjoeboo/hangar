@@ -17,23 +17,18 @@ const (
 	SettingDefaultTool
 	SettingDangerousMode
 	SettingClaudeConfigDir
-	SettingGeminiYoloMode
-	SettingCodexYoloMode
 	SettingCheckForUpdates
 	SettingAutoUpdate
 	SettingLogMaxSize
 	SettingLogMaxLines
 	SettingRemoveOrphans
-	SettingGlobalSearchEnabled
-	SettingSearchTier
-	SettingRecentDays
 	SettingShowOutput
 	SettingShowAnalytics
 	SettingMaintenanceEnabled
 )
 
 // Total number of navigable settings
-const settingsCount = 17
+const settingsCount = 12
 
 // SettingsPanel displays and edits user configuration
 type SettingsPanel struct {
@@ -46,20 +41,15 @@ type SettingsPanel struct {
 
 	// Setting values
 	selectedTheme       int // 0=dark, 1=light, 2=system
-	selectedTool        int // 0=claude, 1=gemini, 2=opencode, 3=codex, 4=none
+	selectedTool        int // 0=claude, 1=shell, 2=none
 	dangerousMode       bool
 	claudeConfigDir     string
 	claudeConfigIsScope bool // true = profile override, false = global [claude]
-	geminiYoloMode      bool
-	codexYoloMode       bool
 	checkForUpdates     bool
 	autoUpdate          bool
 	logMaxSizeMB        int
 	logMaxLines         int
 	removeOrphans       bool
-	globalSearchEnabled bool
-	searchTier          int // 0=auto, 1=instant, 2=balanced
-	recentDays          int
 	showOutput          bool
 	showAnalytics       bool
 	maintenanceEnabled  bool
@@ -76,12 +66,8 @@ type SettingsPanel struct {
 }
 
 // Tool names for radio selection
-var toolNames = []string{"Claude", "Gemini", "OpenCode", "Codex", "None"}
-var toolValues = []string{"claude", "gemini", "opencode", "codex", ""}
-
-// Search tier names for radio selection
-var tierNames = []string{"Auto", "Instant", "Balanced"}
-var tierValues = []string{"auto", "instant", "balanced"}
+var toolNames = []string{"Claude", "Shell", "None"}
+var toolValues = []string{"claude", "shell", ""}
 
 // Theme names for radio selection
 var themeNames = []string{"Dark", "Light", "System"}
@@ -90,14 +76,12 @@ var themeValues = []string{"dark", "light", "system"}
 // NewSettingsPanel creates a new settings panel
 func NewSettingsPanel() *SettingsPanel {
 	return &SettingsPanel{
-		logMaxSizeMB:        10,
-		logMaxLines:         10000,
-		removeOrphans:       true,
-		checkForUpdates:     true,
-		globalSearchEnabled: true,
-		recentDays:          90,
-		showOutput:          true,  // Default: output ON (shows launch animation)
-		showAnalytics:       false, // Default: analytics OFF (opt-in)
+		logMaxSizeMB:    10,
+		logMaxLines:     10000,
+		removeOrphans:   true,
+		checkForUpdates: true,
+		showOutput:      true,  // Default: output ON (shows launch animation)
+		showAnalytics:   false, // Default: analytics OFF (opt-in)
 	}
 }
 
@@ -157,7 +141,7 @@ func (s *SettingsPanel) LoadConfig(config *session.UserConfig) {
 	}
 
 	// Default tool
-	s.selectedTool = 4 // None by default
+	s.selectedTool = 2 // None by default
 	for i, val := range toolValues {
 		if val == config.DefaultTool {
 			s.selectedTool = i
@@ -176,12 +160,6 @@ func (s *SettingsPanel) LoadConfig(config *session.UserConfig) {
 		}
 	}
 
-	// Gemini settings
-	s.geminiYoloMode = config.Gemini.YoloMode
-
-	// Codex settings
-	s.codexYoloMode = config.Codex.YoloMode
-
 	// Update settings
 	s.checkForUpdates = config.Updates.CheckEnabled
 	s.autoUpdate = config.Updates.AutoUpdate
@@ -196,20 +174,6 @@ func (s *SettingsPanel) LoadConfig(config *session.UserConfig) {
 		s.logMaxLines = 10000
 	}
 	s.removeOrphans = config.Logs.RemoveOrphans
-
-	// Global search settings
-	s.globalSearchEnabled = config.GlobalSearch.Enabled
-	s.searchTier = 0 // auto by default
-	for i, val := range tierValues {
-		if val == config.GlobalSearch.Tier {
-			s.searchTier = i
-			break
-		}
-	}
-	s.recentDays = config.GlobalSearch.RecentDays
-	if s.recentDays < 0 {
-		s.recentDays = 90
-	}
 
 	// Preview settings
 	s.showOutput = config.GetShowOutput()
@@ -244,12 +208,6 @@ func (s *SettingsPanel) GetConfig() *session.UserConfig {
 		config.Claude.ConfigDir = s.claudeConfigDir
 	}
 
-	// Gemini settings
-	config.Gemini.YoloMode = s.geminiYoloMode
-
-	// Codex settings
-	config.Codex.YoloMode = s.codexYoloMode
-
 	// Update settings
 	config.Updates.CheckEnabled = s.checkForUpdates
 	config.Updates.AutoUpdate = s.autoUpdate
@@ -258,13 +216,6 @@ func (s *SettingsPanel) GetConfig() *session.UserConfig {
 	config.Logs.MaxSizeMB = s.logMaxSizeMB
 	config.Logs.MaxLines = s.logMaxLines
 	config.Logs.RemoveOrphans = s.removeOrphans
-
-	// Global search settings
-	config.GlobalSearch.Enabled = s.globalSearchEnabled
-	if s.searchTier >= 0 && s.searchTier < len(tierValues) {
-		config.GlobalSearch.Tier = tierValues[s.searchTier]
-	}
-	config.GlobalSearch.RecentDays = s.recentDays
 
 	// Preview settings
 	showOutput := s.showOutput
@@ -280,6 +231,9 @@ func (s *SettingsPanel) GetConfig() *session.UserConfig {
 		config.MCPs = s.originalConfig.MCPs
 		config.Tools = s.originalConfig.Tools
 		config.Profiles = s.originalConfig.Profiles
+		config.Gemini = s.originalConfig.Gemini
+		config.Codex = s.originalConfig.Codex
+		config.GlobalSearch = s.originalConfig.GlobalSearch
 		// Keep global Claude config when editing profile-specific override.
 		if s.claudeConfigIsScope {
 			config.Claude.ConfigDir = s.originalConfig.Claude.ConfigDir
@@ -366,17 +320,6 @@ func (s *SettingsPanel) adjustValue(delta int) bool {
 			changed = true
 		}
 
-	case SettingSearchTier:
-		newVal := s.searchTier + delta
-		if newVal >= 0 && newVal < len(tierNames) {
-			oldTier := s.searchTier
-			s.searchTier = newVal
-			changed = true
-			if oldTier != newVal {
-				s.needsRestart = true
-			}
-		}
-
 	case SettingLogMaxSize:
 		newVal := s.logMaxSizeMB + delta
 		if newVal >= 1 {
@@ -392,13 +335,6 @@ func (s *SettingsPanel) adjustValue(delta int) bool {
 			changed = true
 		}
 
-	case SettingRecentDays:
-		newVal := s.recentDays + (delta * 10)
-		if newVal >= 0 {
-			s.recentDays = newVal
-			changed = true
-			s.needsRestart = true
-		}
 	}
 
 	return changed
@@ -413,14 +349,6 @@ func (s *SettingsPanel) toggleValue() bool {
 		s.dangerousMode = !s.dangerousMode
 		return true
 
-	case SettingGeminiYoloMode:
-		s.geminiYoloMode = !s.geminiYoloMode
-		return true
-
-	case SettingCodexYoloMode:
-		s.codexYoloMode = !s.codexYoloMode
-		return true
-
 	case SettingCheckForUpdates:
 		s.checkForUpdates = !s.checkForUpdates
 		return true
@@ -431,11 +359,6 @@ func (s *SettingsPanel) toggleValue() bool {
 
 	case SettingRemoveOrphans:
 		s.removeOrphans = !s.removeOrphans
-		return true
-
-	case SettingGlobalSearchEnabled:
-		s.globalSearchEnabled = !s.globalSearchEnabled
-		s.needsRestart = true
 		return true
 
 	case SettingShowOutput:
@@ -598,28 +521,6 @@ func (s *SettingsPanel) View() string {
 	}
 	content.WriteString("  " + labelStyle.Render(line) + "\n\n")
 
-	// GEMINI
-	content.WriteString(sectionStyle.Render("GEMINI"))
-	content.WriteString("\n")
-
-	// YOLO mode checkbox
-	line = s.renderCheckbox("YOLO mode", s.geminiYoloMode) + " - Auto-approve all actions"
-	if s.cursor == int(SettingGeminiYoloMode) {
-		line = highlightStyle.Render(line)
-	}
-	content.WriteString("  " + labelStyle.Render(line) + "\n\n")
-
-	// CODEX
-	content.WriteString(sectionStyle.Render("CODEX"))
-	content.WriteString("\n")
-
-	// YOLO mode checkbox
-	line = s.renderCheckbox("YOLO mode", s.codexYoloMode) + " - Bypass approvals and sandbox"
-	if s.cursor == int(SettingCodexYoloMode) {
-		line = highlightStyle.Render(line)
-	}
-	content.WriteString("  " + labelStyle.Render(line) + "\n\n")
-
 	// UPDATES
 	content.WriteString(sectionStyle.Render("UPDATES"))
 	content.WriteString("\n")
@@ -658,31 +559,6 @@ func (s *SettingsPanel) View() string {
 	}
 	content.WriteString("  " + labelStyle.Render(line) + "\n\n")
 
-	// GLOBAL SEARCH
-	content.WriteString(sectionStyle.Render("GLOBAL SEARCH"))
-	if s.needsRestart {
-		content.WriteString(warningStyle.Render("  (changes require restart)"))
-	}
-	content.WriteString("\n")
-
-	line = s.renderCheckbox("Enabled", s.globalSearchEnabled)
-	if s.cursor == int(SettingGlobalSearchEnabled) {
-		line = highlightStyle.Render(line)
-	}
-	content.WriteString("  " + labelStyle.Render(line) + "\n")
-
-	line = "Search tier: " + s.renderRadioGroup(tierNames, s.searchTier, s.cursor == int(SettingSearchTier))
-	if s.cursor == int(SettingSearchTier) {
-		line = highlightStyle.Render(line)
-	}
-	content.WriteString("  " + labelStyle.Render(line) + "\n")
-
-	line = s.renderNumber("Recent days:", s.recentDays, "(0 = all)")
-	if s.cursor == int(SettingRecentDays) {
-		line = highlightStyle.Render(line)
-	}
-	content.WriteString("  " + labelStyle.Render(line) + "\n\n")
-
 	// PREVIEW
 	content.WriteString(sectionStyle.Render("PREVIEW"))
 	content.WriteString("\n")
@@ -709,14 +585,6 @@ func (s *SettingsPanel) View() string {
 	}
 	content.WriteString("  " + labelStyle.Render(line) + "\n\n")
 
-	// MCP & TOOLS
-	content.WriteString(sectionStyle.Render("MCP SERVERS & CUSTOM TOOLS"))
-	content.WriteString("\n")
-	content.WriteString(dimStyle.Render("  Edit ~/.hangar/config.toml to configure MCPs and tools."))
-	content.WriteString("\n")
-	content.WriteString(dimStyle.Render("  Press m on any Claude/Gemini session to attach MCPs."))
-	content.WriteString("\n\n")
-
 	// Help bar
 	content.WriteString(dimStyle.Render("j/k Navigate  Space Toggle  h/l Adjust  Enter Edit  Esc Close"))
 
@@ -736,23 +604,18 @@ func (s *SettingsPanel) View() string {
 		// Map cursor index to content line number (based on the fixed layout above).
 		// Update this mapping if settings are added/removed/reordered.
 		cursorToLine := [settingsCount]int{
-			4,  // SettingTheme
-			7,  // SettingDefaultTool
-			11, // SettingDangerousMode
-			12, // SettingClaudeConfigDir
-			15, // SettingGeminiYoloMode
-			18, // SettingCodexYoloMode
-			21, // SettingCheckForUpdates
-			22, // SettingAutoUpdate
-			25, // SettingLogMaxSize
-			25, // SettingLogMaxLines (shares line with LogMaxSize)
-			26, // SettingRemoveOrphans
-			29, // SettingGlobalSearchEnabled
-			30, // SettingSearchTier
-			31, // SettingRecentDays
-			34, // SettingShowOutput
-			35, // SettingShowAnalytics
-			38, // SettingMaintenanceEnabled
+			4,  // SettingTheme (0)
+			7,  // SettingDefaultTool (1)
+			11, // SettingDangerousMode (2)
+			12, // SettingClaudeConfigDir (3)
+			15, // SettingCheckForUpdates (4)
+			16, // SettingAutoUpdate (5)
+			19, // SettingLogMaxSize (6)
+			19, // SettingLogMaxLines (7)
+			20, // SettingRemoveOrphans (8)
+			23, // SettingShowOutput (9)
+			24, // SettingShowAnalytics (10)
+			27, // SettingMaintenanceEnabled (11)
 		}
 		cursorLine := cursorToLine[s.cursor]
 

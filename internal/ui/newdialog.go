@@ -294,6 +294,13 @@ func (d *NewDialog) autoBranchFromName() {
 	d.branchAutoSet = true
 }
 
+// IsChoosingProject returns true when the project-picker step is active and the
+// user hasn't yet confirmed a project. In this state Enter should advance to the
+// name input rather than attempt session creation.
+func (d *NewDialog) IsChoosingProject() bool {
+	return d.projectStep && !d.projectSelected
+}
+
 // IsWorktreeEnabled returns whether worktree mode is enabled
 func (d *NewDialog) IsWorktreeEnabled() bool {
 	return d.worktreeEnabled

@@ -46,8 +46,8 @@ type GlobalSearchResult struct {
 	ModTime     time.Time // Last modified time
 	Score       int       // Fuzzy match score (higher = better match)
 	MatchCount  int       // Number of query matches in content
-	InHangar bool      // True if this session is already in Agent Deck
-	InstanceID  string    // Agent Deck instance ID if exists
+	InHangar bool      // True if this session is already in Hangar
+	InstanceID  string    // Hangar instance ID if exists
 }
 
 // globalSearchResultsMsg delivers async search results back to the UI
@@ -669,7 +669,7 @@ func (gs *GlobalSearch) highlightMatches(text, query string) string {
 	return result.String()
 }
 
-// MarkInHangar marks which results are already in Agent Deck
+// MarkInHangar marks which results are already in Hangar
 func (gs *GlobalSearch) MarkInHangar(instances []*session.Instance) {
 	idMap := make(map[string]string) // sessionID -> instanceID
 	for _, inst := range instances {

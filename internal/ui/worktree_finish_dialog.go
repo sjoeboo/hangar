@@ -4,12 +4,11 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/lipgloss"
 )
 
 // WorktreeFinishDialog handles the two-step worktree finish flow:
-// Step 0: Configure options (merge toggle, target branch, keep branch)
+// Step 0: Configure options (keep branch)
 // Step 1: Confirm the destructive actions
 type WorktreeFinishDialog struct {
 	visible bool
@@ -28,30 +27,19 @@ type WorktreeFinishDialog struct {
 	errorMsg     string
 
 	// Options (step 0)
-	mergeEnabled bool
-	keepBranch   bool
-	targetInput  textinput.Model
+	keepBranch bool
 
 	// Dialog state
-	step       int // 0=options, 1=confirm
-	focusIndex int // 0=merge checkbox, 1=target input, 2=keep-branch checkbox
+	step int // 0=options, 1=confirm
 }
 
 // NewWorktreeFinishDialog creates a new worktree finish dialog
 func NewWorktreeFinishDialog() *WorktreeFinishDialog {
-	targetInput := textinput.New()
-	targetInput.Placeholder = "main"
-	targetInput.CharLimit = 100
-	targetInput.Width = 30
-
-	return &WorktreeFinishDialog{
-		targetInput:  targetInput,
-		mergeEnabled: true,
-	}
+	return &WorktreeFinishDialog{}
 }
 
 // Show displays the dialog for the given worktree session
-func (d *WorktreeFinishDialog) Show(sessionID, sessionTitle, branchName, repoRoot, worktreePath, defaultBranch string) {
+func (d *WorktreeFinishDialog) Show(sessionID, sessionTitle, branchName, repoRoot, worktreePath string) {
 	d.visible = true
 	d.sessionID = sessionID
 	d.sessionTitle = sessionTitle
@@ -62,18 +50,13 @@ func (d *WorktreeFinishDialog) Show(sessionID, sessionTitle, branchName, repoRoo
 	d.dirtyChecked = false
 	d.isExecuting = false
 	d.errorMsg = ""
-	d.mergeEnabled = true
 	d.keepBranch = false
 	d.step = 0
-	d.focusIndex = 0
-	d.targetInput.SetValue(defaultBranch)
-	d.targetInput.Blur()
 }
 
 // Hide hides the dialog and resets state
 func (d *WorktreeFinishDialog) Hide() {
 	d.visible = false
-	d.targetInput.Blur()
 	d.isExecuting = false
 	d.errorMsg = ""
 }
@@ -112,12 +95,8 @@ func (d *WorktreeFinishDialog) GetSessionID() string {
 }
 
 // GetOptions returns the current dialog options
-func (d *WorktreeFinishDialog) GetOptions() (mergeEnabled bool, targetBranch string, keepBranch bool) {
-	target := strings.TrimSpace(d.targetInput.Value())
-	if target == "" {
-		target = d.targetInput.Placeholder
-	}
-	return d.mergeEnabled, target, d.keepBranch
+func (d *WorktreeFinishDialog) GetOptions() (keepBranch bool) {
+	return d.keepBranch
 }
 
 // HandleKey processes a key event and returns the action to take.
@@ -134,7 +113,6 @@ func (d *WorktreeFinishDialog) HandleKey(key string) (action string) {
 			return "confirm"
 		case "n", "esc":
 			if d.errorMsg != "" {
-				// Error state: go back to options
 				d.errorMsg = ""
 				d.step = 0
 				return ""
@@ -151,81 +129,17 @@ func (d *WorktreeFinishDialog) HandleKey(key string) (action string) {
 		d.Hide()
 		return "close"
 
-	case "tab", "down":
-		if d.mergeEnabled {
-			d.focusIndex = (d.focusIndex + 1) % 3 // merge, target, keep-branch
-		} else {
-			// Skip target input when merge disabled
-			if d.focusIndex == 0 {
-				d.focusIndex = 2
-			} else {
-				d.focusIndex = 0
-			}
-		}
-		d.updateFocus()
-		return ""
-
-	case "shift+tab", "up":
-		if d.mergeEnabled {
-			d.focusIndex = (d.focusIndex + 2) % 3
-		} else {
-			if d.focusIndex == 2 {
-				d.focusIndex = 0
-			} else {
-				d.focusIndex = 2
-			}
-		}
-		d.updateFocus()
-		return ""
-
 	case " ":
-		// Toggle checkboxes
-		if d.focusIndex == 0 {
-			d.mergeEnabled = !d.mergeEnabled
-			// Tab handler already skips target input when merge is disabled
-		} else if d.focusIndex == 2 {
-			d.keepBranch = !d.keepBranch
-		}
+		d.keepBranch = !d.keepBranch
 		return ""
 
 	case "enter":
-		// Validate and advance to confirm step
-		if d.mergeEnabled {
-			target := strings.TrimSpace(d.targetInput.Value())
-			if target == "" {
-				target = d.targetInput.Placeholder
-			}
-			if target == d.branchName {
-				d.errorMsg = fmt.Sprintf("Cannot merge '%s' into itself", d.branchName)
-				return ""
-			}
-		}
 		d.errorMsg = ""
 		d.step = 1
 		return ""
 	}
 
-	// Pass through to target input if focused
-	if d.focusIndex == 1 && d.mergeEnabled {
-		// Let the caller handle textinput update
-		return "input"
-	}
-
 	return ""
-}
-
-// UpdateTargetInput updates the target branch text input with a message
-func (d *WorktreeFinishDialog) UpdateTargetInput(msg interface{}) {
-	if d.focusIndex == 1 && d.mergeEnabled {
-		d.targetInput, _ = d.targetInput.Update(msg)
-	}
-}
-
-func (d *WorktreeFinishDialog) updateFocus() {
-	d.targetInput.Blur()
-	if d.focusIndex == 1 && d.mergeEnabled {
-		d.targetInput.Focus()
-	}
 }
 
 // View renders the dialog
@@ -238,7 +152,6 @@ func (d *WorktreeFinishDialog) View() string {
 	labelStyle := lipgloss.NewStyle().Foreground(ColorText)
 	valueStyle := lipgloss.NewStyle().Foreground(ColorAccent)
 	checkboxStyle := lipgloss.NewStyle().Foreground(ColorText)
-	checkboxActiveStyle := lipgloss.NewStyle().Foreground(ColorCyan).Bold(true)
 	footerStyle := lipgloss.NewStyle().Foreground(ColorComment)
 	errStyle := lipgloss.NewStyle().Foreground(ColorRed).Bold(true)
 
@@ -263,13 +176,13 @@ func (d *WorktreeFinishDialog) View() string {
 		Width(dialogWidth)
 
 	if d.step == 1 {
-		return d.viewConfirm(titleStyle, labelStyle, errStyle, footerStyle, boxStyle, dialogWidth)
+		return d.viewConfirm(titleStyle, labelStyle, errStyle, footerStyle, boxStyle)
 	}
 
-	return d.viewOptions(titleStyle, labelStyle, valueStyle, checkboxStyle, checkboxActiveStyle, errStyle, footerStyle, boxStyle, dialogWidth)
+	return d.viewOptions(titleStyle, labelStyle, valueStyle, checkboxStyle, footerStyle, boxStyle)
 }
 
-func (d *WorktreeFinishDialog) viewOptions(titleStyle, labelStyle, valueStyle, checkboxStyle, checkboxActiveStyle, errStyle, footerStyle lipgloss.Style, boxStyle lipgloss.Style, dialogWidth int) string {
+func (d *WorktreeFinishDialog) viewOptions(titleStyle, labelStyle, valueStyle, checkboxStyle, footerStyle lipgloss.Style, boxStyle lipgloss.Style) string {
 	var b strings.Builder
 
 	b.WriteString(titleStyle.Render("Finish Worktree"))
@@ -298,57 +211,29 @@ func (d *WorktreeFinishDialog) viewOptions(titleStyle, labelStyle, valueStyle, c
 	}
 	b.WriteString("\n\n")
 
-	// Merge checkbox
-	mergeCheck := "[ ]"
-	if d.mergeEnabled {
-		mergeCheck = "[x]"
-	}
-	if d.focusIndex == 0 {
-		b.WriteString(checkboxActiveStyle.Render(fmt.Sprintf("▶ %s Merge into target branch", mergeCheck)))
-	} else {
-		b.WriteString(checkboxStyle.Render(fmt.Sprintf("  %s Merge into target branch", mergeCheck)))
-	}
-	b.WriteString("\n")
-
-	// Target input (only when merge enabled)
-	if d.mergeEnabled {
-		if d.focusIndex == 1 {
-			activeLabelStyle := lipgloss.NewStyle().Foreground(ColorAccent).Bold(true)
-			b.WriteString(activeLabelStyle.Render("  ▶ Target: "))
-		} else {
-			b.WriteString(labelStyle.Render("    Target: "))
-		}
-		b.WriteString(d.targetInput.View())
-		b.WriteString("\n")
-	}
-
 	// Keep branch checkbox
 	keepCheck := "[ ]"
 	if d.keepBranch {
 		keepCheck = "[x]"
 	}
-	if d.focusIndex == 2 {
-		b.WriteString(checkboxActiveStyle.Render(fmt.Sprintf("▶ %s Keep branch after finish", keepCheck)))
-	} else {
-		b.WriteString(checkboxStyle.Render(fmt.Sprintf("  %s Keep branch after finish", keepCheck)))
-	}
+	b.WriteString(checkboxStyle.Render(fmt.Sprintf("  %s Keep branch after cleanup", keepCheck)))
 	b.WriteString("\n")
 
 	// Error line
 	if d.errorMsg != "" {
 		b.WriteString("\n")
-		b.WriteString(errStyle.Render("  " + d.errorMsg))
+		b.WriteString(lipgloss.NewStyle().Foreground(ColorRed).Bold(true).Render("  " + d.errorMsg))
 		b.WriteString("\n")
 	}
 
 	b.WriteString("\n")
-	b.WriteString(footerStyle.Render("Tab next | Space toggle | Enter confirm | Esc cancel"))
+	b.WriteString(footerStyle.Render("Space toggle | Enter confirm | Esc cancel"))
 
 	dialog := boxStyle.Render(b.String())
 	return lipgloss.Place(d.width, d.height, lipgloss.Center, lipgloss.Center, dialog)
 }
 
-func (d *WorktreeFinishDialog) viewConfirm(titleStyle, labelStyle, errStyle, footerStyle lipgloss.Style, boxStyle lipgloss.Style, dialogWidth int) string {
+func (d *WorktreeFinishDialog) viewConfirm(titleStyle, labelStyle, errStyle, footerStyle lipgloss.Style, boxStyle lipgloss.Style) string {
 	var b strings.Builder
 
 	if d.isExecuting {
@@ -375,23 +260,14 @@ func (d *WorktreeFinishDialog) viewConfirm(titleStyle, labelStyle, errStyle, foo
 	b.WriteString(labelStyle.Render("  This will:"))
 	b.WriteString("\n")
 
-	target := strings.TrimSpace(d.targetInput.Value())
-	if target == "" {
-		target = d.targetInput.Placeholder
-	}
-
 	actionStyle := lipgloss.NewStyle().Foreground(ColorText)
-	if d.mergeEnabled {
-		b.WriteString(actionStyle.Render(fmt.Sprintf("  • Merge %s → %s", d.branchName, target)))
-		b.WriteString("\n")
-	}
 	b.WriteString(actionStyle.Render("  • Remove worktree directory"))
 	b.WriteString("\n")
 	if !d.keepBranch {
 		b.WriteString(actionStyle.Render(fmt.Sprintf("  • Delete branch %s", d.branchName)))
 		b.WriteString("\n")
 	}
-	b.WriteString(actionStyle.Render("  • Remove session from agent-deck"))
+	b.WriteString(actionStyle.Render("  • Remove session from hangar"))
 	b.WriteString("\n")
 
 	// Dirty warning
