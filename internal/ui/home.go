@@ -141,7 +141,7 @@ type Home struct {
 	settingsPanel        *SettingsPanel        // For editing settings
 	geminiModelDialog    *GeminiModelDialog    // For selecting Gemini model
 	sessionPickerDialog  *SessionPickerDialog  // For sending output to another session
-	worktreeFinishDialog *WorktreeFinishDialog // For finishing worktree sessions (merge + cleanup)
+	worktreeFinishDialog *WorktreeFinishDialog // For finishing worktree sessions (optional merge + cleanup)
 	sendTextDialog       *SendTextDialog       // For sending text to a session without attaching
 	sendTextTargetID     string                // Session ID targeted by sendTextDialog
 
@@ -3806,7 +3806,7 @@ func (h *Home) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return h, nil
 
 	case "W", "shift+w":
-		// Worktree finish - merge + cleanup for worktree sessions
+		// Worktree finish - optional merge + cleanup for worktree sessions
 		if h.cursor < len(h.flatItems) {
 			item := h.flatItems[h.cursor]
 			if item.Type == session.ItemTypeSession && item.Session != nil {
@@ -7426,7 +7426,7 @@ func (h *Home) renderPreviewPane(width, height int) string {
 		// Finish hint
 		b.WriteString(wtHintStyle.Render("Finish:  "))
 		b.WriteString(wtKeyStyle.Render("W"))
-		b.WriteString(wtHintStyle.Render(" merge + cleanup"))
+		b.WriteString(wtHintStyle.Render(" finish + cleanup"))
 		b.WriteString("\n")
 	}
 
