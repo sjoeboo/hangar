@@ -433,17 +433,21 @@ func PruneWorktrees(repoDir string) error {
 // Returns nil if the pull succeeds or there is nothing to pull.
 // Returns an error on failure so callers can warn but continue.
 func UpdateBaseBranch(repoPath, branch string) error {
-	const timeout = 15 * time.Second
+	const timeout = 60 * time.Second
 
-	// Step 1: fetch origin
+	// Step 1: fetch only the specific branch (not all of origin) to avoid
+	// slow full-fetches on large monorepos.
 	fetchCtx, fetchCancel := context.WithTimeout(context.Background(), timeout)
 	defer fetchCancel()
-	fetchCmd := exec.CommandContext(fetchCtx, "git", "-C", repoPath, "fetch", "origin")
+	fetchCmd := exec.CommandContext(fetchCtx, "git", "-C", repoPath, "fetch", "origin", branch)
 	if output, err := fetchCmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("fetch failed: %s: %w", strings.TrimSpace(string(output)), err)
 	}
 
-	// Step 2: fast-forward merge
+	// Step 2: fast-forward merge. This can fail if the local branch has
+	// diverged from origin (e.g. local commits on the base branch). In that
+	// case we skip the local update — the worktree will still be created from
+	// the current HEAD and the caller treats this as a non-fatal warning.
 	mergeCtx, mergeCancel := context.WithTimeout(context.Background(), timeout)
 	defer mergeCancel()
 	mergeCmd := exec.CommandContext(mergeCtx, "git", "-C", repoPath, "merge", "--ff-only", "origin/"+branch)
