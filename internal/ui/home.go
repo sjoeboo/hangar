@@ -6995,10 +6995,37 @@ func (h *Home) renderSessionItem(b *strings.Builder, item session.Item, selected
 		worktreeBadge = wtStyle.Render(" [" + branch + "]")
 	}
 
-	// Build row: [baseIndent][selection][tree][status] [title] [tool] [yolo] [worktree]
+	// PR badge for sessions with an open/merged/closed pull request
+	prBadge := ""
+	if inst.IsWorktree() {
+		h.prCacheMu.Lock()
+		pr, hasPR := h.prCache[inst.ID]
+		h.prCacheMu.Unlock()
+		if hasPR && pr != nil {
+			var badgeStyle lipgloss.Style
+			switch pr.State {
+			case "OPEN":
+				badgeStyle = PRBadgeOpen
+			case "MERGED":
+				badgeStyle = PRBadgeMerged
+			case "CLOSED":
+				badgeStyle = PRBadgeClosed
+			default:
+				// DRAFT and unknown states: no badge
+			}
+			if pr.State == "OPEN" || pr.State == "MERGED" || pr.State == "CLOSED" {
+				if selected {
+					badgeStyle = SessionStatusSelStyle
+				}
+				prBadge = badgeStyle.Render(fmt.Sprintf(" [#%d]", pr.Number))
+			}
+		}
+	}
+
+	// Build row: [baseIndent][selection][tree][status] [title] [tool] [yolo] [worktree] [pr]
 	// Format: " ├─ ● session-name tool" or "▶└─ ● session-name tool"
 	// Sub-sessions get extra indent: "   ├─◐ sub-session tool"
-	row := fmt.Sprintf("%s%s%s %s %s%s%s%s", baseIndent, selectionPrefix, treeStyle.Render(treeConnector), status, title, tool, yoloBadge, worktreeBadge)
+	row := fmt.Sprintf("%s%s%s %s %s%s%s%s%s", baseIndent, selectionPrefix, treeStyle.Render(treeConnector), status, title, tool, yoloBadge, worktreeBadge, prBadge)
 	b.WriteString(row)
 	b.WriteString("\n")
 }
