@@ -126,8 +126,8 @@ func (d *NewDialog) ShowInGroup(groupPath, groupName, defaultPath string) {
 	d.claudeOptions.Blur()
 	// Keep commandCursor at previously set default (don't reset to 0)
 	d.updateToolOptions()
-	// Reset worktree fields
-	d.worktreeEnabled = false
+	// Reset worktree fields — default to enabled
+	d.worktreeEnabled = true
 	d.branchInput.SetValue("")
 	d.branchAutoSet = false
 	// Set path input to group's default path if provided, otherwise use current working directory
@@ -166,6 +166,7 @@ func (d *NewDialog) ShowInGroupWithWorktree(groupPath, groupName, defaultPath, b
 	// Skip project picker — project is determined by the todo's scope.
 	d.projectStep = false
 	d.projectSelected = true
+	d.nameInput.SetValue(branchName)
 	d.nameInput.Focus()
 	d.worktreeEnabled = true
 	d.branchInput.SetValue(branchName)
