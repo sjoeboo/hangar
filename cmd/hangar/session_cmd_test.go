@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/sjoeboo/hangar/internal/session"
+	"ghe.spotify.net/mnicholson/hangar/internal/session"
 )
 
 func TestMCPInfoForJSON_NilOrEmpty(t *testing.T) {

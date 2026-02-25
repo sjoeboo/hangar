@@ -62,7 +62,7 @@
 
   <!-- Bottom tagline -->
   <text x="100" y="530" font-family="system-ui, sans-serif" font-size="24" fill="#565f89">Free &amp; Open Source</text>
-  <text x="100" y="570" font-family="monospace" font-size="20" fill="#7aa2f7">github.com/sjoeboo/hangar</text>
+  <text x="100" y="570" font-family="monospace" font-size="20" fill="#7aa2f7">ghe.spotify.net/mnicholson/hangar</text>
 
   <!-- Status legend on right -->
   <g transform="translate(900, 450)">

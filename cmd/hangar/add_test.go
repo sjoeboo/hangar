@@ -3,7 +3,7 @@ package main
 import (
 	"testing"
 
-	"github.com/sjoeboo/hangar/internal/session"
+	"ghe.spotify.net/mnicholson/hangar/internal/session"
 )
 
 // TestMain is in testmain_test.go - sets HANGAR_PROFILE=_test

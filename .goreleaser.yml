@@ -54,7 +54,7 @@ changelog:
 
 release:
   github:
-    owner: sjoeboo
+    owner: mnicholson
     name: hangar
   draft: false
   prerelease: auto
@@ -69,31 +69,31 @@ release:
 
     **Homebrew (recommended):**
     ```bash
-    brew install sjoeboo/tap/hangar
+    brew install mnicholson/tap/hangar
     ```
 
     **Quick Install:**
     ```bash
-    curl -fsSL https://raw.githubusercontent.com/sjoeboo/hangar/main/install.sh | bash
+    curl -fsSL https://ghe.spotify.net/mnicholson/hangar/raw/master/install.sh | bash
     ```
 
     **Go Install:**
     ```bash
-    go install github.com/sjoeboo/hangar/cmd/hangar@v{{.Version}}
+    go install ghe.spotify.net/mnicholson/hangar/cmd/hangar@v{{.Version}}
     ```
   footer: |
     ---
 
-    **Full Changelog**: https://github.com/sjoeboo/hangar/compare/{{ .PreviousTag }}...{{ .Tag }}
+    **Full Changelog**: https://ghe.spotify.net/mnicholson/hangar/compare/{{ .PreviousTag }}...{{ .Tag }}
 
 brews:
   - name: hangar
     repository:
-      owner: sjoeboo
+      owner: mnicholson
       name: homebrew-tap
       token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
     directory: Formula
-    homepage: "https://github.com/sjoeboo/hangar"
+    homepage: "https://ghe.spotify.net/mnicholson/hangar"
     description: "Terminal session manager for AI coding agents"
     license: "MIT"
     dependencies:

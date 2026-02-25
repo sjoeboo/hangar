@@ -1,10 +1,10 @@
 #!/bin/bash
 #
 # Hangar Uninstaller
-# https://github.com/sjoeboo/hangar
+# https://ghe.spotify.net/mnicholson/hangar
 #
 # Usage:
-#   curl -fsSL https://raw.githubusercontent.com/sjoeboo/hangar/main/uninstall.sh | bash
+#   curl -fsSL https://ghe.spotify.net/mnicholson/hangar/raw/master/main/uninstall.sh | bash
 #
 # Options:
 #   --keep-data         Keep ~/.hangar/ (sessions, config, logs)
@@ -303,4 +303,4 @@ fi
 
 echo ""
 echo "Thank you for using Hangar!"
-echo "Feedback: https://github.com/sjoeboo/hangar/issues"
+echo "Feedback: https://ghe.spotify.net/mnicholson/hangar/issues"

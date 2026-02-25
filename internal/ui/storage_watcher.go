@@ -5,8 +5,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/sjoeboo/hangar/internal/logging"
-	"github.com/sjoeboo/hangar/internal/statedb"
+	"ghe.spotify.net/mnicholson/hangar/internal/logging"
+	"ghe.spotify.net/mnicholson/hangar/internal/statedb"
 )
 
 var watcherLog = logging.ForComponent(logging.CompStorage)

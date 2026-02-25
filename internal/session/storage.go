@@ -10,9 +10,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/sjoeboo/hangar/internal/logging"
-	"github.com/sjoeboo/hangar/internal/statedb"
-	"github.com/sjoeboo/hangar/internal/tmux"
+	"ghe.spotify.net/mnicholson/hangar/internal/logging"
+	"ghe.spotify.net/mnicholson/hangar/internal/statedb"
+	"ghe.spotify.net/mnicholson/hangar/internal/tmux"
 )
 
 var storageLog = logging.ForComponent(logging.CompStorage)

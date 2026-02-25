@@ -76,7 +76,7 @@ echo -e "${BLUE}╚════════════════════�
 echo ""
 
 # ── Verify we're in the repo root ────────────────────────────────────────────
-if [[ ! -f "go.mod" ]] || ! grep -q 'github.com/sjoeboo/hangar' go.mod 2>/dev/null; then
+if [[ ! -f "go.mod" ]] || ! grep -q 'ghe.spotify.net/mnicholson/hangar' go.mod 2>/dev/null; then
     echo -e "${RED}Error: run this script from the root of the hangar repo.${NC}"
     echo "  git clone git@git.spotify.net:mnicholson/hangar"
     echo "  cd hangar && ./install.sh"

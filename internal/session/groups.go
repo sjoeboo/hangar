@@ -7,7 +7,7 @@ import (
 	"strings"
 	"unicode"
 
-	"github.com/sjoeboo/hangar/internal/git"
+	"ghe.spotify.net/mnicholson/hangar/internal/git"
 )
 
 // DefaultGroupName is the display name for the default group where ungrouped sessions go

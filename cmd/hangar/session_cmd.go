@@ -10,11 +10,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/sjoeboo/hangar/internal/clipboard"
-	"github.com/sjoeboo/hangar/internal/git"
-	"github.com/sjoeboo/hangar/internal/profile"
-	"github.com/sjoeboo/hangar/internal/session"
-	"github.com/sjoeboo/hangar/internal/tmux"
+	"ghe.spotify.net/mnicholson/hangar/internal/clipboard"
+	"ghe.spotify.net/mnicholson/hangar/internal/git"
+	"ghe.spotify.net/mnicholson/hangar/internal/profile"
+	"ghe.spotify.net/mnicholson/hangar/internal/session"
+	"ghe.spotify.net/mnicholson/hangar/internal/tmux"
 )
 
 // handleSession dispatches session subcommands

@@ -12,7 +12,7 @@ import (
 
 	"github.com/fsnotify/fsnotify"
 
-	"github.com/sjoeboo/hangar/internal/logging"
+	"ghe.spotify.net/mnicholson/hangar/internal/logging"
 )
 
 var hookLog = logging.ForComponent(logging.CompSession)

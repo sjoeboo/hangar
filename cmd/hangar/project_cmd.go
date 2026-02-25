@@ -5,8 +5,8 @@ import (
 	"os"
 	"strings"
 
-	"github.com/sjoeboo/hangar/internal/git"
-	"github.com/sjoeboo/hangar/internal/session"
+	"ghe.spotify.net/mnicholson/hangar/internal/git"
+	"ghe.spotify.net/mnicholson/hangar/internal/session"
 )
 
 // handleProject dispatches project subcommands

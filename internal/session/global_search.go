@@ -16,7 +16,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/sjoeboo/hangar/internal/logging"
+	"ghe.spotify.net/mnicholson/hangar/internal/logging"
 	"github.com/fsnotify/fsnotify"
 	"github.com/sahilm/fuzzy"
 	"golang.org/x/time/rate"

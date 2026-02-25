@@ -8,7 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [1.0.0] - 2026-02-24
 
 Initial release of **Hangar** — a focused fork of
-[agent-deck](https://github.com/sjoeboo/agent-deck) by @sjoeboo, trimmed and
+[agent-deck](https://ghe.spotify.net/mnicholson/agent-deck) by @mnicholson, trimmed and
 re-tuned for solo Claude Code workflows.
 
 ### Forked from agent-deck
@@ -19,7 +19,7 @@ Codex, OpenCode, conductor orchestration, Slack/Telegram bridges, a web UI, and
 an MCP pool. Hangar strips all of that back to what one person needs: a clean
 TUI for managing Claude Code sessions.
 
-Thanks to @sjoeboo and all upstream contributors for the excellent foundation.
+Thanks to @mnicholson and all upstream contributors for the excellent foundation.
 
 ### Removed (scope reduction from upstream)
 
@@ -90,4 +90,4 @@ Thanks to @sjoeboo and all upstream contributors for the excellent foundation.
   display in session list
 - **Help text** — removed stale MCP/Skills references; corrected key descriptions
 
-[1.0.0]: https://github.com/sjoeboo/hangar/releases/tag/v1.0.0
+[1.0.0]: https://ghe.spotify.net/mnicholson/hangar/releases/tag/v1.0.0

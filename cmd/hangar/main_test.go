@@ -5,8 +5,8 @@ import (
 	"os/exec"
 	"testing"
 
-	"github.com/sjoeboo/hangar/internal/session"
-	"github.com/sjoeboo/hangar/internal/ui"
+	"ghe.spotify.net/mnicholson/hangar/internal/session"
+	"ghe.spotify.net/mnicholson/hangar/internal/ui"
 )
 
 func TestTmuxAvailable(t *testing.T) {

@@ -2,7 +2,7 @@
 
 **A Claude-Code-only terminal session manager.**
 
-Hangar is an opinionated fork of [agent-deck](https://github.com/sjoeboo/agent-deck) by @sjoeboo, stripped down to a clean, fast workflow for Claude Code users who live in git repos and worktrees.
+Hangar is an opinionated fork of [agent-deck](https://ghe.spotify.net/mnicholson/agent-deck) by @mnicholson, stripped down to a clean, fast workflow for Claude Code users who live in git repos and worktrees.
 
 ---
 
@@ -203,7 +203,7 @@ make install-user   # build + install to ~/.local/bin
 
 ## Attribution
 
-Hangar is a fork of [agent-deck](https://github.com/sjoeboo/agent-deck) by @sjoeboo, MIT licensed. Git history is preserved for easy upstream cherry-picks.
+Hangar is a fork of [agent-deck](https://ghe.spotify.net/mnicholson/agent-deck) by @mnicholson, MIT licensed. Git history is preserved for easy upstream cherry-picks.
 
 ---
 

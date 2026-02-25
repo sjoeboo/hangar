@@ -21,12 +21,12 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/muesli/termenv"
 
-	"github.com/sjoeboo/hangar/internal/git"
-	"github.com/sjoeboo/hangar/internal/logging"
-	"github.com/sjoeboo/hangar/internal/session"
-	"github.com/sjoeboo/hangar/internal/statedb"
-	"github.com/sjoeboo/hangar/internal/ui"
-	"github.com/sjoeboo/hangar/internal/update"
+	"ghe.spotify.net/mnicholson/hangar/internal/git"
+	"ghe.spotify.net/mnicholson/hangar/internal/logging"
+	"ghe.spotify.net/mnicholson/hangar/internal/session"
+	"ghe.spotify.net/mnicholson/hangar/internal/statedb"
+	"ghe.spotify.net/mnicholson/hangar/internal/ui"
+	"ghe.spotify.net/mnicholson/hangar/internal/update"
 )
 
 const Version = "0.19.14"
@@ -2439,7 +2439,7 @@ func handleUninstall(args []string) {
 
 	fmt.Println()
 	fmt.Println("Thank you for using Hangar!")
-	fmt.Println("Feedback: https://github.com/sjoeboo/hangar/issues")
+	fmt.Println("Feedback: https://ghe.spotify.net/mnicholson/hangar/issues")
 }
 
 // isNestedSession returns true if we're running inside an hangar managed tmux session.

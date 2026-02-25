@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/sjoeboo/hangar/internal/experiments"
-	"github.com/sjoeboo/hangar/internal/session"
+	"ghe.spotify.net/mnicholson/hangar/internal/experiments"
+	"ghe.spotify.net/mnicholson/hangar/internal/session"
 )
 
 // handleTry handles the 'try' subcommand for quick experiments

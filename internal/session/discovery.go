@@ -4,7 +4,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/sjoeboo/hangar/internal/tmux"
+	"ghe.spotify.net/mnicholson/hangar/internal/tmux"
 )
 
 // DiscoverExistingTmuxSessions finds all tmux sessions and converts them to instances

@@ -8,7 +8,7 @@ compatibility: claude, opencode
 
 Terminal session manager for AI coding agents. Built with Go + Bubble Tea.
 
-**Version:** 0.8.98 | **Repo:** [github.com/sjoeboo/hangar](https://github.com/sjoeboo/hangar)
+**Version:** 0.8.98 | **Repo:** [ghe.spotify.net/mnicholson/hangar](https://ghe.spotify.net/mnicholson/hangar)
 
 ## Script Path Resolution (IMPORTANT)
 
@@ -239,7 +239,7 @@ hangar status --json
 cat ~/.hangar/config.toml | grep -v "KEY\|TOKEN\|SECRET"  # Sanitized config
 
 # Create issue at:
-# https://github.com/sjoeboo/hangar/issues/new
+# https://ghe.spotify.net/mnicholson/hangar/issues/new
 ```
 
 **Include:**

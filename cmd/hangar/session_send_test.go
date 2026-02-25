@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sjoeboo/hangar/internal/session"
+	"ghe.spotify.net/mnicholson/hangar/internal/session"
 )
 
 // mockStatusChecker implements statusChecker for testing waitForCompletion.

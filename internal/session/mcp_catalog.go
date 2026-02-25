@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"sort"
 
-	"github.com/sjoeboo/hangar/internal/logging"
+	"ghe.spotify.net/mnicholson/hangar/internal/logging"
 )
 
 var mcpCatLog = logging.ForComponent(logging.CompMCP)

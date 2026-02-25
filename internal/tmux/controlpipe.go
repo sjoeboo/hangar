@@ -11,7 +11,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/sjoeboo/hangar/internal/logging"
+	"ghe.spotify.net/mnicholson/hangar/internal/logging"
 )
 
 var pipeLog = logging.ForComponent("pipe")

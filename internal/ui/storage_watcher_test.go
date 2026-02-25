@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sjoeboo/hangar/internal/statedb"
+	"ghe.spotify.net/mnicholson/hangar/internal/statedb"
 	"github.com/stretchr/testify/require"
 )
 

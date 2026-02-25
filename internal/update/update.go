@@ -14,12 +14,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/sjoeboo/hangar/internal/session"
+	"ghe.spotify.net/mnicholson/hangar/internal/session"
 )
 
 const (
 	// GitHubRepo is the repository to check for updates
-	GitHubRepo = "sjoeboo/hangar"
+	GitHubRepo = "mnicholson/hangar"
 
 	// CacheFileName stores the last update check result
 	CacheFileName = "update-cache.json"
@@ -360,7 +360,7 @@ func homebrewUpgradeHint(execPath string) (string, bool) {
 	}
 	for _, prefix := range knownCellars {
 		if strings.HasPrefix(clean, prefix) {
-			return "brew upgrade sjoeboo/tap/hangar", true
+			return "brew upgrade mnicholson/tap/hangar", true
 		}
 	}
 	return "", false

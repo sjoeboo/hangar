@@ -3,7 +3,7 @@ package ui
 import (
 	"testing"
 
-	"github.com/sjoeboo/hangar/internal/session"
+	"ghe.spotify.net/mnicholson/hangar/internal/session"
 )
 
 // Tree tests

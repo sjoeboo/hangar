@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sjoeboo/hangar/internal/statedb"
+	"ghe.spotify.net/mnicholson/hangar/internal/statedb"
 )
 
 // newTestStorage creates a Storage backed by an in-memory-like temp dir SQLite database.

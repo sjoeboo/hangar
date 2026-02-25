@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/sjoeboo/hangar/internal/logging"
+	"ghe.spotify.net/mnicholson/hangar/internal/logging"
 )
 
 var maintLog = logging.ForComponent(logging.CompSession)

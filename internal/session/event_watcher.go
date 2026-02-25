@@ -13,7 +13,7 @@ import (
 
 	"github.com/fsnotify/fsnotify"
 
-	"github.com/sjoeboo/hangar/internal/logging"
+	"ghe.spotify.net/mnicholson/hangar/internal/logging"
 )
 
 var eventLog = logging.ForComponent(logging.CompSession)

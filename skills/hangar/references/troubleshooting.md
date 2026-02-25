@@ -123,7 +123,7 @@ Prepare clear answers to:
 
 ### Step 3: Create GitHub Issue
 
-Go to: **https://github.com/sjoeboo/hangar/issues/new**
+Go to: **https://ghe.spotify.net/mnicholson/hangar/issues/new**
 
 Use this template:
 
@@ -231,7 +231,7 @@ hangar uninstall --keep-data  # Remove binary only, keep sessions
 
 Or use the standalone script:
 ```bash
-curl -fsSL https://raw.githubusercontent.com/sjoeboo/hangar/main/uninstall.sh | bash
+curl -fsSL https://ghe.spotify.net/mnicholson/hangar/raw/master/uninstall.sh | bash
 ```
 
 **What gets removed:**

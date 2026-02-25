@@ -16,11 +16,11 @@ This file contains complete documentation for AI/LLM consumption.
 
 **Your AI agent command center**
 
-[![GitHub Stars](https://img.shields.io/github/stars/sjoeboo/hangar?style=for-the-badge&logo=github&color=yellow&labelColor=1a1b26)](https://github.com/sjoeboo/hangar/stargazers)
+[![GitHub Stars](https://img.shields.io/github/stars/mnicholson/hangar?style=for-the-badge&logo=github&color=yellow&labelColor=1a1b26)](https://ghe.spotify.net/mnicholson/hangar/stargazers)
 [![Go Version](https://img.shields.io/badge/Go-1.24+-00ADD8?style=for-the-badge&logo=go&labelColor=1a1b26)](https://go.dev)
 [![License](https://img.shields.io/badge/License-MIT-9ece6a?style=for-the-badge&labelColor=1a1b26)](LICENSE)
-[![Platform](https://img.shields.io/badge/Platform-macOS%20%7C%20Linux%20%7C%20WSL-7aa2f7?style=for-the-badge&labelColor=1a1b26)](https://github.com/sjoeboo/hangar)
-[![Latest Release](https://img.shields.io/github/v/release/sjoeboo/hangar?style=for-the-badge&color=e0af68&labelColor=1a1b26)](https://github.com/sjoeboo/hangar/releases)
+[![Platform](https://img.shields.io/badge/Platform-macOS%20%7C%20Linux%20%7C%20WSL-7aa2f7?style=for-the-badge&labelColor=1a1b26)](https://ghe.spotify.net/mnicholson/hangar)
+[![Latest Release](https://img.shields.io/github/v/release/mnicholson/hangar?style=for-the-badge&color=e0af68&labelColor=1a1b26)](https://ghe.spotify.net/mnicholson/hangar/releases)
 [![Discord](https://img.shields.io/discord/1469423271144587379?style=for-the-badge&logo=discord&logoColor=white&label=Discord&color=5865F2&labelColor=1a1b26)](https://discord.gg/e4xSs6NBN8)
 
 [Features](#features) . [Install](#installation) . [Quick Start](#quick-start) . [Docs](#documentation) . [Discord](https://discord.gg/e4xSs6NBN8) . [FAQ](#faq)
@@ -32,7 +32,7 @@ This file contains complete documentation for AI/LLM consumption.
 
 **Option 1: Claude Code Skill** (recommended for Claude Code users)
 ```bash
-/plugin marketplace add sjoeboo/hangar
+/plugin marketplace add mnicholson/hangar
 /plugin install hangar@hangar-help
 ```
 Then ask: *"How do I set up MCP pooling?"*
@@ -43,10 +43,10 @@ Then ask: *"How do I set up MCP pooling?"*
 mkdir -p ~/.claude/skills/hangar/references
 
 # Download skill and references
-curl -sL https://raw.githubusercontent.com/sjoeboo/hangar/main/skills/hangar/SKILL.md \
+curl -sL https://ghe.spotify.net/mnicholson/hangar/raw/master/main/skills/hangar/SKILL.md \
   > ~/.claude/skills/hangar/SKILL.md
 for f in cli-reference config-reference tui-reference troubleshooting; do
-  curl -sL "https://raw.githubusercontent.com/sjoeboo/hangar/main/skills/hangar/references/${f}.md" \
+  curl -sL "https://ghe.spotify.net/mnicholson/hangar/raw/master/main/skills/hangar/references/${f}.md" \
     > ~/.claude/skills/hangar/references/${f}.md
 done
 ```
@@ -54,7 +54,7 @@ OpenCode will auto-discover the skill from `~/.claude/skills/`.
 
 **Option 3: Any LLM** (ChatGPT, Claude, Gemini, etc.)
 ```
-Read https://raw.githubusercontent.com/sjoeboo/hangar/main/README.md
+Read https://ghe.spotify.net/mnicholson/hangar/raw/master/main/README.md
 and answer: How do I fork a session?
 ```
 
@@ -156,7 +156,7 @@ Hangar works with any terminal-based AI tool:
 **Works on:** macOS, Linux, Windows (WSL)
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/sjoeboo/hangar/main/install.sh | bash
+curl -fsSL https://ghe.spotify.net/mnicholson/hangar/raw/master/main/install.sh | bash
 ```
 
 Then run: `hangar`
@@ -166,17 +166,17 @@ Then run: `hangar`
 
 **Homebrew**
 ```bash
-brew install sjoeboo/tap/hangar
+brew install mnicholson/tap/hangar
 ```
 
 **Go**
 ```bash
-go install github.com/sjoeboo/hangar/cmd/hangar@latest
+go install ghe.spotify.net/mnicholson/hangar/cmd/hangar@latest
 ```
 
 **From Source**
 ```bash
-git clone https://github.com/sjoeboo/hangar.git && cd hangar && make install
+git clone https://ghe.spotify.net/mnicholson/hangar.git && cd hangar && make install
 ```
 
 </details>
@@ -186,7 +186,7 @@ git clone https://github.com/sjoeboo/hangar.git && cd hangar && make install
 Install the hangar skill for AI-assisted session management:
 
 ```bash
-/plugin marketplace add sjoeboo/hangar
+/plugin marketplace add mnicholson/hangar
 /plugin install hangar@hangar
 ```
 
@@ -283,7 +283,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for details.
 
 If Hangar saves you time, give us a star! It helps others discover the project.
 
-[![Star History Chart](https://api.star-history.com/svg?repos=sjoeboo/hangar&type=Date)](https://star-history.com/#sjoeboo/hangar&Date)
+[![Star History Chart](https://api.star-history.com/svg?repos=mnicholson/hangar&type=Date)](https://star-history.com/#mnicholson/hangar&Date)
 
 ## License
 
@@ -295,7 +295,7 @@ MIT License — see [LICENSE](LICENSE)
 
 Built with [Bubble Tea](https://github.com/charmbracelet/bubbletea) and [tmux](https://github.com/tmux/tmux)
 
-**[Docs](skills/hangar/references/) . [Issues](https://github.com/sjoeboo/hangar/issues) . [Discussions](https://github.com/sjoeboo/hangar/discussions)**
+**[Docs](skills/hangar/references/) . [Issues](https://ghe.spotify.net/mnicholson/hangar/issues) . [Discussions](https://ghe.spotify.net/mnicholson/hangar/discussions)**
 
 </div>
 
@@ -314,7 +314,7 @@ compatibility: claude, opencode
 
 Terminal session manager for AI coding agents. Built with Go + Bubble Tea.
 
-**Version:** 0.8.98 | **Repo:** [github.com/sjoeboo/hangar](https://github.com/sjoeboo/hangar)
+**Version:** 0.8.98 | **Repo:** [ghe.spotify.net/mnicholson/hangar](https://ghe.spotify.net/mnicholson/hangar)
 
 ## Script Path Resolution (IMPORTANT)
 
@@ -608,7 +608,7 @@ hangar status --json
 cat ~/.hangar/config.toml | grep -v "KEY\|TOKEN\|SECRET"  # Sanitized config
 
 # Create issue at:
-# https://github.com/sjoeboo/hangar/issues/new
+# https://ghe.spotify.net/mnicholson/hangar/issues/new
 ```
 
 **Include:**
@@ -1406,7 +1406,7 @@ Prepare clear answers to:
 
 ### Step 3: Create GitHub Issue
 
-Go to: **https://github.com/sjoeboo/hangar/issues/new**
+Go to: **https://ghe.spotify.net/mnicholson/hangar/issues/new**
 
 Use this template:
 
@@ -1511,7 +1511,7 @@ hangar uninstall --keep-data  # Remove binary only, keep sessions
 
 Or use the standalone script:
 ```bash
-curl -fsSL https://raw.githubusercontent.com/sjoeboo/hangar/main/uninstall.sh | bash
+curl -fsSL https://ghe.spotify.net/mnicholson/hangar/raw/master/main/uninstall.sh | bash
 ```
 
 **What gets removed:**
