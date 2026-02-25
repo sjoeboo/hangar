@@ -590,6 +590,96 @@ func TestResignPrimary(t *testing.T) {
 	}
 }
 
+func TestSaveTodo(t *testing.T) {
+	db := newTestDB(t)
+	row := &TodoRow{
+		ID:          "todo-1",
+		ProjectPath: "/projects/myapp",
+		Title:       "fix auth bug",
+		Description: "tokens expire too early",
+		Status:      "todo",
+		SessionID:   "",
+		Order:       0,
+		CreatedAt:   time.Unix(1000, 0),
+		UpdatedAt:   time.Unix(1000, 0),
+	}
+	if err := db.SaveTodo(row); err != nil {
+		t.Fatalf("SaveTodo: %v", err)
+	}
+
+	todos, err := db.LoadTodos("/projects/myapp")
+	if err != nil {
+		t.Fatalf("LoadTodos: %v", err)
+	}
+	if len(todos) != 1 {
+		t.Fatalf("expected 1 todo, got %d", len(todos))
+	}
+	got := todos[0]
+	if got.Title != "fix auth bug" {
+		t.Errorf("Title: got %q want %q", got.Title, "fix auth bug")
+	}
+	if got.Status != "todo" {
+		t.Errorf("Status: got %q want %q", got.Status, "todo")
+	}
+}
+
+func TestLoadTodos_ProjectScoped(t *testing.T) {
+	db := newTestDB(t)
+	_ = db.SaveTodo(&TodoRow{ID: "a", ProjectPath: "/proj/alpha", Title: "alpha", Status: "todo", CreatedAt: time.Unix(1, 0), UpdatedAt: time.Unix(1, 0)})
+	_ = db.SaveTodo(&TodoRow{ID: "b", ProjectPath: "/proj/beta", Title: "beta", Status: "todo", CreatedAt: time.Unix(2, 0), UpdatedAt: time.Unix(2, 0)})
+
+	todos, _ := db.LoadTodos("/proj/alpha")
+	if len(todos) != 1 || todos[0].ID != "a" {
+		t.Errorf("expected only alpha's todo, got %v", todos)
+	}
+}
+
+func TestUpdateTodoStatus(t *testing.T) {
+	db := newTestDB(t)
+	_ = db.SaveTodo(&TodoRow{ID: "t1", ProjectPath: "/p", Title: "task", Status: "todo", CreatedAt: time.Unix(1, 0), UpdatedAt: time.Unix(1, 0)})
+	if err := db.UpdateTodoStatus("t1", "in_progress", "sess-123"); err != nil {
+		t.Fatalf("UpdateTodoStatus: %v", err)
+	}
+	todos, _ := db.LoadTodos("/p")
+	if todos[0].Status != "in_progress" {
+		t.Errorf("Status: got %q want in_progress", todos[0].Status)
+	}
+	if todos[0].SessionID != "sess-123" {
+		t.Errorf("SessionID: got %q want sess-123", todos[0].SessionID)
+	}
+}
+
+func TestDeleteTodo(t *testing.T) {
+	db := newTestDB(t)
+	_ = db.SaveTodo(&TodoRow{ID: "del", ProjectPath: "/p", Title: "gone", Status: "todo", CreatedAt: time.Unix(1, 0), UpdatedAt: time.Unix(1, 0)})
+	if err := db.DeleteTodo("del"); err != nil {
+		t.Fatalf("DeleteTodo: %v", err)
+	}
+	todos, _ := db.LoadTodos("/p")
+	if len(todos) != 0 {
+		t.Errorf("expected 0 todos after delete, got %d", len(todos))
+	}
+}
+
+func TestFindTodoBySessionID(t *testing.T) {
+	db := newTestDB(t)
+	_ = db.SaveTodo(&TodoRow{ID: "s1", ProjectPath: "/p", Title: "linked", Status: "in_progress", SessionID: "sess-abc", CreatedAt: time.Unix(1, 0), UpdatedAt: time.Unix(1, 0)})
+	_ = db.SaveTodo(&TodoRow{ID: "s2", ProjectPath: "/p", Title: "unlinked", Status: "todo", CreatedAt: time.Unix(2, 0), UpdatedAt: time.Unix(2, 0)})
+
+	row, err := db.FindTodoBySessionID("sess-abc")
+	if err != nil {
+		t.Fatalf("FindTodoBySessionID: %v", err)
+	}
+	if row == nil || row.ID != "s1" {
+		t.Errorf("expected s1, got %v", row)
+	}
+
+	missing, _ := db.FindTodoBySessionID("no-such")
+	if missing != nil {
+		t.Errorf("expected nil for unknown session, got %v", missing)
+	}
+}
+
 func TestGlobalSingleton(t *testing.T) {
 	// Initially nil
 	if GetGlobal() != nil {

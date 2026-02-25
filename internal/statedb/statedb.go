@@ -15,7 +15,7 @@ import (
 
 // SchemaVersion tracks the current database schema version.
 // Bump this when adding migrations.
-const SchemaVersion = 1
+const SchemaVersion = 2
 
 // StateDB wraps a SQLite database for session/group persistence.
 // Thread-safe for concurrent use from multiple goroutines within one process.
@@ -53,6 +53,19 @@ type GroupRow struct {
 	Expanded    bool
 	Order       int
 	DefaultPath string
+}
+
+// TodoRow represents a todo item row in the database.
+type TodoRow struct {
+	ID          string
+	ProjectPath string
+	Title       string
+	Description string
+	Status      string // todo | in_progress | in_review | done | orphaned
+	SessionID   string // soft FK to instances.id (empty = unlinked)
+	Order       int
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
 }
 
 // StatusRow holds status + acknowledgment for a session.
@@ -194,6 +207,23 @@ func (s *StateDB) Migrate() error {
 		)
 	`); err != nil {
 		return fmt.Errorf("statedb: create heartbeats: %w", err)
+	}
+
+	// todos table
+	if _, err := tx.Exec(`
+		CREATE TABLE IF NOT EXISTS todos (
+			id           TEXT PRIMARY KEY,
+			project_path TEXT NOT NULL,
+			title        TEXT NOT NULL,
+			description  TEXT NOT NULL DEFAULT '',
+			status       TEXT NOT NULL DEFAULT 'todo',
+			session_id   TEXT NOT NULL DEFAULT '',
+			sort_order   INTEGER NOT NULL DEFAULT 0,
+			created_at   INTEGER NOT NULL,
+			updated_at   INTEGER NOT NULL
+		)
+	`); err != nil {
+		return fmt.Errorf("statedb: create todos: %w", err)
 	}
 
 	// Set schema version only when missing or changed.
@@ -630,4 +660,90 @@ func (s *StateDB) LastModified() (int64, error) {
 	var ts int64
 	_, err = fmt.Sscanf(val, "%d", &ts)
 	return ts, err
+}
+
+// --- Todo CRUD ---
+
+// SaveTodo inserts or replaces a single todo row.
+func (s *StateDB) SaveTodo(row *TodoRow) error {
+	_, err := s.db.Exec(`
+		INSERT OR REPLACE INTO todos
+			(id, project_path, title, description, status, session_id, sort_order, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`,
+		row.ID, row.ProjectPath, row.Title, row.Description,
+		row.Status, row.SessionID, row.Order,
+		row.CreatedAt.Unix(), row.UpdatedAt.Unix(),
+	)
+	return err
+}
+
+// LoadTodos returns all todos for a given project path, ordered by sort_order then created_at.
+func (s *StateDB) LoadTodos(projectPath string) ([]*TodoRow, error) {
+	rows, err := s.db.Query(`
+		SELECT id, project_path, title, description, status, session_id, sort_order, created_at, updated_at
+		FROM todos WHERE project_path = ? ORDER BY sort_order, created_at
+	`, projectPath)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var result []*TodoRow
+	for rows.Next() {
+		r := &TodoRow{}
+		var createdUnix, updatedUnix int64
+		if err := rows.Scan(
+			&r.ID, &r.ProjectPath, &r.Title, &r.Description,
+			&r.Status, &r.SessionID, &r.Order,
+			&createdUnix, &updatedUnix,
+		); err != nil {
+			return nil, err
+		}
+		r.CreatedAt = time.Unix(createdUnix, 0)
+		r.UpdatedAt = time.Unix(updatedUnix, 0)
+		result = append(result, r)
+	}
+	return result, rows.Err()
+}
+
+// DeleteTodo removes a todo by ID.
+func (s *StateDB) DeleteTodo(id string) error {
+	_, err := s.db.Exec("DELETE FROM todos WHERE id = ?", id)
+	return err
+}
+
+// UpdateTodoStatus updates the status and session_id for a todo.
+func (s *StateDB) UpdateTodoStatus(id, status, sessionID string) error {
+	_, err := s.db.Exec(
+		"UPDATE todos SET status = ?, session_id = ?, updated_at = ? WHERE id = ?",
+		status, sessionID, time.Now().Unix(), id,
+	)
+	return err
+}
+
+// FindTodoBySessionID returns the todo linked to the given session ID, or nil if none.
+func (s *StateDB) FindTodoBySessionID(sessionID string) (*TodoRow, error) {
+	if sessionID == "" {
+		return nil, nil
+	}
+	r := &TodoRow{}
+	var createdUnix, updatedUnix int64
+	err := s.db.QueryRow(`
+		SELECT id, project_path, title, description, status, session_id, sort_order, created_at, updated_at
+		FROM todos WHERE session_id = ? LIMIT 1
+	`, sessionID).Scan(
+		&r.ID, &r.ProjectPath, &r.Title, &r.Description,
+		&r.Status, &r.SessionID, &r.Order,
+		&createdUnix, &updatedUnix,
+	)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	r.CreatedAt = time.Unix(createdUnix, 0)
+	r.UpdatedAt = time.Unix(updatedUnix, 0)
+	return r, nil
 }
