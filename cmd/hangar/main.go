@@ -29,7 +29,7 @@ import (
 	"ghe.spotify.net/mnicholson/hangar/internal/update"
 )
 
-const Version = "0.19.14"
+var Version = "1.0.0"
 
 // Table column widths for list command output
 const (

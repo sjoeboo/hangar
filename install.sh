@@ -116,7 +116,7 @@ echo ""
 # ── Build ─────────────────────────────────────────────────────────────────────
 echo -e "${BLUE}Building hangar from source...${NC}"
 
-VERSION=$(git describe --tags --always --dirty 2>/dev/null || echo "dev")
+VERSION=$(git describe --tags --always --dirty 2>/dev/null | sed 's/^v//' || echo "1.0.0")
 BUILD_DIR="./build"
 mkdir -p "$BUILD_DIR"
 
