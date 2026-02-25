@@ -888,8 +888,17 @@ func (s *Session) Start(command string) error {
 		workDir = os.Getenv("HOME")
 	}
 
+	// Derive a window name from the command (e.g. "claude", "bash")
+	windowName := "shell"
+	if s.Command != "" {
+		fields := strings.Fields(s.Command)
+		if len(fields) > 0 {
+			windowName = filepath.Base(fields[0])
+		}
+	}
+
 	// Create new tmux session in detached mode
-	cmd := exec.Command("tmux", "new-session", "-d", "-s", s.Name, "-c", workDir)
+	cmd := exec.Command("tmux", "new-session", "-d", "-s", s.Name, "-n", windowName, "-c", workDir)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("failed to create tmux session: %w (output: %s)", err, string(output))
