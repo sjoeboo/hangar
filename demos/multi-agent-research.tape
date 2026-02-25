@@ -1,4 +1,4 @@
-# Agent Deck - Multi-Agent Research Demo
+# Hangar - Multi-Agent Research Demo
 # Shows: Creating 3 sessions (Claude, Gemini, Codex) for parallel research
 
 Output multi-agent-research.gif
@@ -25,16 +25,16 @@ Set PlaybackSpeed 1.2
 # CLEANUP: Remove demo profile sessions (hidden)
 # ============================================
 Hide
-Type "rm -rf ~/.agent-deck/profiles/demo"
+Type "rm -rf ~/.hangar/profiles/demo"
 Enter
 Sleep 300ms
 Show
 
 # ============================================
-# LAUNCH: Start Agent Deck (clean demo profile)
+# LAUNCH: Start Hangar (clean demo profile)
 # ============================================
 Sleep 300ms
-Type "agent-deck -p demo"
+Type "hangar -p demo"
 Sleep 300ms
 Enter
 Sleep 2s

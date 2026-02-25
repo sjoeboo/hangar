@@ -19,7 +19,7 @@ const (
 	ConfigFileName = "config.json"
 )
 
-// Config represents the global agent-deck configuration
+// Config represents the global hangar configuration
 type Config struct {
 	// DefaultProfile is the profile to use when none is specified
 	DefaultProfile string `json:"default_profile"`
@@ -31,8 +31,8 @@ type Config struct {
 	Version int `json:"version"`
 }
 
-// GetAgentDeckDir returns the base agent-deck directory (~/.hangar)
-func GetAgentDeckDir() (string, error) {
+// GetHangarDir returns the base hangar directory (~/.hangar)
+func GetHangarDir() (string, error) {
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
 		return "", fmt.Errorf("failed to get home directory: %w", err)
@@ -42,7 +42,7 @@ func GetAgentDeckDir() (string, error) {
 
 // GetConfigPath returns the path to the global config file
 func GetConfigPath() (string, error) {
-	dir, err := GetAgentDeckDir()
+	dir, err := GetHangarDir()
 	if err != nil {
 		return "", err
 	}
@@ -51,7 +51,7 @@ func GetConfigPath() (string, error) {
 
 // GetProfilesDir returns the path to the profiles directory
 func GetProfilesDir() (string, error) {
-	dir, err := GetAgentDeckDir()
+	dir, err := GetHangarDir()
 	if err != nil {
 		return "", err
 	}

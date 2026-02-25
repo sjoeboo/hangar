@@ -28,8 +28,8 @@ type hookStatusFile struct {
 	Timestamp int64  `json:"ts"`
 }
 
-// mapEventToStatus maps a Claude Code hook event to an agent-deck status string.
-// Status semantics in agent-deck:
+// mapEventToStatus maps a Claude Code hook event to an hangar status string.
+// Status semantics in hangar:
 //   - "running" = Claude is actively processing (green)
 //   - "waiting" = Claude is at the prompt, waiting for user input (orange)
 //   - "dead"    = Session ended
@@ -61,7 +61,7 @@ func mapEventToStatus(event string) string {
 func handleHookHandler() {
 	instanceID := os.Getenv("HANGAR_INSTANCE_ID")
 	if instanceID == "" {
-		// No instance ID means this Claude session isn't managed by agent-deck.
+		// No instance ID means this Claude session isn't managed by hangar.
 		// Exit silently without error.
 		return
 	}
@@ -165,7 +165,7 @@ func cleanStaleHookFiles() {
 // handleHooks handles the "hooks" CLI subcommand for manual hook management.
 func handleHooks(args []string) {
 	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "Usage: agent-deck hooks <install|uninstall|status>")
+		fmt.Fprintln(os.Stderr, "Usage: hangar hooks <install|uninstall|status>")
 		os.Exit(1)
 	}
 
@@ -178,7 +178,7 @@ func handleHooks(args []string) {
 		handleHooksStatus()
 	default:
 		fmt.Fprintf(os.Stderr, "Unknown hooks subcommand: %s\n", args[0])
-		fmt.Fprintln(os.Stderr, "Usage: agent-deck hooks <install|uninstall|status>")
+		fmt.Fprintln(os.Stderr, "Usage: hangar hooks <install|uninstall|status>")
 		os.Exit(1)
 	}
 }
@@ -208,7 +208,7 @@ func handleHooksUninstall() {
 	if removed {
 		fmt.Println("Claude Code hooks removed successfully.")
 	} else {
-		fmt.Println("No agent-deck hooks found to remove.")
+		fmt.Println("No hangar hooks found to remove.")
 	}
 }
 
@@ -224,7 +224,7 @@ func handleHooksStatus() {
 		fmt.Printf("Config: %s/settings.json\n", configDir)
 	} else {
 		fmt.Println("Status: NOT INSTALLED")
-		fmt.Println("Run 'agent-deck hooks install' to install.")
+		fmt.Println("Run 'hangar hooks install' to install.")
 	}
 
 	// Show hook status files
@@ -254,7 +254,7 @@ func handleHooksStatus() {
 }
 
 // getClaudeConfigDirForHooks returns the Claude config directory for hook operations.
-// Respects CLAUDE_CONFIG_DIR env var and agent-deck config resolution.
+// Respects CLAUDE_CONFIG_DIR env var and hangar config resolution.
 func getClaudeConfigDirForHooks() string {
 	return session.GetClaudeConfigDir()
 }

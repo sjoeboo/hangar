@@ -58,8 +58,8 @@ func TestInjectClaudeHooks_Fresh(t *testing.T) {
 	if len(matchers[0].Hooks) == 0 {
 		t.Fatal("SessionStart matcher has no hooks")
 	}
-	if matchers[0].Hooks[0].Command != agentDeckHookCommand {
-		t.Errorf("Hook command = %q, want %q", matchers[0].Hooks[0].Command, agentDeckHookCommand)
+	if matchers[0].Hooks[0].Command != hangarHookCommand {
+		t.Errorf("Hook command = %q, want %q", matchers[0].Hooks[0].Command, hangarHookCommand)
 	}
 	if !matchers[0].Hooks[0].Async {
 		t.Error("Hook should be async")
@@ -103,7 +103,7 @@ func TestInjectClaudeHooks_PreservesExisting(t *testing.T) {
 		t.Errorf("apiKey was not preserved: %s", settings["apiKey"])
 	}
 
-	// Verify user hook is preserved alongside agent-deck hook
+	// Verify user hook is preserved alongside hangar hook
 	var hooks map[string]json.RawMessage
 	if err := json.Unmarshal(settings["hooks"], &hooks); err != nil {
 		t.Fatalf("Failed to parse hooks: %v", err)
@@ -114,16 +114,16 @@ func TestInjectClaudeHooks_PreservesExisting(t *testing.T) {
 		t.Fatalf("Failed to parse SessionStart matchers: %v", err)
 	}
 
-	// Should have the original matcher with user hook, plus agent-deck's hook appended
+	// Should have the original matcher with user hook, plus hangar's hook appended
 	foundCustom := false
-	foundAgentDeck := false
+	foundHangar := false
 	for _, m := range matchers {
 		for _, h := range m.Hooks {
 			if h.Command == "my-custom-hook" {
 				foundCustom = true
 			}
-			if h.Command == agentDeckHookCommand {
-				foundAgentDeck = true
+			if h.Command == hangarHookCommand {
+				foundHangar = true
 			}
 		}
 	}
@@ -131,8 +131,8 @@ func TestInjectClaudeHooks_PreservesExisting(t *testing.T) {
 	if !foundCustom {
 		t.Error("User's custom hook was not preserved")
 	}
-	if !foundAgentDeck {
-		t.Error("Agent-deck hook was not added")
+	if !foundHangar {
+		t.Error("Hangar hook was not added")
 	}
 }
 
@@ -180,13 +180,13 @@ func TestInjectClaudeHooks_Idempotent(t *testing.T) {
 	hookCount := 0
 	for _, m := range matchers {
 		for _, h := range m.Hooks {
-			if h.Command == agentDeckHookCommand {
+			if h.Command == hangarHookCommand {
 				hookCount++
 			}
 		}
 	}
 	if hookCount != 1 {
-		t.Errorf("Expected 1 agent-deck hook, got %d (duplication bug)", hookCount)
+		t.Errorf("Expected 1 hangar hook, got %d (duplication bug)", hookCount)
 	}
 }
 
@@ -216,11 +216,11 @@ func TestRemoveClaudeHooks(t *testing.T) {
 func TestRemoveClaudeHooks_PreservesUserHooks(t *testing.T) {
 	tmpDir := t.TempDir()
 
-	// Write settings with both user and agent-deck hooks
+	// Write settings with both user and hangar hooks
 	existing := map[string]json.RawMessage{
 		"hooks": json.RawMessage(`{
 			"SessionStart": [
-				{"hooks": [{"type": "command", "command": "my-custom-hook"}, {"type": "command", "command": "agent-deck hook-handler", "async": true}]}
+				{"hooks": [{"type": "command", "command": "my-custom-hook"}, {"type": "command", "command": "hangar hook-handler", "async": true}]}
 			]
 		}`),
 	}
@@ -229,7 +229,7 @@ func TestRemoveClaudeHooks_PreservesUserHooks(t *testing.T) {
 		t.Fatalf("Failed to write settings.json: %v", err)
 	}
 
-	// Remove agent-deck hooks
+	// Remove hangar hooks
 	removed, err := RemoveClaudeHooks(tmpDir)
 	if err != nil {
 		t.Fatalf("RemoveClaudeHooks failed: %v", err)
@@ -259,14 +259,14 @@ func TestRemoveClaudeHooks_PreservesUserHooks(t *testing.T) {
 	}
 
 	foundCustom := false
-	foundAgentDeck := false
+	foundHangar := false
 	for _, m := range matchers {
 		for _, h := range m.Hooks {
 			if h.Command == "my-custom-hook" {
 				foundCustom = true
 			}
-			if h.Command == agentDeckHookCommand {
-				foundAgentDeck = true
+			if h.Command == hangarHookCommand {
+				foundHangar = true
 			}
 		}
 	}
@@ -274,8 +274,8 @@ func TestRemoveClaudeHooks_PreservesUserHooks(t *testing.T) {
 	if !foundCustom {
 		t.Error("User hook should be preserved")
 	}
-	if foundAgentDeck {
-		t.Error("Agent-deck hook should be removed")
+	if foundHangar {
+		t.Error("Hangar hook should be removed")
 	}
 }
 

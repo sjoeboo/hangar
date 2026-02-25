@@ -15,7 +15,7 @@ pre-push:
       run: go test -race -count=1 ./...
       tags: [test]
     build:
-      run: go build -o /dev/null ./cmd/agent-deck/
+      run: go build -o /dev/null ./cmd/hangar/
       tags: [build]
 
 # Fast pre-commit checks (formatting only, keeps commits snappy)

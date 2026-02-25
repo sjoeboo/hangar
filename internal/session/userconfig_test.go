@@ -197,9 +197,9 @@ func TestSaveUserConfig(t *testing.T) {
 	// Clear cache
 	ClearUserConfigCache()
 
-	// Create agent-deck directory
-	agentDeckDir := filepath.Join(tempDir, ".hangar")
-	_ = os.MkdirAll(agentDeckDir, 0700)
+	// Create hangar directory
+	hangarDir := filepath.Join(tempDir, ".hangar")
+	_ = os.MkdirAll(hangarDir, 0700)
 
 	// Create config to save
 	dangerousModeBool := true
@@ -266,8 +266,8 @@ func TestGetTheme_Light(t *testing.T) {
 	ClearUserConfigCache()
 
 	// Create config with light theme
-	agentDeckDir := filepath.Join(tempDir, ".hangar")
-	_ = os.MkdirAll(agentDeckDir, 0700)
+	hangarDir := filepath.Join(tempDir, ".hangar")
+	_ = os.MkdirAll(hangarDir, 0700)
 	config := &UserConfig{Theme: "light"}
 	_ = SaveUserConfig(config)
 	ClearUserConfigCache()
@@ -356,8 +356,8 @@ func TestGetWorktreeSettings_FromConfig(t *testing.T) {
 	ClearUserConfigCache()
 
 	// Create config with custom worktree settings
-	agentDeckDir := filepath.Join(tempDir, ".hangar")
-	_ = os.MkdirAll(agentDeckDir, 0700)
+	hangarDir := filepath.Join(tempDir, ".hangar")
+	_ = os.MkdirAll(hangarDir, 0700)
 	config := &UserConfig{
 		Worktree: WorktreeSettings{
 			DefaultLocation: "subdirectory",
@@ -505,11 +505,11 @@ func TestGetPreviewSettings_FromConfig(t *testing.T) {
 	ClearUserConfigCache()
 
 	// Create config with custom preview settings
-	agentDeckDir := filepath.Join(tempDir, ".hangar")
-	_ = os.MkdirAll(agentDeckDir, 0700)
+	hangarDir := filepath.Join(tempDir, ".hangar")
+	_ = os.MkdirAll(hangarDir, 0700)
 
 	// Write config directly to test explicit false
-	configPath := filepath.Join(agentDeckDir, "config.toml")
+	configPath := filepath.Join(hangarDir, "config.toml")
 	content := `
 [preview]
 show_output = true
@@ -586,10 +586,10 @@ func TestGetNotificationsSettings(t *testing.T) {
 	ClearUserConfigCache()
 
 	// Create config with custom notification settings
-	agentDeckDir := filepath.Join(tempDir, ".hangar")
-	_ = os.MkdirAll(agentDeckDir, 0700)
+	hangarDir := filepath.Join(tempDir, ".hangar")
+	_ = os.MkdirAll(hangarDir, 0700)
 
-	configPath := filepath.Join(agentDeckDir, "config.toml")
+	configPath := filepath.Join(hangarDir, "config.toml")
 	content := `
 [notifications]
 enabled = true
@@ -650,11 +650,11 @@ func TestGetNotificationsSettings_PartialConfig(t *testing.T) {
 	defer os.Setenv("HOME", originalHome)
 	ClearUserConfigCache()
 
-	agentDeckDir := filepath.Join(tempDir, ".hangar")
-	_ = os.MkdirAll(agentDeckDir, 0700)
+	hangarDir := filepath.Join(tempDir, ".hangar")
+	_ = os.MkdirAll(hangarDir, 0700)
 
 	// Config with only enabled set, max_shown should get default
-	configPath := filepath.Join(agentDeckDir, "config.toml")
+	configPath := filepath.Join(hangarDir, "config.toml")
 	content := `
 [notifications]
 enabled = true
@@ -680,11 +680,11 @@ func TestGetNotificationsSettings_ShowAll(t *testing.T) {
 	defer os.Setenv("HOME", originalHome)
 	ClearUserConfigCache()
 
-	agentDeckDir := filepath.Join(tempDir, ".hangar")
-	_ = os.MkdirAll(agentDeckDir, 0700)
+	hangarDir := filepath.Join(tempDir, ".hangar")
+	_ = os.MkdirAll(hangarDir, 0700)
 
 	// Test with show_all = true
-	configPath := filepath.Join(agentDeckDir, "config.toml")
+	configPath := filepath.Join(hangarDir, "config.toml")
 	content := `
 [notifications]
 enabled = true
@@ -741,11 +741,11 @@ func TestGetTmuxSettings_InjectStatusLine_Default(t *testing.T) {
 	defer os.Setenv("HOME", originalHome)
 	ClearUserConfigCache()
 
-	agentDeckDir := filepath.Join(tempDir, ".hangar")
-	_ = os.MkdirAll(agentDeckDir, 0700)
+	hangarDir := filepath.Join(tempDir, ".hangar")
+	_ = os.MkdirAll(hangarDir, 0700)
 
 	// Empty config file
-	configPath := filepath.Join(agentDeckDir, "config.toml")
+	configPath := filepath.Join(hangarDir, "config.toml")
 	if err := os.WriteFile(configPath, []byte(""), 0644); err != nil {
 		t.Fatalf("Failed to write config: %v", err)
 	}
@@ -764,10 +764,10 @@ func TestGetTmuxSettings_InjectStatusLine_False(t *testing.T) {
 	defer os.Setenv("HOME", originalHome)
 	ClearUserConfigCache()
 
-	agentDeckDir := filepath.Join(tempDir, ".hangar")
-	_ = os.MkdirAll(agentDeckDir, 0700)
+	hangarDir := filepath.Join(tempDir, ".hangar")
+	_ = os.MkdirAll(hangarDir, 0700)
 
-	configPath := filepath.Join(agentDeckDir, "config.toml")
+	configPath := filepath.Join(hangarDir, "config.toml")
 	configContent := `
 [tmux]
 inject_status_line = false
@@ -790,10 +790,10 @@ func TestGetTmuxSettings_InjectStatusLine_True(t *testing.T) {
 	defer os.Setenv("HOME", originalHome)
 	ClearUserConfigCache()
 
-	agentDeckDir := filepath.Join(tempDir, ".hangar")
-	_ = os.MkdirAll(agentDeckDir, 0700)
+	hangarDir := filepath.Join(tempDir, ".hangar")
+	_ = os.MkdirAll(hangarDir, 0700)
 
-	configPath := filepath.Join(agentDeckDir, "config.toml")
+	configPath := filepath.Join(hangarDir, "config.toml")
 	configContent := `
 [tmux]
 inject_status_line = true

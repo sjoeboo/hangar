@@ -213,14 +213,14 @@ func TestFlattenWithNestedGroupsCollapsed(t *testing.T) {
 
 // TestSubgroupSortingWithUnrelatedRoots verifies that subgroups stay with their
 // parent root and are not sorted between unrelated root groups.
-// This was a bug where "agent-deck/github-issues" would sort between "My Sessions"
+// This was a bug where "hangar/github-issues" would sort between "My Sessions"
 // and "hangar" because full path comparison doesn't respect tree hierarchy.
 func TestSubgroupSortingWithUnrelatedRoots(t *testing.T) {
 	tree := NewGroupTree([]*Instance{})
 
 	// Create root groups with names that alphabetically interleave
 	// "My Sessions" (M) < "hangar" (a) in ASCII (uppercase < lowercase)
-	// But "agent-deck/github-issues" would sort before "my-sessions" by full path
+	// But "hangar/github-issues" would sort before "my-sessions" by full path
 	tree.CreateGroup("My Sessions") // path: my-sessions
 	tree.CreateGroup("hangar")  // path: hangar
 	tree.CreateGroup("ard")         // path: ard

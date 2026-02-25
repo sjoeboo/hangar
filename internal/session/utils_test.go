@@ -19,7 +19,7 @@ func TestGetDirectoryCompletions(t *testing.T) {
 		"projects",
 		"playground",
 		"personal",
-		"work/agent-deck",
+		"work/hangar",
 		"work/other",
 	}
 	for _, d := range dirs {
@@ -50,7 +50,7 @@ func TestGetDirectoryCompletions(t *testing.T) {
 		{
 			name:     "Nested absolute path",
 			input:    filepath.Join(tmpDir, "work/a"),
-			expected: []string{filepath.Join(tmpDir, "work/agent-deck")},
+			expected: []string{filepath.Join(tmpDir, "work/hangar")},
 		},
 		{
 			name:     "No matches",
@@ -65,7 +65,7 @@ func TestGetDirectoryCompletions(t *testing.T) {
 		{
 			name:     "Trailing slash lists directory contents",
 			input:    filepath.Join(tmpDir, "work") + string(os.PathSeparator),
-			expected: []string{filepath.Join(tmpDir, "work/agent-deck"), filepath.Join(tmpDir, "work/other")},
+			expected: []string{filepath.Join(tmpDir, "work/hangar"), filepath.Join(tmpDir, "work/other")},
 		},
 	}
 

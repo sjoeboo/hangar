@@ -2,7 +2,7 @@
 
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
-**Goal:** Add mouse support to the agent-deck TUI: single-click to move cursor, double-click to attach session, single-click to toggle group, scroll-wheel to scroll the list, and a `mouse_mode` config toggle that enables tmux mouse mode on attach.
+**Goal:** Add mouse support to the hangar TUI: single-click to move cursor, double-click to attach session, single-click to toggle group, scroll-wheel to scroll the list, and a `mouse_mode` config toggle that enables tmux mouse mode on attach.
 
 **Architecture:** `tea.WithMouseCellMotion()` is already wired in `main.go`; mouse events are dispatched but silently dropped. We add a `case tea.MouseMsg:` handler in `Update()`, a `listItemAt(x, y)` coordinate-mapping helper, double-click detection via two new `Home` struct fields, and a `MouseMode *bool` config field in `TmuxSettings` that calls the existing `EnableMouseMode()` before `tea.Exec` on attach.
 
@@ -623,7 +623,7 @@ Find the comment above `TmuxSettings` (lines 704-711) and add `mouse_mode`:
 
 ```go
 // TmuxSettings allows users to override tmux options applied to every session.
-// Options are applied AFTER agent-deck's defaults, so they take precedence.
+// Options are applied AFTER hangar's defaults, so they take precedence.
 //
 // Example config.toml:
 //
@@ -658,5 +658,5 @@ After all tasks complete, verify end-to-end:
 3. **Group toggle** — click a group header: it expands/collapses
 4. **Scroll wheel** — scroll up/down: list scrolls correctly with cursor tracking
 5. **Right panel** — clicking in the preview pane (dual layout): no effect on list cursor
-6. **Mouse mode config** — add `[tmux]\nmouse_mode = true` to `~/.agent-deck/config.toml`, attach a session, verify `tmux list-sessions` mouse option is on; verify clicking tmux status bar tabs switches windows
+6. **Mouse mode config** — add `[tmux]\nmouse_mode = true` to `~/.hangar/config.toml`, attach a session, verify `tmux list-sessions` mouse option is on; verify clicking tmux status bar tabs switches windows
 7. **Mouse mode off** — remove or set `mouse_mode = false`, attach session, verify tmux mouse is not set

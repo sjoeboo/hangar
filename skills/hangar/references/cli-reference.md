@@ -1,6 +1,6 @@
 # CLI Command Reference
 
-Complete reference for all agent-deck CLI commands.
+Complete reference for all hangar CLI commands.
 
 ## Table of Contents
 
@@ -27,7 +27,7 @@ Complete reference for all agent-deck CLI commands.
 ### add - Create session
 
 ```bash
-agent-deck add [path] [options]
+hangar add [path] [options]
 ```
 
 | Flag | Description |
@@ -41,51 +41,51 @@ agent-deck add [path] [options]
 | `--mcp` | Attach MCP (repeatable) |
 
 ```bash
-agent-deck add -t "My Project" -c claude .
-agent-deck add -t "Child" --parent "Parent" -c claude /tmp/x
-agent-deck add -g ard --parent "conductor-ard" -c claude .
-agent-deck add -c "codex --dangerously-bypass-approvals-and-sandbox" .
-agent-deck add -t "Research" -c claude --mcp exa --mcp firecrawl /tmp/r
+hangar add -t "My Project" -c claude .
+hangar add -t "Child" --parent "Parent" -c claude /tmp/x
+hangar add -g ard --parent "conductor-ard" -c claude .
+hangar add -c "codex --dangerously-bypass-approvals-and-sandbox" .
+hangar add -t "Research" -c claude --mcp exa --mcp firecrawl /tmp/r
 ```
 
 Notes:
-- Parent auto-link is enabled by default when `AGENT_DECK_SESSION_ID` is present and neither `--parent` nor `--no-parent` is passed.
+- Parent auto-link is enabled by default when `HANGAR_INSTANCE_ID` is present and neither `--parent` nor `--no-parent` is passed.
 - `--parent` and `--no-parent` are mutually exclusive.
 - Explicit `-g/--group` overrides inherited parent group.
-- If `--cmd` contains extra args and no explicit `--wrapper` is provided, agent-deck auto-generates a wrapper to preserve those args.
+- If `--cmd` contains extra args and no explicit `--wrapper` is provided, hangar auto-generates a wrapper to preserve those args.
 
 ### launch - Create + start (+ optional message)
 
 ```bash
-agent-deck launch [path] [options]
+hangar launch [path] [options]
 ```
 
 Examples:
 
 ```bash
-agent-deck launch . -c claude -m "Review this module"
-agent-deck launch . -g ard -c claude -m "Review dataset"
-agent-deck launch . -c "codex --dangerously-bypass-approvals-and-sandbox"
+hangar launch . -c claude -m "Review this module"
+hangar launch . -g ard -c claude -m "Review dataset"
+hangar launch . -c "codex --dangerously-bypass-approvals-and-sandbox"
 ```
 
 ### list - List sessions
 
 ```bash
-agent-deck list [--json] [--all]
-agent-deck ls  # Alias
+hangar list [--json] [--all]
+hangar ls  # Alias
 ```
 
 ### remove - Remove session
 
 ```bash
-agent-deck remove <id|title>
-agent-deck rm  # Alias
+hangar remove <id|title>
+hangar rm  # Alias
 ```
 
 ### status - Status summary
 
 ```bash
-agent-deck status [-v|-q|--json]
+hangar status [-v|-q|--json]
 ```
 
 - Default: `2 waiting - 5 running - 3 idle`
@@ -97,7 +97,7 @@ agent-deck status [-v|-q|--json]
 ### web - Start browser UI
 
 ```bash
-agent-deck web [options]
+hangar web [options]
 ```
 
 | Flag | Description |
@@ -108,10 +108,10 @@ agent-deck web [options]
 | `--open` | Reserved placeholder (currently no-op) |
 
 ```bash
-agent-deck web
-agent-deck web --read-only
-agent-deck web --token my-secret
-agent-deck -p work web --listen 127.0.0.1:9000
+hangar web
+hangar web --read-only
+hangar web --token my-secret
+hangar -p work web --listen 127.0.0.1:9000
 ```
 
 When token auth is enabled, open the web UI with:
@@ -125,7 +125,7 @@ http://127.0.0.1:8420/?token=my-secret
 ### session start
 
 ```bash
-agent-deck session start <id|title> [-m "message"] [--json] [-q]
+hangar session start <id|title> [-m "message"] [--json] [-q]
 ```
 
 `-m` sends initial message after agent is ready.
@@ -134,13 +134,13 @@ Flags can be placed before or after the session identifier.
 ### session stop
 
 ```bash
-agent-deck session stop <id|title>
+hangar session stop <id|title>
 ```
 
 ### session restart
 
 ```bash
-agent-deck session restart <id|title>
+hangar session restart <id|title>
 ```
 
 Reloads MCPs without losing conversation (Claude/Gemini).
@@ -148,7 +148,7 @@ Reloads MCPs without losing conversation (Claude/Gemini).
 ### session fork (Claude only)
 
 ```bash
-agent-deck session fork <id|title> [-t "title"] [-g "group"]
+hangar session fork <id|title> [-t "title"] [-g "group"]
 ```
 
 Creates new session with same Claude conversation.
@@ -160,7 +160,7 @@ Creates new session with same Claude conversation.
 ### session attach
 
 ```bash
-agent-deck session attach <id|title>
+hangar session attach <id|title>
 ```
 
 Interactive PTY mode. Press `Ctrl+Q` to detach.
@@ -168,7 +168,7 @@ Interactive PTY mode. Press `Ctrl+Q` to detach.
 ### session show
 
 ```bash
-agent-deck session show [id|title] [--json] [-q]
+hangar session show [id|title] [--json] [-q]
 ```
 
 Auto-detects current session if no ID provided.
@@ -182,34 +182,34 @@ Auto-detects current session if no ID provided.
 ### session current
 
 ```bash
-agent-deck session current [--json] [-q]
+hangar session current [--json] [-q]
 ```
 
 Auto-detect current session and profile from tmux environment.
 
 ```bash
 # Human-readable
-agent-deck session current
+hangar session current
 # Session: test, Profile: work, ID: c5bfd4b4, Status: running
 
 # For scripts
-agent-deck session current -q
+hangar session current -q
 # test
 
 # JSON
-agent-deck session current --json
+hangar session current --json
 # {"session":"test","profile":"work","id":"c5bfd4b4",...}
 ```
 
 **Profile auto-detection priority:**
-1. `AGENTDECK_PROFILE` env var
+1. `HANGAR_PROFILE` env var
 2. Parse from `CLAUDE_CONFIG_DIR` (`~/.claude-work` -> `work`)
 3. Config default or `default`
 
 ### session set
 
 ```bash
-agent-deck session set <id|title> <field> <value>
+hangar session set <id|title> <field> <value>
 ```
 
 **Fields:** title, path, command, tool, claude-session-id, gemini-session-id
@@ -217,7 +217,7 @@ agent-deck session set <id|title> <field> <value>
 ### session send
 
 ```bash
-agent-deck session send <id|title> "message" [--no-wait] [-q] [--json]
+hangar session send <id|title> "message" [--no-wait] [-q] [--json]
 ```
 
 Default behavior:
@@ -229,7 +229,7 @@ Default behavior:
 ### session output
 
 ```bash
-agent-deck session output [id|title] [--json] [-q]
+hangar session output [id|title] [--json] [-q]
 ```
 
 Get last response from Claude/Gemini session.
@@ -237,8 +237,8 @@ Get last response from Claude/Gemini session.
 ### session set-parent / unset-parent
 
 ```bash
-agent-deck session set-parent <session> <parent>
-agent-deck session unset-parent <session>
+hangar session set-parent <session> <parent>
+hangar session unset-parent <session>
 ```
 
 ## MCP Commands
@@ -246,13 +246,13 @@ agent-deck session unset-parent <session>
 ### mcp list
 
 ```bash
-agent-deck mcp list [--json] [-q]
+hangar mcp list [--json] [-q]
 ```
 
 ### mcp attached
 
 ```bash
-agent-deck mcp attached [id|title] [--json] [-q]
+hangar mcp attached [id|title] [--json] [-q]
 ```
 
 Shows MCPs from LOCAL, GLOBAL, PROJECT scopes.
@@ -260,7 +260,7 @@ Shows MCPs from LOCAL, GLOBAL, PROJECT scopes.
 ### mcp attach
 
 ```bash
-agent-deck mcp attach <session> <mcp> [--global] [--restart]
+hangar mcp attach <session> <mcp> [--global] [--restart]
 ```
 
 - `--global`: Write to Claude config (all projects)
@@ -269,7 +269,7 @@ agent-deck mcp attach <session> <mcp> [--global] [--restart]
 ### mcp detach
 
 ```bash
-agent-deck mcp detach <session> <mcp> [--global] [--restart]
+hangar mcp detach <session> <mcp> [--global] [--restart]
 ```
 
 ## Skill Commands
@@ -279,8 +279,8 @@ Skills are discovered from configured sources and attached per project (Claude o
 ### skill list
 
 ```bash
-agent-deck skill list [--source <name>] [--json] [-q]
-agent-deck skill ls
+hangar skill list [--source <name>] [--json] [-q]
+hangar skill ls
 ```
 
 `--source` filters by source name (for example `pool`, `claude-global`, `team`).
@@ -288,17 +288,17 @@ agent-deck skill ls
 ### skill attached
 
 ```bash
-agent-deck skill attached [id|title] [--json] [-q]
+hangar skill attached [id|title] [--json] [-q]
 ```
 
 Shows:
-- Manifest-managed attachments from `<project>/.agent-deck/skills.toml`
+- Manifest-managed attachments from `<project>/.hangar/skills.toml`
 - Unmanaged entries currently present in `<project>/.claude/skills`
 
 ### skill attach
 
 ```bash
-agent-deck skill attach <session> <skill> [--source <name>] [--restart] [--json] [-q]
+hangar skill attach <session> <skill> [--source <name>] [--restart] [--json] [-q]
 ```
 
 - `--source`: Force source when name is ambiguous
@@ -307,7 +307,7 @@ agent-deck skill attach <session> <skill> [--source <name>] [--restart] [--json]
 ### skill detach
 
 ```bash
-agent-deck skill detach <session> <skill> [--source <name>] [--restart] [--json] [-q]
+hangar skill detach <session> <skill> [--source <name>] [--restart] [--json] [-q]
 ```
 
 - `--source`: Filter by source when detaching
@@ -316,21 +316,21 @@ agent-deck skill detach <session> <skill> [--source <name>] [--restart] [--json]
 ### skill source list
 
 ```bash
-agent-deck skill source list [--json] [-q]
-agent-deck skill source ls
+hangar skill source list [--json] [-q]
+hangar skill source ls
 ```
 
 ### skill source add
 
 ```bash
-agent-deck skill source add <name> <path> [--description "..."] [--json] [-q]
+hangar skill source add <name> <path> [--description "..."] [--json] [-q]
 ```
 
 ### skill source remove
 
 ```bash
-agent-deck skill source remove <name> [--json] [-q]
-agent-deck skill source rm <name>
+hangar skill source remove <name> [--json] [-q]
+hangar skill source rm <name>
 ```
 
 ## Group Commands
@@ -338,19 +338,19 @@ agent-deck skill source rm <name>
 ### group list
 
 ```bash
-agent-deck group list [--json] [-q]
+hangar group list [--json] [-q]
 ```
 
 ### group create
 
 ```bash
-agent-deck group create <name> [--parent <group>]
+hangar group create <name> [--parent <group>]
 ```
 
 ### group delete
 
 ```bash
-agent-deck group delete <name> [--force]
+hangar group delete <name> [--force]
 ```
 
 `--force`: Move sessions to parent and delete.
@@ -358,7 +358,7 @@ agent-deck group delete <name> [--force]
 ### group move
 
 ```bash
-agent-deck group move <session> <group>
+hangar group move <session> <group>
 ```
 
 Use `""` or `root` to move to default group.
@@ -366,28 +366,28 @@ Use `""` or `root` to move to default group.
 ## Profile Commands
 
 ```bash
-agent-deck profile list
-agent-deck profile create <name>
-agent-deck profile delete <name>
-agent-deck profile default [name]
+hangar profile list
+hangar profile create <name>
+hangar profile delete <name>
+hangar profile default [name]
 ```
 
 ## Conductor Commands
 
 ```bash
-agent-deck conductor setup <name> [--description "..."] [--heartbeat|--no-heartbeat]
-agent-deck conductor teardown <name> [--remove]
-agent-deck conductor teardown --all [--remove]
-agent-deck conductor status [name]
-agent-deck conductor list [--profile <name>]
+hangar conductor setup <name> [--description "..."] [--heartbeat|--no-heartbeat]
+hangar conductor teardown <name> [--remove]
+hangar conductor teardown --all [--remove]
+hangar conductor status [name]
+hangar conductor list [--profile <name>]
 ```
 
-- `setup` creates `~/.agent-deck/conductor/<name>/` plus `meta.json` and registers `conductor-<name>` session in the selected profile.
-- `setup` also installs shared `~/.agent-deck/conductor/CLAUDE.md` (or symlink via `--shared-claude-md`).
+- `setup` creates `~/.hangar/conductor/<name>/` plus `meta.json` and registers `conductor-<name>` session in the selected profile.
+- `setup` also installs shared `~/.hangar/conductor/CLAUDE.md` (or symlink via `--shared-claude-md`).
 - Heartbeat timers run per conductor (default every 15 minutes) and can be disabled with `--no-heartbeat`.
 - Heartbeat sends use non-blocking `session send --no-wait -q` to avoid timeout churn when sessions are busy.
 - Bridge daemon is installed only when Telegram and/or Slack is configured in `[conductor]`.
-- Transition notifier daemon (`agent-deck notify-daemon`) is installed by setup and sends event nudges on `running -> waiting|error|idle` transitions (parent first, then conductor fallback).
+- Transition notifier daemon (`hangar notify-daemon`) is installed by setup and sends event nudges on `running -> waiting|error|idle` transitions (parent first, then conductor fallback).
 
 ## Session Resolution
 

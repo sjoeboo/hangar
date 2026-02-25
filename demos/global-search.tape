@@ -1,4 +1,4 @@
-# Agent Deck - Global Search Demo
+# Hangar - Global Search Demo
 # Story: "Never Lose a Conversation" - Delete a session, recover it with Global Search
 
 Output global-search.gif
@@ -28,12 +28,12 @@ Set PlaybackSpeed 1.3
 Hide
 
 # Clean demo profile
-Type "rm -rf ~/.agent-deck/profiles/search-demo && mkdir -p ~/demo-project"
+Type "rm -rf ~/.hangar/profiles/search-demo && mkdir -p ~/demo-project"
 Enter
 Sleep 500ms
 
-# Start agent-deck, create a session
-Type "agent-deck -p search-demo"
+# Start hangar, create a session
+Type "hangar -p search-demo"
 Enter
 Sleep 2s
 
@@ -66,7 +66,7 @@ Sleep 90s
 Ctrl+Q
 Sleep 1s
 
-# Quit agent-deck
+# Quit hangar
 Type "q"
 Sleep 500ms
 
@@ -76,7 +76,7 @@ Show
 # ACT 1: Show dashboard with the session
 # ============================================
 Sleep 300ms
-Type "agent-deck -p search-demo"
+Type "hangar -p search-demo"
 Sleep 400ms
 Enter
 

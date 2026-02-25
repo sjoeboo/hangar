@@ -40,7 +40,7 @@ func readExistingLocalMCPServers(mcpFile string) map[string]json.RawMessage {
 }
 
 // WriteMCPJsonFromConfig writes enabled MCPs from config.toml to project's .mcp.json
-// It preserves any existing entries not managed by agent-deck (not defined in config.toml)
+// It preserves any existing entries not managed by hangar (not defined in config.toml)
 func WriteMCPJsonFromConfig(projectPath string, enabledNames []string) error {
 	if !GetManageMCPJson() {
 		mcpCatLog.Debug("mcp_json_management_disabled", slog.String("path", projectPath))
@@ -50,11 +50,11 @@ func WriteMCPJsonFromConfig(projectPath string, enabledNames []string) error {
 	mcpFile := filepath.Join(projectPath, ".mcp.json")
 	availableMCPs := GetAvailableMCPs()
 
-	// Read existing .mcp.json to preserve entries not managed by agent-deck (#146)
+	// Read existing .mcp.json to preserve entries not managed by hangar (#146)
 	existingServers := readExistingLocalMCPServers(mcpFile)
 
-	// Build agent-deck managed MCP entries
-	agentDeckServers := make(map[string]MCPServerConfig)
+	// Build hangar managed MCP entries
+	hangarServers := make(map[string]MCPServerConfig)
 
 	for _, name := range enabledNames {
 		if def, ok := availableMCPs[name]; ok {
@@ -64,7 +64,7 @@ func WriteMCPJsonFromConfig(projectPath string, enabledNames []string) error {
 				if transport == "" {
 					transport = "http"
 				}
-				agentDeckServers[name] = MCPServerConfig{
+				hangarServers[name] = MCPServerConfig{
 					Type:    transport,
 					URL:     def.URL,
 					Headers: def.Headers,
@@ -82,7 +82,7 @@ func WriteMCPJsonFromConfig(projectPath string, enabledNames []string) error {
 			if env == nil {
 				env = map[string]string{}
 			}
-			agentDeckServers[name] = MCPServerConfig{
+			hangarServers[name] = MCPServerConfig{
 				Type:    "stdio",
 				Command: def.Command,
 				Args:    args,
@@ -92,7 +92,7 @@ func WriteMCPJsonFromConfig(projectPath string, enabledNames []string) error {
 		}
 	}
 
-	// Merge: preserve non-agent-deck entries, then add agent-deck entries (#146)
+	// Merge: preserve non-hangar entries, then add hangar entries (#146)
 	mergedServers := make(map[string]json.RawMessage)
 	for name, raw := range existingServers {
 		if _, managed := availableMCPs[name]; !managed {
@@ -100,7 +100,7 @@ func WriteMCPJsonFromConfig(projectPath string, enabledNames []string) error {
 			mcpCatLog.Debug("preserved_existing_mcp", slog.String("mcp", name), slog.String("scope", "local"))
 		}
 	}
-	for name, cfg := range agentDeckServers {
+	for name, cfg := range hangarServers {
 		raw, err := json.Marshal(cfg)
 		if err != nil {
 			mcpCatLog.Warn("marshal_mcp_entry_failed", slog.String("mcp", name), slog.Any("error", err))

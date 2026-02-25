@@ -39,7 +39,7 @@ func handleWorktree(profile string, args []string) {
 
 // printWorktreeUsage prints help for worktree commands
 func printWorktreeUsage() {
-	fmt.Println("Usage: agent-deck worktree <command> [options]")
+	fmt.Println("Usage: hangar worktree <command> [options]")
 	fmt.Println()
 	fmt.Println("Manage git worktrees and their session associations.")
 	fmt.Println()
@@ -54,14 +54,14 @@ func printWorktreeUsage() {
 	fmt.Println("  --json                 Output as JSON")
 	fmt.Println()
 	fmt.Println("Examples:")
-	fmt.Println("  agent-deck worktree list")
-	fmt.Println("  agent-deck worktree list --json")
-	fmt.Println("  agent-deck worktree info \"My Session\"")
-	fmt.Println("  agent-deck worktree finish \"My Session\"")
-	fmt.Println("  agent-deck worktree finish \"My Session\" --no-merge")
-	fmt.Println("  agent-deck worktree finish \"My Session\" --into develop")
-	fmt.Println("  agent-deck worktree cleanup")
-	fmt.Println("  agent-deck worktree cleanup --force")
+	fmt.Println("  hangar worktree list")
+	fmt.Println("  hangar worktree list --json")
+	fmt.Println("  hangar worktree info \"My Session\"")
+	fmt.Println("  hangar worktree finish \"My Session\"")
+	fmt.Println("  hangar worktree finish \"My Session\" --no-merge")
+	fmt.Println("  hangar worktree finish \"My Session\" --into develop")
+	fmt.Println("  hangar worktree cleanup")
+	fmt.Println("  hangar worktree cleanup --force")
 }
 
 // handleWorktreeList lists all worktrees with session associations
@@ -70,7 +70,7 @@ func handleWorktreeList(profile string, args []string) {
 	jsonOutput := fs.Bool("json", false, "Output as JSON")
 
 	fs.Usage = func() {
-		fmt.Println("Usage: agent-deck worktree list [options]")
+		fmt.Println("Usage: hangar worktree list [options]")
 		fmt.Println()
 		fmt.Println("List all git worktrees in the current repository with session associations.")
 		fmt.Println()
@@ -198,7 +198,7 @@ func handleWorktreeInfo(profile string, args []string) {
 	jsonOutput := fs.Bool("json", false, "Output as JSON")
 
 	fs.Usage = func() {
-		fmt.Println("Usage: agent-deck worktree info <session> [options]")
+		fmt.Println("Usage: hangar worktree info <session> [options]")
 		fmt.Println()
 		fmt.Println("Show worktree information for a session.")
 		fmt.Println()
@@ -282,7 +282,7 @@ func handleWorktreeCleanup(profile string, args []string) {
 	jsonOutput := fs.Bool("json", false, "Output as JSON")
 
 	fs.Usage = func() {
-		fmt.Println("Usage: agent-deck worktree cleanup [options]")
+		fmt.Println("Usage: hangar worktree cleanup [options]")
 		fmt.Println()
 		fmt.Println("Find and remove orphaned worktrees and sessions.")
 		fmt.Println()
@@ -491,7 +491,7 @@ func handleWorktreeFinish(profile string, args []string) {
 	jsonOutput := fs.Bool("json", false, "Output as JSON")
 
 	fs.Usage = func() {
-		fmt.Println("Usage: agent-deck worktree finish <session> [options]")
+		fmt.Println("Usage: hangar worktree finish <session> [options]")
 		fmt.Println()
 		fmt.Println("Merge a worktree branch, remove the worktree, and delete the session.")
 		fmt.Println()
@@ -502,10 +502,10 @@ func handleWorktreeFinish(profile string, args []string) {
 		fs.PrintDefaults()
 		fmt.Println()
 		fmt.Println("Examples:")
-		fmt.Println("  agent-deck worktree finish \"My Feature\"")
-		fmt.Println("  agent-deck worktree finish \"My Feature\" --into develop")
-		fmt.Println("  agent-deck worktree finish \"My Feature\" --no-merge")
-		fmt.Println("  agent-deck worktree finish \"My Feature\" --no-merge --force")
+		fmt.Println("  hangar worktree finish \"My Feature\"")
+		fmt.Println("  hangar worktree finish \"My Feature\" --into develop")
+		fmt.Println("  hangar worktree finish \"My Feature\" --no-merge")
+		fmt.Println("  hangar worktree finish \"My Feature\" --no-merge --force")
 	}
 
 	if err := fs.Parse(normalizeArgs(fs, args)); err != nil {
@@ -661,7 +661,7 @@ func handleWorktreeFinish(profile string, args []string) {
 		}
 	}
 
-	// Step 5: Remove session from agent-deck
+	// Step 5: Remove session from hangar
 	var remaining []*session.Instance
 	for _, i := range instances {
 		if i.ID != inst.ID {

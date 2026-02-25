@@ -18,7 +18,7 @@ func TestDiscoverExistingTmuxSessions(t *testing.T) {
 	_ = discovered
 }
 
-func TestDiscoverSkipsAgentDeckSessions(t *testing.T) {
+func TestDiscoverSkipsHangarSessions(t *testing.T) {
 	if _, err := exec.LookPath("tmux"); err != nil {
 		t.Skip("tmux not available")
 	}

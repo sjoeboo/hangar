@@ -6,7 +6,7 @@
 
 ## Summary
 
-Add a "Just do it (vagrant sudo)" checkbox to the New Session dialog, below "Teammate mode". When checked, agent-deck auto-manages a Vagrant VM lifecycle and runs Claude Code inside it with `--dangerously-skip-permissions` and sudo access. Based on [Running Claude Code Dangerously Safely](https://blog.emilburzo.com/2026/01/running-claude-code-dangerously-safely/).
+Add a "Just do it (vagrant sudo)" checkbox to the New Session dialog, below "Teammate mode". When checked, hangar auto-manages a Vagrant VM lifecycle and runs Claude Code inside it with `--dangerously-skip-permissions` and sudo access. Based on [Running Claude Code Dangerously Safely](https://blog.emilburzo.com/2026/01/running-claude-code-dangerously-safely/).
 
 ## Acceptance Criteria
 
@@ -26,7 +26,7 @@ Add a "Just do it (vagrant sudo)" checkbox to the New Session dialog, below "Tea
 - [ ] Global/User scope Claude MCP configs propagated into VM
 - [ ] VM crash detected and surfaced as "VM crashed — press R to restart"
 - [ ] Press R on crashed session: recovers VM and resumes Claude conversation
-- [ ] agent-deck crash recovery: reconnects to surviving tmux+VM+Claude automatically
+- [ ] hangar crash recovery: reconnects to surviving tmux+VM+Claude automatically
 - [ ] Host reboot recovery: press R recreates VM and resumes Claude via session ID
 
 ## Non-Goals
@@ -35,7 +35,7 @@ Add a "Just do it (vagrant sudo)" checkbox to the New Session dialog, below "Tea
 - Bidirectional sync hardening (one-way sync, credential filtering, etc.) -- users opting in understand the trade-offs
 - Network firewall/whitelist inside VM -- out of scope for v1
 - Prompt injection detection -- out of scope for v1
-- CLI flag support (`agent-deck add --vagrant`) -- TUI only for now
+- CLI flag support (`hangar add --vagrant`) -- TUI only for now
 
 ## Context & Constraints
 
@@ -44,7 +44,7 @@ Add a "Just do it (vagrant sudo)" checkbox to the New Session dialog, below "Tea
 **User decisions:**
 - VM lifecycle: Auto-managed (up on start, suspend on stop, destroy on delete)
 - Vagrantfile: Auto-generated if missing, user's Vagrantfile respected
-- Skill: Static file bundled with agent-deck
+- Skill: Static file bundled with hangar
 - Skip perms: Force-enabled when vagrant mode checked
 
 **Known trade-offs:**
@@ -137,7 +137,7 @@ instance.Restart() (press R) ──→ restartVagrantSession()
                                   +--→ VM aborted   → vagrant destroy + up, respawn Claude
                                   +--→ VM not_created → vagrant up, respawn Claude
 
-agent-deck restart ──→ ReconnectSessionLazy() finds tmux session
+hangar restart ──→ ReconnectSessionLazy() finds tmux session
                        UseVagrantMode restored from ToolOptionsJSON
                        HealthCheck() confirms VM state on next poll
 ```
@@ -253,7 +253,7 @@ API key passed as inline env var (not written to disk). MCP-specific env vars fr
 | Destroy fails | Warning logged, session deleted anyway. |
 | VM crashes (OOM/panic) | Health check detects within 60s. StatusError + contextual message. Press R to recover. |
 | VirtualBox crashes | Same as VM crash. `vagrant status` shows "aborted". |
-| agent-deck crashes | Automatic recovery on restart via tmux reconnection. No action needed. |
+| hangar crashes | Automatic recovery on restart via tmux reconnection. No action needed. |
 | Host reboots | Press R: `vagrant up` recreates VM, Claude resumes via session ID. |
 | VM hangs (unresponsive) | No activity detected by `UpdateStatus()`. User kills + restarts. |
 | Shared folder breaks | Claude errors visible in tmux. Press R triggers `vagrant reload`. |
@@ -271,7 +271,7 @@ The skill tells Claude:
 
 ### MCP Compatibility
 
-MCP tools configured in agent-deck's `config.toml` must work inside the Vagrant VM where Claude Code runs. There are three transport types and three scopes to handle.
+MCP tools configured in hangar's `config.toml` must work inside the Vagrant VM where Claude Code runs. There are three transport types and three scopes to handle.
 
 #### Problem
 
@@ -280,7 +280,7 @@ When Claude Code runs inside the VM via `vagrant ssh -c`, the MCP configs writte
 | MCP Type | Host Config | Problem in VM |
 |----------|------------|---------------|
 | STDIO | `command: "npx", args: ["-y", "@pkg/mcp"]` | `npx` package may not be installed in VM |
-| Pool socket | `command: "agent-deck", args: ["mcp-proxy", "/tmp/agentdeck-mcp-NAME.sock"]` | Host Unix socket inaccessible from VM |
+| Pool socket | `command: "hangar", args: ["mcp-proxy", "/tmp/hangar-mcp-NAME.sock"]` | Host Unix socket inaccessible from VM |
 | HTTP/SSE | `url: "http://localhost:30000/mcp/"` | `localhost` in VM is the VM itself, not the host |
 | Global scope | `~/.claude/.claude.json` → `mcpServers` | File exists on host only |
 | User scope | `~/.claude.json` → `mcpServers` | File exists on host only |
@@ -391,18 +391,18 @@ func (m *Manager) WrapCommand(cmd string, mcpEnvVars map[string]string) string
 
 ### Crash Recovery & Resilience
 
-Vagrant sessions introduce failure modes that don't exist with direct tmux sessions. The VM, VirtualBox, or agent-deck itself can crash independently. Recovery must be seamless -- the user should be able to press `R` (restart) and resume where they left off.
+Vagrant sessions introduce failure modes that don't exist with direct tmux sessions. The VM, VirtualBox, or hangar itself can crash independently. Recovery must be seamless -- the user should be able to press `R` (restart) and resume where they left off.
 
 #### Failure Scenarios
 
 | Scenario | What Dies | What Survives | Detection | Recovery |
 |----------|-----------|---------------|-----------|----------|
-| VM crashes (OOM, kernel panic) | VM + Claude | tmux pane (shows exit), agent-deck, SQLite state | `vagrant ssh -c` exits non-zero; `UpdateStatus()` → StatusError | Press R: `vagrant up` → respawn Claude with `--resume` |
-| VirtualBox crashes | VM + Claude | tmux pane, agent-deck, SQLite state | Same as above | Press R: same recovery flow |
-| agent-deck crashes | TUI process | tmux session (still running `vagrant ssh -c`), VM, Claude | On restart: `ReconnectSessionLazy()` finds tmux session | Automatic: reconnects to existing tmux+VM+Claude |
-| agent-deck + VM crash (host reboot) | Everything | SQLite state on disk | On restart: tmux session not found, `vagrant status` → not_created | Press R: `vagrant up` → fresh Claude with `--resume` |
-| VM hangs (unresponsive) | Nothing (but frozen) | tmux pane (frozen), agent-deck | `UpdateStatus()` detects no activity for extended period | User kills session, restarts. VM force-destroyed. |
-| Shared folder sync breaks | File I/O inside VM | VM, Claude (but erroring), agent-deck | Claude reports file errors in tmux output | Press R: `vagrant reload` (restarts VM, re-mounts folders) |
+| VM crashes (OOM, kernel panic) | VM + Claude | tmux pane (shows exit), hangar, SQLite state | `vagrant ssh -c` exits non-zero; `UpdateStatus()` → StatusError | Press R: `vagrant up` → respawn Claude with `--resume` |
+| VirtualBox crashes | VM + Claude | tmux pane, hangar, SQLite state | Same as above | Press R: same recovery flow |
+| hangar crashes | TUI process | tmux session (still running `vagrant ssh -c`), VM, Claude | On restart: `ReconnectSessionLazy()` finds tmux session | Automatic: reconnects to existing tmux+VM+Claude |
+| hangar + VM crash (host reboot) | Everything | SQLite state on disk | On restart: tmux session not found, `vagrant status` → not_created | Press R: `vagrant up` → fresh Claude with `--resume` |
+| VM hangs (unresponsive) | Nothing (but frozen) | tmux pane (frozen), hangar | `UpdateStatus()` detects no activity for extended period | User kills session, restarts. VM force-destroyed. |
+| Shared folder sync breaks | File I/O inside VM | VM, Claude (but erroring), hangar | Claude reports file errors in tmux output | Press R: `vagrant reload` (restarts VM, re-mounts folders) |
 
 #### VM Health Check
 
@@ -510,16 +510,16 @@ func (i *Instance) restartVagrantSession() error {
 }
 ```
 
-#### agent-deck Crash Recovery
+#### hangar Crash Recovery
 
-When agent-deck itself crashes, the recovery is largely automatic thanks to existing infrastructure:
+When hangar itself crashes, the recovery is largely automatic thanks to existing infrastructure:
 
 1. **tmux session survives**: `vagrant ssh -c "... claude ..."` continues running in tmux. The VM and Claude are unaffected.
 2. **SQLite state persists**: Instance data including `UseVagrantMode` in `ToolOptionsJSON` survives on disk.
 3. **On restart**: `ReconnectSessionLazy()` finds the existing tmux session by name, reconnects, and `UpdateStatus()` starts polling again.
 4. **No VM action needed**: The VM is already running. `HealthCheck()` confirms this on the next poll cycle.
 
-The only edge case: if agent-deck crashes during `vagrant up` (before Claude launches), the tmux session may show a partial vagrant output. On restart:
+The only edge case: if hangar crashes during `vagrant up` (before Claude launches), the tmux session may show a partial vagrant output. On restart:
 - `UpdateStatus()` detects session as error/inactive
 - User presses `R` → restart flow checks VM status → either VM is running (continue) or partially up (destroy + recreate)
 
@@ -536,7 +536,7 @@ type Instance struct {
 }
 ```
 
-On startup, if `UseVagrantMode` is true and `cleanShutdown` is false (default for loaded instances), the first `UpdateStatus()` call triggers an immediate VM health check instead of waiting 60s. This catches cases where the host rebooted or agent-deck was killed.
+On startup, if `UseVagrantMode` is true and `cleanShutdown` is false (default for loaded instances), the first `UpdateStatus()` call triggers an immediate VM health check instead of waiting 60s. This catches cases where the host rebooted or hangar was killed.
 
 #### VagrantManager.Resume() Method
 
@@ -575,7 +575,7 @@ func (m *Manager) Reload() error                     // vagrant reload (restarts
 
 - [ ] VM crash detected via health check within 60s, session shows "VM crashed" error
 - [ ] Press R on crashed vagrant session: destroys old VM, creates new, resumes Claude
-- [ ] agent-deck crash + restart: automatically reconnects to running vagrant session
+- [ ] hangar crash + restart: automatically reconnects to running vagrant session
 - [ ] Host reboot + restart: press R recreates VM and resumes Claude conversation
 - [ ] Suspended VM correctly resumed (not full `vagrant up`) on restart
 - [ ] Vagrant reload triggered when shared folder sync breaks
@@ -610,7 +610,7 @@ func (m *Manager) Reload() error                     // vagrant reload (restarts
 - STDIO MCP (npx-based) works inside VM after provisioning
 - Global MCP config propagated to VM's ~/.claude/.claude.json
 - VM crash recovery: force-kill VirtualBox → press R → VM recreated, Claude resumes
-- agent-deck crash recovery: kill agent-deck → restart → session auto-reconnects
+- hangar crash recovery: kill hangar → restart → session auto-reconnects
 - Suspended VM resume: suspend → press R → `vagrant resume` (not full `vagrant up`)
 - Shared folder recovery: corrupt sync → press R → `vagrant reload` re-mounts
 

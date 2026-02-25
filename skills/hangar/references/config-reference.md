@@ -1,6 +1,6 @@
 # Configuration Reference
 
-All options for `~/.agent-deck/config.toml`.
+All options for `~/.hangar/config.toml`.
 
 ## Table of Contents
 
@@ -29,8 +29,8 @@ Shell environment configuration applied to all sessions.
 
 ```toml
 [shell]
-env_files = ["~/.agent-deck.env", ".env"]   # .env files to source for ALL sessions
-init_script = "~/.agent-deck/init.sh"       # Script or command to run before each session
+env_files = ["~/.hangar.env", ".env"]   # .env files to source for ALL sessions
+init_script = "~/.hangar/init.sh"       # Script or command to run before each session
 ignore_missing_env_files = true             # Silently skip missing .env files (default: true)
 ```
 
@@ -96,17 +96,17 @@ config_dir = "~/.claude-clientx"     # Client account
 Launch each profile normally:
 
 ```bash
-agent-deck               # Uses default profile -> global [claude].config_dir
-agent-deck -p work       # Uses [profiles.work.claude].config_dir
-agent-deck -p clientx    # Uses [profiles.clientx.claude].config_dir
+hangar               # Uses default profile -> global [claude].config_dir
+hangar -p work       # Uses [profiles.work.claude].config_dir
+hangar -p clientx    # Uses [profiles.clientx.claude].config_dir
 ```
 
 Verify the effective Claude config path:
 
 ```bash
-agent-deck hooks status
-agent-deck hooks status -p work
-agent-deck hooks status -p clientx
+hangar hooks status
+hangar hooks status -p work
+hangar hooks status -p clientx
 ```
 
 ## [codex] Section
@@ -139,7 +139,7 @@ remove_orphans = true   # Delete logs for removed sessions
 | `max_lines` | int | `10000` | Lines to keep after truncation. |
 | `remove_orphans` | bool | `true` | Clean up logs for deleted sessions. |
 
-**Logs location:** `~/.agent-deck/logs/agentdeck_<session>_<id>.log`
+**Logs location:** `~/.hangar/logs/agentdeck_<session>_<id>.log`
 
 ## [updates] Section
 
@@ -183,23 +183,23 @@ index_rate_limit = 20       # Files/second for indexing
 
 ## Skills Registry (Outside config.toml)
 
-Skill source discovery and project attachment state are not stored in `~/.agent-deck/config.toml`.
+Skill source discovery and project attachment state are not stored in `~/.hangar/config.toml`.
 
 **Global source registry:**
-- `~/.agent-deck/skills/sources.toml`
+- `~/.hangar/skills/sources.toml`
 - Includes default sources:
-  - `pool` -> `~/.agent-deck/skills/pool`
+  - `pool` -> `~/.hangar/skills/pool`
   - `claude-global` -> `~/.claude/skills` (or active Claude config dir)
 
 **Project attachment state:**
-- `<project>/.agent-deck/skills.toml` (managed manifest)
+- `<project>/.hangar/skills.toml` (managed manifest)
 - `<project>/.claude/skills` (materialized links/copies used by Claude)
 
 **Manage via CLI:**
 ```bash
-agent-deck skill source list
-agent-deck skill source add team ~/src/team-skills
-agent-deck skill source remove team
+hangar skill source list
+hangar skill source add team ~/src/team-skills
+hangar skill source remove team
 ```
 
 ## [mcp_pool] Section
@@ -294,10 +294,10 @@ description = "Slack 23+ tools"
 | `health_check` | string | No | Health endpoint URL (defaults to main URL). |
 
 **How it works:**
-- Agent-deck starts the server automatically when the MCP is attached
+- Hangar starts the server automatically when the MCP is attached
 - If the URL is already reachable (external server), uses it without spawning
 - Health monitor restarts failed servers automatically
-- CLI: `agent-deck mcp server status/start/stop`
+- CLI: `hangar mcp server status/start/stop`
 
 ### Common MCP Examples
 
@@ -364,7 +364,7 @@ All `env_file` and `env_files` path values support the following formats:
 
 | Format | Example | Resolves to |
 |--------|---------|-------------|
-| Absolute path | `/etc/agent-deck/.env` | Used as-is |
+| Absolute path | `/etc/hangar/.env` | Used as-is |
 | `~` (tilde) | `~/.claude.env` | Expanded to home directory (e.g., `/home/user/.claude.env`) |
 | Environment variables | `$HOME/.claude.env` | Expanded via `os.ExpandEnv` (e.g., `/home/user/.claude.env`) |
 | `${VAR}` syntax | `${XDG_CONFIG_HOME}/env` | Expanded via `os.ExpandEnv` |
@@ -378,8 +378,8 @@ Environment variable expansion (`$HOME`, `$USER`, `${VAR}`, etc.) is applied bef
 default_tool = "claude"
 
 [shell]
-env_files = ["~/.agent-deck.env"]
-init_script = "~/.agent-deck/init.sh"
+env_files = ["~/.hangar.env"]
+init_script = "~/.hangar/init.sh"
 ignore_missing_env_files = true
 
 [claude]
@@ -427,6 +427,6 @@ description = "GitHub access"
 
 | Variable | Purpose |
 |----------|---------|
-| `AGENTDECK_PROFILE` | Override default profile |
+| `HANGAR_PROFILE` | Override default profile |
 | `CLAUDE_CONFIG_DIR` | Override Claude config dir |
-| `AGENTDECK_DEBUG=1` | Enable debug logging |
+| `HANGAR_DEBUG=1` | Enable debug logging |

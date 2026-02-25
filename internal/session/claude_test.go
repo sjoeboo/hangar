@@ -66,9 +66,9 @@ func TestGetClaudeConfigDir_ProfileOverride(t *testing.T) {
 	_ = os.Setenv("HANGAR_PROFILE", "work")
 	ClearUserConfigCache()
 
-	agentDeckDir := filepath.Join(tmpHome, ".hangar")
-	if err := os.MkdirAll(agentDeckDir, 0700); err != nil {
-		t.Fatalf("failed to create agent-deck dir: %v", err)
+	hangarDir := filepath.Join(tmpHome, ".hangar")
+	if err := os.MkdirAll(hangarDir, 0700); err != nil {
+		t.Fatalf("failed to create hangar dir: %v", err)
 	}
 	configContent := `
 [claude]
@@ -77,7 +77,7 @@ config_dir = "~/.claude-global"
 [profiles.work.claude]
 config_dir = "~/.claude-work"
 `
-	if err := os.WriteFile(filepath.Join(agentDeckDir, "config.toml"), []byte(configContent), 0600); err != nil {
+	if err := os.WriteFile(filepath.Join(hangarDir, "config.toml"), []byte(configContent), 0600); err != nil {
 		t.Fatalf("failed to write config.toml: %v", err)
 	}
 
@@ -129,15 +129,15 @@ func TestIsClaudeConfigDirExplicit_ProfileOverride(t *testing.T) {
 	_ = os.Setenv("HANGAR_PROFILE", "work")
 	ClearUserConfigCache()
 
-	agentDeckDir := filepath.Join(tmpHome, ".hangar")
-	if err := os.MkdirAll(agentDeckDir, 0700); err != nil {
-		t.Fatalf("failed to create agent-deck dir: %v", err)
+	hangarDir := filepath.Join(tmpHome, ".hangar")
+	if err := os.MkdirAll(hangarDir, 0700); err != nil {
+		t.Fatalf("failed to create hangar dir: %v", err)
 	}
 	configContent := `
 [profiles.work.claude]
 config_dir = "~/.claude-work"
 `
-	if err := os.WriteFile(filepath.Join(agentDeckDir, "config.toml"), []byte(configContent), 0600); err != nil {
+	if err := os.WriteFile(filepath.Join(hangarDir, "config.toml"), []byte(configContent), 0600); err != nil {
 		t.Fatalf("failed to write config.toml: %v", err)
 	}
 

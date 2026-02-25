@@ -1,4 +1,4 @@
-# Agent Deck - MCP Manager Demo
+# Hangar - MCP Manager Demo
 # Shows: Check /mcp (none) -> Attach MCP in LOCAL -> Check /mcp (attached)
 
 Output mcp-manager.gif
@@ -27,7 +27,7 @@ Set PlaybackSpeed 1.3
 Hide
 
 # Clean demo profile and project
-Type "rm -rf ~/.agent-deck/profiles/mcp-demo && mkdir -p ~/demo-project"
+Type "rm -rf ~/.hangar/profiles/mcp-demo && mkdir -p ~/demo-project"
 Enter
 Sleep 500ms
 
@@ -36,8 +36,8 @@ Type "rm -f ~/demo-project/.mcp.json"
 Enter
 Sleep 200ms
 
-# Start agent-deck, create session, and wait for Claude to load
-Type "agent-deck -p mcp-demo"
+# Start hangar, create session, and wait for Claude to load
+Type "hangar -p mcp-demo"
 Enter
 Sleep 3s
 
@@ -51,17 +51,17 @@ Tab
 Enter
 Sleep 12s
 
-# Quit agent-deck (session stays running in tmux)
+# Quit hangar (session stays running in tmux)
 Type "q"
 Sleep 1s
 
 Show
 
 # ============================================
-# DEMO START: Launch agent-deck with pre-running session
+# DEMO START: Launch hangar with pre-running session
 # ============================================
 Sleep 1s
-Type "agent-deck -p mcp-demo"
+Type "hangar -p mcp-demo"
 Sleep 200ms
 Enter
 Sleep 2.5s

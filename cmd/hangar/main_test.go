@@ -50,7 +50,7 @@ func TestNestedSessionAllowsCLICommands(t *testing.T) {
 		}
 	})
 
-	// Non-agentdeck tmux session should not be detected as nested
+	// Non-hangar tmux session should not be detected as nested
 	t.Run("non_hangar_tmux", func(t *testing.T) {
 		orig := os.Getenv("TMUX")
 		os.Setenv("TMUX", "/tmp/tmux-501/default,12345,0")
@@ -58,10 +58,10 @@ func TestNestedSessionAllowsCLICommands(t *testing.T) {
 
 		// GetCurrentSessionID shells out to tmux, so if we're not actually
 		// in that session it will either fail or return the real session name.
-		// The key invariant is: a non-agentdeck session name returns "".
+		// The key invariant is: a non-hangar session name returns "".
 		// We verify this by checking the helper logic directly.
 		id := GetCurrentSessionID()
-		// In CI/test, either tmux isn't running or we're not in an agentdeck session
+		// In CI/test, either tmux isn't running or we're not in a hangar session
 		if id != "" {
 			t.Logf("got session ID %q (test running inside tmux?)", id)
 		}

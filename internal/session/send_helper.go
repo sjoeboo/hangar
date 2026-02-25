@@ -10,7 +10,7 @@ import (
 )
 
 // SendSessionMessageReliable sends a message using the same queued/reliable semantics
-// as `agent-deck session send` (default mode, no --no-wait).
+// as `hangar session send` (default mode, no --no-wait).
 // It invokes the CLI command to keep behavior identical across callers.
 func SendSessionMessageReliable(profile, sessionRef, message string) error {
 	sessionRef = strings.TrimSpace(sessionRef)
@@ -22,7 +22,7 @@ func SendSessionMessageReliable(profile, sessionRef, message string) error {
 		return fmt.Errorf("message is required")
 	}
 
-	bin := agentDeckBinaryPath()
+	bin := hangarBinaryPath()
 	args := []string{}
 	if strings.TrimSpace(profile) != "" {
 		args = append(args, "-p", profile)
@@ -43,13 +43,13 @@ func SendSessionMessageReliable(profile, sessionRef, message string) error {
 	return nil
 }
 
-func agentDeckBinaryPath() string {
+func hangarBinaryPath() string {
 	// In production this should resolve to the installed binary.
 	if p := findHangar(); p != "" {
 		return p
 	}
 
-	// Fall back to current executable only if it looks like the agent-deck binary.
+	// Fall back to current executable only if it looks like the hangar binary.
 	if exe, err := os.Executable(); err == nil {
 		base := strings.ToLower(filepath.Base(exe))
 		if strings.HasPrefix(base, "hangar") {

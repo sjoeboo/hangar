@@ -341,7 +341,7 @@ func (i *Instance) buildClaudeCommandWithMessage(baseCommand, message string) st
 	}
 
 	// HANGAR_INSTANCE_ID is set as an inline env var so Claude's hook subprocesses
-	// can identify which agent-deck session they belong to.
+	// can identify which hangar session they belong to.
 	instanceIDPrefix := fmt.Sprintf("HANGAR_INSTANCE_ID=%s ", i.ID)
 	configDirPrefix = instanceIDPrefix + configDirPrefix
 
@@ -622,9 +622,9 @@ func (i *Instance) buildCodexCommand(baseCommand string) string {
 	}
 
 	envPrefix := i.buildEnvSourceCommand()
-	agentdeckEnvPrefix := fmt.Sprintf("HANGAR_INSTANCE_ID=%s HANGAR_TITLE=%q HANGAR_TOOL=%s ",
+	hangarEnvPrefix := fmt.Sprintf("HANGAR_INSTANCE_ID=%s HANGAR_TITLE=%q HANGAR_TOOL=%s ",
 		i.ID, i.Title, i.Tool)
-	envPrefix += agentdeckEnvPrefix
+	envPrefix += hangarEnvPrefix
 
 	yoloFlag := i.resolveCodexYoloFlag()
 
@@ -1050,7 +1050,7 @@ func decodeJSONStringField(raw map[string]json.RawMessage, key string) string {
 func (i *Instance) collectOtherCodexSessionIDs() map[string]bool {
 	exclude := make(map[string]bool)
 
-	tmuxSessions, err := tmux.ListAgentDeckSessions()
+	tmuxSessions, err := tmux.ListHangarSessions()
 	if err != nil {
 		return exclude
 	}
@@ -1995,13 +1995,13 @@ func (i *Instance) UpdateClaudeSession(excludeIDs map[string]bool) {
 	}
 }
 
-// collectOtherClaudeSessionIDs enumerates all agent-deck tmux sessions (except this one)
+// collectOtherClaudeSessionIDs enumerates all hangar tmux sessions (except this one)
 // and returns the set of CLAUDE_SESSION_ID values they own. Used to avoid stealing
 // another instance's session when scanning for the most recent .jsonl on disk.
 func (i *Instance) collectOtherClaudeSessionIDs() map[string]bool {
 	exclude := make(map[string]bool)
 
-	tmuxSessions, err := tmux.ListAgentDeckSessions()
+	tmuxSessions, err := tmux.ListHangarSessions()
 	if err != nil {
 		return exclude
 	}
@@ -2026,7 +2026,7 @@ func (i *Instance) collectOtherClaudeSessionIDs() map[string]bool {
 }
 
 // syncClaudeSessionFromDisk scans the filesystem for the most recent session file,
-// excluding IDs owned by other agent-deck instances. If a different (newer) session
+// excluding IDs owned by other hangar instances. If a different (newer) session
 // is found, it updates ClaudeSessionID, ClaudeDetectedAt, and the tmux env var.
 // This handles the case where /clear in Claude Code creates a new session UUID
 // that the tmux env var doesn't know about yet.
@@ -3383,7 +3383,7 @@ func (i *Instance) buildClaudeResumeCommand() string {
 	}
 
 	// HANGAR_INSTANCE_ID is set as an inline env var so hook subprocesses
-	// can identify which agent-deck session they belong to.
+	// can identify which hangar session they belong to.
 	instanceIDPrefix := fmt.Sprintf("HANGAR_INSTANCE_ID=%s ", i.ID)
 	configDirPrefix = instanceIDPrefix + configDirPrefix
 
@@ -4038,7 +4038,7 @@ func sessionHasConversationData(sessionID string, projectPath string) bool {
 }
 
 // findSessionFileInAllProjects searches all Claude project directories for a session file
-// This handles path hash mismatches when agent-deck runs from a different directory
+// This handles path hash mismatches when hangar runs from a different directory
 // than where the Claude session was originally created.
 // Returns the full path to the session file, or empty string if not found.
 func findSessionFileInAllProjects(sessionID string) string {

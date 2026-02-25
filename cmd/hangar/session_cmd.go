@@ -60,7 +60,7 @@ func handleSession(profile string, args []string) {
 
 // printSessionHelp prints help for session commands
 func printSessionHelp() {
-	fmt.Println("Usage: agent-deck session <command> [options]")
+	fmt.Println("Usage: hangar session <command> [options]")
 	fmt.Println()
 	fmt.Println("Manage individual sessions.")
 	fmt.Println()
@@ -84,17 +84,17 @@ func printSessionHelp() {
 	fmt.Println("  -q, --quiet            Minimal output (exit codes only)")
 	fmt.Println()
 	fmt.Println("Examples:")
-	fmt.Println("  agent-deck session start my-project")
-	fmt.Println("  agent-deck session stop abc123")
-	fmt.Println("  agent-deck session restart my-project")
-	fmt.Println("  agent-deck session fork my-project -t \"my-project-fork\"")
-	fmt.Println("  agent-deck session attach my-project")
-	fmt.Println("  agent-deck session show                  # Auto-detect current session")
-	fmt.Println("  agent-deck session show my-project --json")
-	fmt.Println("  agent-deck session set-parent sub-task main-project  # Make sub-task a sub-session")
-	fmt.Println("  agent-deck session unset-parent sub-task             # Remove sub-session link")
-	fmt.Println("  agent-deck session output my-project                 # Get last response from session")
-	fmt.Println("  agent-deck session output my-project --json          # Get response as JSON")
+	fmt.Println("  hangar session start my-project")
+	fmt.Println("  hangar session stop abc123")
+	fmt.Println("  hangar session restart my-project")
+	fmt.Println("  hangar session fork my-project -t \"my-project-fork\"")
+	fmt.Println("  hangar session attach my-project")
+	fmt.Println("  hangar session show                  # Auto-detect current session")
+	fmt.Println("  hangar session show my-project --json")
+	fmt.Println("  hangar session set-parent sub-task main-project  # Make sub-task a sub-session")
+	fmt.Println("  hangar session unset-parent sub-task             # Remove sub-session link")
+	fmt.Println("  hangar session output my-project                 # Get last response from session")
+	fmt.Println("  hangar session output my-project --json          # Get response as JSON")
 	fmt.Println()
 	fmt.Println("Set command fields:")
 	fmt.Println("  title              Session title")
@@ -106,10 +106,10 @@ func printSessionHelp() {
 	fmt.Println("  gemini-session-id  Gemini conversation ID (for resume)")
 	fmt.Println()
 	fmt.Println("Set examples:")
-	fmt.Println("  agent-deck session set my-project title \"New Title\"")
-	fmt.Println("  agent-deck session set my-project claude-session-id \"abc123-def456\"")
-	fmt.Println("  agent-deck session set my-project tool claude")
-	fmt.Println("  agent-deck session set my-project wrapper \"nvim +'terminal {command}'\"")
+	fmt.Println("  hangar session set my-project title \"New Title\"")
+	fmt.Println("  hangar session set my-project claude-session-id \"abc123-def456\"")
+	fmt.Println("  hangar session set my-project tool claude")
+	fmt.Println("  hangar session set my-project wrapper \"nvim +'terminal {command}'\"")
 }
 
 // handleSessionStart starts a session's tmux process
@@ -122,7 +122,7 @@ func handleSessionStart(profile string, args []string) {
 	messageShort := fs.String("m", "", "Initial message to send once agent is ready (short)")
 
 	fs.Usage = func() {
-		fmt.Println("Usage: agent-deck session start <id|title> [options]")
+		fmt.Println("Usage: hangar session start <id|title> [options]")
 		fmt.Println()
 		fmt.Println("Start a session's tmux process.")
 		fmt.Println()
@@ -130,9 +130,9 @@ func handleSessionStart(profile string, args []string) {
 		fs.PrintDefaults()
 		fmt.Println()
 		fmt.Println("Examples:")
-		fmt.Println("  agent-deck session start my-project")
-		fmt.Println("  agent-deck session start my-project --message \"Research MCP patterns\"")
-		fmt.Println("  agent-deck session start my-project -m \"Explain this codebase\"")
+		fmt.Println("  hangar session start my-project")
+		fmt.Println("  hangar session start my-project --message \"Research MCP patterns\"")
+		fmt.Println("  hangar session start my-project -m \"Explain this codebase\"")
 	}
 
 	if err := fs.Parse(normalizeArgs(fs, args)); err != nil {
@@ -222,7 +222,7 @@ func handleSessionStop(profile string, args []string) {
 	quietShort := fs.Bool("q", false, "Minimal output (short)")
 
 	fs.Usage = func() {
-		fmt.Println("Usage: agent-deck session stop <id|title> [options]")
+		fmt.Println("Usage: hangar session stop <id|title> [options]")
 		fmt.Println()
 		fmt.Println("Stop/kill a session's process (tmux session remains).")
 		fmt.Println()
@@ -290,7 +290,7 @@ func handleSessionRestart(profile string, args []string) {
 	quietShort := fs.Bool("q", false, "Minimal output (short)")
 
 	fs.Usage = func() {
-		fmt.Println("Usage: agent-deck session restart <id|title> [options]")
+		fmt.Println("Usage: hangar session restart <id|title> [options]")
 		fmt.Println()
 		fmt.Println("Restart a session. For Claude sessions, this reloads MCPs.")
 		fmt.Println()
@@ -365,7 +365,7 @@ func handleSessionFork(profile string, args []string) {
 	newBranchLong := fs.Bool("new-branch", false, "Create new branch")
 
 	fs.Usage = func() {
-		fmt.Println("Usage: agent-deck session fork <id|title> [options]")
+		fmt.Println("Usage: hangar session fork <id|title> [options]")
 		fmt.Println()
 		fmt.Println("Fork a Claude session with conversation context.")
 		fmt.Println()
@@ -373,11 +373,11 @@ func handleSessionFork(profile string, args []string) {
 		fs.PrintDefaults()
 		fmt.Println()
 		fmt.Println("Examples:")
-		fmt.Println("  agent-deck session fork my-project")
-		fmt.Println("  agent-deck session fork my-project -t \"my-fork\"")
-		fmt.Println("  agent-deck session fork my-project -t \"my-fork\" -g \"experiments\"")
-		fmt.Println("  agent-deck session fork my-project -w fork/experiment")
-		fmt.Println("  agent-deck session fork my-project -w fork/new-idea -b")
+		fmt.Println("  hangar session fork my-project")
+		fmt.Println("  hangar session fork my-project -t \"my-fork\"")
+		fmt.Println("  hangar session fork my-project -t \"my-fork\" -g \"experiments\"")
+		fmt.Println("  hangar session fork my-project -w fork/experiment")
+		fmt.Println("  hangar session fork my-project -w fork/new-idea -b")
 	}
 
 	if err := fs.Parse(normalizeArgs(fs, args)); err != nil {
@@ -548,7 +548,7 @@ func handleSessionAttach(profile string, args []string) {
 	fs := flag.NewFlagSet("session attach", flag.ExitOnError)
 
 	fs.Usage = func() {
-		fmt.Println("Usage: agent-deck session attach <id|title>")
+		fmt.Println("Usage: hangar session attach <id|title>")
 		fmt.Println()
 		fmt.Println("Attach to a session interactively.")
 		fmt.Println("Press Ctrl+Q to detach.")
@@ -608,7 +608,7 @@ func handleSessionShow(profile string, args []string) {
 	quietShort := fs.Bool("q", false, "Minimal output (short)")
 
 	fs.Usage = func() {
-		fmt.Println("Usage: agent-deck session show [id|title] [options]")
+		fmt.Println("Usage: hangar session show [id|title] [options]")
 		fmt.Println()
 		fmt.Println("Show session details. If no ID is provided, auto-detects current session.")
 		fmt.Println()
@@ -790,7 +790,7 @@ func handleSessionSet(profile string, args []string) {
 	quietShort := fs.Bool("q", false, "Minimal output (short)")
 
 	fs.Usage = func() {
-		fmt.Println("Usage: agent-deck session set <id|title> <field> <value> [options]")
+		fmt.Println("Usage: hangar session set <id|title> <field> <value> [options]")
 		fmt.Println()
 		fmt.Println("Update a session property.")
 		fmt.Println()
@@ -807,10 +807,10 @@ func handleSessionSet(profile string, args []string) {
 		fs.PrintDefaults()
 		fmt.Println()
 		fmt.Println("Examples:")
-		fmt.Println("  agent-deck session set my-project title \"New Title\"")
-		fmt.Println("  agent-deck session set my-project claude-session-id \"abc123-def456\"")
-		fmt.Println("  agent-deck session set my-project path /new/path/to/project")
-		fmt.Println("  agent-deck session set my-project wrapper \"nvim +'terminal {command}'\"")
+		fmt.Println("  hangar session set my-project title \"New Title\"")
+		fmt.Println("  hangar session set my-project claude-session-id \"abc123-def456\"")
+		fmt.Println("  hangar session set my-project path /new/path/to/project")
+		fmt.Println("  hangar session set my-project wrapper \"nvim +'terminal {command}'\"")
 	}
 
 	if err := fs.Parse(normalizeArgs(fs, args)); err != nil {
@@ -988,7 +988,7 @@ func findSessionByTmux(instances []*session.Instance) *session.Instance {
 	sessionName := parts[0]
 	currentPath := parts[1]
 
-	// Parse agent-deck session name: hangar_<title>_<id>
+	// Parse hangar session name: hangar_<title>_<id>
 	if strings.HasPrefix(sessionName, "hangar_") {
 		// Extract title (everything between hangar_ and the last _id)
 		withoutPrefix := strings.TrimPrefix(sessionName, "hangar_")
@@ -1011,13 +1011,13 @@ func findSessionByTmux(instances []*session.Instance) *session.Instance {
 				}
 			}
 
-			// For agentdeck sessions, we have the title - don't fall back to path matching
+			// For hangar sessions, we have the title - don't fall back to path matching
 			// as that could match a different session with same path in another profile
 			return nil
 		}
 	}
 
-	// Try to find by path (only for non-agentdeck tmux sessions)
+	// Try to find by path (only for non-hangar tmux sessions)
 	for _, inst := range instances {
 		if inst.ProjectPath == currentPath {
 			return inst
@@ -1076,7 +1076,7 @@ func showTmuxSessionInfo(out *CLIOutput, jsonOutput bool) {
 	}
 
 	var sb strings.Builder
-	sb.WriteString("⚠ Session not registered in agent-deck\n")
+	sb.WriteString("⚠ Session not registered in hangar\n")
 	sb.WriteString(fmt.Sprintf("Tmux:    %s\n", sessionName))
 	sb.WriteString(fmt.Sprintf("Title:   %s\n", title))
 	if idFragment != "" {
@@ -1087,7 +1087,7 @@ func showTmuxSessionInfo(out *CLIOutput, jsonOutput bool) {
 		sb.WriteString(fmt.Sprintf("Window:  %s\n", windowName))
 	}
 	sb.WriteString("\nTo register this session:\n")
-	sb.WriteString(fmt.Sprintf("  agent-deck add -t \"%s\" -g <group> -c claude %s\n", title, currentPath))
+	sb.WriteString(fmt.Sprintf("  hangar add -t \"%s\" -g <group> -c claude %s\n", title, currentPath))
 
 	out.Print(sb.String(), jsonData)
 }
@@ -1100,7 +1100,7 @@ func handleSessionSetParent(profile string, args []string) {
 	quietShort := fs.Bool("q", false, "Minimal output (short)")
 
 	fs.Usage = func() {
-		fmt.Println("Usage: agent-deck session set-parent <session> <parent>")
+		fmt.Println("Usage: hangar session set-parent <session> <parent>")
 		fmt.Println()
 		fmt.Println("Link a session as a sub-session of another session.")
 		fmt.Println("The session will inherit the parent's group.")
@@ -1198,7 +1198,7 @@ func handleSessionUnsetParent(profile string, args []string) {
 	quietShort := fs.Bool("q", false, "Minimal output (short)")
 
 	fs.Usage = func() {
-		fmt.Println("Usage: agent-deck session unset-parent <session>")
+		fmt.Println("Usage: hangar session unset-parent <session>")
 		fmt.Println()
 		fmt.Println("Remove the sub-session link from a session.")
 		fmt.Println("The session will remain in its current group.")
@@ -1283,7 +1283,7 @@ func handleSessionSend(profile string, args []string) {
 	timeout := fs.Duration("timeout", 10*time.Minute, "Max time to wait for completion (used with --wait)")
 
 	fs.Usage = func() {
-		fmt.Println("Usage: agent-deck session send <id|title> <message> [options]")
+		fmt.Println("Usage: hangar session send <id|title> <message> [options]")
 		fmt.Println()
 		fmt.Println("Send a message to a running session.")
 		fmt.Println()
@@ -1291,9 +1291,9 @@ func handleSessionSend(profile string, args []string) {
 		fs.PrintDefaults()
 		fmt.Println()
 		fmt.Println("Examples:")
-		fmt.Println("  agent-deck session send my-project \"Summarize recent changes\"")
-		fmt.Println("  agent-deck session send my-project \"run tests\" --wait")
-		fmt.Println("  agent-deck session send my-project \"quick ping\" --no-wait")
+		fmt.Println("  hangar session send my-project \"Summarize recent changes\"")
+		fmt.Println("  hangar session send my-project \"run tests\" --wait")
+		fmt.Println("  hangar session send my-project \"quick ping\" --no-wait")
 	}
 
 	if err := fs.Parse(normalizeArgs(fs, args)); err != nil {
@@ -1791,7 +1791,7 @@ func handleSessionOutput(profile string, args []string) {
 	copyFlag := fs.Bool("copy", false, "Copy output to system clipboard")
 
 	fs.Usage = func() {
-		fmt.Println("Usage: agent-deck session output [id|title] [options]")
+		fmt.Println("Usage: hangar session output [id|title] [options]")
 		fmt.Println()
 		fmt.Println("Get the last response from a session. If no ID is provided, auto-detects current session.")
 		fmt.Println()
@@ -1904,7 +1904,7 @@ func handleSessionCurrent(profileArg string, args []string) {
 	quietShort := fs.Bool("q", false, "Minimal output (short)")
 
 	fs.Usage = func() {
-		fmt.Println("Usage: agent-deck session current [options]")
+		fmt.Println("Usage: hangar session current [options]")
 		fmt.Println()
 		fmt.Println("Show current session and profile (auto-detected from environment).")
 		fmt.Println()
@@ -1946,7 +1946,7 @@ func handleSessionCurrent(profileArg string, args []string) {
 
 	if instData == nil {
 		out.Error(
-			"current tmux session is not an agent-deck session\nHint: Run 'agent-deck list' to see available sessions",
+			"current tmux session is not an hangar session\nHint: Run 'hangar list' to see available sessions",
 			ErrCodeNotFound,
 		)
 		os.Exit(1)

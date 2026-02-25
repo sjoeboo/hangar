@@ -151,9 +151,9 @@ func getAssetURL(release *Release) string {
 	goos := runtime.GOOS
 	goarch := runtime.GOARCH
 
-	// Construct expected asset name: agent-deck_X.Y.Z_os_arch.tar.gz
+	// Construct expected asset name: hangar_X.Y.Z_os_arch.tar.gz
 	version := strings.TrimPrefix(release.TagName, "v")
-	expectedName := fmt.Sprintf("agent-deck_%s_%s_%s.tar.gz", version, goos, goarch)
+	expectedName := fmt.Sprintf("hangar_%s_%s_%s.tar.gz", version, goos, goarch)
 
 	for _, asset := range release.Assets {
 		if asset.Name == expectedName {
@@ -300,7 +300,7 @@ func PerformUpdate(downloadURL string) error {
 	}
 
 	// Create temp file for download
-	tmpFile, err := os.CreateTemp("", "agent-deck-update-*.tar.gz")
+	tmpFile, err := os.CreateTemp("", "hangar-update-*.tar.gz")
 	if err != nil {
 		return fmt.Errorf("failed to create temp file: %w", err)
 	}
@@ -354,9 +354,9 @@ func homebrewUpgradeHint(execPath string) (string, bool) {
 	// Homebrew-managed binaries resolve to Cellar paths. Self-overwriting these
 	// can leave installs in a bad state; prefer brew-managed upgrades.
 	knownCellars := []string{
-		"/opt/homebrew/Cellar/agent-deck/",
-		"/usr/local/Cellar/agent-deck/",
-		"/home/linuxbrew/.linuxbrew/Cellar/agent-deck/",
+		"/opt/homebrew/Cellar/hangar/",
+		"/usr/local/Cellar/hangar/",
+		"/home/linuxbrew/.linuxbrew/Cellar/hangar/",
 	}
 	for _, prefix := range knownCellars {
 		if strings.HasPrefix(clean, prefix) {
@@ -510,7 +510,7 @@ func FormatChangelogForDisplay(entries []ChangelogEntry) string {
 	return sb.String()
 }
 
-// extractBinaryFromTarGz extracts the agent-deck binary from a .tar.gz file
+// extractBinaryFromTarGz extracts the hangar binary from a .tar.gz file
 func extractBinaryFromTarGz(tarPath string) ([]byte, error) {
 	file, err := os.Open(tarPath)
 	if err != nil {
@@ -535,7 +535,7 @@ func extractBinaryFromTarGz(tarPath string) ([]byte, error) {
 			return nil, err
 		}
 
-		// Look for the agent-deck binary
+		// Look for the hangar binary
 		if header.Typeflag == tar.TypeReg && header.Name == "hangar" {
 			data, err := io.ReadAll(tr)
 			if err != nil {
@@ -545,7 +545,7 @@ func extractBinaryFromTarGz(tarPath string) ([]byte, error) {
 		}
 	}
 
-	return nil, fmt.Errorf("agent-deck binary not found in archive")
+	return nil, fmt.Errorf("hangar binary not found in archive")
 }
 
 // UpdateBridgePy refreshes the installed bridge.py from the embedded runtime template.

@@ -1,4 +1,4 @@
-# Agent Deck - Fork Session Demo
+# Hangar - Fork Session Demo
 # Shows: Fork a Claude session to branch the conversation
 
 Output fork-session.gif
@@ -24,12 +24,12 @@ Set PlaybackSpeed 1.5
 Hide
 
 # Clean demo profile and project
-Type "rm -rf ~/.agent-deck/profiles/fork-demo && mkdir -p ~/demo-project"
+Type "rm -rf ~/.hangar/profiles/fork-demo && mkdir -p ~/demo-project"
 Enter
 Sleep 500ms
 
-# Start agent-deck, create session
-Type "agent-deck -p fork-demo"
+# Start hangar, create session
+Type "hangar -p fork-demo"
 Enter
 Sleep 2s
 
@@ -59,7 +59,7 @@ Sleep 20s
 Ctrl+Q
 Sleep 1.5s
 
-# Quit agent-deck (session stays running)
+# Quit hangar (session stays running)
 Type "q"
 Sleep 1s
 
@@ -69,7 +69,7 @@ Show
 # DEMO START: Launch with pre-running session
 # ============================================
 Sleep 500ms
-Type "agent-deck -p fork-demo"
+Type "hangar -p fork-demo"
 Sleep 400ms
 Enter
 Sleep 3s

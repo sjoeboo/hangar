@@ -323,7 +323,7 @@ func main() {
 	// When HANGAR_DEBUG is set, logs go to ~/.hangar/debug.log
 	// When not set, logs are discarded to avoid TUI interference
 	debugMode := os.Getenv("HANGAR_DEBUG") != ""
-	if baseDir, err := session.GetAgentDeckDir(); err == nil {
+	if baseDir, err := session.GetHangarDir(); err == nil {
 		logCfg := logging.Config{
 			Debug:                 debugMode,
 			LogDir:                baseDir,
@@ -555,7 +555,6 @@ func generateUniqueTitle(instances []*session.Instance, baseTitle, path string) 
 
 func resolveAutoParentInstance(instances []*session.Instance) *session.Instance {
 	candidates := []string{
-		strings.TrimSpace(os.Getenv("AGENT_DECK_SESSION_ID")),
 		strings.TrimSpace(os.Getenv("HANGAR_INSTANCE_ID")),
 	}
 
@@ -2348,7 +2347,7 @@ func handleUninstall(args []string) {
 			}
 
 			// Create backup
-			backupPath := tmuxConf + ".bak.agentdeck-uninstall"
+			backupPath := tmuxConf + ".bak.hangar-uninstall"
 			if err := os.WriteFile(backupPath, data, 0o644); err != nil {
 				fmt.Printf("Warning: failed to create backup: %v\n", err)
 			}

@@ -1,9 +1,9 @@
-# Agent Deck - Overview Demo
+# Hangar - Overview Demo
 # Shows: Create sessions, work in parallel, switch between them
 
-Output agent-deck-overview.gif
-Output agent-deck-overview.mp4
-Output agent-deck-overview.webm
+Output hangar-overview.gif
+Output hangar-overview.mp4
+Output hangar-overview.webm
 
 Set Shell "zsh"
 Set Theme "TokyoNight"
@@ -22,17 +22,17 @@ Set PlaybackSpeed 1.4
 
 # Hidden: Clean start
 Hide
-Type "rm -rf ~/.agent-deck/profiles/demo && mkdir -p ~/demo/{docs,api,bugs}"
+Type "rm -rf ~/.hangar/profiles/demo && mkdir -p ~/demo/{docs,api,bugs}"
 Enter
 Sleep 500ms
 Show
 
 # ============================================
-# DEMO START: Launch agent-deck
+# DEMO START: Launch hangar
 # ============================================
 
 Sleep 500ms
-Type "agent-deck -p demo"
+Type "hangar -p demo"
 Enter
 Sleep 3s
 

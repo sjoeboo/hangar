@@ -1,13 +1,13 @@
 #!/bin/bash
 #
-# Agent Deck Uninstaller
-# https://github.com/asheshgoplani/agent-deck
+# Hangar Uninstaller
+# https://github.com/sjoeboo/hangar
 #
 # Usage:
-#   curl -fsSL https://raw.githubusercontent.com/asheshgoplani/agent-deck/main/uninstall.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/sjoeboo/hangar/main/uninstall.sh | bash
 #
 # Options:
-#   --keep-data         Keep ~/.agent-deck/ (sessions, config, logs)
+#   --keep-data         Keep ~/.hangar/ (sessions, config, logs)
 #   --keep-tmux-config  Keep tmux configuration
 #   --non-interactive   Skip all prompts (removes everything)
 #   --dry-run           Show what would be removed without removing
@@ -49,12 +49,12 @@ while [[ $# -gt 0 ]]; do
             shift
             ;;
         -h|--help)
-            echo "Agent Deck Uninstaller"
+            echo "Hangar Uninstaller"
             echo ""
             echo "Usage: uninstall.sh [options]"
             echo ""
             echo "Options:"
-            echo "  --keep-data         Keep ~/.agent-deck/ (sessions, config, logs)"
+            echo "  --keep-data         Keep ~/.hangar/ (sessions, config, logs)"
             echo "  --keep-tmux-config  Keep tmux configuration in ~/.tmux.conf"
             echo "  --non-interactive   Skip all prompts (removes everything)"
             echo "  --dry-run           Show what would be removed without removing"
@@ -69,7 +69,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 echo -e "${BLUE}╔════════════════════════════════════════╗${NC}"
-echo -e "${BLUE}║       Agent Deck Uninstaller           ║${NC}"
+echo -e "${BLUE}║        Hangar Uninstaller              ║${NC}"
 echo -e "${BLUE}╚════════════════════════════════════════╝${NC}"
 echo ""
 
@@ -83,7 +83,7 @@ FOUND_ITEMS=()
 HOMEBREW_INSTALLED=false
 
 # Check for Homebrew installation
-if command -v brew &> /dev/null && brew list agent-deck &> /dev/null 2>&1; then
+if command -v brew &> /dev/null && brew list hangar &> /dev/null 2>&1; then
     HOMEBREW_INSTALLED=true
     FOUND_ITEMS+=("homebrew")
     echo -e "Found: ${GREEN}Homebrew installation${NC}"
@@ -91,9 +91,9 @@ fi
 
 # Check common binary locations
 BINARY_LOCATIONS=(
-    "$HOME/.local/bin/agent-deck"
-    "/usr/local/bin/agent-deck"
-    "$HOME/bin/agent-deck"
+    "$HOME/.local/bin/hangar"
+    "/usr/local/bin/hangar"
+    "$HOME/bin/hangar"
 )
 
 for loc in "${BINARY_LOCATIONS[@]}"; do
@@ -110,7 +110,7 @@ for loc in "${BINARY_LOCATIONS[@]}"; do
 done
 
 # Check for data directory
-DATA_DIR="$HOME/.agent-deck"
+DATA_DIR="$HOME/.hangar"
 if [[ -d "$DATA_DIR" ]]; then
     FOUND_ITEMS+=("data")
 
@@ -141,7 +141,7 @@ fi
 
 # Check for tmux config
 TMUX_CONF="$HOME/.tmux.conf"
-if [[ -f "$TMUX_CONF" ]] && grep -q "# agent-deck configuration" "$TMUX_CONF" 2>/dev/null; then
+if [[ -f "$TMUX_CONF" ]] && grep -q "# hangar configuration" "$TMUX_CONF" 2>/dev/null; then
     FOUND_ITEMS+=("tmux")
     echo -e "Found: ${GREEN}tmux configuration${NC} in $TMUX_CONF"
 fi
@@ -150,14 +150,14 @@ echo ""
 
 # Nothing found?
 if [[ ${#FOUND_ITEMS[@]} -eq 0 ]]; then
-    echo -e "${YELLOW}Agent Deck does not appear to be installed.${NC}"
+    echo -e "${YELLOW}Hangar does not appear to be installed.${NC}"
     echo ""
     echo "Checked locations:"
     for loc in "${BINARY_LOCATIONS[@]}"; do
         echo "  - $loc"
     done
     echo "  - $DATA_DIR"
-    echo "  - $TMUX_CONF (for agent-deck config)"
+    echo "  - $TMUX_CONF (for hangar config)"
     exit 0
 fi
 
@@ -168,7 +168,7 @@ echo ""
 for item in "${FOUND_ITEMS[@]}"; do
     case "$item" in
         homebrew)
-            echo -e "  ${RED}•${NC} Homebrew package: agent-deck"
+            echo -e "  ${RED}•${NC} Homebrew package: hangar"
             ;;
         binary:*)
             loc="${item#binary:}"
@@ -218,7 +218,7 @@ echo ""
 # 1. Homebrew
 if [[ "$HOMEBREW_INSTALLED" == "true" ]]; then
     echo -e "Removing Homebrew package..."
-    brew uninstall agent-deck
+    brew uninstall hangar
     echo -e "${GREEN}✓${NC} Homebrew package removed"
 fi
 
@@ -244,15 +244,15 @@ if [[ " ${FOUND_ITEMS[*]} " =~ " tmux " ]] && [[ "$KEEP_TMUX_CONFIG" != "true" ]
     echo -e "Removing tmux configuration..."
 
     # Create backup
-    cp "$TMUX_CONF" "$TMUX_CONF.bak.agentdeck-uninstall"
+    cp "$TMUX_CONF" "$TMUX_CONF.bak.hangar-uninstall"
 
-    # Remove the agent-deck config block (between markers)
+    # Remove the hangar config block (between markers)
     # Using sed to delete from start marker to end marker
     if [[ "$(uname)" == "Darwin" ]]; then
         # macOS sed requires different syntax
-        sed -i '' '/# agent-deck configuration/,/# End agent-deck configuration/d' "$TMUX_CONF"
+        sed -i '' '/# hangar configuration/,/# End hangar configuration/d' "$TMUX_CONF"
     else
-        sed -i '/# agent-deck configuration/,/# End agent-deck configuration/d' "$TMUX_CONF"
+        sed -i '/# hangar configuration/,/# End hangar configuration/d' "$TMUX_CONF"
     fi
 
     # Remove any trailing empty lines at end of file
@@ -262,7 +262,7 @@ if [[ " ${FOUND_ITEMS[*]} " =~ " tmux " ]] && [[ "$KEEP_TMUX_CONFIG" != "true" ]
         sed -i -e :a -e '/^\n*$/{$d;N;ba' -e '}' "$TMUX_CONF" 2>/dev/null || true
     fi
 
-    echo -e "${GREEN}✓${NC} tmux configuration removed (backup: ~/.tmux.conf.bak.agentdeck-uninstall)"
+    echo -e "${GREEN}✓${NC} tmux configuration removed (backup: ~/.tmux.conf.bak.hangar-uninstall)"
 fi
 
 # 4. Data directory
@@ -274,9 +274,9 @@ if [[ " ${FOUND_ITEMS[*]} " =~ " data " ]] && [[ "$KEEP_DATA" != "true" ]]; then
         read -p "Create backup of data before removing? [Y/n] " -n 1 -r
         echo
         if [[ ! $REPLY =~ ^[Nn]$ ]]; then
-            BACKUP_FILE="$HOME/agent-deck-backup-$(date +%Y%m%d-%H%M%S).tar.gz"
+            BACKUP_FILE="$HOME/hangar-backup-$(date +%Y%m%d-%H%M%S).tar.gz"
             echo -e "Creating backup at $BACKUP_FILE..."
-            tar -czf "$BACKUP_FILE" -C "$HOME" .agent-deck
+            tar -czf "$BACKUP_FILE" -C "$HOME" .hangar
             echo -e "${GREEN}✓${NC} Backup created: $BACKUP_FILE"
         fi
     fi
@@ -293,14 +293,14 @@ echo ""
 
 if [[ "$KEEP_DATA" == "true" ]]; then
     echo -e "${YELLOW}Note:${NC} Data directory preserved at $DATA_DIR"
-    echo "      Remove manually with: rm -rf ~/.agent-deck"
+    echo "      Remove manually with: rm -rf ~/.hangar"
 fi
 
 if [[ "$KEEP_TMUX_CONFIG" == "true" ]]; then
     echo -e "${YELLOW}Note:${NC} tmux config preserved in ~/.tmux.conf"
-    echo "      Remove the '# agent-deck configuration' block manually if desired"
+    echo "      Remove the '# hangar configuration' block manually if desired"
 fi
 
 echo ""
-echo "Thank you for using Agent Deck!"
-echo "Feedback: https://github.com/asheshgoplani/agent-deck/issues"
+echo "Thank you for using Hangar!"
+echo "Feedback: https://github.com/sjoeboo/hangar/issues"

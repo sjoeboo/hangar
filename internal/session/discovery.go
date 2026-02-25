@@ -32,7 +32,7 @@ func DiscoverExistingTmuxSessions(existingInstances []*Instance) ([]*Instance, e
 			continue
 		}
 
-		// For orphaned agent-deck sessions, extract the original title from the tmux name
+		// For orphaned hangar sessions, extract the original title from the tmux name
 		// Format: hangar_<title>_<hash> -> extract <title>
 		title := sess.DisplayName
 		groupPath := ""
@@ -60,10 +60,10 @@ func DiscoverExistingTmuxSessions(existingInstances []*Instance) ([]*Instance, e
 		// Ignore errors - non-fatal, older tmux versions may not support all options
 		_ = sess.EnableMouseMode()
 
-		// Determine tool type - for orphaned agent-deck sessions, assume claude (most common)
+		// Determine tool type - for orphaned hangar sessions, assume claude (most common)
 		tool := detectToolFromName(title)
 		if isOrphaned && tool == "shell" {
-			tool = "claude" // Most agent-deck sessions are Claude sessions
+			tool = "claude" // Most hangar sessions are Claude sessions
 		}
 
 		inst := &Instance{

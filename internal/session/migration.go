@@ -39,13 +39,13 @@ type MigrationResult struct {
 //	~/.hangar/profiles/default/sessions.json.bak.2
 //	~/.hangar/logs/ (unchanged)
 func MigrateToProfiles() (*MigrationResult, error) {
-	agentDeckDir, err := GetAgentDeckDir()
+	hangarDir, err := GetHangarDir()
 	if err != nil {
 		return nil, err
 	}
 
-	oldSessionsPath := filepath.Join(agentDeckDir, "sessions.json")
-	profilesDir := filepath.Join(agentDeckDir, ProfilesDirName)
+	oldSessionsPath := filepath.Join(hangarDir, "sessions.json")
+	profilesDir := filepath.Join(hangarDir, ProfilesDirName)
 	defaultProfileDir := filepath.Join(profilesDir, DefaultProfile)
 	newSessionsPath := filepath.Join(defaultProfileDir, "sessions.json")
 
@@ -103,7 +103,7 @@ func MigrateToProfiles() (*MigrationResult, error) {
 	}
 
 	for _, filename := range filesToMigrate {
-		oldPath := filepath.Join(agentDeckDir, filename)
+		oldPath := filepath.Join(hangarDir, filename)
 		newPath := filepath.Join(defaultProfileDir, filename)
 
 		if fileExists(oldPath) {
@@ -147,7 +147,7 @@ func MigrateToProfiles() (*MigrationResult, error) {
 
 	// Step 6: Remove old files (only after successful verification)
 	for _, filename := range filesToMigrate {
-		oldPath := filepath.Join(agentDeckDir, filename)
+		oldPath := filepath.Join(hangarDir, filename)
 		if fileExists(oldPath) {
 			if err := os.Remove(oldPath); err != nil {
 				// Non-fatal - just log it
@@ -168,13 +168,13 @@ func MigrateToProfiles() (*MigrationResult, error) {
 
 // NeedsMigration checks if migration from old layout is needed
 func NeedsMigration() (bool, error) {
-	agentDeckDir, err := GetAgentDeckDir()
+	hangarDir, err := GetHangarDir()
 	if err != nil {
 		return false, err
 	}
 
-	oldSessionsPath := filepath.Join(agentDeckDir, "sessions.json")
-	profilesDir := filepath.Join(agentDeckDir, ProfilesDirName)
+	oldSessionsPath := filepath.Join(hangarDir, "sessions.json")
+	profilesDir := filepath.Join(hangarDir, ProfilesDirName)
 
 	// Migration needed if old file exists AND profiles directory doesn't
 	oldExists := fileExists(oldSessionsPath)

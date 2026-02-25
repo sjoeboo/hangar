@@ -136,7 +136,7 @@ func ListGeminiSessions(projectPath string) ([]GeminiSessionInfo, error) {
 }
 
 // findGeminiSessionInAllProjects searches all Gemini project directories for a session file
-// This handles path hash mismatches when agent-deck runs from a different directory
+// This handles path hash mismatches when hangar runs from a different directory
 // than where the Gemini session was originally created.
 // Returns the full path to the session file, or empty string if not found.
 func findGeminiSessionInAllProjects(sessionID string) string {

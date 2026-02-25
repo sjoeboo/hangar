@@ -1,21 +1,21 @@
 ---
-name: agent-deck
-description: Terminal session manager for AI coding agents. Use when user mentions "agent-deck", "session", "sub-agent", "MCP attach", "git worktree", or needs to (1) create/start/stop/restart/fork sessions, (2) attach/detach MCPs, (3) manage groups/profiles, (4) get session output, (5) configure agent-deck, (6) troubleshoot issues, (7) launch sub-agents, or (8) create/manage worktree sessions. Covers CLI commands, TUI shortcuts, config.toml options, and automation.
+name: hangar
+description: Terminal session manager for AI coding agents. Use when user mentions "hangar", "session", "sub-agent", "MCP attach", "git worktree", or needs to (1) create/start/stop/restart/fork sessions, (2) attach/detach MCPs, (3) manage projects/profiles, (4) get session output, (5) configure hangar, (6) troubleshoot issues, (7) launch sub-agents, or (8) create/manage worktree sessions. Covers CLI commands, TUI shortcuts, config.toml options, and automation.
 compatibility: claude, opencode
 ---
 
-# Agent Deck
+# Hangar
 
 Terminal session manager for AI coding agents. Built with Go + Bubble Tea.
 
-**Version:** 0.8.98 | **Repo:** [github.com/asheshgoplani/agent-deck](https://github.com/asheshgoplani/agent-deck) | **Discord:** [discord.gg/e4xSs6NBN8](https://discord.gg/e4xSs6NBN8)
+**Version:** 0.8.98 | **Repo:** [github.com/sjoeboo/hangar](https://github.com/sjoeboo/hangar)
 
 ## Script Path Resolution (IMPORTANT)
 
 This skill includes helper scripts in its `scripts/` subdirectory. When Claude Code loads this skill, it shows a line like:
 
 ```
-Base directory for this skill: /path/to/.../skills/agent-deck
+Base directory for this skill: /path/to/.../skills/hangar
 ```
 
 **You MUST use that base directory path to resolve all script references.** Store it as `SKILL_DIR`:
@@ -30,41 +30,41 @@ $SKILL_DIR/scripts/launch-subagent.sh "Title" "Prompt" --wait
 
 **Common mistake:** Do NOT use `<project-root>/scripts/launch-subagent.sh`. The scripts live inside the skill's own directory (plugin cache or project skills folder), NOT in the user's project root.
 
-**For plugin users**, the path looks like: `~/.claude/plugins/cache/agent-deck/agent-deck/<hash>/skills/agent-deck/scripts/`
-**For local development**, the path looks like: `<repo>/skills/agent-deck/scripts/`
+**For plugin users**, the path looks like: `~/.claude/plugins/cache/hangar/hangar/<hash>/skills/hangar/scripts/`
+**For local development**, the path looks like: `<repo>/skills/hangar/scripts/`
 
 ## Quick Start
 
 ```bash
 # Launch TUI
-agent-deck
+hangar
 
 # Create and start a session
-agent-deck add -t "Project" -c claude /path/to/project
-agent-deck session start "Project"
+hangar add -t "Project" -c claude /path/to/project
+hangar session start "Project"
 
 # Send message and get output
-agent-deck session send "Project" "Analyze this codebase"
-agent-deck session output "Project"
+hangar session send "Project" "Analyze this codebase"
+hangar session output "Project"
 ```
 
 ## Essential Commands
 
 | Command | Purpose |
 |---------|---------|
-| `agent-deck` | Launch interactive TUI |
-| `agent-deck add -t "Name" -c claude /path` | Create session |
-| `agent-deck session start/stop/restart <name>` | Control session |
-| `agent-deck session send <name> "message"` | Send message |
-| `agent-deck session output <name>` | Get last response |
-| `agent-deck session current [-q\|--json]` | Auto-detect current session |
-| `agent-deck session fork <name>` | Fork Claude conversation |
-| `agent-deck mcp list` | List available MCPs |
-| `agent-deck mcp attach <name> <mcp>` | Attach MCP (then restart) |
-| `agent-deck status` | Quick status summary |
-| `agent-deck add --worktree <branch>` | Create session in git worktree |
-| `agent-deck worktree list` | List worktrees with sessions |
-| `agent-deck worktree cleanup` | Find orphaned worktrees/sessions |
+| `hangar` | Launch interactive TUI |
+| `hangar add -t "Name" -c claude /path` | Create session |
+| `hangar session start/stop/restart <name>` | Control session |
+| `hangar session send <name> "message"` | Send message |
+| `hangar session output <name>` | Get last response |
+| `hangar session current [-q\|--json]` | Auto-detect current session |
+| `hangar session fork <name>` | Fork Claude conversation |
+| `hangar mcp list` | List available MCPs |
+| `hangar mcp attach <name> <mcp>` | Attach MCP (then restart) |
+| `hangar status` | Quick status summary |
+| `hangar add --worktree <branch>` | Create session in git worktree |
+| `hangar worktree list` | List worktrees with sessions |
+| `hangar worktree cleanup` | Find orphaned worktrees/sessions |
 
 **Status:** `●` running | `◐` waiting | `○` idle | `✕` error
 
@@ -83,7 +83,7 @@ The script auto-detects current session/profile and creates a child session.
 | Mode | Command | Use When |
 |------|---------|----------|
 | **Fire & forget** | (no --wait) | Default. Tell user: "Ask me to check when ready" |
-| **On-demand** | `agent-deck session output "Title"` | User asks to check |
+| **On-demand** | `hangar session output "Title"` | User asks to check |
 | **Blocking** | `--wait` flag | Need immediate result |
 
 ### Recommended MCPs
@@ -94,75 +94,14 @@ The script auto-detects current session/profile and creates a child session.
 | Code documentation | `context7` |
 | Complex reasoning | `sequential-thinking` |
 
-## Consult Another Agent (Codex, Gemini)
-
-**Use when:** User says "consult with codex", "ask gemini", "get codex's opinion", "what does codex think", "consult another agent", "brainstorm with codex/gemini", "get a second opinion"
-
-**IMPORTANT:** You MUST use the `--tool` flag to specify which agent. Without it, the script defaults to Claude.
-
-### Quick Reference
-
-```bash
-# Consult Codex (MUST include --tool codex)
-$SKILL_DIR/scripts/launch-subagent.sh "Consult Codex" "Your question here" --tool codex --wait --timeout 120
-
-# Consult Gemini (MUST include --tool gemini)
-$SKILL_DIR/scripts/launch-subagent.sh "Consult Gemini" "Your question here" --tool gemini --wait --timeout 120
-```
-
-**DO NOT** try to create Codex/Gemini sessions manually with `agent-deck add`. Always use the script above. It handles tool-specific initialization, readiness detection, and output retrieval automatically.
-
-### Full Options
+## Sub-Agent Options
 
 ```bash
 $SKILL_DIR/scripts/launch-subagent.sh "Title" "Prompt" \
-  --tool codex|gemini \     # REQUIRED for non-Claude agents
   --path /project/dir \     # Working directory (auto-inherits parent path if omitted)
   --wait \                  # Block until response is ready
   --timeout 180 \           # Seconds to wait (default: 300)
   --mcp exa                 # Attach MCP servers (can repeat)
-```
-
-### Supported Tools
-
-| Tool | Flag | Notes |
-|------|------|-------|
-| Claude | `--tool claude` | Default, no flag needed |
-| Codex | `--tool codex` | Requires `codex` CLI installed |
-| Gemini | `--tool gemini` | Requires `gemini` CLI installed |
-
-### How It Works
-
-1. Script auto-detects current session and profile
-2. Creates a child session with the specified tool in the parent's project directory
-3. Waits for the tool to initialize (handles Codex approval prompts automatically)
-4. Sends the question/prompt
-5. With `--wait`: polls until the agent responds, then returns the full output
-6. Without `--wait`: returns immediately, check output later with `agent-deck session output "Title"`
-
-### Examples
-
-```bash
-# Code review from Codex
-$SKILL_DIR/scripts/launch-subagent.sh "Codex Review" "Read cmd/main.go and suggest improvements" --tool codex --wait --timeout 180
-
-# Architecture feedback from Gemini
-$SKILL_DIR/scripts/launch-subagent.sh "Gemini Arch" "Review the project structure and suggest better patterns" --tool gemini --wait --timeout 180
-
-# Both in parallel (consult both, compare answers)
-$SKILL_DIR/scripts/launch-subagent.sh "Ask Codex" "Best way to handle errors in Go?" --tool codex --wait --timeout 120 &
-$SKILL_DIR/scripts/launch-subagent.sh "Ask Gemini" "Best way to handle errors in Go?" --tool gemini --wait --timeout 120 &
-wait
-```
-
-### Cleanup
-
-After getting the response, remove the consultation session:
-
-```bash
-agent-deck remove "Consult Codex"
-# Or remove multiple at once:
-agent-deck remove "Codex Review" && agent-deck remove "Gemini Arch"
 ```
 
 ## TUI Keyboard Shortcuts
@@ -171,25 +110,22 @@ agent-deck remove "Codex Review" && agent-deck remove "Gemini Arch"
 | Key | Action |
 |-----|--------|
 | `j/k` or `↑/↓` | Move up/down |
-| `h/l` or `←/→` | Collapse/expand groups |
 | `Enter` | Attach to session |
 
 ### Session Actions
 | Key | Action |
 |-----|--------|
 | `n` | New session |
-| `r/R` | Restart (reloads MCPs) |
-| `m` | MCP Manager |
-| `s` | Skills Manager (Claude) |
+| `r` | Rename project or session |
 | `f/F` | Fork Claude session |
 | `d` | Delete |
-| `M` | Move to group |
+| `M` | Move to project |
+| `G` | Open lazygit for selected session |
 
 ### Search & Filter
 | Key | Action |
 |-----|--------|
 | `/` | Local search |
-| `G` | Global search (all Claude conversations) |
 | `!@#$` | Filter by status (running/waiting/idle/error) |
 
 ### Global
@@ -205,14 +141,14 @@ agent-deck remove "Codex Review" && agent-deck remove "Gemini Arch"
 
 ```bash
 # List available
-agent-deck mcp list
+hangar mcp list
 
 # Attach and restart
-agent-deck mcp attach <session> <mcp-name>
-agent-deck session restart <session>
+hangar mcp attach <session> <mcp-name>
+hangar session restart <session>
 
 # Or attach on create
-agent-deck add -t "Task" -c claude --mcp exa /path
+hangar add -t "Task" -c claude --mcp exa /path
 ```
 
 **Scopes:**
@@ -227,26 +163,26 @@ When working on a feature that needs isolation from main branch:
 
 ```bash
 # Create session with new worktree and branch
-agent-deck add /path/to/repo -t "Feature Work" -c claude --worktree feature/my-feature --new-branch
+hangar add /path/to/repo -t "Feature Work" -c claude --worktree feature/my-feature --new-branch
 
 # Create session in existing branch's worktree
-agent-deck add . --worktree develop -c claude
+hangar add . --worktree develop -c claude
 ```
 
 ### List and Manage Worktrees
 
 ```bash
 # List all worktrees and their associated sessions
-agent-deck worktree list
+hangar worktree list
 
 # Show detailed info for a session's worktree
-agent-deck worktree info "My Session"
+hangar worktree info "My Session"
 
 # Find orphaned worktrees/sessions (dry-run)
-agent-deck worktree cleanup
+hangar worktree cleanup
 
 # Actually clean up orphans
-agent-deck worktree cleanup --force
+hangar worktree cleanup --force
 ```
 
 ### When to Use Worktrees
@@ -260,7 +196,7 @@ agent-deck worktree cleanup --force
 
 ## Configuration
 
-**File:** `~/.agent-deck/config.toml`
+**File:** `~/.hangar/config.toml`
 
 ```toml
 [claude]
@@ -284,13 +220,12 @@ See [config-reference.md](references/config-reference.md) for all options.
 
 | Issue | Solution |
 |-------|----------|
-| Session shows error | `agent-deck session start <name>` |
-| MCPs not loading | `agent-deck session restart <name>` |
+| Session shows error | `hangar session start <name>` |
+| MCPs not loading | `hangar session restart <name>` |
 | Flag not working | Put flags BEFORE arguments: `-m "msg" name` not `name -m "msg"` |
 
 ### Get Help
 
-- **Discord:** [discord.gg/e4xSs6NBN8](https://discord.gg/e4xSs6NBN8) for quick questions and community support
 - **GitHub Issues:** For bug reports and feature requests
 
 ### Report a Bug
@@ -299,19 +234,19 @@ If something isn't working, create a GitHub issue with context:
 
 ```bash
 # Gather debug info
-agent-deck version
-agent-deck status --json
-cat ~/.agent-deck/config.toml | grep -v "KEY\|TOKEN\|SECRET"  # Sanitized config
+hangar version
+hangar status --json
+cat ~/.hangar/config.toml | grep -v "KEY\|TOKEN\|SECRET"  # Sanitized config
 
 # Create issue at:
-# https://github.com/asheshgoplani/agent-deck/issues/new
+# https://github.com/sjoeboo/hangar/issues/new
 ```
 
 **Include:**
 1. What you tried (command/action)
 2. What happened vs expected
 3. Output of commands above
-4. Relevant log: `tail -100 ~/.agent-deck/logs/agentdeck_<session>_*.log`
+4. Relevant log: `tail -100 ~/.hangar/logs/hangar_<session>_*.log`
 
 See [troubleshooting.md](references/troubleshooting.md) for detailed diagnostics.
 

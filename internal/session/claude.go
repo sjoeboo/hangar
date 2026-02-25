@@ -255,7 +255,7 @@ func GetClaudeConfigDir() string {
 // CLAUDE_CONFIG_DIR in commands, allowing the shell's environment to be respected.
 //
 // This is critical for WSL and other environments where users may have
-// CLAUDE_CONFIG_DIR set in their .bashrc/.zshrc - agent-deck should not
+// CLAUDE_CONFIG_DIR set in their .bashrc/.zshrc - hangar should not
 // override that with a hardcoded default path.
 func IsClaudeConfigDirExplicit() bool {
 	// Check env var
@@ -332,7 +332,7 @@ func findActiveSessionID(configDir, projectPath string) string {
 
 // findActiveSessionIDExcluding looks for the most recently modified session file,
 // skipping any session IDs in the exclude set. This prevents picking up a .jsonl
-// owned by another agent-deck instance when multiple sessions share the same project.
+// owned by another hangar instance when multiple sessions share the same project.
 func findActiveSessionIDExcluding(configDir, projectPath string, excludeIDs map[string]bool) string {
 	// Convert project path to Claude's directory format
 	// Claude replaces ALL non-alphanumeric chars (spaces, !, etc.) with hyphens
@@ -372,7 +372,7 @@ func findActiveSessionIDExcluding(configDir, projectPath string, excludeIDs map[
 
 		sessionID := strings.TrimSuffix(base, ".jsonl")
 
-		// Skip IDs owned by other agent-deck instances
+		// Skip IDs owned by other hangar instances
 		if excludeIDs[sessionID] {
 			continue
 		}

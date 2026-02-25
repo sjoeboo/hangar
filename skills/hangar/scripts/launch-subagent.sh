@@ -67,13 +67,13 @@ if [ -z "$TITLE" ] || [ -z "$PROMPT" ]; then
 fi
 
 # Detect current session (filter out log lines starting with year)
-CURRENT_JSON=$(agent-deck session current --json 2>/dev/null | grep -v '^20')
+CURRENT_JSON=$(hangar session current --json 2>/dev/null | grep -v '^20')
 PARENT=$(echo "$CURRENT_JSON" | jq -r '.session')
 PROFILE=$(echo "$CURRENT_JSON" | jq -r '.profile')
 PARENT_PATH=$(echo "$CURRENT_JSON" | jq -r '.path')
 
 if [ -z "$PARENT" ] || [ "$PARENT" = "null" ]; then
-    echo "Error: Not in an agent-deck session" >&2
+    echo "Error: Not in an hangar session" >&2
     exit 1
 fi
 
@@ -89,14 +89,14 @@ fi
 mkdir -p "$WORK_DIR"
 
 # Launch session and send initial prompt in one command
-LAUNCH_CMD=(agent-deck -p "$PROFILE" launch "$WORK_DIR" -t "$TITLE" --parent "$PARENT" -c "$TOOL" -m "$PROMPT")
+LAUNCH_CMD=(hangar -p "$PROFILE" launch "$WORK_DIR" -t "$TITLE" --parent "$PARENT" -c "$TOOL" -m "$PROMPT")
 for mcp in "${MCPS[@]}"; do
     LAUNCH_CMD+=(--mcp "$mcp")
 done
 "${LAUNCH_CMD[@]}"
 
 # Get tmux session name (used for optional --wait fallback capture)
-TMUX_SESSION=$(agent-deck -p "$PROFILE" session show "$TITLE" 2>/dev/null | grep '^Tmux:' | awk '{print $2}')
+TMUX_SESSION=$(hangar -p "$PROFILE" session show "$TITLE" 2>/dev/null | grep '^Tmux:' | awk '{print $2}')
 
 echo ""
 echo "Sub-agent launched:"
@@ -109,7 +109,7 @@ if [ ${#MCPS[@]} -gt 0 ]; then
     echo "  MCPs:    ${MCPS[*]}"
 fi
 echo ""
-echo "Check output with: agent-deck session output \"$TITLE\""
+echo "Check output with: hangar session output \"$TITLE\""
 
 # If --wait, poll until complete
 if [ "$WAIT" = "true" ]; then
@@ -118,14 +118,14 @@ if [ "$WAIT" = "true" ]; then
 
     START_TIME=$(date +%s)
     while true; do
-        STATUS=$(agent-deck -p "$PROFILE" session show "$TITLE" 2>/dev/null | grep '^Status:' | awk '{print $2}')
+        STATUS=$(hangar -p "$PROFILE" session show "$TITLE" 2>/dev/null | grep '^Status:' | awk '{print $2}')
 
         if [ "$STATUS" = "◐" ] || [ "$STATUS" = "waiting" ]; then
             echo "Complete!"
             echo ""
             echo "=== Response ==="
             # Try native output first, fall back to full scrollback capture
-            if ! agent-deck -p "$PROFILE" session output "$TITLE" 2>/dev/null; then
+            if ! hangar -p "$PROFILE" session output "$TITLE" 2>/dev/null; then
                 tmux capture-pane -t "$TMUX_SESSION" -p -S - 2>/dev/null
             fi
             exit 0
@@ -134,7 +134,7 @@ if [ "$WAIT" = "true" ]; then
         ELAPSED=$(($(date +%s) - START_TIME))
         if [ $ELAPSED -ge $TIMEOUT ]; then
             echo "Timeout after ${TIMEOUT}s (session still running)" >&2
-            echo "Check later with: agent-deck session output \"$TITLE\""
+            echo "Check later with: hangar session output \"$TITLE\""
             exit 1
         fi
 

@@ -21,7 +21,7 @@ scripts/export.sh
 
 # Other developer imports
 scripts/import.sh ~/Downloads/session-2024-01-20-my-feature.json
-# Session appears in agent-deck, ready to continue
+# Session appears in hangar, ready to continue
 ```
 
 ## Commands
@@ -67,7 +67,7 @@ scripts/export.sh --session abc123 --include-thinking
 
 ### Import Session
 
-Import a shared session file and create an agent-deck session:
+Import a shared session file and create an hangar session:
 
 ```bash
 scripts/import.sh <file-path> [options]
@@ -96,7 +96,7 @@ scripts/import.sh session.json --no-start
 
 ### Developer A (Exporter)
 
-1. Working in agent-deck session on a feature
+1. Working in hangar session on a feature
 2. Needs to hand off to Developer B
 3. Runs: `scripts/export.sh`
 4. Gets file: `~/session-shares/session-2024-01-20-feature.json`
@@ -106,7 +106,7 @@ scripts/import.sh session.json --no-start
 
 1. Receives the session file
 2. Runs: `scripts/import.sh ~/Downloads/session-2024-01-20-feature.json`
-3. Session appears in agent-deck as "Imported: feature"
+3. Session appears in hangar as "Imported: feature"
 4. Starts session - Claude has full context from Developer A's work
 5. Continues where Developer A left off
 
@@ -158,7 +158,7 @@ scripts/import.sh session.json --no-start
 
 | Issue | Solution |
 |-------|----------|
-| "Could not detect current Claude session" | Make sure you're in an agent-deck session with active Claude |
+| "Could not detect current Claude session" | Make sure you're in an hangar session with active Claude |
 | "Session file not found" | Session may not have been saved yet; send a message first |
 | Import shows wrong project | Use `--project /correct/path` to specify destination |
 | Large file size | Use default settings (strips thinking blocks) |
@@ -176,11 +176,11 @@ Path encoding: `/Users/alice/project` becomes `-Users-alice-project`
 1. Reads export JSON file
 2. Creates directory: `~/.claude/projects/<encoded-current-project>/`
 3. Writes messages as JSONL: `<session-id>.jsonl`
-4. Creates agent-deck session pointing to this path
+4. Creates hangar session pointing to this path
 5. Sets `claude-session-id` so restart uses `--resume`
 
 ### Dependencies
 
 - `jq` - JSON processing (install: `brew install jq`)
-- `agent-deck` - Session management
+- `hangar` - Session management
 - `claude` - Claude Code CLI

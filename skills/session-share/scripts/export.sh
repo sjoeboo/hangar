@@ -53,14 +53,14 @@ done
 # Detect current session if not specified
 if [ -z "$SESSION_ID" ]; then
     echo "Detecting current session..."
-    CURRENT_JSON=$(agent-deck session current --json 2>/dev/null | grep -v '^20' || echo "{}")
+    CURRENT_JSON=$(hangar session current --json 2>/dev/null | grep -v '^20' || echo "{}")
     SESSION_ID=$(echo "$CURRENT_JSON" | jq -r '.claudeSessionId // empty')
     PROJECT_PATH=$(echo "$CURRENT_JSON" | jq -r '.projectPath // empty')
     SESSION_TITLE=$(echo "$CURRENT_JSON" | jq -r '.session // "exported"')
 
     if [ -z "$SESSION_ID" ] || [ "$SESSION_ID" = "null" ]; then
         echo "Error: Could not detect current Claude session." >&2
-        echo "Make sure you're in an agent-deck session with an active Claude conversation." >&2
+        echo "Make sure you're in an hangar session with an active Claude conversation." >&2
         exit 1
     fi
 else

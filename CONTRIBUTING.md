@@ -1,18 +1,18 @@
-# Contributing to Agent Deck
+# Contributing to Hangar
 
-Thank you for your interest in contributing to Agent Deck! This document provides guidelines and information for contributors.
+Thank you for your interest in contributing to Hangar! This document provides guidelines and information for contributors.
 
 ## Getting Started
 
 1. **Fork the repository** on GitHub
 2. **Clone your fork** locally:
    ```bash
-   git clone https://github.com/YOUR_USERNAME/agent-deck.git
-   cd agent-deck
+   git clone https://github.com/YOUR_USERNAME/hangar.git
+   cd hangar
    ```
 3. **Add upstream remote**:
    ```bash
-   git remote add upstream https://github.com/asheshgoplani/agent-deck.git
+   git remote add upstream https://github.com/sjoeboo/hangar.git
    ```
 
 ## Development Setup
@@ -26,7 +26,7 @@ Thank you for your interest in contributing to Agent Deck! This document provide
 ### Building
 
 ```bash
-make build      # Build binary to ./build/agent-deck
+make build      # Build binary to ./build/hangar
 make test       # Run tests
 make lint       # Run linter (requires golangci-lint)
 make fmt        # Format code
@@ -56,9 +56,9 @@ Use clear, descriptive commit messages:
 
 ```
 feat: add support for custom commands
-fix: resolve status detection for OpenCode
+fix: resolve status detection for Claude
 docs: update installation instructions
-refactor: simplify group management logic
+refactor: simplify project management logic
 ```
 
 ### Code Style
@@ -102,7 +102,7 @@ refactor: simplify group management logic
 ### Bug Reports
 
 Include:
-- Agent Deck version (`agent-deck version`)
+- Hangar version (`hangar version`)
 - Operating system and version
 - tmux version (`tmux -V`)
 - Steps to reproduce
@@ -118,11 +118,11 @@ Include:
 ## Project Structure
 
 ```
-agent-deck/
-├── cmd/agent-deck/     # CLI entry point
+hangar/
+├── cmd/hangar/         # CLI entry point
 ├── internal/
 │   ├── ui/             # TUI components (Bubble Tea)
-│   ├── session/        # Session & group management
+│   ├── session/        # Session & project management
 │   └── tmux/           # tmux integration, status detection
 ├── .github/workflows/  # CI/CD
 ├── Makefile           # Build automation
@@ -139,13 +139,12 @@ agent-deck/
 
 Enable debug logging:
 ```bash
-AGENTDECK_DEBUG=1 agent-deck
+HANGAR_DEBUG=1 hangar
 ```
 
 ## Questions?
 
-- **Chat:** Join the [Agent Deck Discord](https://discord.gg/e4xSs6NBN8) for questions, workflow discussions, and community support
-- **Issues:** [Open an issue](https://github.com/asheshgoplani/agent-deck/issues) for bugs or feature requests
+- **Issues:** [Open an issue](https://github.com/sjoeboo/hangar/issues) for bugs or feature requests
 
 ## License
 

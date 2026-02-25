@@ -61,7 +61,7 @@ release:
   mode: append
   name_template: "v{{.Version}}"
   header: |
-    ## Agent Deck v{{.Version}}
+    ## Hangar v{{.Version}}
 
     Terminal session manager for AI coding agents.
 

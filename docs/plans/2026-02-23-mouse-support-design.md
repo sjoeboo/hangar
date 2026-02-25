@@ -5,7 +5,7 @@
 
 ## Overview
 
-Add mouse support to the agent-deck TUI, enabling:
+Add mouse support to the hangar TUI, enabling:
 1. Click to navigate and attach sessions in the session list
 2. Expand/collapse groups by clicking
 3. Tmux mouse mode (window switching via status bar) enabled on attach via config toggle

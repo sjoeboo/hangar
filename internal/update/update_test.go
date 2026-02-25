@@ -173,19 +173,19 @@ func TestHomebrewUpgradeHint(t *testing.T) {
 	}{
 		{
 			name:     "mac arm64 cellar",
-			path:     "/opt/homebrew/Cellar/agent-deck/0.19.14/bin/hangar",
+			path:     "/opt/homebrew/Cellar/hangar/0.19.14/bin/hangar",
 			wantOK:   true,
 			wantHint: "brew upgrade sjoeboo/tap/hangar",
 		},
 		{
 			name:     "mac intel cellar",
-			path:     "/usr/local/Cellar/agent-deck/0.19.14/bin/hangar",
+			path:     "/usr/local/Cellar/hangar/0.19.14/bin/hangar",
 			wantOK:   true,
 			wantHint: "brew upgrade sjoeboo/tap/hangar",
 		},
 		{
 			name:     "linuxbrew cellar",
-			path:     "/home/linuxbrew/.linuxbrew/Cellar/agent-deck/0.19.14/bin/hangar",
+			path:     "/home/linuxbrew/.linuxbrew/Cellar/hangar/0.19.14/bin/hangar",
 			wantOK:   true,
 			wantHint: "brew upgrade sjoeboo/tap/hangar",
 		},

@@ -1,21 +1,21 @@
 {
-  "name": "agent-deck",
+  "name": "hangar",
   "owner": {
-    "name": "Ashesh Goplani",
-    "email": "ashesh.goplani96@gmail.com"
+    "name": "sjoeboo",
+    "email": ""
   },
   "metadata": {
-    "description": "Skills for managing AI coding agent sessions with agent-deck CLI",
+    "description": "Skills for managing AI coding agent sessions with hangar CLI",
     "version": "1.0.0"
   },
   "plugins": [
     {
-      "name": "agent-deck",
-      "description": "Complete guide for managing AI coding agent sessions via agent-deck CLI - session lifecycle, MCP management, groups, profiles, and automation",
+      "name": "hangar",
+      "description": "Complete guide for managing AI coding agent sessions via hangar CLI - session lifecycle, MCP management, projects, profiles, and automation",
       "source": "./",
       "strict": false,
       "skills": [
-        "./skills/agent-deck"
+        "./skills/hangar"
       ]
     }
   ]

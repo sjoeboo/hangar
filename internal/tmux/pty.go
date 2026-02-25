@@ -162,7 +162,7 @@ func (s *Session) Attach(ctx context.Context) error {
 
 	// Ensures we don't return to Bubble Tea while PTY output is still being written.
 	// This avoids terminal style leakage (for example underline/hyperlink state)
-	// from the attached client into the Agent Deck UI.
+	// from the attached client into the Hangar UI.
 	cleanupAttach := func() {
 		cancel()
 		_ = ptmx.Close()

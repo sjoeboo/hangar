@@ -440,7 +440,7 @@ type Session struct {
 	WorkDir     string
 	Command     string
 	Created     time.Time
-	InstanceID  string // Agent-deck instance ID for hook callbacks
+	InstanceID  string // Hangar instance ID for hook callbacks
 	startupAt   time.Time
 
 	// mu protects all mutable fields below from concurrent access
@@ -965,7 +965,7 @@ func (s *Session) Start(command string) error {
 
 	// Note: We tried using tmux hooks for instant GREEN status detection:
 	// - alert-activity: Only fires for background windows (not current window)
-	// - after-send-keys: Fires for ALL send-keys calls (too noisy, catches agent-deck operations)
+	// - after-send-keys: Fires for ALL send-keys calls (too noisy, catches hangar operations)
 	// Neither works reliably for detecting user input. We use polling for GREEN instead.
 	// The Stop hook (via Claude settings) handles instant YELLOW detection.
 
@@ -1042,8 +1042,8 @@ func (s *Session) ConfigureStatusBar() {
 		fmt.Sprintf("#[bg=%s,fg=%s,bold] %s #[nobold]", oasisSurface, oasisPrimary, s.DisplayName) +
 		// Transition: surface→mantle then folder pill bg starts
 		fmt.Sprintf("#[bg=%s,fg=%s]\uE0B0#[bg=%s,fg=%s] #{b:pane_current_path} ", oasisMantle, oasisSurface, oasisMantle, oasisFg) +
-		// Transition: mantle→primary (clock pill)
-		fmt.Sprintf("#[fg=%s]\uE0B0#[bg=%s,fg=%s,bold] %%H:%%M #[nobold]", oasisPrimary, oasisPrimary, oasisCore)
+		// Transition: mantle→surface (clock pill - matches session name pill)
+		fmt.Sprintf("#[fg=%s]\uE0B0#[bg=%s,fg=%s,bold] %%H:%%M #[nobold]", oasisSurface, oasisSurface, oasisPrimary)
 
 	// Inactive window tab: rounded pill using powerline caps (U+E0B6 left, U+E0B4 right).
 	// Cap fg = pill bg so the rounded cap blends into the mantle status-bar bg.
@@ -3065,7 +3065,7 @@ func (s *Session) GetWorkDir() string {
 	return strings.TrimSpace(string(output))
 }
 
-// ListAllSessions returns all Agent Deck tmux sessions
+// ListAllSessions returns all hangar tmux sessions
 func ListAllSessions() ([]*Session, error) {
 	cmd := exec.Command("tmux", "list-sessions", "-F", "#{session_name}")
 	output, err := cmd.Output()
@@ -3269,11 +3269,11 @@ func RunLogMaintenance(maxSizeMB int, maxLines int, removeOrphans bool) {
 // Notification Bar Helper Functions
 // ═══════════════════════════════════════════════════════════════════════════
 
-// ListAgentDeckSessions returns the names of all agentdeck tmux sessions.
+// ListHangarSessions returns the names of all hangar tmux sessions.
 // This is used to update notification bars across ALL sessions, not just
 // those in the current profile. This ensures consistent notification bars
 // when users switch between sessions.
-func ListAgentDeckSessions() ([]string, error) {
+func ListHangarSessions() ([]string, error) {
 	cmd := exec.Command("tmux", "list-sessions", "-F", "#{session_name}")
 	output, err := cmd.Output()
 	if err != nil {
@@ -3316,7 +3316,7 @@ func ClearStatusLeft(sessionName string) error {
 
 // SetStatusLeftGlobal sets the left side of tmux status bar globally.
 // This is a MAJOR performance optimization: ONE tmux call instead of 100+.
-// All agentdeck sessions inherit this global setting.
+// All hangar sessions inherit this global setting.
 func SetStatusLeftGlobal(text string) error {
 	escaped := strings.ReplaceAll(text, "'", "'\\''")
 	cmd := exec.Command("tmux", "set-option", "-g", "status-left", escaped)
@@ -3329,7 +3329,7 @@ func ClearStatusLeftGlobal() error {
 	return cmd.Run()
 }
 
-// InitializeStatusBarOptions sets optimal status bar options for agent-deck.
+// InitializeStatusBarOptions sets optimal status bar options for hangar.
 // Fixes truncation by setting adequate status-left-length globally.
 // Should be called once during startup.
 func InitializeStatusBarOptions() error {
@@ -3399,7 +3399,7 @@ func BindSwitchKey(key, targetSession string) error {
 }
 
 // BindSwitchKeyWithAck binds a number key to switch to target session AND
-// writes a signal file so agent-deck can acknowledge the session was selected.
+// writes a signal file so hangar can acknowledge the session was selected.
 // This enables proper acknowledgment when user presses Ctrl+b 1-6 shortcuts.
 func BindSwitchKeyWithAck(key, targetSession, sessionID string) error {
 	// Get signal file path
@@ -3410,7 +3410,7 @@ func BindSwitchKeyWithAck(key, targetSession, sessionID string) error {
 	}
 
 	// Create a compound command that:
-	// 1. Writes the session ID to a signal file (for agent-deck to acknowledge)
+	// 1. Writes the session ID to a signal file (for hangar to acknowledge)
 	// 2. Switches to the target session
 	script := fmt.Sprintf("echo '%s' > '%s' && tmux switch-client -t '%s'",
 		sessionID, signalFile, targetSession)
@@ -3449,7 +3449,7 @@ func ReadAndClearAckSignal() string {
 // UnbindKey removes a key binding and restores default behavior.
 // After unbinding, attempts to restore the default behavior where number keys
 // select windows. The restore is best-effort since it may fail in environments
-// without windows (e.g., CI) and agent-deck rebinds keys every 2s anyway.
+// without windows (e.g., CI) and hangar rebinds keys every 2s anyway.
 func UnbindKey(key string) error {
 	// First unbind our custom binding
 	_ = exec.Command("tmux", "unbind-key", key).Run()
@@ -3473,7 +3473,7 @@ func GetActiveSession() (string, error) {
 
 // ═══════════════════════════════════════════════════════════════════════════
 
-// DiscoverAllTmuxSessions returns all tmux sessions (including non-Agent Deck ones)
+// DiscoverAllTmuxSessions returns all tmux sessions (including non-hangar ones)
 func DiscoverAllTmuxSessions() ([]*Session, error) {
 	cmd := exec.Command("tmux", "list-sessions", "-F", "#{session_name}:#{pane_current_path}")
 	output, err := cmd.Output()
@@ -3508,7 +3508,7 @@ func DiscoverAllTmuxSessions() ([]*Session, error) {
 			WorkDir:     workDir,
 		}
 
-		// If it's an agent-deck session, clean up the display name
+		// If it's a hangar session, clean up the display name
 		if strings.HasPrefix(sessionName, SessionPrefix) {
 			sess.DisplayName = strings.TrimPrefix(sessionName, SessionPrefix)
 		}

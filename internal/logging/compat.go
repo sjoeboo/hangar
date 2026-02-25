@@ -8,7 +8,7 @@ import (
 
 // BridgeWriter wraps slog as an io.Writer so that legacy log.Printf calls
 // flow through the structured logging system. It parses the common
-// "[CATEGORY] message" prefix pattern used throughout agent-deck and extracts
+// "[CATEGORY] message" prefix pattern used throughout hangar and extracts
 // the category into a structured "component" field.
 type BridgeWriter struct {
 	logger    *slog.Logger

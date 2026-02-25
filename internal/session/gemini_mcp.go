@@ -59,7 +59,7 @@ func WriteGeminiMCPSettings(enabledNames []string) error {
 		rawConfig = make(map[string]interface{})
 	}
 
-	// Get available MCPs from agent-deck config.toml
+	// Get available MCPs from hangar config.toml
 	availableMCPs := GetAvailableMCPs()
 
 	mcpServers := make(map[string]MCPServerConfig)

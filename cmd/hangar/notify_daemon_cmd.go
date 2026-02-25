@@ -17,7 +17,7 @@ func handleNotifyDaemon(args []string) {
 	once := fs.Bool("once", false, "Run one sync pass and exit")
 
 	fs.Usage = func() {
-		fmt.Println("Usage: agent-deck notify-daemon [--once]")
+		fmt.Println("Usage: hangar notify-daemon [--once]")
 		fmt.Println()
 		fmt.Println("Run status-driven transition notification daemon.")
 	}

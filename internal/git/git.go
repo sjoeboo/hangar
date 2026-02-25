@@ -1,4 +1,4 @@
-// Package git provides git worktree operations for agent-deck
+// Package git provides git worktree operations for hangar
 package git
 
 import (

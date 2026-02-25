@@ -273,8 +273,8 @@ func ResolveSession(identifier string, instances []*session.Instance) (*session.
 	return nil, fmt.Sprintf("session '%s' not found", identifier), ErrCodeNotFound
 }
 
-// GetCurrentSessionID detects the current agent-deck session from tmux environment
-// Returns session ID or empty string if not in an agent-deck session
+// GetCurrentSessionID detects the current hangar session from tmux environment
+// Returns session ID or empty string if not in an hangar session
 func GetCurrentSessionID() string {
 	// Check if we're in tmux
 	if os.Getenv("TMUX") == "" {
@@ -290,7 +290,7 @@ func GetCurrentSessionID() string {
 
 	sessionName := strings.TrimSpace(string(output))
 
-	// Parse agent-deck session name: hangar_<title>_<id>
+	// Parse hangar session name: hangar_<title>_<id>
 	if !strings.HasPrefix(sessionName, "hangar_") {
 		return ""
 	}
@@ -311,7 +311,7 @@ func ResolveSessionOrCurrent(identifier string, instances []*session.Instance) (
 		// Try to detect current session
 		currentID := GetCurrentSessionID()
 		if currentID == "" {
-			return nil, "no session specified and not inside an agent-deck session", ErrCodeNotFound
+			return nil, "no session specified and not inside an hangar session", ErrCodeNotFound
 		}
 		identifier = currentID
 	}

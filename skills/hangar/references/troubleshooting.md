@@ -1,13 +1,13 @@
 # Troubleshooting Guide
 
-Common issues and solutions for agent-deck.
+Common issues and solutions for hangar.
 
 ## Quick Fixes
 
 | Issue | Solution |
 |-------|----------|
-| Session shows `✕` error | `agent-deck session start <name>` |
-| MCPs not loading | `agent-deck session restart <name>` |
+| Session shows `✕` error | `hangar session start <name>` |
+| MCPs not loading | `hangar session restart <name>` |
 | CLI changes not in TUI | Press `Ctrl+R` to refresh |
 | Flag not working | Put flags BEFORE arguments |
 | Fork fails | Check session has valid Claude session ID |
@@ -21,24 +21,24 @@ Common issues and solutions for agent-deck.
 
 ```bash
 # WRONG - message not sent
-agent-deck session start my-project -m "Hello"
+hangar session start my-project -m "Hello"
 
 # CORRECT
-agent-deck session start -m "Hello" my-project
+hangar session start -m "Hello" my-project
 ```
 
 ### MCP Not Available
 
-1. Check if attached: `agent-deck mcp attached <session>`
-2. Restart session: `agent-deck session restart <session>`
-3. Verify in config: `agent-deck mcp list`
+1. Check if attached: `hangar mcp attached <session>`
+2. Restart session: `hangar session restart <session>`
+3. Verify in config: `hangar mcp list`
 
 ### Session ID Not Detected
 
 Claude session ID needed for fork/resume. Check:
 
 ```bash
-agent-deck session show <name> --json | jq '.claude_session_id'
+hangar session show <name> --json | jq '.claude_session_id'
 ```
 
 If null, restart session and interact with Claude.
@@ -47,14 +47,14 @@ If null, restart session and interact with Claude.
 
 **With many sessions:** Normal if batched updates. Check:
 ```bash
-agent-deck status  # Should show ~0.5% CPU when idle
+hangar status  # Should show ~0.5% CPU when idle
 ```
 
 **With active session:** Normal (live preview updates).
 
 ### Log Files Too Large
 
-Add to `~/.agent-deck/config.toml`:
+Add to `~/.hangar/config.toml`:
 ```toml
 [logs]
 max_size_mb = 1
@@ -75,12 +75,12 @@ Also verify `~/.claude/projects/` exists and has content.
 
 Enable debug logging:
 ```bash
-AGENTDECK_DEBUG=1 agent-deck
+HANGAR_DEBUG=1 hangar
 ```
 
 Check session logs:
 ```bash
-tail -100 ~/.agent-deck/logs/agentdeck_<session>_*.log
+tail -100 ~/.hangar/logs/agentdeck_<session>_*.log
 ```
 
 ## Report a Bug
@@ -93,19 +93,19 @@ Run these commands and save output:
 
 ```bash
 # Version info
-agent-deck version
+hangar version
 
 # Current status
-agent-deck status --json
+hangar status --json
 
 # Session details (if session-related)
-agent-deck session show <session-name> --json
+hangar session show <session-name> --json
 
 # Config (sanitized - removes secrets)
-cat ~/.agent-deck/config.toml | grep -v "KEY\|TOKEN\|SECRET\|PASSWORD"
+cat ~/.hangar/config.toml | grep -v "KEY\|TOKEN\|SECRET\|PASSWORD"
 
 # Recent logs (if error occurred)
-tail -100 ~/.agent-deck/logs/agentdeck_<session>_*.log 2>/dev/null
+tail -100 ~/.hangar/logs/agentdeck_<session>_*.log 2>/dev/null
 
 # System info
 uname -a
@@ -123,7 +123,7 @@ Prepare clear answers to:
 
 ### Step 3: Create GitHub Issue
 
-Go to: **https://github.com/asheshgoplani/agent-deck/issues/new**
+Go to: **https://github.com/sjoeboo/hangar/issues/new**
 
 Use this template:
 
@@ -144,7 +144,7 @@ Use this template:
 
 ## Environment
 
-- agent-deck version: [output of `agent-deck version`]
+- hangar version: [output of `hangar version`]
 - OS: [macOS/Linux/WSL]
 - tmux version: [output of `tmux -V`]
 
@@ -154,7 +154,7 @@ Use this template:
 <summary>Status JSON</summary>
 
 ```json
-[paste agent-deck status --json]
+[paste hangar status --json]
 ```
 
 </details>
@@ -191,60 +191,60 @@ Use this template:
 
 Data stored in SQLite:
 ```bash
-~/.agent-deck/profiles/default/state.db
+~/.hangar/profiles/default/state.db
 ```
 
 Recovery (if state.db is corrupted):
 ```bash
 # If sessions.json.migrated still exists, delete state.db and restart.
-# agent-deck will auto-migrate from the .migrated file.
-rm ~/.agent-deck/profiles/default/state.db
-mv ~/.agent-deck/profiles/default/sessions.json.migrated \
-   ~/.agent-deck/profiles/default/sessions.json
-# Restart agent-deck to trigger auto-migration into a fresh state.db
+# hangar will auto-migrate from the .migrated file.
+rm ~/.hangar/profiles/default/state.db
+mv ~/.hangar/profiles/default/sessions.json.migrated \
+   ~/.hangar/profiles/default/sessions.json
+# Restart hangar to trigger auto-migration into a fresh state.db
 ```
 
 ### tmux Sessions Lost
 
 Session logs preserved:
 ```bash
-tail -500 ~/.agent-deck/logs/agentdeck_<session>_*.log
+tail -500 ~/.hangar/logs/agentdeck_<session>_*.log
 ```
 
 ### Profile Corrupted
 
 Create fresh:
 ```bash
-agent-deck profile create fresh
-agent-deck profile default fresh
+hangar profile create fresh
+hangar profile default fresh
 ```
 
 ## Uninstalling
 
-Remove agent-deck from your system:
+Remove hangar from your system:
 
 ```bash
-agent-deck uninstall              # Interactive uninstall
-agent-deck uninstall --dry-run    # Preview what would be removed
-agent-deck uninstall --keep-data  # Remove binary only, keep sessions
+hangar uninstall              # Interactive uninstall
+hangar uninstall --dry-run    # Preview what would be removed
+hangar uninstall --keep-data  # Remove binary only, keep sessions
 ```
 
 Or use the standalone script:
 ```bash
-curl -fsSL https://raw.githubusercontent.com/asheshgoplani/agent-deck/main/uninstall.sh | bash
+curl -fsSL https://raw.githubusercontent.com/sjoeboo/hangar/main/uninstall.sh | bash
 ```
 
 **What gets removed:**
-- **Binary:** `~/.local/bin/agent-deck` or `/usr/local/bin/agent-deck`
-- **Homebrew:** `agent-deck` package (if installed via brew)
-- **tmux config:** The `# agent-deck configuration` block in `~/.tmux.conf`
-- **Data directory:** `~/.agent-deck/` (sessions, logs, config)
+- **Binary:** `~/.local/bin/hangar` or `/usr/local/bin/hangar`
+- **Homebrew:** `hangar` package (if installed via brew)
+- **tmux config:** The `# hangar configuration` block in `~/.tmux.conf`
+- **Data directory:** `~/.hangar/` (sessions, logs, config)
 
 Use `--keep-data` to preserve your sessions and configuration.
 
 ## Critical Warnings
 
-**NEVER run these commands - they destroy ALL agent-deck sessions:**
+**NEVER run these commands - they destroy ALL hangar sessions:**
 
 ```bash
 # DO NOT RUN

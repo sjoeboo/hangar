@@ -9,8 +9,8 @@ import (
 	"strings"
 )
 
-// agentDeckHookCommand is the marker command used to identify agent-deck hooks in settings.json.
-const agentDeckHookCommand = "agent-deck hook-handler"
+// hangarHookCommand is the marker command used to identify hangar hooks in settings.json.
+const hangarHookCommand = "hangar hook-handler"
 
 // claudeHookEntry represents a single hook entry in Claude Code settings.
 type claudeHookEntry struct {
@@ -25,11 +25,11 @@ type claudeHookMatcher struct {
 	Hooks   []claudeHookEntry `json:"hooks"`
 }
 
-// agentDeckHook returns the standard agent-deck hook entry.
-func agentDeckHook() claudeHookEntry {
+// hangarHook returns the standard hangar hook entry.
+func hangarHook() claudeHookEntry {
 	return claudeHookEntry{
 		Type:    "command",
-		Command: agentDeckHookCommand,
+		Command: hangarHookCommand,
 		Async:   true,
 	}
 }
@@ -47,7 +47,7 @@ var hookEventConfigs = []struct {
 	{Event: "SessionEnd"},
 }
 
-// InjectClaudeHooks injects agent-deck hook entries into Claude Code's settings.json.
+// InjectClaudeHooks injects hangar hook entries into Claude Code's settings.json.
 // Uses read-preserve-modify-write pattern to preserve all existing settings and user hooks.
 // Returns true if hooks were newly installed, false if already present.
 func InjectClaudeHooks(configDir string) (bool, error) {
@@ -119,7 +119,7 @@ func InjectClaudeHooks(configDir string) (bool, error) {
 	return true, nil
 }
 
-// RemoveClaudeHooks removes agent-deck hook entries from Claude Code's settings.json.
+// RemoveClaudeHooks removes hangar hook entries from Claude Code's settings.json.
 // Returns true if hooks were removed, false if none found.
 func RemoveClaudeHooks(configDir string) (bool, error) {
 	settingsPath := filepath.Join(configDir, "settings.json")
@@ -150,7 +150,7 @@ func RemoveClaudeHooks(configDir string) (bool, error) {
 	removed := false
 	for _, cfg := range hookEventConfigs {
 		if raw, ok := existingHooks[cfg.Event]; ok {
-			cleaned, didRemove := removeAgentDeckFromEvent(raw)
+			cleaned, didRemove := removeHangarFromEvent(raw)
 			if didRemove {
 				removed = true
 				if cleaned == nil {
@@ -192,7 +192,7 @@ func RemoveClaudeHooks(configDir string) (bool, error) {
 	return true, nil
 }
 
-// CheckClaudeHooksInstalled checks if agent-deck hooks are present in settings.json.
+// CheckClaudeHooksInstalled checks if hangar hooks are present in settings.json.
 func CheckClaudeHooksInstalled(configDir string) bool {
 	settingsPath := filepath.Join(configDir, "settings.json")
 	data, err := os.ReadFile(settingsPath)
@@ -218,29 +218,29 @@ func CheckClaudeHooksInstalled(configDir string) bool {
 	return hooksAlreadyInstalled(existingHooks)
 }
 
-// hooksAlreadyInstalled checks if all required agent-deck hooks are present.
+// hooksAlreadyInstalled checks if all required hangar hooks are present.
 func hooksAlreadyInstalled(hooks map[string]json.RawMessage) bool {
 	for _, cfg := range hookEventConfigs {
 		raw, ok := hooks[cfg.Event]
 		if !ok {
 			return false
 		}
-		if !eventHasAgentDeckHook(raw) {
+		if !eventHasHangarHook(raw) {
 			return false
 		}
 	}
 	return true
 }
 
-// eventHasAgentDeckHook checks if a hook event's matcher array contains our hook.
-func eventHasAgentDeckHook(raw json.RawMessage) bool {
+// eventHasHangarHook checks if a hook event's matcher array contains our hook.
+func eventHasHangarHook(raw json.RawMessage) bool {
 	var matchers []claudeHookMatcher
 	if err := json.Unmarshal(raw, &matchers); err != nil {
 		return false
 	}
 	for _, m := range matchers {
 		for _, h := range m.Hooks {
-			if strings.Contains(h.Command, agentDeckHookCommand) {
+			if strings.Contains(h.Command, hangarHookCommand) {
 				return true
 			}
 		}
@@ -248,7 +248,7 @@ func eventHasAgentDeckHook(raw json.RawMessage) bool {
 	return false
 }
 
-// mergeHookEvent adds agent-deck's hook to an existing event's matcher array.
+// mergeHookEvent adds hangar's hook to an existing event's matcher array.
 // Preserves all existing matchers and hooks.
 func mergeHookEvent(existing json.RawMessage, matcher string) json.RawMessage {
 	var matchers []claudeHookMatcher
@@ -264,14 +264,14 @@ func mergeHookEvent(existing json.RawMessage, matcher string) json.RawMessage {
 		if m.Matcher == matcher {
 			// Check if our hook is already in this matcher
 			for _, h := range m.Hooks {
-				if strings.Contains(h.Command, agentDeckHookCommand) {
+				if strings.Contains(h.Command, hangarHookCommand) {
 					// Already present
 					result, _ := json.Marshal(matchers)
 					return result
 				}
 			}
 			// Append our hook to existing matcher
-			matchers[i].Hooks = append(matchers[i].Hooks, agentDeckHook())
+			matchers[i].Hooks = append(matchers[i].Hooks, hangarHook())
 			result, _ := json.Marshal(matchers)
 			return result
 		}
@@ -280,16 +280,16 @@ func mergeHookEvent(existing json.RawMessage, matcher string) json.RawMessage {
 	// No matching matcher found; add a new one
 	newMatcher := claudeHookMatcher{
 		Matcher: matcher,
-		Hooks:   []claudeHookEntry{agentDeckHook()},
+		Hooks:   []claudeHookEntry{hangarHook()},
 	}
 	matchers = append(matchers, newMatcher)
 	result, _ := json.Marshal(matchers)
 	return result
 }
 
-// removeAgentDeckFromEvent removes agent-deck hook entries from an event's matcher array.
+// removeHangarFromEvent removes hangar hook entries from an event's matcher array.
 // Returns cleaned JSON and whether any removal happened. Returns nil JSON if the array is empty.
-func removeAgentDeckFromEvent(raw json.RawMessage) (json.RawMessage, bool) {
+func removeHangarFromEvent(raw json.RawMessage) (json.RawMessage, bool) {
 	var matchers []claudeHookMatcher
 	if err := json.Unmarshal(raw, &matchers); err != nil {
 		return raw, false
@@ -301,7 +301,7 @@ func removeAgentDeckFromEvent(raw json.RawMessage) (json.RawMessage, bool) {
 	for _, m := range matchers {
 		var hooks []claudeHookEntry
 		for _, h := range m.Hooks {
-			if strings.Contains(h.Command, agentDeckHookCommand) {
+			if strings.Contains(h.Command, hangarHookCommand) {
 				removed = true
 				continue
 			}

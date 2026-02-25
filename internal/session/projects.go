@@ -35,7 +35,7 @@ var globalProjectsManager = &ProjectsManager{}
 
 // GetProjectsFilePath returns ~/.hangar/projects.toml
 func GetProjectsFilePath() (string, error) {
-	dir, err := GetAgentDeckDir()
+	dir, err := GetHangarDir()
 	if err != nil {
 		return "", err
 	}

@@ -130,7 +130,7 @@ echo ""
 echo "Import destination: $PROJECT_PATH"
 
 # Detect current profile (filter out debug timestamp lines that start with year digits)
-CURRENT_OUTPUT=$(agent-deck session current --json 2>&1 || true)
+CURRENT_OUTPUT=$(hangar session current --json 2>&1 || true)
 PROFILE=$(echo "$CURRENT_OUTPUT" | grep -E '^\s*\{' | head -1 | jq -r '.profile // "default"' 2>/dev/null || echo "default")
 echo "Profile: $PROFILE"
 
@@ -172,28 +172,28 @@ echo "Written $WRITTEN_LINES records"
 # Remove from cleanup list since write succeeded
 CLEANUP_FILES=()
 
-# Create agent-deck session
+# Create hangar session
 echo ""
-echo "Creating agent-deck session..."
+echo "Creating hangar session..."
 
 # Build the session title with "Imported:" prefix
 IMPORT_TITLE="Imported: $SESSION_TITLE"
 
 # Check if session with this title already exists (use --arg to prevent command injection)
-EXISTING=$(agent-deck -p "$PROFILE" list --json 2>/dev/null | jq -r --arg title "$IMPORT_TITLE" '.[] | select(.title == $title) | .id' || echo "")
+EXISTING=$(hangar -p "$PROFILE" list --json 2>/dev/null | jq -r --arg title "$IMPORT_TITLE" '.[] | select(.title == $title) | .id' || echo "")
 
 if [ -n "$EXISTING" ]; then
     echo "Session '$IMPORT_TITLE' already exists. Updating..."
     # Just update the session to point to the new session ID
-    agent-deck -p "$PROFILE" session set "$IMPORT_TITLE" claude-session-id "$SESSION_ID"
+    hangar -p "$PROFILE" session set "$IMPORT_TITLE" claude-session-id "$SESSION_ID"
 else
     # Create new session
-    agent-deck -p "$PROFILE" add -t "$IMPORT_TITLE" -c claude "$PROJECT_PATH"
+    hangar -p "$PROFILE" add -t "$IMPORT_TITLE" -c claude "$PROJECT_PATH"
 
     # Poll for session creation (up to 10 attempts, 0.5s each)
     SESSION_FOUND=false
     for i in {1..10}; do
-        if agent-deck -p "$PROFILE" list --json 2>/dev/null | jq -e --arg title "$IMPORT_TITLE" '.[] | select(.title == $title)' > /dev/null 2>&1; then
+        if hangar -p "$PROFILE" list --json 2>/dev/null | jq -e --arg title "$IMPORT_TITLE" '.[] | select(.title == $title)' > /dev/null 2>&1; then
             SESSION_FOUND=true
             break
         fi
@@ -205,7 +205,7 @@ else
     fi
 
     # Set the Claude session ID so it resumes the imported session
-    agent-deck -p "$PROFILE" session set "$IMPORT_TITLE" claude-session-id "$SESSION_ID"
+    hangar -p "$PROFILE" session set "$IMPORT_TITLE" claude-session-id "$SESSION_ID"
 fi
 
 echo ""
@@ -220,15 +220,15 @@ echo ""
 if [ "$NO_START" = "true" ]; then
     echo "Session created but not started (--no-start)"
     echo ""
-    echo "To start: agent-deck session start \"$IMPORT_TITLE\""
-    echo "Or: Open agent-deck TUI and press Enter on the session"
+    echo "To start: hangar session start \"$IMPORT_TITLE\""
+    echo "Or: Open hangar TUI and press Enter on the session"
 else
     echo "Starting session..."
-    agent-deck -p "$PROFILE" session start "$IMPORT_TITLE"
+    hangar -p "$PROFILE" session start "$IMPORT_TITLE"
 
     echo ""
     echo "Session is now running. It will resume from the imported conversation."
     echo ""
-    echo "To attach: agent-deck session attach \"$IMPORT_TITLE\""
-    echo "Or: Open agent-deck TUI and press Enter on the session"
+    echo "To attach: hangar session attach \"$IMPORT_TITLE\""
+    echo "Or: Open hangar TUI and press Enter on the session"
 fi

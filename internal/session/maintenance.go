@@ -27,7 +27,7 @@ type MaintenanceResult struct {
 func RunMaintenance() MaintenanceResult {
 	start := time.Now()
 
-	deckDir, err := GetAgentDeckDir()
+	deckDir, err := GetHangarDir()
 	if err != nil {
 		maintLog.Warn("maintenance_dir_lookup_failed", slog.String("error", err.Error()))
 		return MaintenanceResult{Duration: time.Since(start)}

@@ -6,7 +6,7 @@ build/
 *.dll
 *.so
 *.dylib
-/agent-deck
+/hangar
 
 # Test binary
 *.test
@@ -35,8 +35,8 @@ Thumbs.db
 .env
 .env.local
 
-# Agent Deck data (for development)
-.agent-deck/
+# Hangar data (for development)
+.hangar/
 
 # VS Code extensions data
 .serena/
@@ -47,4 +47,4 @@ Thumbs.db
 *.screenstudio/
 
 .worktrees
-agent-deck-test
+hangar-test

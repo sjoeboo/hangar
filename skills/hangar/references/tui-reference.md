@@ -1,6 +1,6 @@
 # TUI Reference
 
-Complete reference for agent-deck Terminal UI features.
+Complete reference for hangar Terminal UI features.
 
 ## Keyboard Shortcuts
 
@@ -121,9 +121,9 @@ Complete reference for agent-deck Terminal UI features.
 - `Esc` - Cancel
 
 **Persistence:**
-- Writes attachment state to `<project>/.agent-deck/skills.toml`
+- Writes attachment state to `<project>/.hangar/skills.toml`
 - Materializes selected entries in `<project>/.claude/skills`
-- If no pool entries exist, dialog shows guidance for `~/.agent-deck/skills/pool`
+- If no pool entries exist, dialog shows guidance for `~/.hangar/skills/pool`
 
 ### Fork Dialog (`F`)
 

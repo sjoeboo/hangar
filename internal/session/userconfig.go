@@ -35,8 +35,8 @@ type UserConfig struct {
 	// Valid values: "local" (default), "global", "user"
 	MCPDefaultScope string `toml:"mcp_default_scope"`
 
-	// ManageMCPJson controls whether agent-deck writes to .mcp.json in project directories.
-	// Set to false to prevent agent-deck from touching any .mcp.json files, which is useful
+	// ManageMCPJson controls whether hangar writes to .mcp.json in project directories.
+	// Set to false to prevent hangar from touching any .mcp.json files, which is useful
 	// when you manage that file manually or via another tool.
 	// Default: true (nil = true)
 	ManageMCPJson *bool `toml:"manage_mcp_json"`
@@ -250,9 +250,9 @@ type NotificationsConfig struct {
 	Minimal bool `toml:"minimal"`
 }
 
-// InstanceSettings configures multiple agent-deck instance behavior
+// InstanceSettings configures multiple hangar instance behavior
 type InstanceSettings struct {
-	// AllowMultiple allows running multiple agent-deck TUI instances for the same profile
+	// AllowMultiple allows running multiple hangar TUI instances for the same profile
 	// When true (default), multiple instances can run, but only the first (primary) manages the notification bar
 	// When false, only one instance can run per profile
 	AllowMultiple *bool `toml:"allow_multiple"`
@@ -391,7 +391,7 @@ type ClaudeSettings struct {
 	EnvFile string `toml:"env_file"`
 
 	// HooksEnabled enables Claude Code hooks for real-time status detection.
-	// When enabled, agent-deck uses lifecycle hooks (SessionStart, Stop, etc.)
+	// When enabled, hangar uses lifecycle hooks (SessionStart, Stop, etc.)
 	// for instant, deterministic status updates instead of polling tmux content.
 	// Default: true (nil = use default true, set false to disable)
 	HooksEnabled *bool `toml:"hooks_enabled"`
@@ -633,7 +633,7 @@ type MCPDef struct {
 	Headers map[string]string `toml:"headers"`
 
 	// Server defines how to auto-start an HTTP MCP server process
-	// When set, agent-deck will start the server before connecting via HTTP
+	// When set, hangar will start the server before connecting via HTTP
 	// This is optional - you can also connect to externally managed servers
 	Server *HTTPServerConfig `toml:"server"`
 }
@@ -668,7 +668,7 @@ func (m *MCPDef) HasAutoStartServer() bool {
 }
 
 // TmuxSettings allows users to override tmux options applied to every session.
-// Options are applied AFTER agent-deck's defaults, so they take precedence.
+// Options are applied AFTER hangar's defaults, so they take precedence.
 //
 // Example config.toml:
 //
@@ -677,7 +677,7 @@ func (m *MCPDef) HasAutoStartServer() bool {
 //	mouse_mode = true
 //	options = { "allow-passthrough" = "all", "history-limit" = "50000" }
 type TmuxSettings struct {
-	// InjectStatusLine controls whether agent-deck injects a custom status line
+	// InjectStatusLine controls whether hangar injects a custom status line
 	// into new tmux sessions. When false, the tmux status bar is not modified,
 	// allowing users to use their own tmux status line configuration.
 	// Default: true (nil = use default true)
@@ -736,7 +736,7 @@ var (
 
 // GetUserConfigPath returns the path to the user config file
 func GetUserConfigPath() (string, error) {
-	dir, err := GetAgentDeckDir()
+	dir, err := GetHangarDir()
 	if err != nil {
 		return "", err
 	}
@@ -821,7 +821,7 @@ func SaveUserConfig(config *UserConfig) error {
 	var buf bytes.Buffer
 
 	// Write header comment
-	if _, err := buf.WriteString("# Agent Deck Configuration\n"); err != nil {
+	if _, err := buf.WriteString("# Hangar Configuration\n"); err != nil {
 		return fmt.Errorf("failed to write header: %w", err)
 	}
 	if _, err := buf.WriteString("# Edit this file or use Settings (press S) in the TUI\n\n"); err != nil {
@@ -1261,7 +1261,7 @@ func CreateExampleConfig() error {
 		return nil
 	}
 
-	exampleConfig := `# Agent Deck User Configuration
+	exampleConfig := `# Hangar User Configuration
 # This file is loaded on startup. Edit to customize tools and MCPs.
 
 # Default AI tool for new sessions
@@ -1299,7 +1299,7 @@ func CreateExampleConfig() error {
 # yolo_mode = true
 
 # Log file management
-# Agent-deck logs session output to ~/.hangar/logs/ for status detection
+# Hangar logs session output to ~/.hangar/logs/ for status detection
 # These settings control automatic log maintenance to prevent disk bloat
 [logs]
 # Maximum log file size in MB before truncation (default: 10)
@@ -1321,7 +1321,7 @@ check_interval_hours = 24
 # Show update notification in CLI commands, not just TUI (default: true)
 notify_in_cli = true
 
-# Experiments (for 'agent-deck try' command)
+# Experiments (for 'hangar try' command)
 # Quick experiment folder management with auto-dated directories
 [experiments]
 # Base directory for experiments (default: ~/src/tries)
@@ -1350,15 +1350,15 @@ auto_cleanup = true
 
 # Disable ALL .mcp.json management (default: true)
 # Set to false if you manage .mcp.json manually or via another tool and don't
-# want agent-deck to touch it. LOCAL-scope MCP changes will be silently skipped.
+# want hangar to touch it. LOCAL-scope MCP changes will be silently skipped.
 # manage_mcp_json = false
 
 # Tmux session settings
-# Controls how agent-deck configures tmux sessions
+# Controls how hangar configures tmux sessions
 # [tmux]
-# inject_status_line controls whether agent-deck sets up a custom tmux status bar
+# inject_status_line controls whether hangar sets up a custom tmux status bar
 # When false, your existing tmux status line configuration is preserved
-# Default: true (agent-deck injects its own status bar with session info)
+# Default: true (hangar injects its own status bar with session info)
 # inject_status_line = false
 # Override tmux options applied to every session (applied after defaults)
 # options = { "allow-passthrough" = "all", "history-limit" = "50000" }
@@ -1432,7 +1432,7 @@ auto_cleanup = true
 
 # ---------- HTTP MCP with Auto-Start Server ----------
 # For MCPs that need a local server process (e.g., piekstra/slack-mcp-server),
-# add a [mcps.NAME.server] block to have agent-deck auto-start the server.
+# add a [mcps.NAME.server] block to have hangar auto-start the server.
 
 # Example: Slack MCP with auto-start server
 # [mcps.slack]
@@ -1531,7 +1531,7 @@ func GetMCPDefaultScope() string {
 	}
 }
 
-// GetManageMCPJson returns whether agent-deck should write to .mcp.json files.
+// GetManageMCPJson returns whether hangar should write to .mcp.json files.
 // Defaults to true when unset.
 func GetManageMCPJson() bool {
 	config, err := LoadUserConfig()

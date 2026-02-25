@@ -173,7 +173,7 @@ func TestStartMaintenanceWorkerDisabled(t *testing.T) {
 	os.Setenv("HOME", tmpHome)
 	defer os.Setenv("HOME", origHome)
 
-	// Create minimal agent-deck dir (no maintenance config)
+	// Create minimal hangar dir (no maintenance config)
 	if err := os.MkdirAll(filepath.Join(tmpHome, ".hangar"), 0o755); err != nil {
 		t.Fatal(err)
 	}

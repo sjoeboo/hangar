@@ -179,7 +179,7 @@ func (n *TransitionNotifier) dispatch(event TransitionNotificationEvent) Transit
 
 func buildTransitionMessage(event TransitionNotificationEvent) string {
 	return fmt.Sprintf(
-		"[EVENT] Child '%s' (%s) is %s.\nCheck: agent-deck -p %s session output %s -q",
+		"[EVENT] Child '%s' (%s) is %s.\nCheck: hangar -p %s session output %s -q",
 		event.ChildTitle,
 		event.ChildSessionID,
 		event.ToStatus,
@@ -321,7 +321,7 @@ func (n *TransitionNotifier) logEvent(event TransitionNotificationEvent) {
 }
 
 func transitionNotifyStatePath() string {
-	dir, err := GetAgentDeckDir()
+	dir, err := GetHangarDir()
 	if err != nil {
 		return filepath.Join(os.TempDir(), ".hangar", "runtime", "transition-notify-state.json")
 	}
@@ -329,7 +329,7 @@ func transitionNotifyStatePath() string {
 }
 
 func transitionNotifyLogPath() string {
-	dir, err := GetAgentDeckDir()
+	dir, err := GetHangarDir()
 	if err != nil {
 		return filepath.Join(os.TempDir(), ".hangar", "logs", "transition-notifier.log")
 	}

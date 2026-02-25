@@ -51,7 +51,7 @@ func handleLaunch(profile string, args []string) {
 	resumeSession := fs.String("resume-session", "", "Claude session ID to resume")
 
 	fs.Usage = func() {
-		fmt.Println("Usage: agent-deck launch [path] [options]")
+		fmt.Println("Usage: hangar launch [path] [options]")
 		fmt.Println()
 		fmt.Println("Create, start, and optionally send a message to a new session in one step.")
 		fmt.Println("Combines: add + session start + session send")
@@ -63,13 +63,13 @@ func handleLaunch(profile string, args []string) {
 		fs.PrintDefaults()
 		fmt.Println()
 		fmt.Println("Examples:")
-		fmt.Println("  agent-deck launch . -c claude")
-		fmt.Println("  agent-deck launch . -c claude -m \"Explain this codebase\"")
-		fmt.Println("  agent-deck launch /path/to/project -t \"My Agent\" -c claude -g work")
-		fmt.Println("  agent-deck launch . -c claude --mcp memory -m \"Research topic X\"")
-		fmt.Println("  agent-deck launch . -c claude -m \"Fix bug\" --no-wait")
-		fmt.Println("  agent-deck launch . -c \"codex --dangerously-bypass-approvals-and-sandbox\"")
-		fmt.Println("  agent-deck launch . -g ard --no-parent -c claude -m \"Run review\"")
+		fmt.Println("  hangar launch . -c claude")
+		fmt.Println("  hangar launch . -c claude -m \"Explain this codebase\"")
+		fmt.Println("  hangar launch /path/to/project -t \"My Agent\" -c claude -g work")
+		fmt.Println("  hangar launch . -c claude --mcp memory -m \"Research topic X\"")
+		fmt.Println("  hangar launch . -c claude -m \"Fix bug\" --no-wait")
+		fmt.Println("  hangar launch . -c \"codex --dangerously-bypass-approvals-and-sandbox\"")
+		fmt.Println("  hangar launch . -g ard --no-parent -c claude -m \"Run review\"")
 	}
 
 	// Reorder args: move path to end so flags are parsed correctly

@@ -589,7 +589,7 @@ func NewGlobalSearchIndex(claudeDir string, config GlobalSearchSettings) (*Globa
 		// Only watch project-level directories (depth 1 under projects/).
 		// Previously watched ALL subdirectories (884 dirs including tool-results/,
 		// subagents/, etc.) which leaked ~7000 kqueue file descriptors and caused
-		// agent-deck to balloon to 6+ GB RSS until macOS killed it.
+		// hangar to balloon to 6+ GB RSS until macOS killed it.
 		// JSONL files only exist at the project level, not in subdirectories.
 		dirEntries, _ := os.ReadDir(projectsDir)
 		for _, de := range dirEntries {

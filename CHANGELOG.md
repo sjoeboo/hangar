@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes to Agent Deck will be documented in this file.
+All notable changes to Hangar will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
@@ -27,8 +27,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - Add built-in event-driven transition notifications (`notify-daemon`) that nudge a parent session first, then fall back to a conductor session when a child transitions from `running` to `waiting`/`error`/`idle`.
-- Add `--no-parent` and default auto-parent linking for `add`/`launch` when launched from a managed session (`AGENT_DECK_SESSION_ID`), with conflict protection for `--parent` + `--no-parent`.
-- Add `parent_session_id` and `parent_project_path` to `agent-deck session show --json`.
+- Add `--no-parent` and default auto-parent linking for `add`/`launch` when launched from a managed session (`HANGAR_INSTANCE_ID`), with conflict protection for `--parent` + `--no-parent`.
+- Add `parent_session_id` and `parent_project_path` to `hangar session show --json`.
 - Add conductor setup/status/teardown integration for the transition notifier daemon so always-on notifications can be installed and managed with conductor commands.
 
 ### Fixed
@@ -52,7 +52,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- Make `agent-deck session send --wait` and `agent-deck session output` resilient when Claude session IDs are missing/stale by using best-effort response recovery (tmux env refresh, disk sync fallback, and terminal parse fallback).
+- Make `hangar session send --wait` and `hangar session output` resilient when Claude session IDs are missing/stale by using best-effort response recovery (tmux env refresh, disk sync fallback, and terminal parse fallback).
 - Improve Claude send verification to catch pasted-but-unsent prompts even after an initial `waiting` state, reducing false positives where a prompt was pasted but never submitted.
 - Update conductor bridge messaging to use single-call `session send --wait -q --timeout ...` flow for Telegram/Slack and heartbeat handling, reducing extra polling steps and improving reliability.
 - Reject non-directory legacy file skills when attaching project skills, and harden skill materialization to recover from broken symlinks and symlinked target-path edge cases.
@@ -66,7 +66,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - Fix terminal style leakage after tmux attach by waiting for PTY output to drain and resetting OSC-8/SGR styles before the TUI redraws.
-- Harden `agent-deck session send` delivery by retrying `Enter` only when Claude shows a pasted-but-unsent marker (`[Pasted text ...]`) and avoiding unnecessary retries once status is already `waiting`/`idle`.
+- Harden `hangar session send` delivery by retrying `Enter` only when Claude shows a pasted-but-unsent marker (`[Pasted text ...]`) and avoiding unnecessary retries once status is already `waiting`/`idle`.
 
 ### Changed
 
@@ -76,7 +76,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- Fix `agent-deck session show --json` MCP output marshalling by emitting concrete local/global/project values instead of a method reference in `mcps.local` (#213).
+- Fix `hangar session show --json` MCP output marshalling by emitting concrete local/global/project values instead of a method reference in `mcps.local` (#213).
 - Fix conductor daemon Python resolution by preferring `python3` from the active shell `PATH` before fallback absolute paths (#215).
 
 ## [0.19.7] - 2026-02-20
@@ -96,7 +96,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - Fix conductor setup migration so legacy generated per-conductor `CLAUDE.md` files are updated safely for the policy split while preserving custom and symlinked files (#201).
-- Fix launchd and systemd conductor daemon units to include the installed `agent-deck` binary directory in `PATH` so bridge/heartbeat jobs can find the CLI (#196, contributed by @sjoeboo).
+- Fix launchd and systemd conductor daemon units to include the installed `hangar` binary directory in `PATH` so bridge/heartbeat jobs can find the CLI (#196, contributed by @sjoeboo).
 - Support environment variable expansion (`$VAR`, `${VAR}`) in path-based config values and unify path expansion behavior across config consumers (#194, contributed by @tiwillia).
 
 ## [0.19.5] - 2026-02-18
@@ -125,7 +125,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Add `agent-deck web` mode to run the TUI and web UI server together, with browser terminal streaming and session menu APIs (#174, contributed by @PatrickStraeter)
+- Add `hangar web` mode to run the TUI and web UI server together, with browser terminal streaming and session menu APIs (#174, contributed by @PatrickStraeter)
 - Add web push notification and PWA support for web mode (`--push`, `--push-vapid-subject`, `--push-test-every`) (#174)
 - Add macOS MacPorts support to `install.sh` with `--pkg-manager` selection alongside Homebrew (#187, contributed by @bronweg)
 
@@ -148,12 +148,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Add Codex notify hook integration for instant session status updates
 - Add notification show_all mode to display all notifications at once
-- Add automatic bridge.py updates when running `agent-deck update` (#178)
+- Add automatic bridge.py updates when running `hangar update` (#178)
 
 ### Fixed
 
 - Fix: handle error returns in test cleanup functions
-- Fix: bridge.py not updating with agent-deck binary updates (#178)
+- Fix: bridge.py not updating with hangar binary updates (#178)
 
 ## [0.17.0] - 2026-02-16
 
@@ -176,7 +176,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add Slack integration and cross-platform daemon support (#169, contributed by @mtparet)
 - Add Claude Code lifecycle hooks for real-time status detection (instant green/yellow/gray transitions without tmux polling)
 - Add first-launch prompt asking users to install hooks (preserves existing Claude settings.json)
-- Add `agent-deck hooks install/uninstall/status` CLI subcommands for manual hook management
+- Add `hangar hooks install/uninstall/status` CLI subcommands for manual hook management
 - Add `hooks_enabled` config option under `[claude]` to opt out of hook-based detection
 - Add StatusFileWatcher (fsnotify) for instant hook status file processing
 - Add `AGENTDECK_INSTANCE_ID` env var export for Claude hook subprocess identification
@@ -231,7 +231,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Add quick session creation with `Shift+N` hotkey: instant session with auto-generated name and smart defaults (#161)
 - Add Docker-style name generator (adjective-noun) with ~10,000 unique combinations
-- Add `--quick` / `-Q` flag to `agent-deck add` CLI for auto-named sessions
+- Add `--quick` / `-Q` flag to `hangar add` CLI for auto-named sessions
 - Smart defaults: inherits tool, options, and path from most recent session in the group
 
 ## [0.12.3] - 2026-02-11
@@ -270,10 +270,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - Multiple conductors per profile: create N named conductors in a single profile
-  - `agent-deck conductor setup <name>` with `--heartbeat`, `--no-heartbeat`, `--description` flags
-  - `agent-deck conductor teardown <name>` or `--all` to remove conductors
-  - `agent-deck conductor list` with `--json` and `--profile` filters
-  - `agent-deck conductor status [name]` shows all or specific conductor health
+  - `hangar conductor setup <name>` with `--heartbeat`, `--no-heartbeat`, `--description` flags
+  - `hangar conductor teardown <name>` or `--all` to remove conductors
+  - `hangar conductor list` with `--json` and `--profile` filters
+  - `hangar conductor status [name]` shows all or specific conductor health
 - Two-tier CLAUDE.md for conductors: shared knowledge base + per-conductor identity
   - Shared `CLAUDE.md` at conductor root with CLI reference, protocols, and rules
   - Per-conductor `CLAUDE.md` with name and profile substitution
@@ -281,7 +281,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Auto-migration of legacy single-conductor directories to new multi-conductor format
 - Bridge (Telegram) updated for dynamic conductor discovery via `meta.json` scanning
 - `normalizeArgs` utility for consistent flag parsing across all CLI commands
-- Status field added to `agent-deck list --json` output
+- Status field added to `hangar list --json` output
 
 ## [0.11.4] - 2026-02-09
 
@@ -410,7 +410,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Fix sessions disappearing after creation in TUI
   - Critical saves (create, fork, delete, restore) now bypass mtime check that was incorrectly aborting saves
   - Sessions created during reload are now properly persisted to JSON before triggering reload
-- Fix import function to recover orphaned agent-deck sessions
+- Fix import function to recover orphaned hangar sessions
   - Press `i` to import sessions that exist in tmux but are missing from sessions.json
   - Recovered sessions are placed in a "Recovered" group for easy identification
 
@@ -436,7 +436,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- Fix critical OOM crash: Global Search was loading 4.4 GB of JSONL content into memory and opening 884 fsnotify directory watchers (7,900+ file descriptors), causing agent-deck to balloon to 6+ GB RSS until macOS killed it
+- Fix critical OOM crash: Global Search was loading 4.4 GB of JSONL content into memory and opening 884 fsnotify directory watchers (7,900+ file descriptors), causing hangar to balloon to 6+ GB RSS until macOS killed it
   - Temporarily disable Global Search at startup until memory-safe implementation is complete
   - Optimize directory traversal to skip `tool-results/` and `subagents/` subdirectories (never contain JSONL files)
   - Limit fsnotify watchers to project-level directories only (was recursively watching ALL subdirectories)
@@ -453,7 +453,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - Migrate all logging to structured JSONL via `log/slog` with automatic rotation
-  - JSONL output to `~/.agent-deck/debug.log` with component-based filtering (`jq 'select(.component=="pool")'`)
+  - JSONL output to `~/.hangar/debug.log` with component-based filtering (`jq 'select(.component=="pool")'`)
   - Automatic log rotation via lumberjack (configurable size, backups, retention in `[logs]` config)
   - Event aggregation for high-frequency MCP socket events (1 summary per 30s instead of 40 lines/sec)
   - In-memory ring buffer with crash dump support (`kill -USR1 <pid>`)
@@ -484,7 +484,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - Add `mcp_default_scope` config option to control where MCPs are written (#137)
-  - Set to `"global"` or `"user"` to stop agent-deck from overwriting `.mcp.json` on restart
+  - Set to `"global"` or `"user"` to stop hangar from overwriting `.mcp.json` on restart
   - Affects MCP Manager default tab, CLI attach/detach defaults, and session restart regeneration
   - Defaults to `"local"` (no breaking change)
 
@@ -538,7 +538,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- **Fix intermittent `zsh: killed` due to memory exhaustion (#128)**: Four memory leaks causing macOS OOM killer (Jetsam) to SIGKILL agent-deck after prolonged use with many sessions:
+- **Fix intermittent `zsh: killed` due to memory exhaustion (#128)**: Four memory leaks causing macOS OOM killer (Jetsam) to SIGKILL hangar after prolonged use with many sessions:
   - Cap global search content buffer memory at 100MB (configurable via `memory_limit_mb`), evict oldest 25% of entries when exceeded
   - Release all content memory and clear file trackers on index Close()
   - Stop debounce timers on watcher shutdown to prevent goroutine leaks
@@ -551,7 +551,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **Prevent nested agent-deck sessions (#127)**: Running `agent-deck` inside a managed tmux session now shows a clear error instead of causing infinite `...` output. Read-only commands (`version`, `help`, `status`, `list`, `session current/show/output`, `mcp list/attached`) still work for debugging
+- **Prevent nested hangar sessions (#127)**: Running `hangar` inside a managed tmux session now shows a clear error instead of causing infinite `...` output. Read-only commands (`version`, `help`, `status`, `list`, `session current/show/output`, `mcp list/attached`) still work for debugging
 
 ## [0.10.3] - 2026-02-03
 
@@ -616,7 +616,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **Reconnecting MCP proxy** (`agent-deck mcp-proxy`): New subcommand replaces `nc -U` as the stdio bridge to MCP sockets. Automatically reconnects with exponential backoff when sockets drop, making MCP pool restarts invisible to Claude sessions (~3s recovery)
+- **Reconnecting MCP proxy** (`hangar mcp-proxy`): New subcommand replaces `nc -U` as the stdio bridge to MCP sockets. Automatically reconnects with exponential backoff when sockets drop, making MCP pool restarts invisible to Claude sessions (~3s recovery)
 
 ## [0.9.0] - 2026-01-31
 
@@ -760,7 +760,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Add `env` field to custom tool definitions for inline environment variables (closes #101)
 - Custom tools from config.toml now appear in the TUI command picker with icons
-- CLI `agent-deck add -c <custom-tool>` resolves tool to actual command automatically
+- CLI `hangar add -c <custom-tool>` resolves tool to actual command automatically
 
 ### Fixed
 
@@ -895,10 +895,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Status persistence across restarts
 
 - **CLI Commands**
-  - `agent-deck` - Launch TUI
-  - `agent-deck add <path>` - Add session from CLI
-  - `agent-deck list` - List sessions (table or JSON)
-  - `agent-deck remove <id|title>` - Remove session
+  - `hangar` - Launch TUI
+  - `hangar add <path>` - Add session from CLI
+  - `hangar list` - List sessions (table or JSON)
+  - `hangar remove <id|title>` - Remove session
 
 - **Tool Support**
   - Claude Code - Full status detection
@@ -922,4 +922,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Atomic JSON persistence
 - Cross-platform: macOS, Linux
 
-[0.1.0]: https://github.com/asheshgoplani/agent-deck/releases/tag/v0.1.0
+[0.1.0]: https://github.com/sjoeboo/hangar/releases/tag/v0.1.0
