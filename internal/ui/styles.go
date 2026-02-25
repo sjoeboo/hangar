@@ -241,6 +241,11 @@ var (
 	SessionStatusError    lipgloss.Style
 	SessionStatusSelStyle lipgloss.Style
 
+	// PR badge styles — colored by state, distinct from session status icons
+	PRBadgeOpen   lipgloss.Style
+	PRBadgeMerged lipgloss.Style
+	PRBadgeClosed lipgloss.Style
+
 	// Session title styles by state
 	SessionTitleDefault  lipgloss.Style
 	SessionTitleActive   lipgloss.Style
@@ -491,6 +496,10 @@ func initStyles() {
 	SessionStatusIdle = lipgloss.NewStyle().Foreground(ColorTextDim)
 	SessionStatusError = lipgloss.NewStyle().Foreground(ColorRed)
 	SessionStatusSelStyle = lipgloss.NewStyle().Foreground(ColorBg).Background(ColorAccent)
+
+	PRBadgeOpen   = lipgloss.NewStyle().Foreground(ColorGreen)
+	PRBadgeMerged = lipgloss.NewStyle().Foreground(ColorPurple)
+	PRBadgeClosed = lipgloss.NewStyle().Foreground(ColorRed)
 
 	// Session title styles by state
 	SessionTitleDefault = lipgloss.NewStyle().Foreground(ColorText)
