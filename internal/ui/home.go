@@ -5316,6 +5316,16 @@ func (h *Home) renderFilterBar() string {
 		}
 	}
 
+	// Sort mode indicator
+	if h.sortMode == "status" {
+		sortPill := lipgloss.NewStyle().
+			Foreground(ColorBg).
+			Background(ColorAccent).
+			Bold(true).
+			Padding(0, 1).Render("⇅ sorted")
+		pills = append(pills, sortPill)
+	}
+
 	// Hint for keyboard shortcuts (shift+number to filter, 0 to clear)
 	hintStyle := lipgloss.NewStyle().Foreground(ColorComment).Faint(true)
 	hint := hintStyle.Render("  !@#$ filter • 0 all")
