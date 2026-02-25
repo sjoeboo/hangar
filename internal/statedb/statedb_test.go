@@ -647,6 +647,9 @@ func TestUpdateTodoStatus(t *testing.T) {
 	if todos[0].SessionID != "sess-123" {
 		t.Errorf("SessionID: got %q want sess-123", todos[0].SessionID)
 	}
+	if todos[0].UpdatedAt.Unix() <= 1 {
+		t.Errorf("UpdatedAt should have been advanced, got %v", todos[0].UpdatedAt)
+	}
 }
 
 func TestDeleteTodo(t *testing.T) {

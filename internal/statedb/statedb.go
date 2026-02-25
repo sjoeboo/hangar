@@ -715,11 +715,21 @@ func (s *StateDB) DeleteTodo(id string) error {
 
 // UpdateTodoStatus updates the status and session_id for a todo.
 func (s *StateDB) UpdateTodoStatus(id, status, sessionID string) error {
-	_, err := s.db.Exec(
+	res, err := s.db.Exec(
 		"UPDATE todos SET status = ?, session_id = ?, updated_at = ? WHERE id = ?",
 		status, sessionID, time.Now().Unix(), id,
 	)
-	return err
+	if err != nil {
+		return err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return fmt.Errorf("statedb: todo %q not found", id)
+	}
+	return nil
 }
 
 // FindTodoBySessionID returns the todo linked to the given session ID, or nil if none.
