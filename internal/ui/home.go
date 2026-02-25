@@ -2827,6 +2827,7 @@ func (h *Home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					if todo.Status != session.TodoStatusDone {
 						newStatus = session.TodoStatusDone
 					}
+				// "CLOSED" (PR closed without merging): intentionally no transition — todo stays in its current state
 				}
 				if newStatus != "" {
 					if err := h.storage.UpdateTodoStatus(todo.ID, newStatus, msg.sessionID); err != nil {
@@ -4290,6 +4291,7 @@ func (h *Home) handleConfirmDialogKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return h, h.createSessionInGroupWithWorktreeAndOptions(name, path, command, groupPath, "", "", "", pendingToolOpts)
 		case "n", "N", "esc":
 			h.confirmDialog.Hide()
+			h.pendingTodoID = "" // Clear pending todo link if user cancelled directory creation
 			return h, nil
 		}
 		return h, nil
