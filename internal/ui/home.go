@@ -2290,6 +2290,14 @@ func (h *Home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Use forceSave to bypass mtime check - new session creation MUST persist
 			h.forceSaveInstances()
 
+			// Link pending todo to the newly created session
+			if h.pendingTodoID != "" {
+				if err := h.storage.UpdateTodoStatus(h.pendingTodoID, session.TodoStatusInProgress, msg.instance.ID); err != nil {
+					uiLog.Warn("link_todo_err", slog.String("todo", h.pendingTodoID), slog.String("err", err.Error()))
+				}
+				h.pendingTodoID = ""
+			}
+
 			// Start fetching preview for the new session
 			return h, h.fetchPreview(msg.instance)
 		}
@@ -2416,6 +2424,11 @@ func (h *Home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Save both instances AND groups (critical fix: was losing groups!)
 		// Use forceSave to bypass mtime check - delete MUST persist
 		h.forceSaveInstances()
+
+		// Orphan any todo linked to the deleted session
+		if err := h.storage.OrphanTodosForSession(msg.deletedID); err != nil {
+			uiLog.Warn("orphan_todo_err", slog.String("session", msg.deletedID), slog.String("err", err.Error()))
+		}
 
 		// Show undo hint (using setError as a transient message)
 		if deletedInstance != nil {
@@ -2800,6 +2813,28 @@ func (h *Home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		h.prCache[msg.sessionID] = msg.pr
 		h.prCacheTs[msg.sessionID] = time.Now()
 		h.prCacheMu.Unlock()
+
+		// Auto-advance todo status based on PR state
+		if msg.pr != nil {
+			if todo, err := h.storage.FindTodoBySessionID(msg.sessionID); err == nil && todo != nil {
+				var newStatus session.TodoStatus
+				switch msg.pr.State {
+				case "OPEN", "DRAFT":
+					if todo.Status != session.TodoStatusInReview && todo.Status != session.TodoStatusDone {
+						newStatus = session.TodoStatusInReview
+					}
+				case "MERGED":
+					if todo.Status != session.TodoStatusDone {
+						newStatus = session.TodoStatusDone
+					}
+				}
+				if newStatus != "" {
+					if err := h.storage.UpdateTodoStatus(todo.ID, newStatus, msg.sessionID); err != nil {
+						uiLog.Warn("pr_todo_status_err", slog.String("todo", todo.ID), slog.String("err", err.Error()))
+					}
+				}
+			}
+		}
 		return h, nil
 
 	case lazygitReadyMsg:
@@ -2861,6 +2896,11 @@ func (h *Home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			uiLog.Warn("worktree_finish_delete_err", slog.String("id", msg.sessionID), slog.String("err", err.Error()))
 		}
 		h.forceSaveInstances()
+
+		// Delete the todo linked to this session (worktree finish = work complete)
+		if err := h.storage.DeleteTodosForSession(msg.sessionID); err != nil {
+			uiLog.Warn("delete_todo_for_session_err", slog.String("session", msg.sessionID), slog.String("err", err.Error()))
+		}
 
 		// Show success message
 		h.setError(fmt.Errorf("Finished worktree '%s'", msg.sessionTitle))
@@ -3416,7 +3456,8 @@ func (h *Home) handleNewDialogKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case "esc":
 		h.newDialog.Hide()
-		h.clearError() // Clear any validation error
+		h.pendingTodoID = "" // Clear pending todo link on cancel
+		h.clearError()       // Clear any validation error
 		return h, nil
 	}
 
