@@ -1157,3 +1157,98 @@ func TestAttachSessionMouseModeConfig(t *testing.T) {
 		t.Error("MouseMode should be true when set")
 	}
 }
+
+func TestSessionRowShowsPRBadge(t *testing.T) {
+	home := NewHome()
+	home.width = 120
+	home.height = 30
+	home.initialLoading = false
+
+	// IsWorktree() returns true when WorktreePath != ""
+	inst := &session.Instance{
+		ID:               "pr-test-session",
+		Title:            "my-feature",
+		Tool:             "claude",
+		Status:           session.StatusIdle,
+		WorktreePath:     "/repo/.git/worktrees/my-feature",
+		WorktreeBranch:   "my-feature",
+		WorktreeRepoRoot: "/repo",
+	}
+	home.instancesMu.Lock()
+	home.instances = []*session.Instance{inst}
+	home.instanceByID[inst.ID] = inst
+	home.instancesMu.Unlock()
+	home.groupTree = session.NewGroupTree(home.instances)
+	home.rebuildFlatItems()
+
+	// Populate the PR cache as if gh pr view returned an open PR
+	home.prCacheMu.Lock()
+	home.prCache[inst.ID] = &prCacheEntry{
+		Number: 42,
+		Title:  "Add my feature",
+		State:  "OPEN",
+		URL:    "https://github.com/org/repo/pull/42",
+	}
+	home.prCacheMu.Unlock()
+
+	view := home.View()
+
+	if !strings.Contains(view, "[#42]") {
+		t.Errorf("expected session row to contain '[#42]', got:\n%s", view)
+	}
+}
+
+func TestSessionRowPRBadgeStates(t *testing.T) {
+	tests := []struct {
+		state     string
+		prNum     int
+		wantBadge string
+		wantShown bool
+	}{
+		{"OPEN", 10, "[#10]", true},
+		{"MERGED", 20, "[#20]", true},
+		{"CLOSED", 30, "[#30]", true},
+		{"DRAFT", 40, "[#40]", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.state, func(t *testing.T) {
+			home := NewHome()
+			home.width = 120
+			home.height = 30
+			home.initialLoading = false
+
+			inst := &session.Instance{
+				ID:               "pr-state-test",
+				Title:            "my-feature",
+				Tool:             "claude",
+				Status:           session.StatusIdle,
+				WorktreePath:     "/repo/.git/worktrees/my-feature",
+				WorktreeBranch:   "my-feature",
+				WorktreeRepoRoot: "/repo",
+			}
+			home.instancesMu.Lock()
+			home.instances = []*session.Instance{inst}
+			home.instanceByID[inst.ID] = inst
+			home.instancesMu.Unlock()
+			home.groupTree = session.NewGroupTree(home.instances)
+			home.rebuildFlatItems()
+
+			home.prCacheMu.Lock()
+			home.prCache[inst.ID] = &prCacheEntry{
+				Number: tt.prNum,
+				State:  tt.state,
+			}
+			home.prCacheMu.Unlock()
+
+			view := home.View()
+
+			if tt.wantShown && !strings.Contains(view, tt.wantBadge) {
+				t.Errorf("state=%s: expected badge %q in view, not found\nview:\n%s", tt.state, tt.wantBadge, view)
+			}
+			if !tt.wantShown && strings.Contains(view, tt.wantBadge) {
+				t.Errorf("state=%s: badge %q should not appear in view\nview:\n%s", tt.state, tt.wantBadge, view)
+			}
+		})
+	}
+}
