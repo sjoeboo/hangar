@@ -1158,46 +1158,6 @@ func TestAttachSessionMouseModeConfig(t *testing.T) {
 	}
 }
 
-func TestSessionRowShowsPRBadge(t *testing.T) {
-	home := NewHome()
-	home.width = 120
-	home.height = 30
-	home.initialLoading = false
-
-	// IsWorktree() returns true when WorktreePath != ""
-	inst := &session.Instance{
-		ID:               "pr-test-session",
-		Title:            "my-feature",
-		Tool:             "claude",
-		Status:           session.StatusIdle,
-		WorktreePath:     "/repo/.git/worktrees/my-feature",
-		WorktreeBranch:   "my-feature",
-		WorktreeRepoRoot: "/repo",
-	}
-	home.instancesMu.Lock()
-	home.instances = []*session.Instance{inst}
-	home.instanceByID[inst.ID] = inst
-	home.instancesMu.Unlock()
-	home.groupTree = session.NewGroupTree(home.instances)
-	home.rebuildFlatItems()
-
-	// Populate the PR cache as if gh pr view returned an open PR
-	home.prCacheMu.Lock()
-	home.prCache[inst.ID] = &prCacheEntry{
-		Number: 42,
-		Title:  "Add my feature",
-		State:  "OPEN",
-		URL:    "https://github.com/org/repo/pull/42",
-	}
-	home.prCacheMu.Unlock()
-
-	view := home.View()
-
-	if !strings.Contains(view, "[#42]") {
-		t.Errorf("expected session row to contain '[#42]', got:\n%s", view)
-	}
-}
-
 func TestSessionRowPRBadgeStates(t *testing.T) {
 	tests := []struct {
 		state     string
@@ -1251,4 +1211,35 @@ func TestSessionRowPRBadgeStates(t *testing.T) {
 			}
 		})
 	}
+
+	// Non-worktree sessions must not show a badge even if a cache entry exists
+	t.Run("non-worktree session ignores cache entry", func(t *testing.T) {
+		home := NewHome()
+		home.width = 120
+		home.height = 30
+		home.initialLoading = false
+
+		inst := &session.Instance{
+			ID:     "plain-session",
+			Title:  "plain-session",
+			Tool:   "claude",
+			Status: session.StatusIdle,
+			// WorktreePath intentionally empty — IsWorktree() returns false
+		}
+		home.instancesMu.Lock()
+		home.instances = []*session.Instance{inst}
+		home.instanceByID[inst.ID] = inst
+		home.instancesMu.Unlock()
+		home.groupTree = session.NewGroupTree(home.instances)
+		home.rebuildFlatItems()
+
+		home.prCacheMu.Lock()
+		home.prCache[inst.ID] = &prCacheEntry{Number: 99, State: "OPEN"}
+		home.prCacheMu.Unlock()
+
+		view := home.View()
+		if strings.Contains(view, "[#99]") {
+			t.Errorf("non-worktree session should not render PR badge, but found [#99] in view:\n%s", view)
+		}
+	})
 }
