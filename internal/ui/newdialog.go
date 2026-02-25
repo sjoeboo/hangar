@@ -159,9 +159,14 @@ func (d *NewDialog) ShowInGroup(groupPath, groupName, defaultPath string) {
 }
 
 // ShowInGroupWithWorktree shows the dialog with worktree mode pre-enabled and a branch name pre-filled.
+// The project is locked to defaultPath — the project picker step is skipped entirely.
 // Used when creating a session from a todo item.
 func (d *NewDialog) ShowInGroupWithWorktree(groupPath, groupName, defaultPath, branchName string) {
 	d.ShowInGroup(groupPath, groupName, defaultPath)
+	// Skip project picker — project is determined by the todo's scope.
+	d.projectStep = false
+	d.projectSelected = true
+	d.nameInput.Focus()
 	d.worktreeEnabled = true
 	d.branchInput.SetValue(branchName)
 	d.branchAutoSet = true
