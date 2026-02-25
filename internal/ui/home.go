@@ -4064,7 +4064,7 @@ func (h *Home) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				h.prCacheMu.Lock()
 				pr, hasPR := h.prCache[item.Session.ID]
 				h.prCacheMu.Unlock()
-				if hasPR && pr.URL != "" {
+				if hasPR && pr != nil && pr.URL != "" {
 					exec.Command("open", pr.URL).Start() //nolint:errcheck
 				}
 			}
@@ -6399,7 +6399,7 @@ func (h *Home) renderHelpBarCompact() string {
 				h.prCacheMu.Lock()
 				pr, hasPR := h.prCache[item.Session.ID]
 				h.prCacheMu.Unlock()
-				if hasPR && pr.URL != "" {
+				if hasPR && pr != nil && pr.URL != "" {
 					contextHints = append(contextHints, h.helpKeyShort("o", "PR"))
 				}
 			}
@@ -6492,7 +6492,7 @@ func (h *Home) renderHelpBarFull() string {
 				h.prCacheMu.Lock()
 				pr, hasPR := h.prCache[item.Session.ID]
 				h.prCacheMu.Unlock()
-				if hasPR && pr.URL != "" {
+				if hasPR && pr != nil && pr.URL != "" {
 					primaryHints = append(primaryHints, h.helpKey("o", "Open PR"))
 				}
 			}
