@@ -97,7 +97,7 @@ func NewNewDialog() *NewDialog {
 		focusIndex:      0,
 		visible:         false,
 		presetCommands:  buildPresetCommands(),
-		commandCursor:   0,
+		commandCursor:   1, // default to claude
 		parentGroupPath: "default",
 		parentGroupName: "default",
 		worktreeEnabled: false,
