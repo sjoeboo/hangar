@@ -142,6 +142,8 @@ type Home struct {
 	geminiModelDialog    *GeminiModelDialog    // For selecting Gemini model
 	sessionPickerDialog  *SessionPickerDialog  // For sending output to another session
 	worktreeFinishDialog *WorktreeFinishDialog // For finishing worktree sessions (optional merge + cleanup)
+	todoDialog           *TodoDialog           // For viewing/managing per-project todos
+	pendingTodoID        string                // Todo ID waiting for a session to be created from it
 	sendTextDialog       *SendTextDialog       // For sending text to a session without attaching
 	sendTextTargetID     string                // Session ID targeted by sendTextDialog
 
@@ -522,6 +524,7 @@ func NewHomeWithProfileAndMode(profile string) *Home {
 		geminiModelDialog:    NewGeminiModelDialog(),
 		sessionPickerDialog:  NewSessionPickerDialog(),
 		worktreeFinishDialog: NewWorktreeFinishDialog(),
+		todoDialog:           NewTodoDialog(),
 		sendTextDialog:       NewSendTextDialog(),
 		cursor:               0,
 		initialLoading:       true, // Show splash until sessions load
@@ -3131,6 +3134,9 @@ func (h *Home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if h.sendTextDialog.IsVisible() {
 			return h.handleSendTextDialogKey(msg)
 		}
+		if h.todoDialog.IsVisible() {
+			return h.handleTodoDialogKey(msg)
+		}
 		if h.worktreeFinishDialog.IsVisible() {
 			return h.handleWorktreeFinishDialogKey(msg)
 		}
@@ -3435,7 +3441,8 @@ func (h *Home) handleMouseMsg(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 		h.groupDialog.IsVisible() || h.forkDialog.IsVisible() ||
 		h.confirmDialog.IsVisible() || h.geminiModelDialog.IsVisible() ||
 		h.sessionPickerDialog.IsVisible() || h.sendTextDialog.IsVisible() ||
-		h.worktreeFinishDialog.IsVisible() {
+		h.worktreeFinishDialog.IsVisible() ||
+		h.todoDialog.IsVisible() {
 		return h, nil
 	}
 
@@ -4102,6 +4109,10 @@ func (h *Home) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 		}
 		return h, nil
+
+	case "t":
+		// Open todos view for the current project
+		return h, h.showTodoDialog()
 
 	case "ctrl+g":
 		// Open Gemini model selection dialog (only for Gemini sessions)
@@ -5367,6 +5378,7 @@ func (h *Home) updateSizes() {
 	h.geminiModelDialog.SetSize(h.width, h.height)
 	h.worktreeFinishDialog.SetSize(h.width, h.height)
 	h.sendTextDialog.SetSize(h.width, h.height)
+	h.todoDialog.SetSize(h.width, h.height)
 }
 
 // View renders the UI
@@ -5449,6 +5461,9 @@ func (h *Home) View() string {
 	}
 	if h.worktreeFinishDialog.IsVisible() {
 		return h.worktreeFinishDialog.View()
+	}
+	if h.todoDialog.IsVisible() {
+		return h.todoDialog.View()
 	}
 
 	// Reuse viewBuilder to reduce allocations (reset and pre-allocate)
@@ -8657,4 +8672,119 @@ func getSessionContent(inst *session.Instance) (string, error) {
 	}
 
 	return content, nil
+}
+
+// showTodoDialog loads todos for the project of the currently selected item and opens the dialog.
+func (h *Home) showTodoDialog() tea.Cmd {
+	if h.cursor >= len(h.flatItems) {
+		return nil
+	}
+	item := h.flatItems[h.cursor]
+	var projectPath string
+	if item.Type == session.ItemTypeSession && item.Session != nil {
+		if item.Session.WorktreeRepoRoot != "" {
+			projectPath = item.Session.WorktreeRepoRoot
+		} else {
+			projectPath = item.Session.ProjectPath
+		}
+	} else if item.Type == session.ItemTypeGroup && item.Group != nil {
+		projectPath = h.getDefaultPathForGroup(item.Group.Path)
+	}
+	if projectPath == "" {
+		return nil
+	}
+	todos, err := h.storage.LoadTodos(projectPath)
+	if err != nil {
+		h.setError(fmt.Errorf("load todos: %w", err))
+		return nil
+	}
+	h.todoDialog.SetSize(h.width, h.height)
+	h.todoDialog.Show(projectPath, todos)
+	return nil
+}
+
+// handleTodoDialogKey processes key events for the todo dialog.
+func (h *Home) handleTodoDialogKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	action := h.todoDialog.HandleKey(msg)
+	switch action {
+	case TodoActionClose:
+		h.todoDialog.Hide()
+
+	case TodoActionSaveTodo:
+		title, desc, editingID := h.todoDialog.GetFormValues()
+		projectPath := h.todoDialog.projectPath
+		if editingID == "" {
+			todo := session.NewTodo(title, desc, projectPath)
+			if err := h.storage.SaveTodo(todo); err != nil {
+				h.setError(fmt.Errorf("save todo: %w", err))
+				return h, nil
+			}
+		} else {
+			todos, _ := h.storage.LoadTodos(projectPath)
+			for _, t := range todos {
+				if t.ID == editingID {
+					t.Title = title
+					t.Description = desc
+					if err := h.storage.SaveTodo(t); err != nil {
+						h.setError(fmt.Errorf("update todo: %w", err))
+						return h, nil
+					}
+					break
+				}
+			}
+		}
+		todos, _ := h.storage.LoadTodos(projectPath)
+		h.todoDialog.SetTodos(todos)
+		h.todoDialog.ResetFormToList()
+
+	case TodoActionDeleteTodo:
+		todo := h.todoDialog.SelectedTodo()
+		if todo != nil {
+			if err := h.storage.DeleteTodo(todo.ID); err != nil {
+				h.setError(fmt.Errorf("delete todo: %w", err))
+				return h, nil
+			}
+			todos, _ := h.storage.LoadTodos(h.todoDialog.projectPath)
+			h.todoDialog.SetTodos(todos)
+		}
+
+	case TodoActionUpdateStatus:
+		todo := h.todoDialog.SelectedTodo()
+		if todo != nil {
+			newStatus := h.todoDialog.GetPickedStatus()
+			if err := h.storage.UpdateTodoStatus(todo.ID, newStatus, todo.SessionID); err != nil {
+				h.setError(fmt.Errorf("update status: %w", err))
+				return h, nil
+			}
+			todos, _ := h.storage.LoadTodos(h.todoDialog.projectPath)
+			h.todoDialog.SetTodos(todos)
+		}
+
+	case TodoActionCreateSession:
+		todo := h.todoDialog.SelectedTodo()
+		if todo == nil {
+			return h, nil
+		}
+		if todo.SessionID != "" {
+			// Already linked to a session — attach to it
+			h.todoDialog.Hide()
+			h.instancesMu.RLock()
+			inst := h.instanceByID[todo.SessionID]
+			h.instancesMu.RUnlock()
+			if inst != nil {
+				return h, h.attachSession(inst)
+			}
+			return h, nil
+		}
+		// Create new session+worktree for this todo
+		projectPath := h.todoDialog.projectPath
+		groupPath := session.DefaultGroupPath
+		groupName := session.DefaultGroupName
+		branchName := TodoBranchName(todo.Title)
+		h.pendingTodoID = todo.ID
+		h.todoDialog.Hide()
+		h.newDialog.ShowInGroupWithWorktree(groupPath, groupName, projectPath, branchName)
+		return h, nil
+	}
+	return h, nil
 }

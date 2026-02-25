@@ -158,6 +158,15 @@ func (d *NewDialog) ShowInGroup(groupPath, groupName, defaultPath string) {
 	}
 }
 
+// ShowInGroupWithWorktree shows the dialog with worktree mode pre-enabled and a branch name pre-filled.
+// Used when creating a session from a todo item.
+func (d *NewDialog) ShowInGroupWithWorktree(groupPath, groupName, defaultPath, branchName string) {
+	d.ShowInGroup(groupPath, groupName, defaultPath)
+	d.worktreeEnabled = true
+	d.branchInput.SetValue(branchName)
+	d.branchAutoSet = true
+}
+
 // refreshProjectList loads current projects and rebuilds d.projectList.
 // The last item is always "Enter path manually".
 func (d *NewDialog) refreshProjectList() {
