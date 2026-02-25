@@ -95,7 +95,7 @@ func (d *TodoDialog) SetSize(w, h int) {
 // SetTodos replaces the current todo list (used after reloads).
 func (d *TodoDialog) SetTodos(todos []*session.Todo) {
 	d.todos = todos
-	if d.cursor >= len(d.todos) && len(d.todos) > 0 {
+	if len(d.todos) > 0 && d.cursor >= len(d.todos) {
 		d.cursor = len(d.todos) - 1
 	}
 }
@@ -190,14 +190,14 @@ func (d *TodoDialog) GetPickedStatus() session.TodoStatus {
 }
 
 // HandleKey processes a keypress and returns the action the caller should take.
-func (d *TodoDialog) HandleKey(msg tea.KeyMsg) TodoAction {
+func (d *TodoDialog) HandleKey(key string) TodoAction {
 	switch d.mode {
 	case todoModeList:
-		return d.handleListKey(msg.String())
+		return d.handleListKey(key)
 	case todoModeNew, todoModeEdit:
-		return d.handleFormKey(msg)
+		return d.handleFormKey(key)
 	case todoModeStatus:
-		return d.handleStatusKey(msg.String())
+		return d.handleStatusKey(key)
 	}
 	return TodoActionNone
 }
@@ -231,23 +231,18 @@ func (d *TodoDialog) handleListKey(key string) TodoAction {
 		if t == nil {
 			return TodoActionNone
 		}
-		if t.Status == session.TodoStatusTodo {
-			return TodoActionCreateSession
-		}
-		// For in_progress/in_review: attach to session (handled by caller using t.SessionID)
-		if t.SessionID != "" {
-			return TodoActionCreateSession // caller checks status to distinguish
-		}
+		// todo status with no session: create new session+worktree
+		// any other status or linked session: attach/handle
+		return TodoActionCreateSession
 	case "esc", "t":
 		return TodoActionClose
 	}
 	return TodoActionNone
 }
 
-func (d *TodoDialog) handleFormKey(msg tea.KeyMsg) TodoAction {
-	key := msg.String()
+func (d *TodoDialog) handleFormKey(key string) TodoAction {
 	switch key {
-	case "tab", "shift+tab":
+	case "tab":
 		if d.formFocus == 0 {
 			d.formFocus = 1
 			d.titleInput.Blur()
@@ -268,11 +263,10 @@ func (d *TodoDialog) handleFormKey(msg tea.KeyMsg) TodoAction {
 		d.mode = todoModeList
 		d.errorMsg = ""
 	default:
-		// Delegate to the focused textinput for character input, backspace, arrows, etc.
 		if d.formFocus == 0 {
-			d.titleInput, _ = d.titleInput.Update(msg)
+			d.titleInput, _ = d.titleInput.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(key)})
 		} else {
-			d.descInput, _ = d.descInput.Update(msg)
+			d.descInput, _ = d.descInput.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(key)})
 		}
 	}
 	return TodoActionNone
