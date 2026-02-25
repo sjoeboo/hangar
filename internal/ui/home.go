@@ -8720,7 +8720,11 @@ func (h *Home) handleTodoDialogKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				return h, nil
 			}
 		} else {
-			todos, _ := h.storage.LoadTodos(projectPath)
+			todos, err := h.storage.LoadTodos(projectPath)
+			if err != nil {
+				h.setError(fmt.Errorf("reload todos: %w", err))
+				return h, nil
+			}
 			for _, t := range todos {
 				if t.ID == editingID {
 					t.Title = title
@@ -8733,7 +8737,11 @@ func (h *Home) handleTodoDialogKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				}
 			}
 		}
-		todos, _ := h.storage.LoadTodos(projectPath)
+		todos, err := h.storage.LoadTodos(projectPath)
+		if err != nil {
+			h.setError(fmt.Errorf("reload todos: %w", err))
+			return h, nil
+		}
 		h.todoDialog.SetTodos(todos)
 		h.todoDialog.ResetFormToList()
 
@@ -8744,7 +8752,11 @@ func (h *Home) handleTodoDialogKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				h.setError(fmt.Errorf("delete todo: %w", err))
 				return h, nil
 			}
-			todos, _ := h.storage.LoadTodos(h.todoDialog.projectPath)
+			todos, err := h.storage.LoadTodos(h.todoDialog.projectPath)
+			if err != nil {
+				h.setError(fmt.Errorf("reload todos: %w", err))
+				return h, nil
+			}
 			h.todoDialog.SetTodos(todos)
 		}
 
@@ -8756,7 +8768,11 @@ func (h *Home) handleTodoDialogKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				h.setError(fmt.Errorf("update status: %w", err))
 				return h, nil
 			}
-			todos, _ := h.storage.LoadTodos(h.todoDialog.projectPath)
+			todos, err := h.storage.LoadTodos(h.todoDialog.projectPath)
+			if err != nil {
+				h.setError(fmt.Errorf("reload todos: %w", err))
+				return h, nil
+			}
 			h.todoDialog.SetTodos(todos)
 		}
 
