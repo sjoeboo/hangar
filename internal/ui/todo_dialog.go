@@ -1,0 +1,489 @@
+package ui
+
+import (
+	"fmt"
+	"strings"
+
+	"ghe.spotify.net/mnicholson/hangar/internal/git"
+	"ghe.spotify.net/mnicholson/hangar/internal/session"
+	"github.com/charmbracelet/bubbles/textinput"
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
+)
+
+// todoDialogMode controls which sub-view is active.
+type todoDialogMode int
+
+const (
+	todoModeList   todoDialogMode = iota
+	todoModeNew                   // new-todo form
+	todoModeEdit                  // edit-todo form
+	todoModeStatus                // status picker
+)
+
+// TodoDialog shows and manages todos for a project.
+type TodoDialog struct {
+	visible     bool
+	width       int
+	height      int
+	projectPath string
+	todos       []*session.Todo
+	cursor      int
+	mode        todoDialogMode
+	errorMsg    string
+
+	// new/edit form fields
+	titleInput textinput.Model
+	descInput  textinput.Model
+	formFocus  int    // 0=title, 1=desc
+	editingID  string // non-empty when editing
+
+	// status picker
+	statusOptions []session.TodoStatus
+	statusCursor  int
+}
+
+// NewTodoDialog creates a new TodoDialog.
+func NewTodoDialog() *TodoDialog {
+	titleInput := textinput.New()
+	titleInput.Placeholder = "Todo title"
+	titleInput.CharLimit = 120
+	titleInput.Width = 50
+
+	descInput := textinput.New()
+	descInput.Placeholder = "Description (optional)"
+	descInput.CharLimit = 500
+	descInput.Width = 50
+
+	return &TodoDialog{
+		titleInput: titleInput,
+		descInput:  descInput,
+		statusOptions: []session.TodoStatus{
+			session.TodoStatusTodo,
+			session.TodoStatusInProgress,
+			session.TodoStatusInReview,
+			session.TodoStatusDone,
+			session.TodoStatusOrphaned,
+		},
+	}
+}
+
+// IsVisible returns true if the dialog is open.
+func (d *TodoDialog) IsVisible() bool { return d.visible }
+
+// Show opens the dialog for the given project path with the given todos.
+func (d *TodoDialog) Show(projectPath string, todos []*session.Todo) {
+	d.visible = true
+	d.projectPath = projectPath
+	d.todos = todos
+	d.cursor = 0
+	d.mode = todoModeList
+	d.errorMsg = ""
+}
+
+// Hide closes the dialog.
+func (d *TodoDialog) Hide() { d.visible = false }
+
+// SetSize updates dimensions.
+func (d *TodoDialog) SetSize(w, h int) {
+	d.width = w
+	d.height = h
+	d.titleInput.Width = w/2 - 6
+	d.descInput.Width = w/2 - 6
+}
+
+// SetTodos replaces the current todo list (used after reloads).
+func (d *TodoDialog) SetTodos(todos []*session.Todo) {
+	d.todos = todos
+	if d.cursor >= len(d.todos) && len(d.todos) > 0 {
+		d.cursor = len(d.todos) - 1
+	}
+}
+
+// SelectedTodo returns the currently selected todo, or nil.
+func (d *TodoDialog) SelectedTodo() *session.Todo {
+	if len(d.todos) == 0 || d.cursor >= len(d.todos) {
+		return nil
+	}
+	return d.todos[d.cursor]
+}
+
+// todoStatusIcon returns the icon string for a given status.
+func todoStatusIcon(status session.TodoStatus) string {
+	switch status {
+	case session.TodoStatusTodo:
+		return "○"
+	case session.TodoStatusInProgress:
+		return "●"
+	case session.TodoStatusInReview:
+		return "⟳"
+	case session.TodoStatusDone:
+		return "✓"
+	case session.TodoStatusOrphaned:
+		return "!"
+	default:
+		return "○"
+	}
+}
+
+// todoStatusLabel returns display label for a status.
+func todoStatusLabel(status session.TodoStatus) string {
+	switch status {
+	case session.TodoStatusTodo:
+		return "todo"
+	case session.TodoStatusInProgress:
+		return "in progress"
+	case session.TodoStatusInReview:
+		return "in review"
+	case session.TodoStatusDone:
+		return "done"
+	case session.TodoStatusOrphaned:
+		return "orphaned"
+	default:
+		return string(status)
+	}
+}
+
+// todoStatusStyle returns a lipgloss style for the icon/label.
+func todoStatusStyle(status session.TodoStatus) lipgloss.Style {
+	switch status {
+	case session.TodoStatusTodo:
+		return lipgloss.NewStyle().Foreground(lipgloss.Color("#7a8a9a"))
+	case session.TodoStatusInProgress:
+		return lipgloss.NewStyle().Foreground(lipgloss.Color("#5fd7ff"))
+	case session.TodoStatusInReview:
+		return lipgloss.NewStyle().Foreground(lipgloss.Color("#ffd75f"))
+	case session.TodoStatusDone:
+		return lipgloss.NewStyle().Foreground(lipgloss.Color("#5faf5f"))
+	case session.TodoStatusOrphaned:
+		return lipgloss.NewStyle().Foreground(lipgloss.Color("#ff5f5f"))
+	default:
+		return lipgloss.NewStyle()
+	}
+}
+
+// TodoAction is returned by HandleKey to signal what the caller should do.
+type TodoAction int
+
+const (
+	TodoActionNone          TodoAction = iota
+	TodoActionClose                    // user pressed esc/t in list mode
+	TodoActionCreateSession            // create session+worktree from selected todo
+	TodoActionSaveTodo                 // save new/edited todo (caller reads GetFormValues)
+	TodoActionDeleteTodo               // delete selected todo
+	TodoActionUpdateStatus             // update status of selected todo (caller reads GetPickedStatus)
+)
+
+// GetFormValues returns the title, description, and editing ID after TodoActionSaveTodo.
+func (d *TodoDialog) GetFormValues() (title, description, editingID string) {
+	return strings.TrimSpace(d.titleInput.Value()),
+		strings.TrimSpace(d.descInput.Value()),
+		d.editingID
+}
+
+// GetPickedStatus returns the status chosen in the status picker.
+func (d *TodoDialog) GetPickedStatus() session.TodoStatus {
+	if d.statusCursor < len(d.statusOptions) {
+		return d.statusOptions[d.statusCursor]
+	}
+	return session.TodoStatusTodo
+}
+
+// HandleKey processes a keypress and returns the action the caller should take.
+func (d *TodoDialog) HandleKey(msg tea.KeyMsg) TodoAction {
+	switch d.mode {
+	case todoModeList:
+		return d.handleListKey(msg.String())
+	case todoModeNew, todoModeEdit:
+		return d.handleFormKey(msg)
+	case todoModeStatus:
+		return d.handleStatusKey(msg.String())
+	}
+	return TodoActionNone
+}
+
+func (d *TodoDialog) handleListKey(key string) TodoAction {
+	switch key {
+	case "up", "k":
+		if d.cursor > 0 {
+			d.cursor--
+		}
+	case "down", "j":
+		if d.cursor < len(d.todos)-1 {
+			d.cursor++
+		}
+	case "n":
+		d.openNewForm()
+	case "e":
+		if t := d.SelectedTodo(); t != nil {
+			d.openEditForm(t)
+		}
+	case "d":
+		if d.SelectedTodo() != nil {
+			return TodoActionDeleteTodo
+		}
+	case "s":
+		if t := d.SelectedTodo(); t != nil {
+			d.openStatusPicker(t)
+		}
+	case "enter":
+		t := d.SelectedTodo()
+		if t == nil {
+			return TodoActionNone
+		}
+		if t.Status == session.TodoStatusTodo {
+			return TodoActionCreateSession
+		}
+		// For in_progress/in_review: attach to session (handled by caller using t.SessionID)
+		if t.SessionID != "" {
+			return TodoActionCreateSession // caller checks status to distinguish
+		}
+	case "esc", "t":
+		return TodoActionClose
+	}
+	return TodoActionNone
+}
+
+func (d *TodoDialog) handleFormKey(msg tea.KeyMsg) TodoAction {
+	key := msg.String()
+	switch key {
+	case "tab", "shift+tab":
+		if d.formFocus == 0 {
+			d.formFocus = 1
+			d.titleInput.Blur()
+			d.descInput.Focus()
+		} else {
+			d.formFocus = 0
+			d.descInput.Blur()
+			d.titleInput.Focus()
+		}
+	case "enter":
+		title := strings.TrimSpace(d.titleInput.Value())
+		if title == "" {
+			d.errorMsg = "Title is required"
+			return TodoActionNone
+		}
+		return TodoActionSaveTodo
+	case "esc":
+		d.mode = todoModeList
+		d.errorMsg = ""
+	default:
+		// Delegate to the focused textinput for character input, backspace, arrows, etc.
+		if d.formFocus == 0 {
+			d.titleInput, _ = d.titleInput.Update(msg)
+		} else {
+			d.descInput, _ = d.descInput.Update(msg)
+		}
+	}
+	return TodoActionNone
+}
+
+func (d *TodoDialog) handleStatusKey(key string) TodoAction {
+	switch key {
+	case "up", "k":
+		if d.statusCursor > 0 {
+			d.statusCursor--
+		}
+	case "down", "j":
+		if d.statusCursor < len(d.statusOptions)-1 {
+			d.statusCursor++
+		}
+	case "enter":
+		d.mode = todoModeList
+		return TodoActionUpdateStatus
+	case "esc":
+		d.mode = todoModeList
+	}
+	return TodoActionNone
+}
+
+func (d *TodoDialog) openNewForm() {
+	d.mode = todoModeNew
+	d.editingID = ""
+	d.titleInput.SetValue("")
+	d.descInput.SetValue("")
+	d.formFocus = 0
+	d.titleInput.Focus()
+	d.descInput.Blur()
+	d.errorMsg = ""
+}
+
+func (d *TodoDialog) openEditForm(t *session.Todo) {
+	d.mode = todoModeEdit
+	d.editingID = t.ID
+	d.titleInput.SetValue(t.Title)
+	d.descInput.SetValue(t.Description)
+	d.formFocus = 0
+	d.titleInput.Focus()
+	d.descInput.Blur()
+	d.errorMsg = ""
+}
+
+func (d *TodoDialog) openStatusPicker(t *session.Todo) {
+	d.mode = todoModeStatus
+	// Pre-select current status
+	for i, s := range d.statusOptions {
+		if s == t.Status {
+			d.statusCursor = i
+			break
+		}
+	}
+}
+
+// ResetFormToList returns dialog to list mode (call after successful save/update).
+func (d *TodoDialog) ResetFormToList() {
+	d.mode = todoModeList
+	d.errorMsg = ""
+}
+
+// View renders the dialog.
+func (d *TodoDialog) View() string {
+	if !d.visible {
+		return ""
+	}
+	switch d.mode {
+	case todoModeNew, todoModeEdit:
+		return d.viewForm()
+	case todoModeStatus:
+		return d.viewStatusPicker()
+	default:
+		return d.viewList()
+	}
+}
+
+func (d *TodoDialog) viewList() string {
+	borderStyle := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color("#5fd7ff")).
+		Padding(0, 1).
+		Width(d.width - 4).
+		MaxHeight(d.height - 4)
+
+	projectName := d.projectPath
+	if idx := strings.LastIndex(projectName, "/"); idx >= 0 {
+		projectName = projectName[idx+1:]
+	}
+
+	header := lipgloss.NewStyle().Bold(true).Render(
+		fmt.Sprintf("%s  [%d todos]", projectName, len(d.todos)),
+	)
+
+	var rows []string
+	if len(d.todos) == 0 {
+		rows = append(rows, lipgloss.NewStyle().Foreground(lipgloss.Color("#7a8a9a")).Render("  No todos yet. Press n to add one."))
+	}
+
+	innerWidth := d.width - 10
+	for i, t := range d.todos {
+		statusSt := todoStatusStyle(t.Status)
+		icon := statusSt.Render(todoStatusIcon(t.Status))
+		label := statusSt.Render(todoStatusLabel(t.Status))
+
+		titleCol := t.Title
+		if len(titleCol) > innerWidth-15 {
+			titleCol = titleCol[:innerWidth-18] + "..."
+		}
+
+		gap := innerWidth - len(titleCol) - len(todoStatusLabel(t.Status)) - 4
+		if gap < 1 {
+			gap = 1
+		}
+		line := fmt.Sprintf(" %s %s%s%s", icon, titleCol, strings.Repeat(" ", gap), label)
+
+		if i == d.cursor {
+			line = lipgloss.NewStyle().
+				Background(lipgloss.Color("#2a3a4a")).
+				Foreground(lipgloss.Color("#ffffff")).
+				Render(line)
+		}
+		rows = append(rows, line)
+
+		// Show session hint for linked todos
+		if t.SessionID != "" {
+			hint := "   └─ session linked"
+			rows = append(rows, lipgloss.NewStyle().Foreground(lipgloss.Color("#5a6a7a")).Render(hint))
+		}
+	}
+
+	hint := lipgloss.NewStyle().Foreground(lipgloss.Color("#5a6a7a")).Render(
+		"n new  enter open  s status  e edit  d delete  esc close",
+	)
+
+	content := strings.Join(append([]string{header, ""}, append(rows, "", hint)...), "\n")
+	return lipgloss.Place(d.width, d.height, lipgloss.Center, lipgloss.Center,
+		borderStyle.Render(content))
+}
+
+func (d *TodoDialog) viewForm() string {
+	title := "New Todo"
+	if d.mode == todoModeEdit {
+		title = "Edit Todo"
+	}
+
+	borderStyle := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color("#5fd7ff")).
+		Padding(1, 2).
+		Width(60)
+
+	header := lipgloss.NewStyle().Bold(true).Render(title)
+
+	titleLabel := "Title:"
+	descLabel := "Description:"
+	if d.formFocus == 0 {
+		titleLabel = lipgloss.NewStyle().Foreground(lipgloss.Color("#5fd7ff")).Render("Title:")
+	} else {
+		descLabel = lipgloss.NewStyle().Foreground(lipgloss.Color("#5fd7ff")).Render("Description:")
+	}
+
+	var errLine string
+	if d.errorMsg != "" {
+		errLine = "\n" + lipgloss.NewStyle().Foreground(lipgloss.Color("#ff5f5f")).Render(d.errorMsg)
+	}
+
+	hint := lipgloss.NewStyle().Foreground(lipgloss.Color("#5a6a7a")).Render("tab switch  enter save  esc cancel")
+
+	content := fmt.Sprintf("%s\n\n%s\n%s\n\n%s\n%s%s\n\n%s",
+		header,
+		titleLabel, d.titleInput.View(),
+		descLabel, d.descInput.View(),
+		errLine, hint,
+	)
+
+	return lipgloss.Place(d.width, d.height, lipgloss.Center, lipgloss.Center,
+		borderStyle.Render(content))
+}
+
+func (d *TodoDialog) viewStatusPicker() string {
+	borderStyle := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color("#5fd7ff")).
+		Padding(1, 2).
+		Width(30)
+
+	header := lipgloss.NewStyle().Bold(true).Render("Change Status")
+
+	var rows []string
+	for i, s := range d.statusOptions {
+		st := todoStatusStyle(s)
+		line := fmt.Sprintf(" %s %s", st.Render(todoStatusIcon(s)), todoStatusLabel(s))
+		if i == d.statusCursor {
+			line = lipgloss.NewStyle().
+				Background(lipgloss.Color("#2a3a4a")).
+				Render(line)
+		}
+		rows = append(rows, line)
+	}
+
+	hint := lipgloss.NewStyle().Foreground(lipgloss.Color("#5a6a7a")).Render("↑↓ move  enter select  esc cancel")
+	content := header + "\n\n" + strings.Join(rows, "\n") + "\n\n" + hint
+
+	return lipgloss.Place(d.width, d.height, lipgloss.Center, lipgloss.Center,
+		borderStyle.Render(content))
+}
+
+// TodoBranchName converts a todo title to a git branch name.
+func TodoBranchName(title string) string {
+	lower := strings.ToLower(title)
+	return git.SanitizeBranchName(lower)
+}
