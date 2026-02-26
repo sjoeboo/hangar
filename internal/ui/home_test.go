@@ -1614,6 +1614,16 @@ func TestBulkSelectMode_VKeyToggle(t *testing.T) {
 	if len(h.selectedSessionIDs) != 0 {
 		t.Error("selectedSessionIDs should be cleared on exit")
 	}
+
+	// Re-enter bulk mode — selectedSessionIDs should still be non-nil
+	model, _ = h.Update(msg)
+	h = model.(*Home)
+	if !h.bulkSelectMode {
+		t.Error("V should re-enter bulk select mode")
+	}
+	if h.selectedSessionIDs == nil {
+		t.Error("selectedSessionIDs should be non-nil on re-entry")
+	}
 }
 
 func TestBulkSelectMode_EscExits(t *testing.T) {

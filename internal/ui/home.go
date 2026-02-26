@@ -4371,6 +4371,7 @@ func (h *Home) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			h.selectedSessionIDs = make(map[string]bool)
 		} else {
 			h.bulkSelectMode = true
+			h.selectedSessionIDs = make(map[string]bool)
 		}
 		return h, nil
 
