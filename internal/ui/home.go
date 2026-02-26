@@ -154,6 +154,9 @@ type Home struct {
 	isAttaching    atomic.Bool    // Prevents View() output during attach (fixes Bubble Tea Issue #431) - atomic for thread safety
 	statusFilter   session.Status // Filter sessions by status ("" = all, or specific status)
 	sortMode       string         // "" = default, "status" = running→waiting→idle
+	// PR overview view
+	viewMode     string // "" or "sessions" = normal, "prs" = PR overview full-screen
+	prViewCursor int    // cursor position within PR overview list
 	err            error
 	errTime        time.Time  // When error occurred (for auto-dismiss)
 	isReloading    bool       // Visual feedback during auto-reload
@@ -345,6 +348,21 @@ func (h *Home) getLayoutMode() string {
 	default:
 		return LayoutModeDual
 	}
+}
+
+// prViewSessions returns sessions that have a non-nil PR cache entry, in flatItems order.
+func (h *Home) prViewSessions() []*session.Instance {
+	h.prCacheMu.Lock()
+	defer h.prCacheMu.Unlock()
+	var result []*session.Instance
+	for _, item := range h.flatItems {
+		if item.Type == session.ItemTypeSession && item.Session != nil {
+			if pr, ok := h.prCache[item.Session.ID]; ok && pr != nil {
+				result = append(result, item.Session)
+			}
+		}
+	}
+	return result
 }
 
 // Messages
