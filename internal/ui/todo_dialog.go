@@ -635,6 +635,43 @@ func wordWrapText(text string, width, maxLines int) string {
 	return strings.Join(result, "\n")
 }
 
+// renderDetailPanel renders the description box for the currently selected todo.
+// innerW is the usable content width (same value used for the kanban columns).
+// Returns an empty string if no todo is selected.
+func (d *TodoDialog) renderDetailPanel(innerW int) string {
+	t := d.SelectedTodo()
+	if t == nil {
+		return ""
+	}
+
+	label := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("#5a6a7a")).
+		Render("description")
+
+	var body string
+	if t.Description == "" {
+		body = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#3a4a5a")).
+			Render("no description")
+	} else {
+		textWidth := innerW - 4 // reserve space for border(2) + padding(2)
+		if textWidth < 10 {
+			textWidth = 10
+		}
+		wrapped := wordWrapText(t.Description, textWidth, 3)
+		body = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#c0ccd8")).
+			Render(wrapped)
+	}
+
+	return lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color("#3a4a5a")).
+		Padding(0, 1).
+		Width(innerW).
+		Render(label + "\n" + body)
+}
+
 func (d *TodoDialog) viewKanban() string {
 	borderStyle := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).

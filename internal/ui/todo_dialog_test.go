@@ -398,6 +398,44 @@ func TestTodoDialog_ViewKanban_TruncatesUnicodeTitle(t *testing.T) {
 	}
 }
 
+func TestRenderDetailPanel(t *testing.T) {
+	t.Run("no selected todo returns empty string", func(t *testing.T) {
+		d := NewTodoDialog()
+		d.SetSize(80, 40)
+		// No Show() called — SelectedTodo() returns nil
+		got := d.renderDetailPanel(70)
+		if got != "" {
+			t.Errorf("expected empty string for nil selection, got %q", got)
+		}
+	})
+
+	t.Run("shows description text when present", func(t *testing.T) {
+		d := NewTodoDialog()
+		d.SetSize(80, 40)
+		todos := []*session.Todo{
+			{ID: "1", Title: "My Task", Description: "This is the description", Status: session.TodoStatusTodo},
+		}
+		d.Show("/proj", "/proj", "proj", todos)
+		got := d.renderDetailPanel(70)
+		if !strings.Contains(got, "This is the description") {
+			t.Errorf("expected description text in panel, got %q", got)
+		}
+	})
+
+	t.Run("shows placeholder when description is empty", func(t *testing.T) {
+		d := NewTodoDialog()
+		d.SetSize(80, 40)
+		todos := []*session.Todo{
+			{ID: "1", Title: "No Desc", Description: "", Status: session.TodoStatusTodo},
+		}
+		d.Show("/proj", "/proj", "proj", todos)
+		got := d.renderDetailPanel(70)
+		if !strings.Contains(got, "no description") {
+			t.Errorf("expected 'no description' placeholder in panel, got %q", got)
+		}
+	})
+}
+
 func TestWordWrapText(t *testing.T) {
 	tests := []struct {
 		name     string
