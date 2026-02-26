@@ -2382,6 +2382,8 @@ func (h *Home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if h.storageWatcher != nil {
 				h.storageWatcher.TriggerReload()
 			}
+			h.pendingTodoID = ""
+			h.pendingTodoPrompt = ""
 			return h, nil
 		}
 		if msg.err != nil {
