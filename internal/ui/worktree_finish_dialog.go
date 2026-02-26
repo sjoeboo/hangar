@@ -26,6 +26,10 @@ type WorktreeFinishDialog struct {
 	isExecuting  bool // True while finish operation is running
 	errorMsg     string
 
+	// PR data (set from Home's cache via SetPR)
+	prEntry  *prCacheEntry // nil = no PR found
+	prLoaded bool         // false = still fetching
+
 	// Options (step 0)
 	keepBranch bool
 
@@ -50,6 +54,8 @@ func (d *WorktreeFinishDialog) Show(sessionID, sessionTitle, branchName, repoRoo
 	d.dirtyChecked = false
 	d.isExecuting = false
 	d.errorMsg = ""
+	d.prEntry = nil
+	d.prLoaded = false
 	d.keepBranch = false
 	d.step = 0
 }
@@ -59,6 +65,8 @@ func (d *WorktreeFinishDialog) Hide() {
 	d.visible = false
 	d.isExecuting = false
 	d.errorMsg = ""
+	d.prEntry = nil
+	d.prLoaded = false
 }
 
 // IsVisible returns whether the dialog is visible
@@ -87,6 +95,14 @@ func (d *WorktreeFinishDialog) SetError(msg string) {
 // SetExecuting sets the executing state
 func (d *WorktreeFinishDialog) SetExecuting(executing bool) {
 	d.isExecuting = executing
+}
+
+// SetPR updates the PR data shown in the options view.
+// Call with loaded=false (default on Show) to show "checking...",
+// loaded=true+nil pr to show "No PR found", loaded=true+non-nil for full info.
+func (d *WorktreeFinishDialog) SetPR(pr *prCacheEntry, loaded bool) {
+	d.prEntry = pr
+	d.prLoaded = loaded
 }
 
 // GetSessionID returns the session ID this dialog is for
