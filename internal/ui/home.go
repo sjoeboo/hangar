@@ -197,6 +197,11 @@ type Home struct {
 	worktreeDirtyCacheTs map[string]time.Time // sessionID -> cache timestamp
 	worktreeDirtyMu      sync.Mutex           // Protects dirty cache maps
 
+	// Worktree remote URL cache (lazy, 5m TTL)
+	worktreeRemoteCache   map[string]string    // sessionID -> normalized remote URL
+	worktreeRemoteCacheTs map[string]time.Time // sessionID -> cache timestamp
+	worktreeRemoteMu      sync.Mutex
+
 	// PR status cache (lazy, 60s TTL, requires gh CLI)
 	ghPath    string                      // path to gh binary; empty if not installed
 	prCache   map[string]*prCacheEntry    // sessionID -> PR info (nil = no PR found)
@@ -434,6 +439,13 @@ type worktreeDirtyCheckMsg struct {
 	err       error
 }
 
+// worktreeRemoteCheckMsg is sent when an async remote URL fetch completes
+type worktreeRemoteCheckMsg struct {
+	sessionID string
+	remoteURL string // normalized URL, empty if none found
+	err       error
+}
+
 // prCacheEntry holds the result of a gh pr view query for a worktree branch.
 type prCacheEntry struct {
 	Number        int
@@ -542,6 +554,8 @@ func NewHomeWithProfileAndMode(profile string) *Home {
 		lastLogActivity:      make(map[string]time.Time),
 		worktreeDirtyCache:   make(map[string]bool),
 		worktreeDirtyCacheTs: make(map[string]time.Time),
+		worktreeRemoteCache:   make(map[string]string),
+		worktreeRemoteCacheTs: make(map[string]time.Time),
 		prCache:              make(map[string]*prCacheEntry),
 		prCacheTs:            make(map[string]time.Time),
 		statusTrigger:        make(chan statusUpdateRequest, 1), // Buffered to avoid blocking
@@ -2791,6 +2805,26 @@ func (h *Home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 
+			// Remote URL fetch (lazy, 5m TTL)
+			if inst.IsWorktree() && inst.WorktreePath != "" {
+				h.worktreeRemoteMu.Lock()
+				cacheTs, hasCached := h.worktreeRemoteCacheTs[inst.ID]
+				needsRemote := !hasCached || time.Since(cacheTs) > 5*time.Minute
+				if needsRemote {
+					h.worktreeRemoteCacheTs[inst.ID] = time.Now() // Prevent duplicate fetches
+				}
+				h.worktreeRemoteMu.Unlock()
+				if needsRemote {
+					sid := inst.ID
+					wtPath := inst.WorktreePath
+					cmds = append(cmds, func() tea.Msg {
+						out, err := exec.Command("git", "-C", wtPath, "config", "--get", "remote.origin.url").Output()
+						url := strings.TrimSpace(string(out))
+						return worktreeRemoteCheckMsg{sessionID: sid, remoteURL: normalizeRemoteURL(url), err: err}
+					})
+				}
+			}
+
 			if len(cmds) > 0 {
 				return h, tea.Batch(cmds...)
 			}
@@ -2852,6 +2886,13 @@ func (h *Home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 		}
+		return h, nil
+
+	case worktreeRemoteCheckMsg:
+		h.worktreeRemoteMu.Lock()
+		h.worktreeRemoteCache[msg.sessionID] = msg.remoteURL
+		h.worktreeRemoteCacheTs[msg.sessionID] = time.Now()
+		h.worktreeRemoteMu.Unlock()
 		return h, nil
 
 	case lazygitReadyMsg:
@@ -7402,7 +7443,7 @@ func (h *Home) renderPreviewPane(width, height int) string {
 
 	// Info lines: path and activity time
 	infoStyle := lipgloss.NewStyle().Foreground(ColorText)
-	pathStr := truncatePath(selected.ProjectPath, width-4)
+	pathStr := shortenPath(selected.ProjectPath, width-4)
 	b.WriteString(infoStyle.Render("📁 " + pathStr))
 	b.WriteString("\n")
 
@@ -7442,13 +7483,6 @@ func (h *Home) renderPreviewPane(width, height int) string {
 		wtHintStyle := lipgloss.NewStyle().Foreground(ColorText).Italic(true)
 		wtKeyStyle := lipgloss.NewStyle().Foreground(ColorAccent).Bold(true)
 
-		// Branch
-		if selected.WorktreeBranch != "" {
-			b.WriteString(wtLabelStyle.Render("Branch:  "))
-			b.WriteString(wtBranchStyle.Render(selected.WorktreeBranch))
-			b.WriteString("\n")
-		}
-
 		// PR status (from gh CLI, lazy-cached with 60s TTL)
 		if h.ghPath != "" {
 			h.prCacheMu.Lock()
@@ -7457,7 +7491,6 @@ func (h *Home) renderPreviewPane(width, height int) string {
 			h.prCacheMu.Unlock()
 
 			if !hasTs || (hasTs && !hasPR) {
-				// Not yet fetched, or fetch in flight
 				b.WriteString(wtLabelStyle.Render("PR:      "))
 				b.WriteString(lipgloss.NewStyle().Foreground(ColorComment).Render("checking..."))
 				b.WriteString("\n")
@@ -7475,7 +7508,6 @@ func (h *Home) renderPreviewPane(width, height int) string {
 					stateStyle = stateStyle.Foreground(ColorRed)
 				}
 				prNumStyle := lipgloss.NewStyle().Foreground(ColorAccent).Bold(true).Underline(true)
-				// Truncate title to fit the available width
 				titleMax := width - 4 - 9 - 6 - len(stateLabel) - 3
 				title := pr.Title
 				if titleMax > 10 && runewidth.StringWidth(title) > titleMax {
@@ -7487,12 +7519,9 @@ func (h *Home) renderPreviewPane(width, height int) string {
 				b.WriteString(stateStyle.Render(stateLabel))
 				b.WriteString(wtValueStyle.Render(" · " + title))
 				b.WriteString("\n")
-				// URL on its own line — terminals (iTerm2, WezTerm, etc.) auto-detect
-				// plain URLs and make them clickable on hover, no escape sequences needed.
-				// OSC 8 is stripped by lipgloss's MaxWidth.Render() in the layout pass.
 				if pr.URL != "" {
 					urlStyle := lipgloss.NewStyle().Foreground(ColorComment)
-					urlMax := width - 4 - 9 // account for label indent
+					urlMax := width - 4 - 9
 					displayURL := pr.URL
 					if runewidth.StringWidth(displayURL) > urlMax && urlMax > 15 {
 						displayURL = runewidth.Truncate(displayURL, urlMax, "…")
@@ -7501,8 +7530,6 @@ func (h *Home) renderPreviewPane(width, height int) string {
 					b.WriteString(urlStyle.Render(displayURL))
 					b.WriteString("\n")
 				}
-
-				// CI checks summary line
 				if pr.HasChecks {
 					b.WriteString(wtLabelStyle.Render("Checks:  "))
 					var parts []string
@@ -7522,17 +7549,32 @@ func (h *Home) renderPreviewPane(width, height int) string {
 			// pr == nil means no PR found; omit line silently
 		}
 
-		// Repo root (truncated)
-		if selected.WorktreeRepoRoot != "" {
-			repoPath := truncatePath(selected.WorktreeRepoRoot, width-4-9)
-			b.WriteString(wtLabelStyle.Render("Repo:    "))
-			b.WriteString(wtValueStyle.Render(repoPath))
+		// Branch
+		if selected.WorktreeBranch != "" {
+			b.WriteString(wtLabelStyle.Render("Branch:  "))
+			b.WriteString(wtBranchStyle.Render(selected.WorktreeBranch))
 			b.WriteString("\n")
 		}
 
-		// Worktree path (truncated)
+		// Remote URL (lazy-cached, 5m TTL)
+		h.worktreeRemoteMu.Lock()
+		remoteURL, hasRemote := h.worktreeRemoteCache[selected.ID]
+		_, hasRemoteTs := h.worktreeRemoteCacheTs[selected.ID]
+		h.worktreeRemoteMu.Unlock()
+		if !hasRemoteTs {
+			b.WriteString(wtLabelStyle.Render("Remote:  "))
+			b.WriteString(lipgloss.NewStyle().Foreground(ColorComment).Render("checking..."))
+			b.WriteString("\n")
+		} else if hasRemote && remoteURL != "" {
+			displayRemote := truncatePath(remoteURL, width-4-9)
+			b.WriteString(wtLabelStyle.Render("Remote:  "))
+			b.WriteString(wtValueStyle.Render(displayRemote))
+			b.WriteString("\n")
+		}
+
+		// Worktree path (tilde-compressed via shortenPath, already wired in Task 2)
 		if selected.WorktreePath != "" {
-			wtPath := truncatePath(selected.WorktreePath, width-4-9)
+			wtPath := shortenPath(selected.WorktreePath, width-4-9)
 			b.WriteString(wtLabelStyle.Render("Path:    "))
 			b.WriteString(wtValueStyle.Render(wtPath))
 			b.WriteString("\n")
@@ -8291,6 +8333,47 @@ func truncatePath(path string, maxLen int) string {
 		return runewidth.Truncate(path, maxLen-3, "...")
 	}
 	return string(runes[:startLen]) + "..." + string(runes[len(runes)-endLen:])
+}
+
+// shortenPath replaces the home directory prefix with ~ then truncates to fit maxLen.
+func shortenPath(path string, maxLen int) string {
+	if home, err := os.UserHomeDir(); err == nil {
+		if strings.HasPrefix(path, home+"/") {
+			path = "~/" + path[len(home)+1:]
+		} else if path == home {
+			path = "~"
+		}
+	}
+	return truncatePath(path, maxLen)
+}
+
+// normalizeRemoteURL converts a git remote URL to a short human-readable form.
+//
+//	git@github.com:user/repo.git       -> "github: user/repo"
+//	git@ghe.spotify.net:user/repo.git  -> "ghe: user/repo"
+//	https://github.com/user/repo.git   -> "github: user/repo"
+//	https://ghe.spotify.net/user/repo  -> "ghe: user/repo"
+//	anything else                      -> returned unchanged
+func normalizeRemoteURL(u string) string {
+	// SSH format: git@HOST:PATH
+	if rest, ok := strings.CutPrefix(u, "git@github.com:"); ok {
+		return "github: " + strings.TrimSuffix(rest, ".git")
+	}
+	if rest, ok := strings.CutPrefix(u, "git@ghe.spotify.net:"); ok {
+		return "ghe: " + strings.TrimSuffix(rest, ".git")
+	}
+	// HTTPS format
+	for _, prefix := range []string{"https://github.com/", "http://github.com/"} {
+		if rest, ok := strings.CutPrefix(u, prefix); ok {
+			return "github: " + strings.TrimSuffix(rest, ".git")
+		}
+	}
+	for _, prefix := range []string{"https://ghe.spotify.net/", "http://ghe.spotify.net/"} {
+		if rest, ok := strings.CutPrefix(u, prefix); ok {
+			return "ghe: " + strings.TrimSuffix(rest, ".git")
+		}
+	}
+	return u
 }
 
 // formatRelativeTime formats a time as a human-readable relative string

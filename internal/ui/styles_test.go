@@ -1,6 +1,8 @@
 package ui
 
 import (
+	"os"
+	"strings"
 	"testing"
 )
 
@@ -134,4 +136,46 @@ func TestToolStyleCache_ReinitializedOnThemeChange(t *testing.T) {
 
 	// Reset to dark for other tests
 	InitTheme("dark")
+}
+
+func TestShortenPath(t *testing.T) {
+	home, _ := os.UserHomeDir()
+	tests := []struct {
+		input      string
+		maxLen     int
+		wantPrefix string
+	}{
+		{home + "/code/hangar", 100, "~/"},
+		{home, 100, "~"},
+		{"/tmp/other", 100, "/tmp/"},
+		{home + "/very/long/path/that/exceeds/the/limit/yes/it/does", 20, "~/"},
+	}
+	for _, tt := range tests {
+		got := shortenPath(tt.input, tt.maxLen)
+		if !strings.HasPrefix(got, tt.wantPrefix) {
+			t.Errorf("shortenPath(%q, %d) = %q, want prefix %q", tt.input, tt.maxLen, got, tt.wantPrefix)
+		}
+	}
+}
+
+func TestNormalizeRemoteURL(t *testing.T) {
+	tests := []struct {
+		input string
+		want  string
+	}{
+		{"git@github.com:mnicholson/hangar.git", "github: mnicholson/hangar"},
+		{"git@ghe.spotify.net:squad/service.git", "ghe: squad/service"},
+		{"https://github.com/mnicholson/hangar.git", "github: mnicholson/hangar"},
+		{"https://github.com/mnicholson/hangar", "github: mnicholson/hangar"},
+		{"https://ghe.spotify.net/squad/service.git", "ghe: squad/service"},
+		{"https://ghe.spotify.net/squad/service", "ghe: squad/service"},
+		{"git@gitlab.com:user/repo.git", "git@gitlab.com:user/repo.git"},
+		{"", ""},
+	}
+	for _, tt := range tests {
+		got := normalizeRemoteURL(tt.input)
+		if got != tt.want {
+			t.Errorf("normalizeRemoteURL(%q) = %q, want %q", tt.input, got, tt.want)
+		}
+	}
 }
