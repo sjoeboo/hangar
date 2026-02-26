@@ -158,7 +158,7 @@ func (h *HelpOverlay) View() string {
 			items: [][2]string{
 				{"~", "Toggle status sort"},
 				{"S", "Settings"},
-				{"Ctrl+R", "Reload from disk"},
+				{"Ctrl+R", "Refresh (sessions + git/PR status)"},
 				{"i", "Import tmux sessions"},
 				{"Ctrl+Q", "Detach from session"},
 				{"q", "Quit"},
