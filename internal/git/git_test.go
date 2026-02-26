@@ -1155,3 +1155,15 @@ func TestIntegration_WorktreeNesting(t *testing.T) {
 	t.Logf("Correct path:  %s", actualWt2)
 	t.Logf("Wrong path:    %s (would have been nested)", wrongWt2)
 }
+
+func TestFetchBranch_InvalidBranch(t *testing.T) {
+	dir := t.TempDir()
+	// Bare git repo with no remote — fetch must fail gracefully
+	if out, err := exec.Command("git", "-C", dir, "init").CombinedOutput(); err != nil {
+		t.Fatalf("git init: %s %v", out, err)
+	}
+	err := FetchBranch(dir, "nonexistent")
+	if err == nil {
+		t.Fatal("expected error fetching from repo with no remote, got nil")
+	}
+}

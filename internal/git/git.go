@@ -429,6 +429,27 @@ func PruneWorktrees(repoDir string) error {
 	return nil
 }
 
+// FetchBranch fetches a single remote branch as a local tracking branch.
+// This is used before creating a review worktree so the branch exists locally.
+// Runs: git fetch origin <branch>:<branch>
+func FetchBranch(repoDir, branch string) error {
+	const timeout = 60 * time.Second
+	const waitDelay = 5 * time.Second
+
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, "git", "-C", repoDir, "fetch", "origin",
+		branch+":"+branch)
+	cmd.WaitDelay = waitDelay
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("fetch branch %q failed: %s: %w",
+			branch, strings.TrimSpace(string(output)), err)
+	}
+	return nil
+}
+
 // UpdateBaseBranch fast-forward pulls the base branch in repoPath.
 // Returns nil if the pull succeeds or there is nothing to pull.
 // Returns an error on failure so callers can warn but continue.

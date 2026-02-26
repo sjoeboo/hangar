@@ -211,6 +211,15 @@ func (inst *Instance) IsWorktree() bool {
 	return inst.WorktreePath != ""
 }
 
+// SendText sends text to the session's tmux pane as if the user typed it.
+// Used to deliver initial prompts (e.g. /pr-review) after session start.
+func (i *Instance) SendText(text string) error {
+	if i.tmuxSession == nil {
+		return fmt.Errorf("no tmux session")
+	}
+	return i.tmuxSession.SendKeysAndEnter(text)
+}
+
 // SetParent sets the parent session ID
 func (inst *Instance) SetParent(parentID string) {
 	inst.ParentSessionID = parentID
