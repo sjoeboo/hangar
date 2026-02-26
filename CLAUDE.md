@@ -75,13 +75,20 @@ Hook command written to Claude's `settings.json`: `hangar hook-handler`
 |-----|--------|
 | `enter` | Attach to session |
 | `n` | New session |
-| `p` | New project |
-| `d` | Delete session |
-| `w` | Worktree operations |
-| `x` | Send text to session |
+| `p` | New project/group |
+| `x` | Send message to session |
+| `M` | Move session to group |
+| `r` | Rename session/group |
+| `R` | Restart session |
+| `W` | Worktree finish (merge + cleanup) |
+| `d` | Delete session/group |
 | `o` | Open PR in browser |
 | `G` | Open lazygit |
+| `S` | Settings |
+| `/` | Search |
 | `?` | Help overlay |
+| `Ctrl+Q` | Detach from session |
+| `q` | Quit |
 
 ## Claude Code Hooks
 
