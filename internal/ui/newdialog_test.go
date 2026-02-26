@@ -316,6 +316,9 @@ func TestNewDialog_TabAppliesSuggestionWhenNavigated(t *testing.T) {
 func TestNewDialog_TypingResetsSuggestionNavigation(t *testing.T) {
 	d := NewNewDialog()
 	d.Show()
+	// Bypass project picker step so Ctrl+N is handled by form field logic
+	d.projectStep = false
+	d.projectSelected = true
 
 	suggestions := []string{
 		"/Users/test/project-1",
@@ -533,6 +536,9 @@ func TestNewDialog_BranchInputInitialized(t *testing.T) {
 func TestNewDialog_WorktreeToggle_ViaKeyPress(t *testing.T) {
 	dialog := NewNewDialog()
 	dialog.Show()
+	// Bypass project picker step so 'w' is handled by form field logic
+	dialog.projectStep = false
+	dialog.projectSelected = true
 	dialog.focusIndex = 2 // Command field
 
 	// Press 'w' to toggle worktree
@@ -564,6 +570,9 @@ func TestNewDialog_TabNavigationWithWorktree(t *testing.T) {
 	dialog.projectSelected = true
 	dialog.focusIndex = 0
 	dialog.worktreeEnabled = true
+	// Use shell (no toolOptions) so maxIdx == 3 and Tab wraps at branch field
+	dialog.commandCursor = 0
+	dialog.updateToolOptions()
 
 	// Tab through all fields: 0 -> 1 -> 2 -> 3 -> 0
 	dialog, _ = dialog.Update(tea.KeyMsg{Type: tea.KeyTab})
@@ -595,6 +604,9 @@ func TestNewDialog_TabNavigationWithoutWorktree(t *testing.T) {
 	dialog.projectSelected = true
 	dialog.focusIndex = 0
 	dialog.worktreeEnabled = false
+	// Use shell (no toolOptions) so maxIdx == 2 and Tab wraps at command field
+	dialog.commandCursor = 0
+	dialog.updateToolOptions()
 
 	// Tab through fields: 0 -> 1 -> 2 -> 0 (no branch field)
 	dialog, _ = dialog.Update(tea.KeyMsg{Type: tea.KeyTab})
