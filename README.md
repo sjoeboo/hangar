@@ -2,8 +2,6 @@
 
 **A terminal session manager for Claude Code — built for engineers who live in git worktrees.**
 
-![Session list](assets/screenshots/session-list.png)
-
 ---
 
 ## Features
