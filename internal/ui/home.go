@@ -3359,6 +3359,10 @@ func (h *Home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return h.handleWorktreeFinishDialogKey(msg)
 		}
 
+		// PR overview view
+		if h.viewMode == "prs" {
+			return h.handlePRViewKey(msg)
+		}
 		// Main view keys
 		return h.handleMainKey(msg)
 	}
@@ -4621,6 +4625,71 @@ func (h *Home) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		h.rebuildFlatItems()
 		return h, nil
+	}
+
+	return h, nil
+}
+
+// handlePRViewKey handles keys when the PR overview view is active.
+func (h *Home) handlePRViewKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	sessions := h.prViewSessions()
+
+	switch msg.String() {
+	case "P", "esc":
+		h.viewMode = ""
+		return h, nil
+
+	case "up", "k":
+		if h.prViewCursor > 0 {
+			h.prViewCursor--
+		}
+		return h, nil
+
+	case "down", "j":
+		if h.prViewCursor < len(sessions)-1 {
+			h.prViewCursor++
+		}
+		return h, nil
+
+	case "enter":
+		if h.prViewCursor < len(sessions) {
+			inst := sessions[h.prViewCursor]
+			if inst.Exists() {
+				h.isAttaching.Store(true)
+				return h, h.attachSession(inst)
+			}
+		}
+		return h, nil
+
+	case "o":
+		if h.prViewCursor < len(sessions) {
+			inst := sessions[h.prViewCursor]
+			h.prCacheMu.Lock()
+			pr, hasPR := h.prCache[inst.ID]
+			h.prCacheMu.Unlock()
+			if hasPR && pr != nil && pr.URL != "" {
+				exec.Command("open", pr.URL).Start() //nolint:errcheck
+			}
+		}
+		return h, nil
+
+	case "r":
+		// Force re-fetch PR data for all sessions
+		var cmds []tea.Cmd
+		for _, inst := range sessions {
+			if inst.IsWorktree() && inst.WorktreePath != "" {
+				h.prCacheMu.Lock()
+				h.prCacheTs[inst.ID] = time.Time{} // reset TTL
+				h.prCacheMu.Unlock()
+				sid := inst.ID
+				wtPath := inst.WorktreePath
+				ghPath := h.ghPath
+				cmds = append(cmds, func() tea.Msg {
+					return fetchPRInfo(sid, wtPath, ghPath)
+				})
+			}
+		}
+		return h, tea.Batch(cmds...)
 	}
 
 	return h, nil

@@ -1477,3 +1477,57 @@ func TestPRView_NoToggleWithoutGh(t *testing.T) {
 		t.Error("viewMode should not switch to prs when gh is not installed")
 	}
 }
+
+func TestPRView_EscReturnsToSessions(t *testing.T) {
+	home := NewHome()
+	home.width = 120
+	home.height = 40
+	home.viewMode = "prs"
+
+	msg := tea.KeyMsg{Type: tea.KeyEsc}
+	model, _ := home.Update(msg)
+	h := model.(*Home)
+
+	if h.viewMode == "prs" {
+		t.Error("esc should exit PR view")
+	}
+}
+
+func TestPRView_Navigation(t *testing.T) {
+	home := NewHome()
+	home.width = 120
+	home.height = 40
+	home.viewMode = "prs"
+
+	// Seed PR cache with two sessions
+	sess1 := &session.Instance{ID: "s1", Title: "Session 1", WorktreePath: "/tmp/s1"}
+	sess2 := &session.Instance{ID: "s2", Title: "Session 2", WorktreePath: "/tmp/s2"}
+	home.instances = []*session.Instance{sess1, sess2}
+	home.groupTree = session.NewGroupTree(home.instances)
+	home.rebuildFlatItems()
+	home.prCache["s1"] = &prCacheEntry{Number: 1, Title: "PR 1", State: "OPEN", URL: "https://github.com/x/y/pull/1"}
+	home.prCache["s2"] = &prCacheEntry{Number: 2, Title: "PR 2", State: "DRAFT", URL: "https://github.com/x/y/pull/2"}
+
+	// Navigate down
+	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}}
+	model, _ := home.Update(msg)
+	h := model.(*Home)
+	if h.prViewCursor != 1 {
+		t.Errorf("prViewCursor after down = %d, want 1", h.prViewCursor)
+	}
+
+	// Navigate up
+	msg = tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'k'}}
+	model, _ = h.Update(msg)
+	h = model.(*Home)
+	if h.prViewCursor != 0 {
+		t.Errorf("prViewCursor after up = %d, want 0", h.prViewCursor)
+	}
+
+	// Navigate up at top — stays at 0
+	model, _ = h.Update(msg)
+	h = model.(*Home)
+	if h.prViewCursor != 0 {
+		t.Errorf("prViewCursor should clamp at 0, got %d", h.prViewCursor)
+	}
+}
