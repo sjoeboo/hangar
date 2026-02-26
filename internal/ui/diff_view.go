@@ -171,7 +171,7 @@ func (dv *DiffView) View() string {
 	}
 
 	b.WriteString(sep + "\n")
-	b.WriteString(footerStyle.Render("  j/k scroll · e open editor · q/esc close"))
+	b.WriteString(footerStyle.Render("  j/k scroll · space/b page · ctrl+d/u half-page · g/G top/bottom · e editor · q close"))
 
 	return lipgloss.NewStyle().
 		Width(dv.width).
@@ -205,6 +205,24 @@ func (dv *DiffView) ScrollUp(n int) {
 	}
 }
 
+// ScrollToTop scrolls to the first line.
+func (dv *DiffView) ScrollToTop() {
+	dv.scrollOffset = 0
+}
+
+// ScrollToBottom scrolls to the last visible position.
+func (dv *DiffView) ScrollToBottom() {
+	visibleHeight := dv.height - 4
+	if visibleHeight < 1 {
+		visibleHeight = 1
+	}
+	limit := len(dv.lines) - visibleHeight
+	if limit < 0 {
+		limit = 0
+	}
+	dv.scrollOffset = limit
+}
+
 // HandleKey processes a key press when the overlay is visible.
 // Returns (handled bool, cmd tea.Cmd).
 func (dv *DiffView) HandleKey(key string) (bool, tea.Cmd) {
@@ -212,9 +230,13 @@ func (dv *DiffView) HandleKey(key string) (bool, tea.Cmd) {
 		return false, nil
 	}
 
-	pageSize := dv.height / 2
-	if pageSize < 1 {
-		pageSize = 5
+	fullPage := dv.height - 4
+	if fullPage < 1 {
+		fullPage = 1
+	}
+	halfPage := fullPage / 2
+	if halfPage < 1 {
+		halfPage = 1
 	}
 
 	switch key {
@@ -227,11 +249,27 @@ func (dv *DiffView) HandleKey(key string) (bool, tea.Cmd) {
 	case "k", "up":
 		dv.ScrollUp(1)
 		return true, nil
-	case "pgdown", "ctrl+d":
-		dv.ScrollDown(pageSize)
+	case " ", "f", "ctrl+f", "pgdown":
+		// Full page down — less/more convention
+		dv.ScrollDown(fullPage)
 		return true, nil
-	case "pgup", "ctrl+u":
-		dv.ScrollUp(pageSize)
+	case "b", "ctrl+b", "pgup":
+		// Full page up — less/more convention
+		dv.ScrollUp(fullPage)
+		return true, nil
+	case "d", "ctrl+d":
+		// Half page down
+		dv.ScrollDown(halfPage)
+		return true, nil
+	case "u", "ctrl+u":
+		// Half page up
+		dv.ScrollUp(halfPage)
+		return true, nil
+	case "g":
+		dv.ScrollToTop()
+		return true, nil
+	case "G":
+		dv.ScrollToBottom()
 		return true, nil
 	case "e":
 		path, line := dv.FileUnderCursor()
