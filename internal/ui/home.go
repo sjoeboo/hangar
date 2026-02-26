@@ -4635,6 +4635,10 @@ func (h *Home) handlePRViewKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	sessions := h.prViewSessions()
 
 	switch msg.String() {
+	case "q", "ctrl+c":
+		h.viewMode = ""
+		return h.tryQuit()
+
 	case "P", "esc":
 		h.viewMode = ""
 		return h, nil
