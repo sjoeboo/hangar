@@ -8305,6 +8305,35 @@ func shortenPath(path string, maxLen int) string {
 	return truncatePath(path, maxLen)
 }
 
+// normalizeRemoteURL converts a git remote URL to a short human-readable form.
+//
+//	git@github.com:user/repo.git       -> "github: user/repo"
+//	git@ghe.spotify.net:user/repo.git  -> "ghe: user/repo"
+//	https://github.com/user/repo.git   -> "github: user/repo"
+//	https://ghe.spotify.net/user/repo  -> "ghe: user/repo"
+//	anything else                      -> returned unchanged
+func normalizeRemoteURL(u string) string {
+	// SSH format: git@HOST:PATH
+	if rest, ok := strings.CutPrefix(u, "git@github.com:"); ok {
+		return "github: " + strings.TrimSuffix(rest, ".git")
+	}
+	if rest, ok := strings.CutPrefix(u, "git@ghe.spotify.net:"); ok {
+		return "ghe: " + strings.TrimSuffix(rest, ".git")
+	}
+	// HTTPS format
+	for _, prefix := range []string{"https://github.com/", "http://github.com/"} {
+		if rest, ok := strings.CutPrefix(u, prefix); ok {
+			return "github: " + strings.TrimSuffix(rest, ".git")
+		}
+	}
+	for _, prefix := range []string{"https://ghe.spotify.net/", "http://ghe.spotify.net/"} {
+		if rest, ok := strings.CutPrefix(u, prefix); ok {
+			return "ghe: " + strings.TrimSuffix(rest, ".git")
+		}
+	}
+	return u
+}
+
 // formatRelativeTime formats a time as a human-readable relative string
 // Examples: "just now", "2m ago", "1h ago", "3h ago", "1d ago"
 func formatRelativeTime(t time.Time) string {

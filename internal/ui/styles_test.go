@@ -157,3 +157,25 @@ func TestShortenPath(t *testing.T) {
 		}
 	}
 }
+
+func TestNormalizeRemoteURL(t *testing.T) {
+	tests := []struct {
+		input string
+		want  string
+	}{
+		{"git@github.com:mnicholson/hangar.git", "github: mnicholson/hangar"},
+		{"git@ghe.spotify.net:squad/service.git", "ghe: squad/service"},
+		{"https://github.com/mnicholson/hangar.git", "github: mnicholson/hangar"},
+		{"https://github.com/mnicholson/hangar", "github: mnicholson/hangar"},
+		{"https://ghe.spotify.net/squad/service.git", "ghe: squad/service"},
+		{"https://ghe.spotify.net/squad/service", "ghe: squad/service"},
+		{"git@gitlab.com:user/repo.git", "git@gitlab.com:user/repo.git"},
+		{"", ""},
+	}
+	for _, tt := range tests {
+		got := normalizeRemoteURL(tt.input)
+		if got != tt.want {
+			t.Errorf("normalizeRemoteURL(%q) = %q, want %q", tt.input, got, tt.want)
+		}
+	}
+}
