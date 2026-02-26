@@ -11,6 +11,48 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
+// kanbanColumn is a derived view structure grouping todos by status for kanban rendering.
+type kanbanColumn struct {
+	status session.TodoStatus
+	label  string
+	todos  []*session.Todo
+}
+
+// orderedStatuses defines the fixed left-to-right column order for the kanban board.
+var orderedStatuses = []session.TodoStatus{
+	session.TodoStatusTodo,
+	session.TodoStatusInProgress,
+	session.TodoStatusInReview,
+	session.TodoStatusDone,
+}
+
+// buildColumns groups todos into kanban columns ordered by status.
+// Always returns the 4 main columns; appends an Orphaned column only when orphaned todos exist.
+func buildColumns(todos []*session.Todo) []kanbanColumn {
+	statusIndex := map[session.TodoStatus]int{}
+	cols := make([]kanbanColumn, len(orderedStatuses))
+	for i, s := range orderedStatuses {
+		cols[i] = kanbanColumn{status: s, label: todoStatusLabel(s)}
+		statusIndex[s] = i
+	}
+	var orphaned []*session.Todo
+	for _, t := range todos {
+		if idx, ok := statusIndex[t.Status]; ok {
+			cols[idx].todos = append(cols[idx].todos, t)
+		} else if t.Status == session.TodoStatusOrphaned {
+			orphaned = append(orphaned, t)
+		}
+	}
+	if len(orphaned) > 0 {
+		cols = append(cols, kanbanColumn{
+			status: session.TodoStatusOrphaned,
+			label:  todoStatusLabel(session.TodoStatusOrphaned),
+			todos:  orphaned,
+		})
+	}
+	return cols
+}
+
 // todoDialogMode controls which sub-view is active.
 type todoDialogMode int
 
