@@ -672,5 +672,144 @@ func (d *TodoDialog) handleKanbanKey(key string) TodoAction {
 }
 
 func (d *TodoDialog) viewKanban() string {
-	return d.viewList()
+	borderStyle := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color("#5fd7ff")).
+		Padding(0, 1).
+		Width(d.width - 4)
+
+	projectName := d.projectPath
+	if idx := strings.LastIndex(projectName, "/"); idx >= 0 {
+		projectName = projectName[idx+1:]
+	}
+	header := lipgloss.NewStyle().Bold(true).Render(projectName)
+
+	hint := lipgloss.NewStyle().Foreground(lipgloss.Color("#5a6a7a")).Render(
+		"←/→ col  ↑/↓ card  n new  enter open  s status  e edit  d delete  shift+←/→ move  esc close",
+	)
+
+	// Empty board
+	if len(d.todos) == 0 {
+		empty := lipgloss.NewStyle().Foreground(lipgloss.Color("#5a6a7a")).Render(
+			"No todos yet — press n to create one",
+		)
+		content := header + "\n\n" + empty + "\n\n" + hint
+		return lipgloss.Place(d.width, d.height, lipgloss.Center, lipgloss.Center,
+			borderStyle.Render(content))
+	}
+
+	numCols := len(d.cols)
+	innerW := d.width - 6 // border(2) + padding(2) + margin(2)
+	if innerW < numCols*8 {
+		innerW = numCols * 8
+	}
+	colW := (innerW - (numCols - 1)) / numCols
+	if colW < 8 {
+		colW = 8
+	}
+
+	colViews := make([]string, numCols)
+	for i, col := range d.cols {
+		colViews[i] = d.renderKanbanColumn(i, col, colW)
+	}
+	board := lipgloss.JoinHorizontal(lipgloss.Top, colViews...)
+
+	content := header + "\n\n" + board + "\n\n" + hint
+	return lipgloss.Place(d.width, d.height, lipgloss.Center, lipgloss.Center,
+		borderStyle.Render(content))
+}
+
+func (d *TodoDialog) renderKanbanColumn(colIdx int, col kanbanColumn, width int) string {
+	isFocused := colIdx == d.selectedCol
+
+	headerText := fmt.Sprintf("%s (%d)", col.label, len(col.todos))
+	var header string
+	if isFocused {
+		header = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#5fd7ff")).
+			Bold(true).
+			Render(headerText)
+	} else {
+		header = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#7a8a9a")).
+			Render(headerText)
+	}
+
+	underlineColor := "#5fd7ff"
+	if !isFocused {
+		underlineColor = "#3a4a5a"
+	}
+	underline := lipgloss.NewStyle().
+		Foreground(lipgloss.Color(underlineColor)).
+		Render(strings.Repeat("─", width))
+
+	lines := []string{header, underline}
+
+	if len(col.todos) == 0 {
+		lines = append(lines, lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#3a4a5a")).
+			Render("  (empty)"))
+	}
+
+	selectedRow := 0
+	if colIdx < len(d.selectedRow) {
+		selectedRow = d.selectedRow[colIdx]
+	}
+
+	for rowIdx, t := range col.todos {
+		isSelected := isFocused && rowIdx == selectedRow
+		lines = append(lines, d.renderKanbanCard(t, isSelected, isFocused, width))
+	}
+
+	colContent := strings.Join(lines, "\n")
+	// +1 char right gap between columns
+	return lipgloss.NewStyle().Width(width + 1).Render(colContent)
+}
+
+func (d *TodoDialog) renderKanbanCard(t *session.Todo, isSelected, colFocused bool, width int) string {
+	icon := todoStatusIcon(t.Status)
+	sessionMark := ""
+	if t.SessionID != "" {
+		sessionMark = " ⬡"
+	}
+
+	// selector(1) + icon(1) + space(1) + title + sessionMark
+	titleWidth := width - 3 - len(sessionMark)
+	if titleWidth < 1 {
+		titleWidth = 1
+	}
+	title := t.Title
+	if len(title) > titleWidth {
+		if titleWidth > 3 {
+			title = title[:titleWidth-3] + "..."
+		} else {
+			title = title[:titleWidth]
+		}
+	}
+
+	selector := " "
+	if isSelected {
+		selector = "▌"
+	}
+
+	switch {
+	case isSelected:
+		styledIcon := todoStatusStyle(t.Status).Render(icon)
+		line := fmt.Sprintf("%s%s %s%s", selector, styledIcon, title, sessionMark)
+		return lipgloss.NewStyle().
+			Background(lipgloss.Color("#2a3a4a")).
+			Foreground(lipgloss.Color("#ffffff")).
+			Width(width).
+			Render(line)
+	case !colFocused:
+		line := fmt.Sprintf("%s%s %s%s", selector, icon, title, sessionMark)
+		return lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#4a5a6a")).
+			Width(width).
+			Render(line)
+	default:
+		styledIcon := todoStatusStyle(t.Status).Render(icon)
+		line := fmt.Sprintf("%s%s %s%s", selector, styledIcon, title, sessionMark)
+		return lipgloss.NewStyle().Width(width).Render(line)
+	}
 }

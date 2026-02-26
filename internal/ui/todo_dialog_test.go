@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"strings"
 	"testing"
 
 	"ghe.spotify.net/mnicholson/hangar/internal/session"
@@ -293,4 +294,75 @@ func TestTodoDialog_HandleKey_ShiftLeft_NoOpAtBoundary(t *testing.T) {
 // keyMsg is a test helper that creates a tea.KeyMsg from a string.
 func keyMsg(s string) tea.KeyMsg {
 	return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(s)}
+}
+
+func TestTodoDialog_ViewKanban_ShowsColumnHeaders(t *testing.T) {
+	d := NewTodoDialog()
+	d.SetSize(160, 40)
+	todos := []*session.Todo{
+		makeTodo("fix bug", session.TodoStatusTodo),
+		makeTodo("auth work", session.TodoStatusInProgress),
+	}
+	d.Show("/myproject", "", "", todos)
+
+	view := d.View()
+	if !strings.Contains(view, "todo") {
+		t.Errorf("expected 'todo' column header in view:\n%s", view)
+	}
+	if !strings.Contains(view, "in progress") {
+		t.Errorf("expected 'in progress' column header in view:\n%s", view)
+	}
+	if !strings.Contains(view, "in review") {
+		t.Errorf("expected 'in review' column header in view:\n%s", view)
+	}
+	if !strings.Contains(view, "done") {
+		t.Errorf("expected 'done' column header in view:\n%s", view)
+	}
+}
+
+func TestTodoDialog_ViewKanban_ShowsTodoTitle(t *testing.T) {
+	d := NewTodoDialog()
+	d.SetSize(160, 40)
+	todos := []*session.Todo{makeTodo("fix bug", session.TodoStatusTodo)}
+	d.Show("/myproject", "", "", todos)
+
+	view := d.View()
+	if !strings.Contains(view, "fix bug") {
+		t.Errorf("expected todo title in view:\n%s", view)
+	}
+}
+
+func TestTodoDialog_ViewKanban_EmptyBoardMessage(t *testing.T) {
+	d := NewTodoDialog()
+	d.SetSize(160, 40)
+	d.Show("/myproject", "", "", nil)
+
+	view := d.View()
+	if !strings.Contains(view, "No todos yet") {
+		t.Errorf("expected empty board message in view:\n%s", view)
+	}
+}
+
+func TestTodoDialog_ViewKanban_OrphanedColHiddenWhenEmpty(t *testing.T) {
+	d := NewTodoDialog()
+	d.SetSize(160, 40)
+	d.Show("/myproject", "", "", nil)
+
+	view := d.View()
+	if strings.Contains(view, "orphaned") {
+		t.Errorf("orphaned column should be hidden when no orphaned todos:\n%s", view)
+	}
+}
+
+func TestTodoDialog_ViewKanban_SessionLinkIndicator(t *testing.T) {
+	d := NewTodoDialog()
+	d.SetSize(160, 40)
+	t1 := makeTodo("linked task", session.TodoStatusInProgress)
+	t1.SessionID = "sess-123"
+	d.Show("/myproject", "", "", []*session.Todo{t1})
+
+	view := d.View()
+	if !strings.Contains(view, "⬡") {
+		t.Errorf("expected session link indicator ⬡ in view:\n%s", view)
+	}
 }
