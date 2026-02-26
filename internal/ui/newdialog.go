@@ -126,8 +126,8 @@ func (d *NewDialog) ShowInGroup(groupPath, groupName, defaultPath string) {
 	d.claudeOptions.Blur()
 	// Keep commandCursor at previously set default (don't reset to 0)
 	d.updateToolOptions()
-	// Reset worktree fields — default to enabled
-	d.worktreeEnabled = true
+	// Reset worktree fields — default to disabled
+	d.worktreeEnabled = false
 	d.branchInput.SetValue("")
 	d.branchAutoSet = false
 	// Set path input to group's default path if provided, otherwise use current working directory
