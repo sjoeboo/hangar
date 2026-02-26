@@ -11,11 +11,53 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
+// kanbanColumn is a derived view structure grouping todos by status for kanban rendering.
+type kanbanColumn struct {
+	status session.TodoStatus
+	label  string
+	todos  []*session.Todo
+}
+
+// orderedStatuses defines the fixed left-to-right column order for the kanban board.
+var orderedStatuses = []session.TodoStatus{
+	session.TodoStatusTodo,
+	session.TodoStatusInProgress,
+	session.TodoStatusInReview,
+	session.TodoStatusDone,
+}
+
+// buildColumns groups todos into kanban columns ordered by status.
+// Always returns the 4 main columns; appends an Orphaned column only when orphaned todos exist.
+func buildColumns(todos []*session.Todo) []kanbanColumn {
+	statusIndex := map[session.TodoStatus]int{}
+	cols := make([]kanbanColumn, len(orderedStatuses))
+	for i, s := range orderedStatuses {
+		cols[i] = kanbanColumn{status: s, label: todoStatusLabel(s)}
+		statusIndex[s] = i
+	}
+	var orphaned []*session.Todo
+	for _, t := range todos {
+		if idx, ok := statusIndex[t.Status]; ok {
+			cols[idx].todos = append(cols[idx].todos, t)
+		} else {
+			orphaned = append(orphaned, t)
+		}
+	}
+	if len(orphaned) > 0 {
+		cols = append(cols, kanbanColumn{
+			status: session.TodoStatusOrphaned,
+			label:  todoStatusLabel(session.TodoStatusOrphaned),
+			todos:  orphaned,
+		})
+	}
+	return cols
+}
+
 // todoDialogMode controls which sub-view is active.
 type todoDialogMode int
 
 const (
-	todoModeList   todoDialogMode = iota
+	todoModeKanban todoDialogMode = iota
 	todoModeNew                   // new-todo form
 	todoModeEdit                  // edit-todo form
 	todoModeStatus                // status picker
@@ -27,18 +69,24 @@ type TodoDialog struct {
 	width       int
 	height      int
 	projectPath string
-	groupPath   string // group this project belongs to
+	groupPath   string
 	groupName   string
 	todos       []*session.Todo
-	cursor      int
-	mode        todoDialogMode
-	errorMsg    string
+
+	// kanban cursor state (derived cols cached here, rebuilt on SetTodos/Show)
+	cols        []kanbanColumn
+	selectedCol int
+	selectedRow []int // one cursor per column; indexed by column index
+
+	mode     todoDialogMode
+	errorMsg string
 
 	// new/edit form fields
-	titleInput textinput.Model
-	descInput  textinput.Model
-	formFocus  int    // 0=title, 1=desc
-	editingID  string // non-empty when editing
+	titleInput    textinput.Model
+	descInput     textinput.Model
+	formFocus     int               // 0=title, 1=desc
+	editingID     string            // non-empty when editing
+	newTodoStatus session.TodoStatus // status pre-selected from focused column when pressing n
 
 	// status picker
 	statusOptions []session.TodoStatus
@@ -70,6 +118,60 @@ func NewTodoDialog() *TodoDialog {
 	}
 }
 
+// rebuildCols rebuilds the derived column structure from d.todos.
+// Preserves the cursor position by todo ID where possible; otherwise clamps.
+func (d *TodoDialog) rebuildCols() {
+	// Snapshot current selected ID before rebuild
+	var prevID string
+	if t := d.SelectedTodo(); t != nil {
+		prevID = t.ID
+	}
+
+	d.cols = buildColumns(d.todos)
+
+	// Ensure selectedRow has one entry per column
+	newRow := make([]int, len(d.cols))
+	for i := range newRow {
+		if i < len(d.selectedRow) {
+			newRow[i] = d.selectedRow[i]
+		}
+	}
+	d.selectedRow = newRow
+
+	// Clamp each row cursor to valid range
+	for i, col := range d.cols {
+		if len(col.todos) == 0 {
+			d.selectedRow[i] = 0
+		} else if d.selectedRow[i] >= len(col.todos) {
+			d.selectedRow[i] = len(col.todos) - 1
+		}
+	}
+
+	// Clamp column cursor
+	if len(d.cols) == 0 {
+		d.selectedCol = 0
+		return
+	}
+	if d.selectedCol >= len(d.cols) {
+		d.selectedCol = len(d.cols) - 1
+	}
+
+	// Restore cursor to the same todo ID. Any found position is guaranteed to
+	// be within bounds because buildColumns only includes todos from d.todos,
+	// so no second clamp pass is needed.
+	if prevID != "" {
+		for colIdx, col := range d.cols {
+			for rowIdx, t := range col.todos {
+				if t.ID == prevID {
+					d.selectedCol = colIdx
+					d.selectedRow[colIdx] = rowIdx
+					return
+				}
+			}
+		}
+	}
+}
+
 // IsVisible returns true if the dialog is open.
 func (d *TodoDialog) IsVisible() bool { return d.visible }
 
@@ -80,9 +182,14 @@ func (d *TodoDialog) Show(projectPath, groupPath, groupName string, todos []*ses
 	d.groupPath = groupPath
 	d.groupName = groupName
 	d.todos = todos
-	d.cursor = 0
-	d.mode = todoModeList
+	// Reset cursor to top-left. Clear cols so rebuildCols doesn't restore the
+	// previous cursor position via ID lookup — Show() always opens fresh.
+	d.cols = nil
+	d.selectedCol = 0
+	d.selectedRow = nil
+	d.mode = todoModeKanban
 	d.errorMsg = ""
+	d.rebuildCols()
 }
 
 // Hide closes the dialog.
@@ -103,21 +210,26 @@ func (d *TodoDialog) SetSize(w, h int) {
 // SetTodos replaces the current todo list (used after reloads).
 func (d *TodoDialog) SetTodos(todos []*session.Todo) {
 	d.todos = todos
-	if d.cursor >= len(d.todos) {
-		if len(d.todos) > 0 {
-			d.cursor = len(d.todos) - 1
-		} else {
-			d.cursor = 0
-		}
-	}
+	d.rebuildCols()
 }
 
 // SelectedTodo returns the currently selected todo, or nil.
 func (d *TodoDialog) SelectedTodo() *session.Todo {
-	if len(d.todos) == 0 || d.cursor >= len(d.todos) {
+	if len(d.cols) == 0 || d.selectedCol >= len(d.cols) {
 		return nil
 	}
-	return d.todos[d.cursor]
+	col := d.cols[d.selectedCol]
+	if len(col.todos) == 0 {
+		return nil
+	}
+	if d.selectedCol >= len(d.selectedRow) {
+		return nil
+	}
+	row := d.selectedRow[d.selectedCol]
+	if row >= len(col.todos) {
+		return nil
+	}
+	return col.todos[row]
 }
 
 // todoStatusIcon returns the icon string for a given status.
@@ -184,13 +296,16 @@ const (
 	TodoActionSaveTodo                 // save new/edited todo (caller reads GetFormValues)
 	TodoActionDeleteTodo               // delete selected todo
 	TodoActionUpdateStatus             // update status of selected todo (caller reads GetPickedStatus)
+	TodoActionMoveCardLeft             // shift+left: move selected card to previous status column
+	TodoActionMoveCardRight            // shift+right: move selected card to next status column
 )
 
-// GetFormValues returns the title, description, and editing ID after TodoActionSaveTodo.
-func (d *TodoDialog) GetFormValues() (title, description, editingID string) {
+// GetFormValues returns the title, description, editing ID, and status after TodoActionSaveTodo.
+func (d *TodoDialog) GetFormValues() (title, description, editingID string, status session.TodoStatus) {
 	return strings.TrimSpace(d.titleInput.Value()),
 		strings.TrimSpace(d.descInput.Value()),
-		d.editingID
+		d.editingID,
+		d.newTodoStatus
 }
 
 // GetPickedStatus returns the status chosen in the status picker.
@@ -204,8 +319,8 @@ func (d *TodoDialog) GetPickedStatus() session.TodoStatus {
 // HandleKey processes a keypress and returns the action the caller should take.
 func (d *TodoDialog) HandleKey(msg tea.KeyMsg) TodoAction {
 	switch d.mode {
-	case todoModeList:
-		return d.handleListKey(msg.String())
+	case todoModeKanban:
+		return d.handleKanbanKey(msg.String())
 	case todoModeNew, todoModeEdit:
 		return d.handleFormKey(msg)
 	case todoModeStatus:
@@ -214,43 +329,6 @@ func (d *TodoDialog) HandleKey(msg tea.KeyMsg) TodoAction {
 	return TodoActionNone
 }
 
-func (d *TodoDialog) handleListKey(key string) TodoAction {
-	switch key {
-	case "up", "k":
-		if d.cursor > 0 {
-			d.cursor--
-		}
-	case "down", "j":
-		if d.cursor < len(d.todos)-1 {
-			d.cursor++
-		}
-	case "n":
-		d.openNewForm()
-	case "e":
-		if t := d.SelectedTodo(); t != nil {
-			d.openEditForm(t)
-		}
-	case "d":
-		if d.SelectedTodo() != nil {
-			return TodoActionDeleteTodo
-		}
-	case "s":
-		if t := d.SelectedTodo(); t != nil {
-			d.openStatusPicker(t)
-		}
-	case "enter":
-		t := d.SelectedTodo()
-		if t == nil {
-			return TodoActionNone
-		}
-		// todo status with no session: create new session+worktree
-		// any other status or linked session: attach/handle
-		return TodoActionCreateSession
-	case "esc", "t":
-		return TodoActionClose
-	}
-	return TodoActionNone
-}
 
 func (d *TodoDialog) handleFormKey(msg tea.KeyMsg) TodoAction {
 	key := msg.String()
@@ -273,7 +351,7 @@ func (d *TodoDialog) handleFormKey(msg tea.KeyMsg) TodoAction {
 		}
 		return TodoActionSaveTodo
 	case "esc":
-		d.mode = todoModeList
+		d.mode = todoModeKanban
 		d.errorMsg = ""
 	default:
 		// Pass the real tea.KeyMsg to preserve Type (backspace, arrows, ctrl+w, etc.)
@@ -297,10 +375,10 @@ func (d *TodoDialog) handleStatusKey(key string) TodoAction {
 			d.statusCursor++
 		}
 	case "enter":
-		d.mode = todoModeList
+		d.mode = todoModeKanban
 		return TodoActionUpdateStatus
 	case "esc":
-		d.mode = todoModeList
+		d.mode = todoModeKanban
 	}
 	return TodoActionNone
 }
@@ -314,6 +392,12 @@ func (d *TodoDialog) openNewForm() {
 	d.titleInput.Focus()
 	d.descInput.Blur()
 	d.errorMsg = ""
+	// Pre-select the focused column's status so new cards land in the right column
+	if d.selectedCol < len(d.cols) {
+		d.newTodoStatus = d.cols[d.selectedCol].status
+	} else {
+		d.newTodoStatus = session.TodoStatusTodo
+	}
 }
 
 func (d *TodoDialog) openEditForm(t *session.Todo) {
@@ -325,6 +409,7 @@ func (d *TodoDialog) openEditForm(t *session.Todo) {
 	d.titleInput.Focus()
 	d.descInput.Blur()
 	d.errorMsg = ""
+	d.newTodoStatus = t.Status // keeps GetFormValues coherent in edit flow
 }
 
 func (d *TodoDialog) openStatusPicker(t *session.Todo) {
@@ -338,9 +423,24 @@ func (d *TodoDialog) openStatusPicker(t *session.Todo) {
 	}
 }
 
+// MoveCardTargetStatus returns the target status when moving the selected card
+// by direction (+1 = right, -1 = left). Returns false if the move is a no-op
+// (boundary or would move into the orphaned column).
+func (d *TodoDialog) MoveCardTargetStatus(direction int) (session.TodoStatus, bool) {
+	targetCol := d.selectedCol + direction
+	if targetCol < 0 || targetCol >= len(d.cols) {
+		return "", false
+	}
+	target := d.cols[targetCol].status
+	if target == session.TodoStatusOrphaned {
+		return "", false
+	}
+	return target, true
+}
+
 // ResetFormToList returns dialog to list mode (call after successful save/update).
 func (d *TodoDialog) ResetFormToList() {
-	d.mode = todoModeList
+	d.mode = todoModeKanban
 	d.errorMsg = ""
 }
 
@@ -355,85 +455,10 @@ func (d *TodoDialog) View() string {
 	case todoModeStatus:
 		return d.viewStatusPicker()
 	default:
-		return d.viewList()
+		return d.viewKanban()
 	}
 }
 
-func (d *TodoDialog) viewList() string {
-	borderStyle := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color("#5fd7ff")).
-		Padding(0, 1).
-		Width(d.width - 4).
-		MaxHeight(d.height - 4)
-
-	projectName := d.projectPath
-	if idx := strings.LastIndex(projectName, "/"); idx >= 0 {
-		projectName = projectName[idx+1:]
-	}
-
-	header := lipgloss.NewStyle().Bold(true).Render(
-		fmt.Sprintf("%s  [%d todos]", projectName, len(d.todos)),
-	)
-
-	var rows []string
-	if len(d.todos) == 0 {
-		rows = append(rows, lipgloss.NewStyle().Foreground(lipgloss.Color("#7a8a9a")).Render("  No todos yet. Press n to add one."))
-	}
-
-	innerWidth := d.width - 10
-	if innerWidth < 20 {
-		innerWidth = 20
-	}
-	for i, t := range d.todos {
-		statusSt := todoStatusStyle(t.Status)
-		icon := statusSt.Render(todoStatusIcon(t.Status))
-		label := statusSt.Render(todoStatusLabel(t.Status))
-
-		titleCol := t.Title
-		truncAt := innerWidth - 18
-		if truncAt > 0 && len(titleCol) > innerWidth-15 {
-			titleCol = titleCol[:truncAt] + "..."
-		}
-
-		gap := innerWidth - len(titleCol) - len(todoStatusLabel(t.Status)) - 4
-		if gap < 1 {
-			gap = 1
-		}
-		line := fmt.Sprintf(" %s %s%s%s", icon, titleCol, strings.Repeat(" ", gap), label)
-
-		if i == d.cursor {
-			line = lipgloss.NewStyle().
-				Background(lipgloss.Color("#2a3a4a")).
-				Foreground(lipgloss.Color("#ffffff")).
-				Render(line)
-		}
-		rows = append(rows, line)
-
-		// For the selected item, show description and session hint
-		if i == d.cursor {
-			if t.Description != "" {
-				desc := t.Description
-				maxDescWidth := innerWidth - 5
-				if maxDescWidth > 0 && len(desc) > maxDescWidth {
-					desc = desc[:maxDescWidth-3] + "..."
-				}
-				rows = append(rows, lipgloss.NewStyle().Foreground(lipgloss.Color("#8a9aaa")).Render("   "+desc))
-			}
-			if t.SessionID != "" {
-				rows = append(rows, lipgloss.NewStyle().Foreground(lipgloss.Color("#5a6a7a")).Render("   └─ session linked"))
-			}
-		}
-	}
-
-	hint := lipgloss.NewStyle().Foreground(lipgloss.Color("#5a6a7a")).Render(
-		"n new  enter open  s status  e edit  d delete  esc close",
-	)
-
-	content := strings.Join(append([]string{header, ""}, append(rows, "", hint)...), "\n")
-	return lipgloss.Place(d.width, d.height, lipgloss.Center, lipgloss.Center,
-		borderStyle.Render(content))
-}
 
 func (d *TodoDialog) viewForm() string {
 	title := "New Todo"
@@ -507,4 +532,208 @@ func (d *TodoDialog) viewStatusPicker() string {
 func TodoBranchName(title string) string {
 	lower := strings.ToLower(title)
 	return git.SanitizeBranchName(lower)
+}
+
+func (d *TodoDialog) handleKanbanKey(key string) TodoAction {
+	switch key {
+	case "left", "h":
+		if d.selectedCol > 0 {
+			d.selectedCol--
+		}
+	case "right", "l":
+		if d.selectedCol < len(d.cols)-1 {
+			d.selectedCol++
+		}
+	case "up", "k":
+		if d.selectedCol < len(d.selectedRow) && d.selectedRow[d.selectedCol] > 0 {
+			d.selectedRow[d.selectedCol]--
+		}
+	case "down", "j":
+		if d.selectedCol < len(d.cols) && d.selectedCol < len(d.selectedRow) {
+			col := d.cols[d.selectedCol]
+			if d.selectedRow[d.selectedCol] < len(col.todos)-1 {
+				d.selectedRow[d.selectedCol]++
+			}
+		}
+	case "shift+left":
+		// No card selected or already at boundary; no-op.
+		if d.SelectedTodo() != nil {
+			if _, ok := d.MoveCardTargetStatus(-1); ok {
+				return TodoActionMoveCardLeft
+			}
+		}
+	case "shift+right":
+		// No card selected or already at boundary; no-op.
+		if d.SelectedTodo() != nil {
+			if _, ok := d.MoveCardTargetStatus(1); ok {
+				return TodoActionMoveCardRight
+			}
+		}
+	case "n":
+		d.openNewForm()
+	case "e":
+		if t := d.SelectedTodo(); t != nil {
+			d.openEditForm(t)
+		}
+	case "d":
+		if d.SelectedTodo() != nil {
+			return TodoActionDeleteTodo
+		}
+	case "s":
+		if t := d.SelectedTodo(); t != nil {
+			d.openStatusPicker(t)
+		}
+	case "enter":
+		if d.SelectedTodo() == nil {
+			return TodoActionNone
+		}
+		return TodoActionCreateSession
+	case "esc", "t":
+		return TodoActionClose
+	}
+	return TodoActionNone
+}
+
+func (d *TodoDialog) viewKanban() string {
+	borderStyle := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color("#5fd7ff")).
+		Padding(0, 1).
+		Width(d.width - 4)
+
+	projectName := d.projectPath
+	if idx := strings.LastIndex(projectName, "/"); idx >= 0 {
+		projectName = projectName[idx+1:]
+	}
+	header := lipgloss.NewStyle().Bold(true).Render(projectName)
+
+	hint := lipgloss.NewStyle().Foreground(lipgloss.Color("#5a6a7a")).Render(
+		"←/→ col  ↑/↓ card  n new  enter open  s status  e edit  d delete  shift+←/→ move  esc close",
+	)
+
+	// Empty board
+	if len(d.todos) == 0 {
+		empty := lipgloss.NewStyle().Foreground(lipgloss.Color("#5a6a7a")).Render(
+			"No todos yet — press n to create one",
+		)
+		content := header + "\n\n" + empty + "\n\n" + hint
+		return lipgloss.Place(d.width, d.height, lipgloss.Center, lipgloss.Center,
+			borderStyle.Render(content))
+	}
+
+	numCols := len(d.cols)
+	innerW := d.width - 6 // border(2) + padding(2) + margin(2)
+	if innerW < numCols*8 {
+		innerW = numCols * 8
+	}
+	colW := (innerW - (numCols - 1)) / numCols
+	if colW < 8 {
+		colW = 8
+	}
+
+	colViews := make([]string, numCols)
+	for i, col := range d.cols {
+		colViews[i] = d.renderKanbanColumn(i, col, colW)
+	}
+	board := lipgloss.JoinHorizontal(lipgloss.Top, colViews...)
+
+	content := header + "\n\n" + board + "\n\n" + hint
+	return lipgloss.Place(d.width, d.height, lipgloss.Center, lipgloss.Center,
+		borderStyle.Render(content))
+}
+
+func (d *TodoDialog) renderKanbanColumn(colIdx int, col kanbanColumn, width int) string {
+	isFocused := colIdx == d.selectedCol
+
+	headerText := fmt.Sprintf("%s (%d)", col.label, len(col.todos))
+	var header string
+	if isFocused {
+		header = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#5fd7ff")).
+			Bold(true).
+			Render(headerText)
+	} else {
+		header = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#7a8a9a")).
+			Render(headerText)
+	}
+
+	underlineColor := "#5fd7ff"
+	if !isFocused {
+		underlineColor = "#3a4a5a"
+	}
+	underline := lipgloss.NewStyle().
+		Foreground(lipgloss.Color(underlineColor)).
+		Render(strings.Repeat("─", width))
+
+	lines := []string{header, underline}
+
+	if len(col.todos) == 0 {
+		lines = append(lines, lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#3a4a5a")).
+			Render("  (empty)"))
+	}
+
+	selectedRow := 0
+	if colIdx < len(d.selectedRow) {
+		selectedRow = d.selectedRow[colIdx]
+	}
+
+	for rowIdx, t := range col.todos {
+		isSelected := isFocused && rowIdx == selectedRow
+		lines = append(lines, d.renderKanbanCard(t, isSelected, isFocused, width))
+	}
+
+	colContent := strings.Join(lines, "\n")
+	// +1 char right gap between columns
+	return lipgloss.NewStyle().Width(width + 1).Render(colContent)
+}
+
+func (d *TodoDialog) renderKanbanCard(t *session.Todo, isSelected, colFocused bool, width int) string {
+	icon := todoStatusIcon(t.Status)
+	sessionMark := ""
+	if t.SessionID != "" {
+		sessionMark = " ⬡"
+	}
+
+	// Available title width: selector(1) + icon(1) + space(1) + title + sessionMark
+	titleWidth := width - 3 - lipgloss.Width(sessionMark)
+	if titleWidth < 1 {
+		titleWidth = 1
+	}
+	title := t.Title
+	runes := []rune(title)
+	if len(runes) > titleWidth {
+		if titleWidth > 3 {
+			title = string(runes[:titleWidth-3]) + "..."
+		} else {
+			title = string(runes[:titleWidth])
+		}
+	}
+
+	selector := " "
+	if isSelected {
+		selector = "▌"
+	}
+
+	switch {
+	case isSelected:
+		styledIcon := todoStatusStyle(t.Status).Render(icon)
+		line := fmt.Sprintf("%s%s %s%s", selector, styledIcon, title, sessionMark)
+		return lipgloss.NewStyle().
+			Background(lipgloss.Color("#2a3a4a")).
+			Foreground(lipgloss.Color("#ffffff")).
+			Width(width).
+			Render(line)
+	case !colFocused:
+		line := fmt.Sprintf("%s%s %s%s", selector, icon, title, sessionMark)
+		return lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#4a5a6a")).
+			Width(width).
+			Render(line)
+	default:
+		styledIcon := todoStatusStyle(t.Status).Render(icon)
+		line := fmt.Sprintf("%s%s %s%s", selector, styledIcon, title, sessionMark)
+		return lipgloss.NewStyle().Width(width).Render(line)
+	}
 }
