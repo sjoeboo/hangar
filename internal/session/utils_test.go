@@ -49,7 +49,7 @@ func TestGetDirectoryCompletions(t *testing.T) {
 		},
 		{
 			name:     "Nested absolute path",
-			input:    filepath.Join(tmpDir, "work/a"),
+			input:    filepath.Join(tmpDir, "work/h"),
 			expected: []string{filepath.Join(tmpDir, "work/hangar")},
 		},
 		{
