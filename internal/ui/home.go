@@ -146,6 +146,7 @@ type Home struct {
 	reviewDialog         *ReviewDialog         // For launching a review session for the current branch
 	todoDialog           *TodoDialog           // For viewing/managing per-project todos
 	pendingTodoID        string                // Todo ID waiting for a session to be created from it
+	pendingTodoPrompt    string                // prompt to send when the pending todo's session starts
 	sendTextDialog       *SendTextDialog       // For sending text to a session without attaching
 	sendTextTargetID     string                // Session ID targeted by sendTextDialog
 	sendTextTargetIDs    []string              // Session IDs for bulk send-text
@@ -541,6 +542,9 @@ type reviewSessionCreatedMsg struct {
 
 // reviewPromptSentMsg is returned after the /pr-review prompt is delivered.
 type reviewPromptSentMsg struct{}
+
+// todoPromptSentMsg is returned after the todo's initial prompt is delivered.
+type todoPromptSentMsg struct{}
 
 // worktreeCreatedForForkMsg is sent when async worktree creation for a fork completes
 type worktreeCreatedForForkMsg struct {
@@ -2427,7 +2431,22 @@ func (h *Home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 			// Start fetching preview for the new session
-			return h, h.fetchPreview(msg.instance)
+			cmds := []tea.Cmd{h.fetchPreview(msg.instance)}
+			if h.pendingTodoPrompt != "" {
+				capturedInst := msg.instance
+				capturedPrompt := h.pendingTodoPrompt
+				h.pendingTodoPrompt = ""
+				cmds = append(cmds, func() tea.Msg {
+					time.Sleep(4 * time.Second)
+					if err := capturedInst.SendText(capturedPrompt); err != nil {
+						uiLog.Warn("todo_prompt_send_failed",
+							slog.String("id", capturedInst.ID),
+							slog.String("err", err.Error()))
+					}
+					return todoPromptSentMsg{}
+				})
+			}
+			return h, tea.Batch(cmds...)
 		}
 		return h, nil
 
@@ -3143,6 +3162,9 @@ func (h *Home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case reviewPromptSentMsg:
 		return h, nil
 
+	case todoPromptSentMsg:
+		return h, nil
+
 	case worktreeCreatedForForkMsg:
 		if msg.err != nil {
 			h.setError(fmt.Errorf("failed to create worktree: %w", msg.err))
@@ -3855,7 +3877,8 @@ func (h *Home) handleNewDialogKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "esc":
 		h.newDialog.Hide()
 		h.pendingTodoID = "" // Clear pending todo link on cancel
-		h.clearError()       // Clear any validation error
+		h.pendingTodoPrompt = ""
+		h.clearError() // Clear any validation error
 		return h, nil
 	}
 
@@ -5012,6 +5035,7 @@ func (h *Home) handleConfirmDialogKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case "n", "N", "esc":
 			h.confirmDialog.Hide()
 			h.pendingTodoID = "" // Clear pending todo link if user cancelled directory creation
+			h.pendingTodoPrompt = ""
 			return h, nil
 		}
 		return h, nil
@@ -10271,6 +10295,7 @@ func (h *Home) handleTodoDialogKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		branchName := TodoBranchName(todo.Title)
 		h.pendingTodoID = todo.ID
+		h.pendingTodoPrompt = todo.Prompt
 		h.todoDialog.Hide()
 		h.newDialog.ShowInGroupWithWorktree(groupPath, groupName, projectPath, branchName)
 		return h, nil
