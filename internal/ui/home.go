@@ -3009,6 +3009,66 @@ func (h *Home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			msg.worktreePath, msg.repoRoot, msg.branchName, msg.toolOptions,
 		)
 
+	case reviewPRResolvedMsg:
+		if msg.err != nil {
+			h.reviewDialog.SetError(msg.err.Error())
+			return h, nil
+		}
+		h.reviewDialog.SetResolved(msg.branch, msg.title, msg.isPR, msg.prNum)
+		return h, nil
+
+	case reviewSessionCreatedMsg:
+		if msg.err != nil {
+			h.setError(msg.err)
+			return h, nil
+		}
+		inst := msg.instance
+		h.instancesMu.Lock()
+		h.instances = append(h.instances, inst)
+		h.instanceByID[inst.ID] = inst
+		h.instancesMu.Unlock()
+		// Invalidate status counts cache
+		h.cachedStatusCounts.valid.Store(false)
+
+		// Track as launching for animation
+		h.launchingSessions[inst.ID] = time.Now()
+
+		// Expand the group so the session is visible
+		if inst.GroupPath != "" {
+			h.groupTree.ExpandGroupWithParents(inst.GroupPath)
+		}
+
+		h.groupTree.AddSession(inst)
+		h.rebuildFlatItems()
+		h.search.SetItems(h.instances)
+
+		// Auto-select the new session
+		for i, item := range h.flatItems {
+			if item.Type == session.ItemTypeSession && item.Session != nil && item.Session.ID == inst.ID {
+				h.cursor = i
+				h.syncViewport()
+				break
+			}
+		}
+		h.forceSaveInstances()
+		if msg.initialPrompt == "" {
+			return h, nil
+		}
+		capturedInst := inst
+		capturedPrompt := msg.initialPrompt
+		return h, func() tea.Msg {
+			time.Sleep(4 * time.Second)
+			if err := capturedInst.SendText(capturedPrompt); err != nil {
+				uiLog.Warn("review_prompt_send_failed",
+					slog.String("id", capturedInst.ID),
+					slog.String("err", err.Error()))
+			}
+			return reviewPromptSentMsg{}
+		}
+
+	case reviewPromptSentMsg:
+		return h, nil
+
 	case worktreeCreatedForForkMsg:
 		if msg.err != nil {
 			h.setError(fmt.Errorf("failed to create worktree: %w", msg.err))
@@ -3375,6 +3435,43 @@ func (h *Home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if h.todoDialog.IsVisible() {
 			return h.handleTodoDialogKey(msg)
+		}
+		if h.reviewDialog.IsVisible() {
+			action := h.reviewDialog.HandleKey(msg.String())
+			switch action {
+			case "cancel":
+				return h, nil
+			case "resolve":
+				input := h.reviewDialog.GetRawInput()
+				repoDir := h.reviewDialog.GetRepoDir()
+				isPR := h.reviewDialog.IsPRInput()
+				h.reviewDialog.SetResolving(true)
+				return h, func() tea.Msg {
+					if isPR {
+						branch, title, err := resolvePRBranch(repoDir, input)
+						if err != nil {
+							return reviewPRResolvedMsg{err: err}
+						}
+						return reviewPRResolvedMsg{
+							branch: branch,
+							title:  title,
+							isPR:   true,
+							prNum:  input,
+						}
+					}
+					return reviewPRResolvedMsg{
+						branch: input,
+						isPR:   false,
+					}
+				}
+			case "confirm":
+				branch, prNum, sessionName, initialPrompt := h.reviewDialog.GetReviewValues()
+				repoDir := h.reviewDialog.GetRepoDir()
+				groupPath := h.reviewDialog.groupPath
+				h.reviewDialog.Hide()
+				return h, h.createReviewSession(repoDir, branch, prNum, sessionName, groupPath, initialPrompt)
+			}
+			return h, nil
 		}
 		if h.worktreeFinishDialog.IsVisible() {
 			return h.handleWorktreeFinishDialogKey(msg)
@@ -9492,6 +9589,74 @@ func (h *Home) getReviewContext() (repoDir, projectName, groupPath string) {
 	}
 
 	return "", "", ""
+}
+
+// resolvePRBranch calls `gh pr view` to get the branch name and title for a PR number.
+// Returns the branch name and PR title, or an error if gh is unavailable or the PR is not found.
+func resolvePRBranch(repoDir, prNum string) (branch, title string, err error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, "gh", "pr", "view", prNum,
+		"--json", "headRefName,title",
+		"--jq", ".headRefName+\"\\t\"+.title")
+	cmd.Dir = repoDir
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return "", "", fmt.Errorf("gh pr view failed: %s", strings.TrimSpace(string(output)))
+	}
+
+	parts := strings.SplitN(strings.TrimSpace(string(output)), "\t", 2)
+	if len(parts) == 0 || parts[0] == "" {
+		return "", "", fmt.Errorf("could not determine branch for PR #%s", prNum)
+	}
+	branch = parts[0]
+	if len(parts) == 2 {
+		title = parts[1]
+	}
+	return branch, title, nil
+}
+
+// createReviewSession fetches the branch, creates a worktree, and starts a Claude session.
+func (h *Home) createReviewSession(
+	repoDir, branch, prNum, sessionName, groupPath, initialPrompt string,
+) tea.Cmd {
+	return func() tea.Msg {
+		if err := git.FetchBranch(repoDir, branch); err != nil {
+			return reviewSessionCreatedMsg{err: fmt.Errorf("fetch branch: %w", err)}
+		}
+
+		wtSettings := session.GetWorktreeSettings()
+		worktreePath := git.WorktreePath(git.WorktreePathOptions{
+			Branch:    sessionName,
+			Location:  wtSettings.DefaultLocation,
+			RepoDir:   repoDir,
+			SessionID: git.GeneratePathID(),
+			Template:  wtSettings.Template(),
+		})
+
+		if err := git.CreateWorktree(repoDir, worktreePath, branch); err != nil {
+			return reviewSessionCreatedMsg{err: fmt.Errorf("create worktree: %w", err)}
+		}
+
+		if err := tmux.IsTmuxAvailable(); err != nil {
+			return reviewSessionCreatedMsg{err: fmt.Errorf("tmux not available: %w", err)}
+		}
+
+		inst := session.NewInstanceWithGroupAndTool(sessionName, worktreePath, groupPath, "claude")
+		inst.WorktreePath = worktreePath
+		inst.WorktreeRepoRoot = repoDir
+		inst.WorktreeBranch = branch
+
+		if err := inst.Start(); err != nil {
+			return reviewSessionCreatedMsg{err: fmt.Errorf("start session: %w", err)}
+		}
+
+		return reviewSessionCreatedMsg{
+			instance:      inst,
+			initialPrompt: initialPrompt,
+		}
+	}
 }
 
 // finishWorktree performs the worktree finish operation asynchronously:
