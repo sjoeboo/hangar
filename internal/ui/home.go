@@ -2999,6 +2999,12 @@ func (h *Home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return h, nil
 
+	case editorFinishedMsg:
+		if msg.err != nil {
+			h.setError(msg.err)
+		}
+		return h, nil
+
 	case tickMsg:
 		// Auto-dismiss errors after 5 seconds
 		if h.err != nil && !h.errTime.IsZero() && time.Since(h.errTime) > 5*time.Second {
