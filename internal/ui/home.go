@@ -2254,6 +2254,7 @@ func (h *Home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				h.saveInstances()
 			}
 			// Trigger immediate preview fetch for initial selection (mutex-protected)
+			h.updateDiffStat()
 			if selected := h.getSelectedSession(); selected != nil {
 				h.previewCacheMu.Lock()
 				h.previewFetchingID = selected.ID
@@ -3558,6 +3559,9 @@ func (h *Home) handleMouseMsg(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 		if h.cursor > 0 {
 			h.cursor--
 			h.syncViewport()
+			h.currentDiffRaw = ""
+			h.currentDiffErr = nil
+			h.updateDiffStat()
 		}
 		return h, nil
 
@@ -3565,6 +3569,9 @@ func (h *Home) handleMouseMsg(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 		if h.cursor < len(h.flatItems)-1 {
 			h.cursor++
 			h.syncViewport()
+			h.currentDiffRaw = ""
+			h.currentDiffErr = nil
+			h.updateDiffStat()
 		}
 		return h, nil
 
@@ -3605,6 +3612,9 @@ func (h *Home) handleMouseMsg(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 		// Move cursor to clicked row
 		h.cursor = idx
 		h.syncViewport()
+		h.currentDiffRaw = ""
+		h.currentDiffErr = nil
+		h.updateDiffStat()
 
 		if isDoubleClick && item.Session != nil && item.Session.Exists() {
 			h.isAttaching.Store(true)
@@ -3645,6 +3655,9 @@ func (h *Home) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			// Track navigation for adaptive background updates
 			h.lastNavigationTime = time.Now()
 			h.isNavigating = true
+			h.currentDiffRaw = ""
+			h.currentDiffErr = nil
+			h.updateDiffStat()
 			// PERFORMANCE: Debounced preview fetch - waits 150ms for navigation to settle
 			// This prevents spawning tmux subprocess on every keystroke
 			if selected := h.getSelectedSession(); selected != nil {
@@ -3660,6 +3673,9 @@ func (h *Home) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			// Track navigation for adaptive background updates
 			h.lastNavigationTime = time.Now()
 			h.isNavigating = true
+			h.currentDiffRaw = ""
+			h.currentDiffErr = nil
+			h.updateDiffStat()
 			// PERFORMANCE: Debounced preview fetch - waits 150ms for navigation to settle
 			// This prevents spawning tmux subprocess on every keystroke
 			if selected := h.getSelectedSession(); selected != nil {
@@ -3681,6 +3697,9 @@ func (h *Home) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		h.syncViewport()
 		h.lastNavigationTime = time.Now()
 		h.isNavigating = true
+		h.currentDiffRaw = ""
+		h.currentDiffErr = nil
+		h.updateDiffStat()
 		if selected := h.getSelectedSession(); selected != nil {
 			return h, h.fetchPreviewDebounced(selected.ID)
 		}
@@ -3701,6 +3720,9 @@ func (h *Home) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		h.syncViewport()
 		h.lastNavigationTime = time.Now()
 		h.isNavigating = true
+		h.currentDiffRaw = ""
+		h.currentDiffErr = nil
+		h.updateDiffStat()
 		if selected := h.getSelectedSession(); selected != nil {
 			return h, h.fetchPreviewDebounced(selected.ID)
 		}
@@ -3718,6 +3740,9 @@ func (h *Home) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		h.syncViewport()
 		h.lastNavigationTime = time.Now()
 		h.isNavigating = true
+		h.currentDiffRaw = ""
+		h.currentDiffErr = nil
+		h.updateDiffStat()
 		if selected := h.getSelectedSession(); selected != nil {
 			return h, h.fetchPreviewDebounced(selected.ID)
 		}
@@ -3738,6 +3763,9 @@ func (h *Home) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		h.syncViewport()
 		h.lastNavigationTime = time.Now()
 		h.isNavigating = true
+		h.currentDiffRaw = ""
+		h.currentDiffErr = nil
+		h.updateDiffStat()
 		if selected := h.getSelectedSession(); selected != nil {
 			return h, h.fetchPreviewDebounced(selected.ID)
 		}
@@ -7479,18 +7507,6 @@ func (h *Home) renderPreviewPane(width, height int) string {
 	b.WriteString(groupBadge)
 	b.WriteString("\n")
 
-	// Diffstat: populate Preview.DiffStat; Preview.View() is wired into the Output
-	// section below as the sole renderer of the diffstat line.
-	if dir := h.effectiveDir(selected); dir != "" && git.IsGitRepo(dir) {
-		if h.currentDiffErr != nil {
-			h.preview.DiffStat = "diff unavailable"
-		} else {
-			h.preview.DiffStat = git.DiffSummary(h.currentDiffRaw)
-		}
-	} else {
-		h.preview.DiffStat = ""
-	}
-
 	// Worktree info section (for sessions running in git worktrees)
 	if selected.IsWorktree() {
 		wtHeader := renderSectionDivider("Worktree", width-4)
@@ -8875,10 +8891,30 @@ func (h *Home) getOtherActiveSessions(excludeID string) []*session.Instance {
 // session. For worktree sessions the worktree path is used; for regular
 // sessions the session's project path is used.
 func (h *Home) effectiveDir(s *session.Instance) string {
-	if s.IsWorktree() && s.WorktreePath != "" {
+	if s.IsWorktree() {
 		return s.WorktreePath
 	}
 	return s.ProjectPath
+}
+
+// updateDiffStat recomputes h.preview.DiffStat from the current diff data and
+// the currently focused session.  Call this from Update() whenever the focused
+// session or the diff data changes — never from View().
+func (h *Home) updateDiffStat() {
+	selected := h.getSelectedSession()
+	if selected == nil {
+		h.preview.DiffStat = ""
+		return
+	}
+	if dir := h.effectiveDir(selected); dir != "" && git.IsGitRepo(dir) {
+		if h.currentDiffErr != nil {
+			h.preview.DiffStat = "diff unavailable"
+		} else {
+			h.preview.DiffStat = git.DiffSummary(h.currentDiffRaw)
+		}
+	} else {
+		h.preview.DiffStat = ""
+	}
 }
 
 // getSessionContent retrieves displayable content from a session.
