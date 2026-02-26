@@ -4410,10 +4410,10 @@ func (h *Home) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 
 	case "ctrl+r":
-		// Manual refresh (useful if watcher fails or for user preference)
+		// Manual refresh: reload session list + force-refresh git/PR status for selected session
 		state := h.preserveState()
 
-		cmd := func() tea.Msg {
+		cmds := []tea.Cmd{func() tea.Msg {
 			instances, groups, err := h.storage.LoadWithGroups()
 			return loadSessionsMsg{
 				instances:    instances,
@@ -4421,9 +4421,37 @@ func (h *Home) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				err:          err,
 				restoreState: &state,
 			}
+		}}
+
+		// Force-refresh git dirty status and PR status for the currently selected session
+		if h.cursor < len(h.flatItems) {
+			item := h.flatItems[h.cursor]
+			if item.Session != nil && item.Session.IsWorktree() && item.Session.WorktreePath != "" {
+				sid := item.Session.ID
+				wtPath := item.Session.WorktreePath
+
+				// Invalidate caches so they re-fetch immediately
+				h.worktreeDirtyMu.Lock()
+				delete(h.worktreeDirtyCacheTs, sid)
+				h.worktreeDirtyMu.Unlock()
+				h.prCacheMu.Lock()
+				delete(h.prCacheTs, sid)
+				h.prCacheMu.Unlock()
+
+				cmds = append(cmds, func() tea.Msg {
+					dirty, err := git.HasUncommittedChanges(wtPath)
+					return worktreeDirtyCheckMsg{sessionID: sid, isDirty: dirty, err: err}
+				})
+				if h.ghPath != "" {
+					ghPath := h.ghPath
+					cmds = append(cmds, func() tea.Msg {
+						return fetchPRInfo(sid, wtPath, ghPath)
+					})
+				}
+			}
 		}
 
-		return h, cmd
+		return h, tea.Batch(cmds...)
 
 	case "1", "2", "3", "4", "5", "6", "7", "8", "9":
 		// Quick jump to Nth root group (1-indexed)
