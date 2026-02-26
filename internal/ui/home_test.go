@@ -1392,3 +1392,51 @@ func TestWorktreeFinishDialog_PRFetchedIgnoresDifferentSession(t *testing.T) {
 		t.Error("expected prLoaded unchanged for different session")
 	}
 }
+
+func TestDeleteKey_WorktreeSessionOpensFinishDialog(t *testing.T) {
+	home := NewHome()
+	home.width = 120
+	home.height = 40
+	home.initialLoading = false
+	inst := makeWorktreeInstance("sess1", "feat/delete-me")
+	home.instancesMu.Lock()
+	home.instances = []*session.Instance{inst}
+	home.instanceByID[inst.ID] = inst
+	home.instancesMu.Unlock()
+	home.groupTree = session.NewGroupTree(home.instances)
+	home.rebuildFlatItems()
+
+	home.cursor = 1 // index 0 is the group header
+	home.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("d")})
+
+	if !home.worktreeFinishDialog.IsVisible() {
+		t.Error("expected WorktreeFinishDialog visible when d pressed on worktree session")
+	}
+	if home.confirmDialog.IsVisible() {
+		t.Error("expected ConfirmDialog NOT visible for worktree session")
+	}
+}
+
+func TestDeleteKey_NonWorktreeSessionOpensConfirmDialog(t *testing.T) {
+	home := NewHome()
+	home.width = 120
+	home.height = 40
+	home.initialLoading = false
+	inst := &session.Instance{ID: "sess2", Title: "plain-session"}
+	home.instancesMu.Lock()
+	home.instances = []*session.Instance{inst}
+	home.instanceByID[inst.ID] = inst
+	home.instancesMu.Unlock()
+	home.groupTree = session.NewGroupTree(home.instances)
+	home.rebuildFlatItems()
+
+	home.cursor = 1 // index 0 is the group header
+	home.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("d")})
+
+	if home.worktreeFinishDialog.IsVisible() {
+		t.Error("expected WorktreeFinishDialog NOT visible for non-worktree session")
+	}
+	if !home.confirmDialog.IsVisible() {
+		t.Error("expected ConfirmDialog visible for non-worktree session")
+	}
+}
