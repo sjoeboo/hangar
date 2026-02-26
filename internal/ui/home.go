@@ -7673,7 +7673,7 @@ func (h *Home) renderSessionItem(b *strings.Builder, item session.Item, selected
 		if h.selectedSessionIDs[inst.ID] {
 			selectionPrefix = SessionSelectionPrefix.Render("☑")
 		} else {
-			selectionPrefix = lipgloss.NewStyle().Foreground(ColorTextDim).Render("□")
+			selectionPrefix = SessionCheckboxUnchecked.Render("□")
 		}
 		if selected {
 			// Apply cursor highlight styling (background color) for focused row
