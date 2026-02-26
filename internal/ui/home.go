@@ -3582,24 +3582,29 @@ func (h *Home) handleNewDialogKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			// Hide dialog and dispatch async worktree creation so the git fetch
 			// doesn't block the Bubble Tea event loop (large monorepos can take 30-60s).
 			h.newDialog.Hide()
-			h.clearError()
+			h.setError(fmt.Errorf("creating worktree '%s'…", branchName))
 			autoUpdate := wtSettings.AutoUpdateBase
 			capturedRepoRoot := repoRoot
 			capturedWorktreePath := worktreePath
 			capturedBranch := branchName
 			return h, func() tea.Msg {
+				uiLog.Info("async_worktree_start", slog.String("branch", capturedBranch), slog.String("repo", capturedRepoRoot))
 				if autoUpdate {
 					baseBranch, _ := git.GetDefaultBranch(capturedRepoRoot)
 					if baseBranch == "" {
 						baseBranch = "main"
 					}
+					uiLog.Info("async_worktree_fetch_start", slog.String("base_branch", baseBranch))
 					if err := git.UpdateBaseBranch(capturedRepoRoot, baseBranch); err != nil {
 						uiLog.Warn("base_branch_update_failed", slog.String("error", err.Error()))
 					}
 				}
+				uiLog.Info("async_worktree_create_start", slog.String("path", capturedWorktreePath))
 				if err := git.CreateWorktree(capturedRepoRoot, capturedWorktreePath, capturedBranch); err != nil {
+					uiLog.Error("async_worktree_create_failed", slog.String("error", err.Error()))
 					return worktreeCreatedForNewSessionMsg{err: err}
 				}
+				uiLog.Info("async_worktree_create_done", slog.String("path", capturedWorktreePath))
 				return worktreeCreatedForNewSessionMsg{
 					name:         name,
 					command:      command,
@@ -4893,6 +4898,7 @@ func (h *Home) handleForkDialogKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 					// Hide dialog and dispatch async worktree creation so the git fetch
 					// doesn't block the Bubble Tea event loop.
 					h.forkDialog.Hide()
+					h.setError(fmt.Errorf("creating worktree '%s'\u2026", branchName))
 					autoUpdate := wtSettings.AutoUpdateBase
 					capturedRepoRoot := repoRoot
 					capturedWorktreePath := worktreePath
@@ -4902,18 +4908,23 @@ func (h *Home) handleForkDialogKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 					capturedGroupPath := groupPath
 					capturedOpts := opts
 					return h, func() tea.Msg {
+						uiLog.Info("async_worktree_fork_start", slog.String("branch", capturedBranch), slog.String("repo", capturedRepoRoot))
 						if autoUpdate {
 							baseBranch, _ := git.GetDefaultBranch(capturedRepoRoot)
 							if baseBranch == "" {
 								baseBranch = "main"
 							}
+							uiLog.Info("async_worktree_fork_fetch_start", slog.String("base_branch", baseBranch))
 							if err := git.UpdateBaseBranch(capturedRepoRoot, baseBranch); err != nil {
 								uiLog.Warn("base_branch_update_failed", slog.String("error", err.Error()))
 							}
 						}
+						uiLog.Info("async_worktree_fork_create_start", slog.String("path", capturedWorktreePath))
 						if err := git.CreateWorktree(capturedRepoRoot, capturedWorktreePath, capturedBranch); err != nil {
+							uiLog.Error("async_worktree_fork_create_failed", slog.String("error", err.Error()))
 							return worktreeCreatedForForkMsg{err: err}
 						}
+						uiLog.Info("async_worktree_fork_create_done", slog.String("path", capturedWorktreePath))
 						capturedOpts.WorkDir = capturedWorktreePath
 						capturedOpts.WorktreePath = capturedWorktreePath
 						capturedOpts.WorktreeRepoRoot = capturedRepoRoot
