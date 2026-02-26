@@ -862,6 +862,40 @@ func sanitizeName(name string) string {
 	return re.ReplaceAllString(name, "-")
 }
 
+// extractWindowName returns the executable name from a potentially compound shell command.
+// Handles two patterns common in hangar-built commands:
+//  1. Semicolon-separated compound commands: uses the last statement's executable
+//     e.g. "session_id=$(uuidgen); ...; claude --session-id $id" → "claude"
+//  2. Inline env-var prefixes: skips KEY=VALUE tokens
+//     e.g. "HANGAR_INSTANCE_ID=x CLAUDE_CONFIG_DIR=y claude -c" → "claude"
+func extractWindowName(command string) string {
+	if command == "" {
+		return "shell"
+	}
+
+	// Use the last semicolon-separated non-empty statement so that compound
+	// "capture-resume" commands point to the real executable at the end.
+	lastStmt := command
+	for _, stmt := range strings.Split(command, ";") {
+		if s := strings.TrimSpace(stmt); s != "" {
+			lastStmt = s
+		}
+	}
+
+	// Walk fields, skipping shell keywords and KEY=VALUE env-var assignments.
+	for _, f := range strings.Fields(lastStmt) {
+		if f == "export" || f == "exec" || f == "env" || f == "sudo" {
+			continue
+		}
+		if strings.ContainsAny(f, "=()&|") {
+			continue
+		}
+		return filepath.Base(f)
+	}
+
+	return "shell"
+}
+
 // Start creates and starts a tmux session
 func (s *Session) Start(command string) error {
 	s.Command = command
@@ -888,14 +922,9 @@ func (s *Session) Start(command string) error {
 		workDir = os.Getenv("HOME")
 	}
 
-	// Derive a window name from the command (e.g. "claude", "bash")
-	windowName := "shell"
-	if s.Command != "" {
-		fields := strings.Fields(s.Command)
-		if len(fields) > 0 {
-			windowName = filepath.Base(fields[0])
-		}
-	}
+	// Derive a window name from the command (e.g. "claude", "bash").
+	// Uses extractWindowName to handle compound commands and inline env-var prefixes.
+	windowName := extractWindowName(s.Command)
 
 	// Create new tmux session in detached mode
 	cmd := exec.Command("tmux", "new-session", "-d", "-s", s.Name, "-n", windowName, "-c", workDir)
