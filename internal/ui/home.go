@@ -3782,6 +3782,35 @@ func (h *Home) handleMouseMsg(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 // handleMainKey handles keys in main view
 func (h *Home) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
+	case "P":
+		if h.ghPath != "" {
+			h.viewMode = "prs"
+			h.prViewCursor = 0
+			// Trigger fetches for any session missing recent PR data
+			var cmds []tea.Cmd
+			for _, item := range h.flatItems {
+				if item.Type == session.ItemTypeSession && item.Session != nil && item.Session.IsWorktree() && item.Session.WorktreePath != "" {
+					h.prCacheMu.Lock()
+					cacheTs, hasCached := h.prCacheTs[item.Session.ID]
+					needsFetch := !hasCached || time.Since(cacheTs) > 60*time.Second
+					if needsFetch {
+						h.prCacheTs[item.Session.ID] = time.Now()
+					}
+					h.prCacheMu.Unlock()
+					if needsFetch {
+						sid := item.Session.ID
+						wtPath := item.Session.WorktreePath
+						ghPath := h.ghPath
+						cmds = append(cmds, func() tea.Msg {
+							return fetchPRInfo(sid, wtPath, ghPath)
+						})
+					}
+				}
+			}
+			return h, tea.Batch(cmds...)
+		}
+		return h, nil
+
 	case "q", "ctrl+c":
 		return h.tryQuit()
 

@@ -1440,3 +1440,40 @@ func TestDeleteKey_NonWorktreeSessionOpensConfirmDialog(t *testing.T) {
 		t.Error("expected ConfirmDialog visible for non-worktree session")
 	}
 }
+
+func TestPRView_ToggleWithP(t *testing.T) {
+	home := NewHome()
+	home.width = 120
+	home.height = 40
+	home.ghPath = "/usr/bin/gh" // fake path — just needs to be non-empty
+
+	if home.viewMode == "prs" {
+		t.Fatal("viewMode should not start in prs mode")
+	}
+
+	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'P'}}
+	model, _ := home.Update(msg)
+	h := model.(*Home)
+
+	if h.viewMode != "prs" {
+		t.Errorf("viewMode = %q, want \"prs\"", h.viewMode)
+	}
+	if h.prViewCursor != 0 {
+		t.Errorf("prViewCursor = %d, want 0", h.prViewCursor)
+	}
+}
+
+func TestPRView_NoToggleWithoutGh(t *testing.T) {
+	home := NewHome()
+	home.width = 120
+	home.height = 40
+	home.ghPath = "" // explicitly clear to simulate gh not installed
+
+	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'P'}}
+	model, _ := home.Update(msg)
+	h := model.(*Home)
+
+	if h.viewMode == "prs" {
+		t.Error("viewMode should not switch to prs when gh is not installed")
+	}
+}
