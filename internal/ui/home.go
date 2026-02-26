@@ -7479,7 +7479,8 @@ func (h *Home) renderPreviewPane(width, height int) string {
 	b.WriteString(groupBadge)
 	b.WriteString("\n")
 
-	// Diffstat line: route through Preview.DiffStat so the Preview struct owns rendering.
+	// Diffstat: populate Preview.DiffStat; Preview.View() is wired into the Output
+	// section below as the sole renderer of the diffstat line.
 	if dir := h.effectiveDir(selected); dir != "" && git.IsGitRepo(dir) {
 		if h.currentDiffErr != nil {
 			h.preview.DiffStat = "diff unavailable"
@@ -7488,11 +7489,6 @@ func (h *Home) renderPreviewPane(width, height int) string {
 		}
 	} else {
 		h.preview.DiffStat = ""
-	}
-	if h.preview.DiffStat != "" {
-		dimStyle := lipgloss.NewStyle().Foreground(ColorTextDim)
-		b.WriteString(dimStyle.Render("~ " + h.preview.DiffStat))
-		b.WriteString("\n")
 	}
 
 	// Worktree info section (for sessions running in git worktrees)
@@ -8053,6 +8049,18 @@ func (h *Home) renderPreviewPane(width, height int) string {
 	termHeader := renderSectionDivider("Output", width-4)
 	b.WriteString(termHeader)
 	b.WriteString("\n")
+
+	// Render diffstat via Preview.View() — the sole owner of "~ diffstat" rendering.
+	if h.preview.DiffStat != "" {
+		h.preview.SetSize(width, height)
+		for _, line := range strings.Split(h.preview.View(), "\n") {
+			if strings.Contains(tmux.StripANSI(line), "~ ") {
+				b.WriteString(line)
+				b.WriteString("\n")
+				break
+			}
+		}
+	}
 
 	// Check if this session is launching (newly created), resuming (restarted), or forking
 	launchTime, isLaunching := h.launchingSessions[selected.ID]
