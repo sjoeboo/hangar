@@ -1724,3 +1724,52 @@ func TestBulkSelectMode_SpaceOutsideBulkModeIsNoop(t *testing.T) {
 		t.Error("space outside bulk mode should not select anything")
 	}
 }
+
+func TestBulkSelectMode_CheckboxRendering(t *testing.T) {
+	home := NewHome()
+	home.width = 120
+	home.height = 30
+	home.initialLoading = false
+
+	inst := &session.Instance{
+		ID:     "test-1",
+		Title:  "my-session",
+		Tool:   "claude",
+		Status: session.StatusIdle,
+	}
+	home.instancesMu.Lock()
+	home.instances = []*session.Instance{inst}
+	home.instanceByID[inst.ID] = inst
+	home.instancesMu.Unlock()
+	home.groupTree = session.NewGroupTree(home.instances)
+	home.rebuildFlatItems()
+
+	// In bulk mode, view should contain unselected checkbox
+	home.bulkSelectMode = true
+
+	view := home.View()
+	if !strings.Contains(view, "□") {
+		t.Error("bulk mode should render □ for unselected session")
+	}
+	if strings.Contains(view, "▶") {
+		t.Error("bulk mode should not render ▶ cursor arrow")
+	}
+
+	// After selecting, should show checked box
+	home.selectedSessionIDs["test-1"] = true
+	view = home.View()
+	if !strings.Contains(view, "☑") {
+		t.Error("selected session should render ☑")
+	}
+
+	// Outside bulk mode, should render normal arrow cursor (not checkboxes)
+	home.bulkSelectMode = false
+	home.selectedSessionIDs = make(map[string]bool)
+	view = home.View()
+	if strings.Contains(view, "□") {
+		t.Error("normal mode should not render □ checkboxes")
+	}
+	if strings.Contains(view, "☑") {
+		t.Error("normal mode should not render ☑ checkboxes")
+	}
+}

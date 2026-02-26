@@ -7667,19 +7667,42 @@ func (h *Home) renderSessionItem(b *strings.Builder, item session.Item, selected
 	toolStyle := GetToolStyle(instTool)
 
 	// Selection indicator
-	selectionPrefix := " "
-	if selected {
-		selectionPrefix = SessionSelectionPrefix.Render("▶")
-		titleStyle = SessionTitleSelStyle
-		toolStyle = SessionStatusSelStyle
-		statusStyle = SessionStatusSelStyle
-		status = statusStyle.Render(statusIcon)
-		// Tree connector also gets selection styling
-		treeStyle = TreeConnectorSelStyle
-		// Rebuild baseIndent with selection styling for sub-sessions
-		if item.IsSubSession && !item.ParentIsLastInGroup {
-			groupIndent := strings.Repeat(treeEmpty, max(0, item.Level-2))
-			baseIndent = groupIndent + " " + treeStyle.Render("│")
+	var selectionPrefix string
+	if h.bulkSelectMode {
+		// In bulk mode: show checkbox, apply cursor highlight independently
+		if h.selectedSessionIDs[inst.ID] {
+			selectionPrefix = SessionSelectionPrefix.Render("☑")
+		} else {
+			selectionPrefix = lipgloss.NewStyle().Foreground(ColorTextDim).Render("□")
+		}
+		if selected {
+			// Apply cursor highlight styling (background color) for focused row
+			titleStyle = SessionTitleSelStyle
+			toolStyle = SessionStatusSelStyle
+			statusStyle = SessionStatusSelStyle
+			status = statusStyle.Render(statusIcon)
+			treeStyle = TreeConnectorSelStyle
+			if item.IsSubSession && !item.ParentIsLastInGroup {
+				groupIndent := strings.Repeat(treeEmpty, max(0, item.Level-2))
+				baseIndent = groupIndent + " " + treeStyle.Render("│")
+			}
+		}
+	} else {
+		// Normal mode: arrow cursor indicator
+		selectionPrefix = " "
+		if selected {
+			selectionPrefix = SessionSelectionPrefix.Render("▶")
+			titleStyle = SessionTitleSelStyle
+			toolStyle = SessionStatusSelStyle
+			statusStyle = SessionStatusSelStyle
+			status = statusStyle.Render(statusIcon)
+			// Tree connector also gets selection styling
+			treeStyle = TreeConnectorSelStyle
+			// Rebuild baseIndent with selection styling for sub-sessions
+			if item.IsSubSession && !item.ParentIsLastInGroup {
+				groupIndent := strings.Repeat(treeEmpty, max(0, item.Level-2))
+				baseIndent = groupIndent + " " + treeStyle.Render("│")
+			}
 		}
 	}
 
