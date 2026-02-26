@@ -436,6 +436,37 @@ func TestRenderDetailPanel(t *testing.T) {
 	})
 }
 
+func TestTodoDialog_ViewKanban_ShowsDescriptionPanel(t *testing.T) {
+	d := NewTodoDialog()
+	d.SetSize(160, 40)
+	todos := []*session.Todo{
+		{ID: "1", Title: "My Task", Description: "Important context here", Status: session.TodoStatusTodo},
+	}
+	d.Show("/proj", "/proj", "proj", todos)
+
+	view := d.View()
+	if !strings.Contains(view, "Important context here") {
+		t.Errorf("expected description text in view:\n%s", view)
+	}
+	if !strings.Contains(view, "description") {
+		t.Errorf("expected 'description' label in view:\n%s", view)
+	}
+}
+
+func TestTodoDialog_ViewKanban_NoDescriptionShowsPlaceholder(t *testing.T) {
+	d := NewTodoDialog()
+	d.SetSize(160, 40)
+	todos := []*session.Todo{
+		{ID: "1", Title: "No Desc Task", Description: "", Status: session.TodoStatusTodo},
+	}
+	d.Show("/proj", "/proj", "proj", todos)
+
+	view := d.View()
+	if !strings.Contains(view, "no description") {
+		t.Errorf("expected 'no description' placeholder in view:\n%s", view)
+	}
+}
+
 func TestWordWrapText(t *testing.T) {
 	tests := []struct {
 		name     string

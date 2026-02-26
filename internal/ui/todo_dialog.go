@@ -715,7 +715,13 @@ func (d *TodoDialog) viewKanban() string {
 	}
 	board := lipgloss.JoinHorizontal(lipgloss.Top, colViews...)
 
-	content := header + "\n\n" + board + "\n\n" + hint
+	detail := d.renderDetailPanel(innerW)
+	var content string
+	if detail != "" {
+		content = header + "\n\n" + board + "\n\n" + detail + "\n" + hint
+	} else {
+		content = header + "\n\n" + board + "\n\n" + hint
+	}
 	return lipgloss.Place(d.width, d.height, lipgloss.Center, lipgloss.Center,
 		borderStyle.Render(content))
 }
