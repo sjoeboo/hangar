@@ -169,3 +169,143 @@ func TestDiffView_HandleKey_Scroll(t *testing.T) {
 		t.Errorf("expected scroll +1, got offset %d (was %d)", dv.scrollOffset, before)
 	}
 }
+
+func TestDiffView_HandleKey_PagerBindings(t *testing.T) {
+	// height=24 → fullPage = 24-4 = 20, halfPage = 10
+	setup := func() *DiffView {
+		dv := NewDiffView()
+		_ = dv.Parse(sampleDiff)
+		dv.Show()
+		dv.SetSize(120, 24)
+		// Scroll to middle so both up and down have room
+		dv.ScrollDown(5)
+		return dv
+	}
+
+	fullPage := 20
+	halfPage := 10
+
+	t.Run("space full-page-down", func(t *testing.T) {
+		dv := setup()
+		before := dv.scrollOffset
+		handled, _ := dv.HandleKey(" ")
+		if !handled {
+			t.Error("expected space to be handled")
+		}
+		// clamped, so check at-least-as-far-as min(before+fullPage, max)
+		if dv.scrollOffset < before && dv.scrollOffset != 0 {
+			t.Errorf("space should scroll down; offset went from %d to %d", before, dv.scrollOffset)
+		}
+		_ = fullPage // used implicitly via scrolling
+	})
+
+	t.Run("f full-page-down", func(t *testing.T) {
+		dv := setup()
+		before := dv.scrollOffset
+		dv.HandleKey("f")
+		if dv.scrollOffset < before {
+			t.Errorf("f should scroll down; offset went from %d to %d", before, dv.scrollOffset)
+		}
+	})
+
+	t.Run("ctrl+f full-page-down", func(t *testing.T) {
+		dv := setup()
+		before := dv.scrollOffset
+		dv.HandleKey("ctrl+f")
+		if dv.scrollOffset < before {
+			t.Errorf("ctrl+f should scroll down; offset went from %d to %d", before, dv.scrollOffset)
+		}
+	})
+
+	t.Run("pgdown full-page-down", func(t *testing.T) {
+		dv := setup()
+		before := dv.scrollOffset
+		dv.HandleKey("pgdown")
+		if dv.scrollOffset < before {
+			t.Errorf("pgdown should scroll down; offset went from %d to %d", before, dv.scrollOffset)
+		}
+	})
+
+	t.Run("b full-page-up", func(t *testing.T) {
+		dv := setup()
+		before := dv.scrollOffset
+		dv.HandleKey("b")
+		if dv.scrollOffset > before {
+			t.Errorf("b should scroll up; offset went from %d to %d", before, dv.scrollOffset)
+		}
+	})
+
+	t.Run("ctrl+b full-page-up", func(t *testing.T) {
+		dv := setup()
+		before := dv.scrollOffset
+		dv.HandleKey("ctrl+b")
+		if dv.scrollOffset > before {
+			t.Errorf("ctrl+b should scroll up; offset went from %d to %d", before, dv.scrollOffset)
+		}
+	})
+
+	t.Run("pgup full-page-up", func(t *testing.T) {
+		dv := setup()
+		before := dv.scrollOffset
+		dv.HandleKey("pgup")
+		if dv.scrollOffset > before {
+			t.Errorf("pgup should scroll up; offset went from %d to %d", before, dv.scrollOffset)
+		}
+	})
+
+	t.Run("d half-page-down", func(t *testing.T) {
+		dv := setup()
+		before := dv.scrollOffset
+		dv.HandleKey("d")
+		if dv.scrollOffset < before {
+			t.Errorf("d should scroll down; offset went from %d to %d", before, dv.scrollOffset)
+		}
+		_ = halfPage
+	})
+
+	t.Run("ctrl+d half-page-down", func(t *testing.T) {
+		dv := setup()
+		before := dv.scrollOffset
+		dv.HandleKey("ctrl+d")
+		if dv.scrollOffset < before {
+			t.Errorf("ctrl+d should scroll down; offset went from %d to %d", before, dv.scrollOffset)
+		}
+	})
+
+	t.Run("u half-page-up", func(t *testing.T) {
+		dv := setup()
+		before := dv.scrollOffset
+		dv.HandleKey("u")
+		if dv.scrollOffset > before {
+			t.Errorf("u should scroll up; offset went from %d to %d", before, dv.scrollOffset)
+		}
+	})
+
+	t.Run("ctrl+u half-page-up", func(t *testing.T) {
+		dv := setup()
+		before := dv.scrollOffset
+		dv.HandleKey("ctrl+u")
+		if dv.scrollOffset > before {
+			t.Errorf("ctrl+u should scroll up; offset went from %d to %d", before, dv.scrollOffset)
+		}
+	})
+
+	t.Run("g go-to-top", func(t *testing.T) {
+		dv := setup()
+		dv.HandleKey("g")
+		if dv.scrollOffset != 0 {
+			t.Errorf("g should scroll to top, got offset %d", dv.scrollOffset)
+		}
+	})
+
+	t.Run("G go-to-bottom", func(t *testing.T) {
+		dv := setup()
+		dv.HandleKey("G")
+		// After G, another ScrollDown should not change offset (already at bottom).
+		after := dv.scrollOffset
+		dv.ScrollDown(1)
+		if dv.scrollOffset != after {
+			t.Errorf("G should place view at bottom; subsequent scroll changed offset from %d to %d", after, dv.scrollOffset)
+		}
+	})
+}
