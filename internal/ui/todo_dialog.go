@@ -459,83 +459,6 @@ func (d *TodoDialog) View() string {
 	}
 }
 
-func (d *TodoDialog) viewList() string {
-	borderStyle := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color("#5fd7ff")).
-		Padding(0, 1).
-		Width(d.width - 4).
-		MaxHeight(d.height - 4)
-
-	projectName := d.projectPath
-	if idx := strings.LastIndex(projectName, "/"); idx >= 0 {
-		projectName = projectName[idx+1:]
-	}
-
-	header := lipgloss.NewStyle().Bold(true).Render(
-		fmt.Sprintf("%s  [%d todos]", projectName, len(d.todos)),
-	)
-
-	var rows []string
-	if len(d.todos) == 0 {
-		rows = append(rows, lipgloss.NewStyle().Foreground(lipgloss.Color("#7a8a9a")).Render("  No todos yet. Press n to add one."))
-	}
-
-	innerWidth := d.width - 10
-	if innerWidth < 20 {
-		innerWidth = 20
-	}
-	selectedTodo := d.SelectedTodo()
-	for _, t := range d.todos {
-		statusSt := todoStatusStyle(t.Status)
-		icon := statusSt.Render(todoStatusIcon(t.Status))
-		label := statusSt.Render(todoStatusLabel(t.Status))
-
-		titleCol := t.Title
-		truncAt := innerWidth - 18
-		if truncAt > 0 && len(titleCol) > innerWidth-15 {
-			titleCol = titleCol[:truncAt] + "..."
-		}
-
-		gap := innerWidth - len(titleCol) - len(todoStatusLabel(t.Status)) - 4
-		if gap < 1 {
-			gap = 1
-		}
-		line := fmt.Sprintf(" %s %s%s%s", icon, titleCol, strings.Repeat(" ", gap), label)
-
-		isSelected := selectedTodo != nil && t.ID == selectedTodo.ID
-		if isSelected {
-			line = lipgloss.NewStyle().
-				Background(lipgloss.Color("#2a3a4a")).
-				Foreground(lipgloss.Color("#ffffff")).
-				Render(line)
-		}
-		rows = append(rows, line)
-
-		// For the selected item, show description and session hint
-		if isSelected {
-			if t.Description != "" {
-				desc := t.Description
-				maxDescWidth := innerWidth - 5
-				if maxDescWidth > 0 && len(desc) > maxDescWidth {
-					desc = desc[:maxDescWidth-3] + "..."
-				}
-				rows = append(rows, lipgloss.NewStyle().Foreground(lipgloss.Color("#8a9aaa")).Render("   "+desc))
-			}
-			if t.SessionID != "" {
-				rows = append(rows, lipgloss.NewStyle().Foreground(lipgloss.Color("#5a6a7a")).Render("   └─ session linked"))
-			}
-		}
-	}
-
-	hint := lipgloss.NewStyle().Foreground(lipgloss.Color("#5a6a7a")).Render(
-		"n new  enter open  s status  e edit  d delete  esc close",
-	)
-
-	content := strings.Join(append([]string{header, ""}, append(rows, "", hint)...), "\n")
-	return lipgloss.Place(d.width, d.height, lipgloss.Center, lipgloss.Center,
-		borderStyle.Render(content))
-}
 
 func (d *TodoDialog) viewForm() string {
 	title := "New Todo"
@@ -773,17 +696,18 @@ func (d *TodoDialog) renderKanbanCard(t *session.Todo, isSelected, colFocused bo
 		sessionMark = " ⬡"
 	}
 
-	// selector(1) + icon(1) + space(1) + title + sessionMark
-	titleWidth := width - 3 - len(sessionMark)
+	// Available title width: selector(1) + icon(1) + space(1) + title + sessionMark
+	titleWidth := width - 3 - lipgloss.Width(sessionMark)
 	if titleWidth < 1 {
 		titleWidth = 1
 	}
 	title := t.Title
-	if len(title) > titleWidth {
+	runes := []rune(title)
+	if len(runes) > titleWidth {
 		if titleWidth > 3 {
-			title = title[:titleWidth-3] + "..."
+			title = string(runes[:titleWidth-3]) + "..."
 		} else {
-			title = title[:titleWidth]
+			title = string(runes[:titleWidth])
 		}
 	}
 

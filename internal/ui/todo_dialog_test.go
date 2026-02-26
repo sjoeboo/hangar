@@ -346,7 +346,9 @@ func TestTodoDialog_ViewKanban_EmptyBoardMessage(t *testing.T) {
 func TestTodoDialog_ViewKanban_OrphanedColHiddenWhenEmpty(t *testing.T) {
 	d := NewTodoDialog()
 	d.SetSize(160, 40)
-	d.Show("/myproject", "", "", nil)
+	// Non-empty board with no orphaned todos — orphaned column should not appear
+	todos := []*session.Todo{makeTodo("a", session.TodoStatusTodo)}
+	d.Show("/myproject", "", "", todos)
 
 	view := d.View()
 	if strings.Contains(view, "orphaned") {
@@ -364,5 +366,34 @@ func TestTodoDialog_ViewKanban_SessionLinkIndicator(t *testing.T) {
 	view := d.View()
 	if !strings.Contains(view, "⬡") {
 		t.Errorf("expected session link indicator ⬡ in view:\n%s", view)
+	}
+}
+
+func TestTodoDialog_ViewKanban_TruncatesLongTitle(t *testing.T) {
+	d := NewTodoDialog()
+	d.SetSize(80, 40) // narrow width to force truncation
+	longTitle := strings.Repeat("a", 200)
+	todos := []*session.Todo{makeTodo(longTitle, session.TodoStatusTodo)}
+	d.Show("/myproject", "", "", todos)
+
+	// Should not panic, and should not contain the full 200-char title
+	view := d.View()
+	if strings.Contains(view, longTitle) {
+		t.Error("expected long title to be truncated in view")
+	}
+}
+
+func TestTodoDialog_ViewKanban_TruncatesUnicodeTitle(t *testing.T) {
+	d := NewTodoDialog()
+	d.SetSize(80, 40)
+	// Unicode title — must not panic on truncation
+	unicodeTitle := strings.Repeat("日本語テスト", 30) // CJK chars, multibyte
+	todos := []*session.Todo{makeTodo(unicodeTitle, session.TodoStatusTodo)}
+	d.Show("/myproject", "", "", todos)
+
+	// Must not panic — this is the primary assertion
+	view := d.View()
+	if strings.Contains(view, unicodeTitle) {
+		t.Error("expected unicode title to be truncated in view")
 	}
 }
