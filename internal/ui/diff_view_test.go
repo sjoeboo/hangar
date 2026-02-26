@@ -97,19 +97,42 @@ func TestDiffView_Scroll(t *testing.T) {
 	if dv.scrollOffset != 0 {
 		t.Errorf("expected scrollOffset 0 after large scroll up, got %d", dv.scrollOffset)
 	}
+
+	// ScrollDown(999) clamps at len(lines) - visibleHeight
+	dv2 := NewDiffView()
+	_ = dv2.Parse(sampleDiff)
+	dv2.SetSize(120, 20) // visibleHeight = 20-4 = 16
+	dv2.ScrollDown(999)
+	visibleHeight := 16
+	maxOffset := len(dv2.lines) - visibleHeight
+	if maxOffset < 0 {
+		maxOffset = 0
+	}
+	if dv2.scrollOffset != maxOffset {
+		t.Errorf("expected scrollOffset clamped at %d (len(lines)=%d - visibleHeight=%d), got %d",
+			maxOffset, len(dv2.lines), visibleHeight, dv2.scrollOffset)
+	}
 }
 
 func TestDiffView_HandleKey_Close(t *testing.T) {
-	dv := NewDiffView()
-	_ = dv.Parse(sampleDiff)
-	dv.Show()
+	closeKeys := []string{"q", "esc", "D"}
+	for _, key := range closeKeys {
+		t.Run(key, func(t *testing.T) {
+			dv := NewDiffView()
+			_ = dv.Parse(sampleDiff)
+			dv.Show()
 
-	handled, _ := dv.HandleKey("q")
-	if !handled {
-		t.Error("expected q to be handled")
-	}
-	if dv.IsVisible() {
-		t.Error("expected DiffView to be hidden after q")
+			handled, cmd := dv.HandleKey(key)
+			if !handled {
+				t.Errorf("expected %q to be handled", key)
+			}
+			if cmd != nil {
+				t.Errorf("expected nil cmd for %q, got non-nil", key)
+			}
+			if dv.IsVisible() {
+				t.Errorf("expected DiffView to be hidden after %q", key)
+			}
+		})
 	}
 }
 

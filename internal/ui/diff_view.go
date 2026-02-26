@@ -178,7 +178,11 @@ func (dv *DiffView) View() string {
 
 // ScrollDown scrolls down by n lines, clamped to end of content.
 func (dv *DiffView) ScrollDown(n int) {
-	limit := len(dv.lines) - 1
+	visibleHeight := dv.height - 4
+	if visibleHeight < 1 {
+		visibleHeight = 1
+	}
+	limit := len(dv.lines) - visibleHeight
 	if limit < 0 {
 		limit = 0
 	}
