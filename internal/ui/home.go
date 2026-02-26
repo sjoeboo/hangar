@@ -486,6 +486,28 @@ type worktreeFinishResultMsg struct {
 	err          error
 }
 
+// worktreeCreatedForNewSessionMsg is sent when async worktree creation for a new session completes
+type worktreeCreatedForNewSessionMsg struct {
+	name         string
+	command      string
+	groupPath    string
+	worktreePath string
+	repoRoot     string
+	branchName   string
+	toolOptions  json.RawMessage
+	err          error
+}
+
+// worktreeCreatedForForkMsg is sent when async worktree creation for a fork completes
+type worktreeCreatedForForkMsg struct {
+	source      *session.Instance
+	title       string
+	groupPath   string
+	opts        *session.ClaudeOptions
+	worktreePath string
+	err         error
+}
+
 // lazygitReadyMsg is sent when lazygit window is ready to attach
 type lazygitReadyMsg struct{ session *session.Instance }
 
@@ -2937,6 +2959,23 @@ func (h *Home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return h, nil
 
+	case worktreeCreatedForNewSessionMsg:
+		if msg.err != nil {
+			h.setError(fmt.Errorf("failed to create worktree: %w", msg.err))
+			return h, nil
+		}
+		return h, h.createSessionInGroupWithWorktreeAndOptions(
+			msg.name, msg.worktreePath, msg.command, msg.groupPath,
+			msg.worktreePath, msg.repoRoot, msg.branchName, msg.toolOptions,
+		)
+
+	case worktreeCreatedForForkMsg:
+		if msg.err != nil {
+			h.setError(fmt.Errorf("failed to create worktree: %w", msg.err))
+			return h, nil
+		}
+		return h, h.forkSessionCmdWithOptions(msg.source, msg.title, msg.groupPath, msg.opts)
+
 	case worktreeFinishResultMsg:
 		if msg.err != nil {
 			// Show error in dialog (user can go back or cancel)
@@ -3534,27 +3573,43 @@ func (h *Home) handleNewDialogKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				return h, nil
 			}
 
-			// Optionally fast-forward the base branch before creating the worktree
-			if wtSettings.AutoUpdateBase {
-				baseBranch, _ := git.GetDefaultBranch(repoRoot)
-				if baseBranch == "" {
-					baseBranch = "main"
-				}
-				if err := git.UpdateBaseBranch(repoRoot, baseBranch); err != nil {
-					slog.Warn("base_branch_update_failed", "error", err)
-				}
+			// Build toolOptionsJSON before going async
+			var toolOptionsJSON json.RawMessage
+			if command == "claude" && claudeOpts != nil {
+				toolOptionsJSON, _ = session.MarshalToolOptions(claudeOpts)
 			}
 
-			// Create worktree
-			if err := git.CreateWorktree(repoRoot, worktreePath, branchName); err != nil {
-				h.newDialog.SetError(fmt.Sprintf("Failed to create worktree: %v", err))
-				return h, nil
+			// Hide dialog and dispatch async worktree creation so the git fetch
+			// doesn't block the Bubble Tea event loop (large monorepos can take 30-60s).
+			h.newDialog.Hide()
+			h.clearError()
+			autoUpdate := wtSettings.AutoUpdateBase
+			capturedRepoRoot := repoRoot
+			capturedWorktreePath := worktreePath
+			capturedBranch := branchName
+			return h, func() tea.Msg {
+				if autoUpdate {
+					baseBranch, _ := git.GetDefaultBranch(capturedRepoRoot)
+					if baseBranch == "" {
+						baseBranch = "main"
+					}
+					if err := git.UpdateBaseBranch(capturedRepoRoot, baseBranch); err != nil {
+						uiLog.Warn("base_branch_update_failed", slog.String("error", err.Error()))
+					}
+				}
+				if err := git.CreateWorktree(capturedRepoRoot, capturedWorktreePath, capturedBranch); err != nil {
+					return worktreeCreatedForNewSessionMsg{err: err}
+				}
+				return worktreeCreatedForNewSessionMsg{
+					name:         name,
+					command:      command,
+					groupPath:    groupPath,
+					worktreePath: capturedWorktreePath,
+					repoRoot:     capturedRepoRoot,
+					branchName:   capturedBranch,
+					toolOptions:  toolOptionsJSON,
+				}
 			}
-
-			// Store repo root for later use
-			worktreeRepoRoot = repoRoot
-			// Update path to worktree for session creation
-			path = worktreePath
 		}
 
 		// Build generic toolOptionsJSON from tool-specific options
@@ -4835,26 +4890,42 @@ func (h *Home) handleForkDialogKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 						return h, nil
 					}
 
-					// Optionally fast-forward the base branch before creating the worktree
-					if wtSettings.AutoUpdateBase {
-						baseBranch, _ := git.GetDefaultBranch(repoRoot)
-						if baseBranch == "" {
-							baseBranch = "main"
+					// Hide dialog and dispatch async worktree creation so the git fetch
+					// doesn't block the Bubble Tea event loop.
+					h.forkDialog.Hide()
+					autoUpdate := wtSettings.AutoUpdateBase
+					capturedRepoRoot := repoRoot
+					capturedWorktreePath := worktreePath
+					capturedBranch := branchName
+					capturedSource := source
+					capturedTitle := title
+					capturedGroupPath := groupPath
+					capturedOpts := opts
+					return h, func() tea.Msg {
+						if autoUpdate {
+							baseBranch, _ := git.GetDefaultBranch(capturedRepoRoot)
+							if baseBranch == "" {
+								baseBranch = "main"
+							}
+							if err := git.UpdateBaseBranch(capturedRepoRoot, baseBranch); err != nil {
+								uiLog.Warn("base_branch_update_failed", slog.String("error", err.Error()))
+							}
 						}
-						if err := git.UpdateBaseBranch(repoRoot, baseBranch); err != nil {
-							slog.Warn("base_branch_update_failed", "error", err)
+						if err := git.CreateWorktree(capturedRepoRoot, capturedWorktreePath, capturedBranch); err != nil {
+							return worktreeCreatedForForkMsg{err: err}
+						}
+						capturedOpts.WorkDir = capturedWorktreePath
+						capturedOpts.WorktreePath = capturedWorktreePath
+						capturedOpts.WorktreeRepoRoot = capturedRepoRoot
+						capturedOpts.WorktreeBranch = capturedBranch
+						return worktreeCreatedForForkMsg{
+							source:       capturedSource,
+							title:        capturedTitle,
+							groupPath:    capturedGroupPath,
+							opts:         capturedOpts,
+							worktreePath: capturedWorktreePath,
 						}
 					}
-
-					if err := git.CreateWorktree(repoRoot, worktreePath, branchName); err != nil {
-						h.forkDialog.SetError(fmt.Sprintf("Worktree creation failed: %v", err))
-						return h, nil
-					}
-
-					opts.WorkDir = worktreePath
-					opts.WorktreePath = worktreePath
-					opts.WorktreeRepoRoot = repoRoot
-					opts.WorktreeBranch = branchName
 				}
 
 				h.forkDialog.Hide()
