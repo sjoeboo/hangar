@@ -397,3 +397,148 @@ func TestTodoDialog_ViewKanban_TruncatesUnicodeTitle(t *testing.T) {
 		t.Error("expected unicode title to be truncated in view")
 	}
 }
+
+func TestRenderDetailPanel(t *testing.T) {
+	t.Run("no selected todo returns empty string", func(t *testing.T) {
+		d := NewTodoDialog()
+		d.SetSize(80, 40)
+		// No Show() called — SelectedTodo() returns nil
+		got := d.renderDetailPanel(70)
+		if got != "" {
+			t.Errorf("expected empty string for nil selection, got %q", got)
+		}
+	})
+
+	t.Run("shows description text when present", func(t *testing.T) {
+		d := NewTodoDialog()
+		d.SetSize(80, 40)
+		todos := []*session.Todo{
+			{ID: "1", Title: "My Task", Description: "This is the description", Status: session.TodoStatusTodo},
+		}
+		d.Show("/proj", "/proj", "proj", todos)
+		got := d.renderDetailPanel(70)
+		if !strings.Contains(got, "This is the description") {
+			t.Errorf("expected description text in panel, got %q", got)
+		}
+	})
+
+	t.Run("shows placeholder when description is empty", func(t *testing.T) {
+		d := NewTodoDialog()
+		d.SetSize(80, 40)
+		todos := []*session.Todo{
+			{ID: "1", Title: "No Desc", Description: "", Status: session.TodoStatusTodo},
+		}
+		d.Show("/proj", "/proj", "proj", todos)
+		got := d.renderDetailPanel(70)
+		if !strings.Contains(got, "no description") {
+			t.Errorf("expected 'no description' placeholder in panel, got %q", got)
+		}
+	})
+}
+
+func TestTodoDialog_ViewKanban_ShowsDescriptionPanel(t *testing.T) {
+	d := NewTodoDialog()
+	d.SetSize(160, 40)
+	todos := []*session.Todo{
+		{ID: "1", Title: "My Task", Description: "Important context here", Status: session.TodoStatusTodo},
+	}
+	d.Show("/proj", "/proj", "proj", todos)
+
+	view := d.View()
+	if !strings.Contains(view, "Important context here") {
+		t.Errorf("expected description text in view:\n%s", view)
+	}
+	if !strings.Contains(view, "description") {
+		t.Errorf("expected 'description' label in view:\n%s", view)
+	}
+}
+
+func TestTodoDialog_ViewKanban_NoDescriptionShowsPlaceholder(t *testing.T) {
+	d := NewTodoDialog()
+	d.SetSize(160, 40)
+	todos := []*session.Todo{
+		{ID: "1", Title: "No Desc Task", Description: "", Status: session.TodoStatusTodo},
+	}
+	d.Show("/proj", "/proj", "proj", todos)
+
+	view := d.View()
+	if !strings.Contains(view, "no description") {
+		t.Errorf("expected 'no description' placeholder in view:\n%s", view)
+	}
+}
+
+func TestTodoDialog_ViewKanban_NoDetailPanelOnEmptyColumn(t *testing.T) {
+	d := NewTodoDialog()
+	d.SetSize(160, 40)
+	// Only a todo-column todo exists; in-progress (col 1) is empty
+	todos := []*session.Todo{
+		{ID: "1", Title: "A task", Description: "some desc", Status: session.TodoStatusTodo},
+	}
+	d.Show("/proj", "/proj", "proj", todos)
+	// Move cursor to the empty in-progress column
+	d.selectedCol = 1
+
+	view := d.View()
+	// Panel should be hidden — no placeholder, no description text
+	if strings.Contains(view, "no description") {
+		t.Errorf("expected no detail panel when cursor is on empty column, but got 'no description' in view")
+	}
+	if strings.Contains(view, "some desc") {
+		t.Errorf("expected no description text when cursor is on empty column")
+	}
+}
+
+func TestWordWrapText(t *testing.T) {
+	tests := []struct {
+		name     string
+		text     string
+		width    int
+		maxLines int
+		want     string
+	}{
+		{
+			name:     "short text fits on one line",
+			text:     "hello world",
+			width:    20,
+			maxLines: 3,
+			want:     "hello world",
+		},
+		{
+			name:     "wraps within maxLines",
+			text:     "the quick brown",
+			width:    10,
+			maxLines: 3,
+			want:     "the quick\nbrown",
+		},
+		{
+			name:     "appends ellipsis when truncated at maxLines",
+			text:     "ab cd ef gh ij kl",
+			width:    6,
+			maxLines: 2,
+			want:     "ab cd\nef gh…",
+		},
+		{
+			name:     "truncates last line chars when too long",
+			text:     "abcdefgh ijklmnop qrst",
+			width:    8,
+			maxLines: 2,
+			want:     "abcdefgh\nijklmno…",
+		},
+		{
+			name:     "empty text",
+			text:     "",
+			width:    20,
+			maxLines: 3,
+			want:     "",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := wordWrapText(tt.text, tt.width, tt.maxLines)
+			if got != tt.want {
+				t.Errorf("wordWrapText(%q, %d, %d)\ngot:  %q\nwant: %q",
+					tt.text, tt.width, tt.maxLines, got, tt.want)
+			}
+		})
+	}
+}
