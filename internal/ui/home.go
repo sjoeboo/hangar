@@ -2543,6 +2543,15 @@ func (h *Home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return h, nil
 
 	case bulkDeletedMsg:
+		// CRITICAL FIX: Skip processing during reload to prevent state corruption
+		h.reloadMu.Lock()
+		reloading := h.isReloading
+		h.reloadMu.Unlock()
+		if reloading {
+			uiLog.Debug("reload_skip_bulk_deleted")
+			return h, nil
+		}
+
 		for _, id := range msg.deletedIDs {
 			var deletedInstance *session.Instance
 			h.instancesMu.Lock()
