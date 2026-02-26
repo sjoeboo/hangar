@@ -397,3 +397,58 @@ func TestTodoDialog_ViewKanban_TruncatesUnicodeTitle(t *testing.T) {
 		t.Error("expected unicode title to be truncated in view")
 	}
 }
+
+func TestWordWrapText(t *testing.T) {
+	tests := []struct {
+		name     string
+		text     string
+		width    int
+		maxLines int
+		want     string
+	}{
+		{
+			name:     "short text fits on one line",
+			text:     "hello world",
+			width:    20,
+			maxLines: 3,
+			want:     "hello world",
+		},
+		{
+			name:     "wraps within maxLines",
+			text:     "the quick brown",
+			width:    10,
+			maxLines: 3,
+			want:     "the quick\nbrown",
+		},
+		{
+			name:     "appends ellipsis when truncated at maxLines",
+			text:     "ab cd ef gh ij kl",
+			width:    6,
+			maxLines: 2,
+			want:     "ab cd\nef gh…",
+		},
+		{
+			name:     "truncates last line chars when too long",
+			text:     "abcdefgh ijklmnop qrst",
+			width:    8,
+			maxLines: 2,
+			want:     "abcdefgh\nijklmno…",
+		},
+		{
+			name:     "empty text",
+			text:     "",
+			width:    20,
+			maxLines: 3,
+			want:     "",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := wordWrapText(tt.text, tt.width, tt.maxLines)
+			if got != tt.want {
+				t.Errorf("wordWrapText(%q, %d, %d)\ngot:  %q\nwant: %q",
+					tt.text, tt.width, tt.maxLines, got, tt.want)
+			}
+		})
+	}
+}

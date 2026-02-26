@@ -594,6 +594,47 @@ func (d *TodoDialog) handleKanbanKey(key string) TodoAction {
 	return TodoActionNone
 }
 
+// wordWrapText wraps text at word boundaries to fit within width, returning at
+// most maxLines lines. If content is cut, the last line ends with "…".
+// Uses rune-based width so multi-byte characters are counted correctly.
+func wordWrapText(text string, width, maxLines int) string {
+	if text == "" || width <= 0 || maxLines <= 0 {
+		return ""
+	}
+	words := strings.Fields(text)
+	if len(words) == 0 {
+		return ""
+	}
+	var lines []string
+	line := ""
+	for _, w := range words {
+		switch {
+		case line == "":
+			line = w
+		case len([]rune(line))+1+len([]rune(w)) <= width:
+			line += " " + w
+		default:
+			lines = append(lines, line)
+			line = w
+		}
+	}
+	if line != "" {
+		lines = append(lines, line)
+	}
+	if len(lines) <= maxLines {
+		return strings.Join(lines, "\n")
+	}
+	// Truncate: keep first maxLines-1 lines, truncate the maxLines-th line.
+	result := make([]string, maxLines)
+	copy(result, lines[:maxLines-1])
+	last := []rune(lines[maxLines-1])
+	if len(last) > width-1 {
+		last = last[:width-1]
+	}
+	result[maxLines-1] = string(last) + "…"
+	return strings.Join(result, "\n")
+}
+
 func (d *TodoDialog) viewKanban() string {
 	borderStyle := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
