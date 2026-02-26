@@ -228,7 +228,11 @@ func (s *StateDB) Migrate() error {
 	}
 
 	// Migration v3: add prompt column to todos table for existing databases.
-	// ALTER TABLE ADD COLUMN is idempotent in SQLite when we ignore "duplicate column" errors.
+	// SQLite's ALTER TABLE ADD COLUMN has no IF NOT EXISTS syntax, so we must
+	// execute it unconditionally and swallow the "duplicate column name" error
+	// when the column already exists (i.e. database was already at schema v3).
+	// modernc.org/sqlite does not expose a typed sentinel for this condition,
+	// so string matching on the error message is the only available approach.
 	if _, err := tx.Exec(`ALTER TABLE todos ADD COLUMN prompt TEXT NOT NULL DEFAULT ''`); err != nil {
 		if !strings.Contains(err.Error(), "duplicate column name") {
 			return fmt.Errorf("statedb: add prompt column: %w", err)
