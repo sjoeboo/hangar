@@ -4375,6 +4375,20 @@ func (h *Home) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return h, nil
 
+	case " ":
+		if h.bulkSelectMode && h.cursor < len(h.flatItems) {
+			item := h.flatItems[h.cursor]
+			if item.Type == session.ItemTypeSession && item.Session != nil {
+				id := item.Session.ID
+				if h.selectedSessionIDs[id] {
+					delete(h.selectedSessionIDs, id)
+				} else {
+					h.selectedSessionIDs[id] = true
+				}
+			}
+		}
+		return h, nil
+
 	case "d":
 		// Show confirmation dialog before deletion (prevents accidental deletion)
 		if h.cursor < len(h.flatItems) {

@@ -1647,3 +1647,80 @@ func TestBulkSelectMode_EscExits(t *testing.T) {
 		t.Error("Esc should exit bulk select mode")
 	}
 }
+
+func TestBulkSelectMode_SpaceTogglesSelection(t *testing.T) {
+	home := NewHome()
+	home.width = 100
+	home.height = 30
+
+	// Set up one session at cursor
+	inst := &session.Instance{ID: "test-1", Title: "test-session"}
+	home.instances = []*session.Instance{inst}
+	home.instanceByID = map[string]*session.Instance{"test-1": inst}
+	home.groupTree = session.NewGroupTree(home.instances)
+	home.rebuildFlatItems()
+	// flatItems: [0]=group header, [1]=session — point cursor at the session
+	home.cursor = 1
+
+	// Enter bulk mode
+	vMsg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'V'}}
+	model, _ := home.Update(vMsg)
+	h := model.(*Home)
+
+	// Space selects the session
+	spaceMsg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{' '}}
+	model, _ = h.Update(spaceMsg)
+	h = model.(*Home)
+	if !h.selectedSessionIDs["test-1"] {
+		t.Error("space should select the focused session")
+	}
+
+	// Space again deselects
+	model, _ = h.Update(spaceMsg)
+	h = model.(*Home)
+	if h.selectedSessionIDs["test-1"] {
+		t.Error("space again should deselect the focused session")
+	}
+}
+
+func TestBulkSelectMode_SpaceOnGroupIsNoop(t *testing.T) {
+	home := NewHome()
+	home.width = 100
+	home.height = 30
+
+	// Manually place a group item at cursor position
+	home.flatItems = []session.Item{
+		{Type: session.ItemTypeGroup, Path: "default", Group: &session.Group{Name: "default"}},
+	}
+	home.cursor = 0
+	home.bulkSelectMode = true
+
+	spaceMsg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{' '}}
+	model, _ := home.Update(spaceMsg)
+	h := model.(*Home)
+	if len(h.selectedSessionIDs) != 0 {
+		t.Error("space on group should be a no-op")
+	}
+}
+
+func TestBulkSelectMode_SpaceOutsideBulkModeIsNoop(t *testing.T) {
+	home := NewHome()
+	home.width = 100
+	home.height = 30
+
+	inst := &session.Instance{ID: "test-1", Title: "test-session"}
+	home.instances = []*session.Instance{inst}
+	home.instanceByID = map[string]*session.Instance{"test-1": inst}
+	home.groupTree = session.NewGroupTree(home.instances)
+	home.rebuildFlatItems()
+	// flatItems: [0]=group header, [1]=session — point cursor at the session
+	home.cursor = 1
+
+	// NOT in bulk mode
+	spaceMsg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{' '}}
+	model, _ := home.Update(spaceMsg)
+	h := model.(*Home)
+	if len(h.selectedSessionIDs) != 0 {
+		t.Error("space outside bulk mode should not select anything")
+	}
+}
