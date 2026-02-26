@@ -7173,98 +7173,125 @@ func (h *Home) renderPROverview() string {
 		startIdx = h.prViewCursor - contentHeight + 1
 	}
 
+	dataRowsRendered := 0
+
 	if len(sessions) == 0 {
 		emptyStyle := lipgloss.NewStyle().Foreground(ColorComment).Italic(true)
 		b.WriteString("\n")
 		b.WriteString(lipgloss.PlaceHorizontal(h.width, lipgloss.Center, emptyStyle.Render("No sessions with open PRs")))
 		b.WriteString("\n")
+	} else {
+		for i := startIdx; i < len(sessions) && i < startIdx+contentHeight; i++ {
+			inst := sessions[i]
+			selected := i == h.prViewCursor
+
+			h.prCacheMu.Lock()
+			pr := h.prCache[inst.ID]
+			h.prCacheMu.Unlock()
+
+			if pr == nil {
+				continue
+			}
+
+			// PR number
+			prNumStyle := lipgloss.NewStyle().Foreground(ColorAccent).Bold(true)
+			prNum := prNumStyle.Render(fmt.Sprintf("#%-5d", pr.Number))
+
+			// State
+			var stateStyle lipgloss.Style
+			var stateLabel string
+			switch pr.State {
+			case "OPEN":
+				stateStyle = lipgloss.NewStyle().Foreground(ColorGreen)
+				stateLabel = "open"
+			case "DRAFT":
+				stateStyle = lipgloss.NewStyle().Foreground(ColorComment)
+				stateLabel = "draft"
+			case "MERGED":
+				stateStyle = lipgloss.NewStyle().Foreground(ColorPurple)
+				stateLabel = "merged"
+			case "CLOSED":
+				stateStyle = lipgloss.NewStyle().Foreground(ColorRed)
+				stateLabel = "closed"
+			default:
+				stateStyle = lipgloss.NewStyle().Foreground(ColorComment)
+				stateLabel = strings.ToLower(pr.State)
+			}
+			stateCol := stateStyle.Render(fmt.Sprintf("%-8s", stateLabel))
+
+			// Checks
+			var checkParts []string
+			if pr.HasChecks {
+				if pr.ChecksFailed > 0 {
+					checkParts = append(checkParts, lipgloss.NewStyle().Foreground(ColorRed).Render(fmt.Sprintf("✗%d", pr.ChecksFailed)))
+				}
+				if pr.ChecksPending > 0 {
+					checkParts = append(checkParts, lipgloss.NewStyle().Foreground(ColorYellow).Render(fmt.Sprintf("●%d", pr.ChecksPending)))
+				}
+				if pr.ChecksPassed > 0 {
+					checkParts = append(checkParts, lipgloss.NewStyle().Foreground(ColorGreen).Render(fmt.Sprintf("✓%d", pr.ChecksPassed)))
+				}
+			}
+			checksRaw := strings.Join(checkParts, " ")
+			// Pad checks column to fixed width (14 visible chars)
+			checksVisible := lipgloss.Width(checksRaw)
+			if checksVisible < 14 {
+				checksRaw += strings.Repeat(" ", 14-checksVisible)
+			} else if checksVisible > 14 {
+				// Truncate check summary to fit column — drop least-important parts from the right
+				// Re-build a truncated version using only what fits
+				var truncParts []string
+				width := 0
+				for _, part := range checkParts {
+					w := lipgloss.Width(part)
+					if width+w+1 <= 14 { // +1 for separator space
+						truncParts = append(truncParts, part)
+						if width > 0 {
+							width++ // separator
+						}
+						width += w
+					}
+				}
+				checksRaw = strings.Join(truncParts, " ")
+				checksVisible = lipgloss.Width(checksRaw)
+				if checksVisible < 14 {
+					checksRaw += strings.Repeat(" ", 14-checksVisible)
+				}
+			}
+
+			// Session title — bright if running, dim if idle
+			status := inst.GetStatusThreadSafe()
+			var titleStyle lipgloss.Style
+			if status == session.StatusRunning {
+				titleStyle = lipgloss.NewStyle().Foreground(ColorText).Bold(true)
+			} else {
+				titleStyle = lipgloss.NewStyle().Foreground(ColorComment)
+			}
+			title := inst.Title
+			maxTitleWidth := h.width - 2 - 7 - 2 - 8 - 2 - 14 - 2 - 4
+			runes := []rune(title)
+			if maxTitleWidth > 0 && len(runes) > maxTitleWidth {
+				title = string(runes[:maxTitleWidth-1]) + "…"
+			}
+			sessionCol := titleStyle.Render(title)
+
+			row := fmt.Sprintf("  %s  %s  %s  %s", prNum, stateCol, checksRaw, sessionCol)
+
+			if selected {
+				row = lipgloss.NewStyle().
+					Background(ColorSurface).
+					Width(h.width).
+					Render(row)
+			}
+
+			b.WriteString(row)
+			b.WriteString("\n")
+			dataRowsRendered++
+		}
 	}
 
-	for i := startIdx; i < len(sessions) && i < startIdx+contentHeight; i++ {
-		inst := sessions[i]
-		selected := i == h.prViewCursor
-
-		h.prCacheMu.Lock()
-		pr := h.prCache[inst.ID]
-		h.prCacheMu.Unlock()
-
-		// PR number
-		prNumStyle := lipgloss.NewStyle().Foreground(ColorAccent).Bold(true)
-		prNum := prNumStyle.Render(fmt.Sprintf("#%-5d", pr.Number))
-
-		// State
-		var stateStyle lipgloss.Style
-		var stateLabel string
-		switch pr.State {
-		case "OPEN":
-			stateStyle = lipgloss.NewStyle().Foreground(ColorGreen)
-			stateLabel = "open"
-		case "DRAFT":
-			stateStyle = lipgloss.NewStyle().Foreground(ColorComment)
-			stateLabel = "draft"
-		case "MERGED":
-			stateStyle = lipgloss.NewStyle().Foreground(ColorPurple)
-			stateLabel = "merged"
-		case "CLOSED":
-			stateStyle = lipgloss.NewStyle().Foreground(ColorRed)
-			stateLabel = "closed"
-		default:
-			stateStyle = lipgloss.NewStyle().Foreground(ColorComment)
-			stateLabel = strings.ToLower(pr.State)
-		}
-		stateCol := stateStyle.Render(fmt.Sprintf("%-8s", stateLabel))
-
-		// Checks
-		var checkParts []string
-		if pr.HasChecks {
-			if pr.ChecksFailed > 0 {
-				checkParts = append(checkParts, lipgloss.NewStyle().Foreground(ColorRed).Render(fmt.Sprintf("✗%d", pr.ChecksFailed)))
-			}
-			if pr.ChecksPending > 0 {
-				checkParts = append(checkParts, lipgloss.NewStyle().Foreground(ColorYellow).Render(fmt.Sprintf("●%d", pr.ChecksPending)))
-			}
-			if pr.ChecksPassed > 0 {
-				checkParts = append(checkParts, lipgloss.NewStyle().Foreground(ColorGreen).Render(fmt.Sprintf("✓%d", pr.ChecksPassed)))
-			}
-		}
-		checksRaw := strings.Join(checkParts, " ")
-		// Pad checks column to fixed width (14 visible chars)
-		checksVisible := lipgloss.Width(checksRaw)
-		if checksVisible < 14 {
-			checksRaw += strings.Repeat(" ", 14-checksVisible)
-		}
-
-		// Session title — bright if running, dim if idle
-		status := inst.GetStatusThreadSafe()
-		var titleStyle lipgloss.Style
-		if status == session.StatusRunning {
-			titleStyle = lipgloss.NewStyle().Foreground(ColorText).Bold(true)
-		} else {
-			titleStyle = lipgloss.NewStyle().Foreground(ColorComment)
-		}
-		title := inst.Title
-		maxTitleWidth := h.width - 2 - 7 - 2 - 8 - 2 - 14 - 2 - 4
-		if maxTitleWidth > 0 && len(title) > maxTitleWidth {
-			title = title[:maxTitleWidth-1] + "…"
-		}
-		sessionCol := titleStyle.Render(title)
-
-		row := fmt.Sprintf("  %s  %s  %s  %s", prNum, stateCol, checksRaw, sessionCol)
-
-		if selected {
-			row = lipgloss.NewStyle().
-				Background(ColorSurface).
-				Width(h.width).
-				Render(row)
-		}
-
-		b.WriteString(row)
-		b.WriteString("\n")
-	}
-
-	// Fill remaining lines
-	rendered := strings.Count(b.String(), "\n") - 3 // subtract header lines
-	for i := rendered; i < contentHeight; i++ {
+	// Fill remaining lines to push help bar to the bottom
+	for i := dataRowsRendered; i < contentHeight; i++ {
 		b.WriteString("\n")
 	}
 
