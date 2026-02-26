@@ -201,15 +201,15 @@ func TestTodoDialog_HandleKanban_LeftRight(t *testing.T) {
 	if d.selectedCol != 0 {
 		t.Fatalf("expected col 0, got %d", d.selectedCol)
 	}
-	d.HandleKey(keyMsg("right"))
+	d.HandleKey(tea.KeyMsg{Type: tea.KeyRight})
 	if d.selectedCol != 1 {
 		t.Errorf("expected col 1 after right, got %d", d.selectedCol)
 	}
-	d.HandleKey(keyMsg("left"))
+	d.HandleKey(tea.KeyMsg{Type: tea.KeyLeft})
 	if d.selectedCol != 0 {
 		t.Errorf("expected col 0 after left, got %d", d.selectedCol)
 	}
-	d.HandleKey(keyMsg("left"))
+	d.HandleKey(tea.KeyMsg{Type: tea.KeyLeft})
 	if d.selectedCol != 0 {
 		t.Errorf("expected col 0 (no wrap at left boundary), got %d", d.selectedCol)
 	}
@@ -240,6 +240,31 @@ func TestTodoDialog_MoveCardTargetStatus(t *testing.T) {
 	_, ok = d.MoveCardTargetStatus(-1)
 	if ok {
 		t.Error("expected no-op when moving left from Todo column (leftmost)")
+	}
+}
+
+func TestTodoDialog_MoveCardTargetStatus_OrphanedGuard(t *testing.T) {
+	d := NewTodoDialog()
+	d.SetSize(120, 40)
+	// Board with a Done todo and an Orphaned todo → 5 columns (col 4 = orphaned)
+	todos := []*session.Todo{
+		makeTodo("a", session.TodoStatusDone),
+		makeTodo("b", session.TodoStatusOrphaned),
+	}
+	d.Show("/proj", "", "", todos)
+	// Position at Done column (col 3)
+	d.selectedCol = 3
+
+	// Moving right from Done would land on orphaned (col 4) → must be blocked
+	_, ok := d.MoveCardTargetStatus(1)
+	if ok {
+		t.Error("expected move right from Done to be blocked (orphaned column)")
+	}
+
+	// Moving left from Done → InReview (col 2) → must be allowed
+	status, ok := d.MoveCardTargetStatus(-1)
+	if !ok || status != session.TodoStatusInReview {
+		t.Errorf("expected InReview moving left from Done, got %s ok=%v", status, ok)
 	}
 }
 

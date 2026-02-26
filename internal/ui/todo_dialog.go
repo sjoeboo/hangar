@@ -329,43 +329,6 @@ func (d *TodoDialog) HandleKey(msg tea.KeyMsg) TodoAction {
 	return TodoActionNone
 }
 
-func (d *TodoDialog) handleListKey(key string) TodoAction {
-	switch key {
-	case "up", "k":
-		if d.selectedCol < len(d.selectedRow) && d.selectedRow[d.selectedCol] > 0 {
-			d.selectedRow[d.selectedCol]--
-		}
-	case "down", "j":
-		if d.selectedCol < len(d.cols) && d.selectedRow[d.selectedCol] < len(d.cols[d.selectedCol].todos)-1 {
-			d.selectedRow[d.selectedCol]++
-		}
-	case "n":
-		d.openNewForm()
-	case "e":
-		if t := d.SelectedTodo(); t != nil {
-			d.openEditForm(t)
-		}
-	case "d":
-		if d.SelectedTodo() != nil {
-			return TodoActionDeleteTodo
-		}
-	case "s":
-		if t := d.SelectedTodo(); t != nil {
-			d.openStatusPicker(t)
-		}
-	case "enter":
-		t := d.SelectedTodo()
-		if t == nil {
-			return TodoActionNone
-		}
-		// todo status with no session: create new session+worktree
-		// any other status or linked session: attach/handle
-		return TodoActionCreateSession
-	case "esc", "t":
-		return TodoActionClose
-	}
-	return TodoActionNone
-}
 
 func (d *TodoDialog) handleFormKey(msg tea.KeyMsg) TodoAction {
 	key := msg.String()
@@ -446,6 +409,7 @@ func (d *TodoDialog) openEditForm(t *session.Todo) {
 	d.titleInput.Focus()
 	d.descInput.Blur()
 	d.errorMsg = ""
+	d.newTodoStatus = t.Status // keeps GetFormValues coherent in edit flow
 }
 
 func (d *TodoDialog) openStatusPicker(t *session.Todo) {
@@ -669,12 +633,14 @@ func (d *TodoDialog) handleKanbanKey(key string) TodoAction {
 			}
 		}
 	case "shift+left":
+		// No card selected or already at boundary; no-op.
 		if d.SelectedTodo() != nil {
 			if _, ok := d.MoveCardTargetStatus(-1); ok {
 				return TodoActionMoveCardLeft
 			}
 		}
 	case "shift+right":
+		// No card selected or already at boundary; no-op.
 		if d.SelectedTodo() != nil {
 			if _, ok := d.MoveCardTargetStatus(1); ok {
 				return TodoActionMoveCardRight
@@ -706,5 +672,5 @@ func (d *TodoDialog) handleKanbanKey(key string) TodoAction {
 }
 
 func (d *TodoDialog) viewKanban() string {
-	return d.viewList() // temporary stub, replaced in Task 5
+	return d.viewList()
 }
