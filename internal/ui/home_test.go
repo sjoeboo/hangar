@@ -1773,3 +1773,36 @@ func TestBulkSelectMode_CheckboxRendering(t *testing.T) {
 		t.Error("normal mode should not render ☑ checkboxes")
 	}
 }
+
+func TestBulkSelectMode_HelpBarBulkMode(t *testing.T) {
+	home := NewHome()
+	home.width = 120
+	home.height = 30
+	home.initialLoading = false
+	home.bulkSelectMode = true
+	home.selectedSessionIDs = map[string]bool{"a": true, "b": true}
+
+	view := home.View()
+	if !strings.Contains(view, "VISUAL") {
+		t.Error("bulk mode should show VISUAL in help bar")
+	}
+	if !strings.Contains(view, "2 selected") {
+		t.Error("bulk mode should show selection count")
+	}
+	if !strings.Contains(view, ":delete") {
+		t.Error("bulk mode help bar should mention delete action")
+	}
+}
+
+func TestBulkSelectMode_HelpBarNormalMode(t *testing.T) {
+	home := NewHome()
+	home.width = 120
+	home.height = 30
+	home.initialLoading = false
+	home.bulkSelectMode = false
+
+	view := home.View()
+	if strings.Contains(view, "VISUAL") {
+		t.Error("normal mode should not show VISUAL in help bar")
+	}
+}

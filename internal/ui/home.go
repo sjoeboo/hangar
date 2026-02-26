@@ -6873,6 +6873,9 @@ func renderSimpleMCPLine(b *strings.Builder, mcpInfo *session.MCPInfo, width int
 
 // renderHelpBar renders context-aware keyboard shortcuts, adapting to terminal width
 func (h *Home) renderHelpBar() string {
+	if h.bulkSelectMode {
+		return h.renderHelpBarBulkMode()
+	}
 	// Route to appropriate tier based on width
 	switch {
 	case h.width < layoutBreakpointSingle:
@@ -7183,6 +7186,33 @@ func (h *Home) renderHelpBarFull() string {
 	helpContent := leftPart + strings.Repeat(" ", padding) + rightPart
 
 	raw := lipgloss.JoinVertical(lipgloss.Left, border, helpContent)
+	return lipgloss.NewStyle().MaxWidth(h.width).Render(raw)
+}
+
+// renderHelpBarBulkMode renders the bulk-select mode hint bar
+func (h *Home) renderHelpBarBulkMode() string {
+	borderStyle := lipgloss.NewStyle().Foreground(ColorAccent)
+	border := borderStyle.Render(strings.Repeat("─", max(0, h.width)))
+
+	keyStyle := lipgloss.NewStyle().
+		Foreground(ColorBg).
+		Background(ColorAccent).
+		Bold(true)
+	dimStyle := lipgloss.NewStyle().Foreground(ColorTextDim)
+	labelStyle := lipgloss.NewStyle().Foreground(ColorAccent).Bold(true)
+
+	count := len(h.selectedSessionIDs)
+	countStr := fmt.Sprintf("%d selected", count)
+
+	sep := dimStyle.Render("  ·  ")
+	hint := labelStyle.Render("VISUAL") + "  " + dimStyle.Render(countStr) +
+		sep + keyStyle.Render("spc") + dimStyle.Render(":toggle") +
+		sep + keyStyle.Render("d") + dimStyle.Render(":delete") +
+		sep + keyStyle.Render("x") + dimStyle.Render(":message") +
+		sep + keyStyle.Render("R") + dimStyle.Render(":restart") +
+		sep + keyStyle.Render("Esc") + dimStyle.Render(":cancel")
+
+	raw := lipgloss.JoinVertical(lipgloss.Left, border, hint)
 	return lipgloss.NewStyle().MaxWidth(h.width).Render(raw)
 }
 
