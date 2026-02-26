@@ -137,6 +137,7 @@ type Home struct {
 	forkDialog           *ForkDialog           // For forking sessions
 	confirmDialog        *ConfirmDialog        // For confirming destructive actions
 	helpOverlay          *HelpOverlay          // For showing keyboard shortcuts
+	diffView             *DiffView             // For showing inline git diff overlay
 	setupWizard          *SetupWizard          // For first-run setup
 	settingsPanel        *SettingsPanel        // For editing settings
 	geminiModelDialog    *GeminiModelDialog    // For selecting Gemini model
@@ -538,6 +539,7 @@ func NewHomeWithProfileAndMode(profile string) *Home {
 		forkDialog:           NewForkDialog(),
 		confirmDialog:        NewConfirmDialog(),
 		helpOverlay:          NewHelpOverlay(),
+		diffView:             NewDiffView(),
 		setupWizard:          NewSetupWizard(),
 		settingsPanel:        NewSettingsPanel(),
 		geminiModelDialog:    NewGeminiModelDialog(),
@@ -3207,6 +3209,13 @@ func (h *Home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		// Handle overlays first
+		// DiffView overlay intercepts keys when visible
+		if h.diffView.IsVisible() {
+			if handled, cmd := h.diffView.HandleKey(msg.String()); handled {
+				return h, cmd
+			}
+		}
+
 		// Help overlay takes priority (any key closes it)
 		if h.helpOverlay.IsVisible() {
 			h.helpOverlay, _ = h.helpOverlay.Update(msg)
@@ -3544,7 +3553,8 @@ func (h *Home) handleMouseMsg(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 
 	// Do not process mouse events when any modal dialog is open
 	if h.setupWizard.IsVisible() || h.settingsPanel.IsVisible() ||
-		h.helpOverlay.IsVisible() || h.search.IsVisible() ||
+		h.helpOverlay.IsVisible() || h.diffView.IsVisible() ||
+		h.search.IsVisible() ||
 		h.globalSearch.IsVisible() || h.newDialog.IsVisible() ||
 		h.groupDialog.IsVisible() || h.forkDialog.IsVisible() ||
 		h.confirmDialog.IsVisible() || h.geminiModelDialog.IsVisible() ||
@@ -3804,6 +3814,20 @@ func (h *Home) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				return h, func() tea.Msg {
 					exec.Command("tmux", "new-window", "-t", sessionName, "-c", wdir, "-n", "lazygit", "lazygit").Run()
 					return lazygitReadyMsg{session: sess}
+				}
+			}
+		}
+		return h, nil
+
+	case "D": // Show inline git diff overlay for the focused session
+		if h.cursor < len(h.flatItems) {
+			item := h.flatItems[h.cursor]
+			if item.Type == session.ItemTypeSession && item.Session != nil {
+				dir := h.effectiveDir(item.Session)
+				if dir != "" && git.IsGitRepo(dir) {
+					h.diffView.Parse(h.currentDiffRaw) //nolint:errcheck
+					h.diffView.SetSize(h.width, h.height)
+					h.diffView.Show()
 				}
 			}
 		}
@@ -5518,6 +5542,7 @@ func (h *Home) updateSizes() {
 	h.worktreeFinishDialog.SetSize(h.width, h.height)
 	h.sendTextDialog.SetSize(h.width, h.height)
 	h.todoDialog.SetSize(h.width, h.height)
+	h.diffView.SetSize(h.width, h.height)
 }
 
 // View renders the UI
@@ -5568,6 +5593,9 @@ func (h *Home) View() string {
 	}
 
 	// Overlays take full screen
+	if h.diffView.IsVisible() {
+		return h.diffView.View()
+	}
 	if h.helpOverlay.IsVisible() {
 		return h.helpOverlay.View()
 	}
