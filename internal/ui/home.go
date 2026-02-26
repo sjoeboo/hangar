@@ -197,6 +197,11 @@ type Home struct {
 	worktreeDirtyCacheTs map[string]time.Time // sessionID -> cache timestamp
 	worktreeDirtyMu      sync.Mutex           // Protects dirty cache maps
 
+	// Worktree remote URL cache (lazy, 5m TTL)
+	worktreeRemoteCache   map[string]string    // sessionID -> normalized remote URL
+	worktreeRemoteCacheTs map[string]time.Time // sessionID -> cache timestamp
+	worktreeRemoteMu      sync.Mutex
+
 	// PR status cache (lazy, 60s TTL, requires gh CLI)
 	ghPath    string                      // path to gh binary; empty if not installed
 	prCache   map[string]*prCacheEntry    // sessionID -> PR info (nil = no PR found)
@@ -434,6 +439,13 @@ type worktreeDirtyCheckMsg struct {
 	err       error
 }
 
+// worktreeRemoteCheckMsg is sent when an async remote URL fetch completes
+type worktreeRemoteCheckMsg struct {
+	sessionID string
+	remoteURL string // normalized URL, empty if none found
+	err       error
+}
+
 // prCacheEntry holds the result of a gh pr view query for a worktree branch.
 type prCacheEntry struct {
 	Number        int
@@ -542,6 +554,8 @@ func NewHomeWithProfileAndMode(profile string) *Home {
 		lastLogActivity:      make(map[string]time.Time),
 		worktreeDirtyCache:   make(map[string]bool),
 		worktreeDirtyCacheTs: make(map[string]time.Time),
+		worktreeRemoteCache:   make(map[string]string),
+		worktreeRemoteCacheTs: make(map[string]time.Time),
 		prCache:              make(map[string]*prCacheEntry),
 		prCacheTs:            make(map[string]time.Time),
 		statusTrigger:        make(chan statusUpdateRequest, 1), // Buffered to avoid blocking
