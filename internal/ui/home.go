@@ -2805,6 +2805,26 @@ func (h *Home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 
+			// Remote URL fetch (lazy, 5m TTL)
+			if inst.IsWorktree() && inst.WorktreePath != "" {
+				h.worktreeRemoteMu.Lock()
+				cacheTs, hasCached := h.worktreeRemoteCacheTs[inst.ID]
+				needsRemote := !hasCached || time.Since(cacheTs) > 5*time.Minute
+				if needsRemote {
+					h.worktreeRemoteCacheTs[inst.ID] = time.Now() // Prevent duplicate fetches
+				}
+				h.worktreeRemoteMu.Unlock()
+				if needsRemote {
+					sid := inst.ID
+					wtPath := inst.WorktreePath
+					cmds = append(cmds, func() tea.Msg {
+						out, err := exec.Command("git", "-C", wtPath, "config", "--get", "remote.origin.url").Output()
+						url := strings.TrimSpace(string(out))
+						return worktreeRemoteCheckMsg{sessionID: sid, remoteURL: normalizeRemoteURL(url), err: err}
+					})
+				}
+			}
+
 			if len(cmds) > 0 {
 				return h, tea.Batch(cmds...)
 			}
@@ -2866,6 +2886,13 @@ func (h *Home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 		}
+		return h, nil
+
+	case worktreeRemoteCheckMsg:
+		h.worktreeRemoteMu.Lock()
+		h.worktreeRemoteCache[msg.sessionID] = msg.remoteURL
+		h.worktreeRemoteCacheTs[msg.sessionID] = time.Now()
+		h.worktreeRemoteMu.Unlock()
 		return h, nil
 
 	case lazygitReadyMsg:
