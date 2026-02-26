@@ -106,11 +106,12 @@ func (c *ConfirmDialog) ShowBulkDeleteSessions(ids []string, names []string) {
 }
 
 // ShowBulkRestart shows confirmation for bulk session restart
-func (c *ConfirmDialog) ShowBulkRestart(count int) {
+func (c *ConfirmDialog) ShowBulkRestart(ids []string) {
 	c.visible = true
 	c.confirmType = ConfirmBulkRestart
+	c.targetIDs = ids
 	c.targetID = ""
-	c.targetName = fmt.Sprintf("%d sessions", count)
+	c.targetName = fmt.Sprintf("%d sessions", len(ids))
 }
 
 // GetTargetIDs returns the session IDs for bulk operations

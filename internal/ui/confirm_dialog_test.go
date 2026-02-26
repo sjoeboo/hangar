@@ -63,7 +63,7 @@ func TestConfirmDialog_BulkRestart(t *testing.T) {
 	d := NewConfirmDialog()
 	d.SetSize(80, 24)
 
-	d.ShowBulkRestart(5)
+	d.ShowBulkRestart([]string{"id-1", "id-2", "id-3", "id-4", "id-5"})
 
 	if !d.IsVisible() {
 		t.Fatal("dialog should be visible after ShowBulkRestart")

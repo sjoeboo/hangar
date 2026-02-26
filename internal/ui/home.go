@@ -2595,7 +2595,7 @@ func (h *Home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		h.bulkSelectMode = false
 		h.selectedSessionIDs = make(map[string]bool)
 		if len(msg.killErrs) > 0 {
-			h.setError(fmt.Errorf("deleted %d sessions (some errors occurred)", len(msg.deletedIDs)))
+			h.setError(fmt.Errorf("deleted %d sessions (warning: some tmux sessions may still be running)", len(msg.deletedIDs)))
 		} else {
 			h.setError(fmt.Errorf("deleted %d sessions. Ctrl+Z to undo (one at a time)", len(msg.deletedIDs)))
 		}
@@ -4434,14 +4434,8 @@ func (h *Home) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return h, h.quickCreateSession()
 
 	case "V":
-		// Toggle bulk select mode
-		if h.bulkSelectMode {
-			h.bulkSelectMode = false
-			h.selectedSessionIDs = make(map[string]bool)
-		} else {
-			h.bulkSelectMode = true
-			h.selectedSessionIDs = make(map[string]bool)
-		}
+		h.bulkSelectMode = !h.bulkSelectMode
+		h.selectedSessionIDs = make(map[string]bool)
 		return h, nil
 
 	case " ":
@@ -4565,7 +4559,15 @@ func (h *Home) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "R":
 		// Bulk mode: confirm restart of all selected sessions
 		if h.bulkSelectMode && len(h.selectedSessionIDs) > 0 {
-			h.confirmDialog.ShowBulkRestart(len(h.selectedSessionIDs))
+			var ids []string
+			for _, item := range h.flatItems {
+				if item.Type == session.ItemTypeSession && item.Session != nil {
+					if h.selectedSessionIDs[item.Session.ID] {
+						ids = append(ids, item.Session.ID)
+					}
+				}
+			}
+			h.confirmDialog.ShowBulkRestart(ids)
 			return h, nil
 		}
 		// Single-session restart (existing logic unchanged below)
@@ -4950,12 +4952,11 @@ func (h *Home) handleConfirmDialogKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				}
 				return h, nil
 			case ConfirmBulkRestart:
+				ids := h.confirmDialog.GetTargetIDs()
 				var insts []*session.Instance
-				for _, item := range h.flatItems {
-					if item.Type == session.ItemTypeSession && item.Session != nil {
-						if h.selectedSessionIDs[item.Session.ID] {
-							insts = append(insts, item.Session)
-						}
+				for _, id := range ids {
+					if inst := h.getInstanceByID(id); inst != nil {
+						insts = append(insts, inst)
 					}
 				}
 				h.confirmDialog.Hide()
