@@ -1243,3 +1243,86 @@ func TestSessionRowPRBadgeStates(t *testing.T) {
 		}
 	})
 }
+
+func makeWorktreeInstance(id, branch string) *session.Instance {
+	return &session.Instance{
+		ID:               id,
+		Title:            "test-" + id,
+		WorktreePath:     "/tmp/worktrees/" + id,
+		WorktreeRepoRoot: "/tmp/repo",
+		WorktreeBranch:   branch,
+	}
+}
+
+func TestWorktreeFinishDialog_ShowWithCachedPR(t *testing.T) {
+	home := NewHome()
+	home.width = 120
+	home.height = 40
+	home.initialLoading = false
+	inst := makeWorktreeInstance("sess1", "feat/test")
+	home.instancesMu.Lock()
+	home.instances = []*session.Instance{inst}
+	home.instanceByID[inst.ID] = inst
+	home.instancesMu.Unlock()
+	home.groupTree = session.NewGroupTree(home.instances)
+	home.rebuildFlatItems()
+
+	// Pre-populate PR cache
+	home.prCacheMu.Lock()
+	home.prCache[inst.ID] = &prCacheEntry{Number: 55, State: "OPEN", Title: "My PR"}
+	home.prCacheTs[inst.ID] = time.Now()
+	home.prCacheMu.Unlock()
+
+	// Trigger W key — capture the returned model
+	// flatItems[0] is the group header, flatItems[1] is the session
+	home.cursor = 1
+	model, _ := home.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("W")})
+	h, ok := model.(*Home)
+	if !ok {
+		t.Fatal("Update should return *Home")
+	}
+
+	if !h.worktreeFinishDialog.IsVisible() {
+		t.Fatal("expected dialog visible")
+	}
+	if h.worktreeFinishDialog.prEntry == nil {
+		t.Fatal("expected prEntry to be set from cache")
+	}
+	if h.worktreeFinishDialog.prEntry.Number != 55 {
+		t.Errorf("expected PR #55, got %d", h.worktreeFinishDialog.prEntry.Number)
+	}
+	if !h.worktreeFinishDialog.prLoaded {
+		t.Error("expected prLoaded=true when cache entry exists")
+	}
+}
+
+func TestWorktreeFinishDialog_ShowWithNoCachedPR(t *testing.T) {
+	home := NewHome()
+	home.width = 120
+	home.height = 40
+	home.initialLoading = false
+	inst := makeWorktreeInstance("sess1", "feat/test")
+	home.instancesMu.Lock()
+	home.instances = []*session.Instance{inst}
+	home.instanceByID[inst.ID] = inst
+	home.instancesMu.Unlock()
+	home.groupTree = session.NewGroupTree(home.instances)
+	home.rebuildFlatItems()
+
+	// No PR in cache — trigger W key
+	// flatItems[0] is the group header, flatItems[1] is the session
+	home.cursor = 1
+	model, _ := home.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("W")})
+	h, ok := model.(*Home)
+	if !ok {
+		t.Fatal("Update should return *Home")
+	}
+
+	if !h.worktreeFinishDialog.IsVisible() {
+		t.Fatal("expected dialog visible")
+	}
+	// prLoaded=false means still checking
+	if h.worktreeFinishDialog.prLoaded {
+		t.Error("expected prLoaded=false when no cache entry")
+	}
+}

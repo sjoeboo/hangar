@@ -3902,6 +3902,13 @@ func (h *Home) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				}
 				h.worktreeFinishDialog.SetSize(h.width, h.height)
 				h.worktreeFinishDialog.Show(inst.ID, inst.Title, inst.WorktreeBranch, inst.WorktreeRepoRoot, inst.WorktreePath)
+				// Wire in current PR cache entry (if any)
+				h.prCacheMu.Lock()
+				cachedPR, hasPRCached := h.prCache[inst.ID]
+				h.prCacheMu.Unlock()
+				if hasPRCached {
+					h.worktreeFinishDialog.SetPR(cachedPR, true)
+				}
 				// Trigger async dirty check
 				sid := inst.ID
 				wtPath := inst.WorktreePath
