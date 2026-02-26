@@ -154,6 +154,9 @@ type Home struct {
 	isAttaching    atomic.Bool    // Prevents View() output during attach (fixes Bubble Tea Issue #431) - atomic for thread safety
 	statusFilter   session.Status // Filter sessions by status ("" = all, or specific status)
 	sortMode       string         // "" = default, "status" = running→waiting→idle
+	// PR overview view
+	viewMode       string // "" or "sessions" = normal, "prs" = PR overview full-screen
+	prViewCursor   int    // cursor position within PR overview list
 	err            error
 	errTime        time.Time  // When error occurred (for auto-dismiss)
 	isReloading    bool       // Visual feedback during auto-reload
@@ -345,6 +348,22 @@ func (h *Home) getLayoutMode() string {
 	default:
 		return LayoutModeDual
 	}
+}
+
+// prViewSessions returns sessions that have a non-nil PR cache entry, in flatItems order.
+func (h *Home) prViewSessions() []*session.Instance {
+	items := h.flatItems // safe: called from Bubble Tea Update/View (single-threaded)
+	h.prCacheMu.Lock()
+	defer h.prCacheMu.Unlock()
+	var result []*session.Instance
+	for _, item := range items {
+		if item.Type == session.ItemTypeSession && item.Session != nil {
+			if pr, ok := h.prCache[item.Session.ID]; ok && pr != nil {
+				result = append(result, item.Session)
+			}
+		}
+	}
+	return result
 }
 
 // Messages
@@ -3340,6 +3359,10 @@ func (h *Home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return h.handleWorktreeFinishDialogKey(msg)
 		}
 
+		// PR overview view
+		if h.viewMode == "prs" {
+			return h.handlePRViewKey(msg)
+		}
 		// Main view keys
 		return h.handleMainKey(msg)
 	}
@@ -3763,6 +3786,35 @@ func (h *Home) handleMouseMsg(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 // handleMainKey handles keys in main view
 func (h *Home) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
+	case "P":
+		if h.ghPath != "" {
+			h.viewMode = "prs"
+			h.prViewCursor = 0
+			// Trigger fetches for any session missing recent PR data
+			var cmds []tea.Cmd
+			for _, item := range h.flatItems {
+				if item.Type == session.ItemTypeSession && item.Session != nil && item.Session.IsWorktree() && item.Session.WorktreePath != "" {
+					h.prCacheMu.Lock()
+					cacheTs, hasCached := h.prCacheTs[item.Session.ID]
+					needsFetch := !hasCached || time.Since(cacheTs) > 60*time.Second
+					if needsFetch {
+						h.prCacheTs[item.Session.ID] = time.Now()
+					}
+					h.prCacheMu.Unlock()
+					if needsFetch {
+						sid := item.Session.ID
+						wtPath := item.Session.WorktreePath
+						ghPath := h.ghPath
+						cmds = append(cmds, func() tea.Msg {
+							return fetchPRInfo(sid, wtPath, ghPath)
+						})
+					}
+				}
+			}
+			return h, tea.Batch(cmds...)
+		}
+		return h, nil
+
 	case "q", "ctrl+c":
 		return h.tryQuit()
 
@@ -4573,6 +4625,75 @@ func (h *Home) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		h.rebuildFlatItems()
 		return h, nil
+	}
+
+	return h, nil
+}
+
+// handlePRViewKey handles keys when the PR overview view is active.
+func (h *Home) handlePRViewKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	sessions := h.prViewSessions()
+
+	switch msg.String() {
+	case "q", "ctrl+c":
+		h.viewMode = ""
+		return h.tryQuit()
+
+	case "P", "esc":
+		h.viewMode = ""
+		return h, nil
+
+	case "up", "k":
+		if h.prViewCursor > 0 {
+			h.prViewCursor--
+		}
+		return h, nil
+
+	case "down", "j":
+		if h.prViewCursor < len(sessions)-1 {
+			h.prViewCursor++
+		}
+		return h, nil
+
+	case "enter":
+		if h.prViewCursor < len(sessions) {
+			inst := sessions[h.prViewCursor]
+			if inst.Exists() {
+				h.isAttaching.Store(true)
+				return h, h.attachSession(inst)
+			}
+		}
+		return h, nil
+
+	case "o":
+		if h.prViewCursor < len(sessions) {
+			inst := sessions[h.prViewCursor]
+			h.prCacheMu.Lock()
+			pr, hasPR := h.prCache[inst.ID]
+			h.prCacheMu.Unlock()
+			if hasPR && pr != nil && pr.URL != "" {
+				exec.Command("open", pr.URL).Start() //nolint:errcheck
+			}
+		}
+		return h, nil
+
+	case "r":
+		// Force re-fetch PR data for all sessions
+		var cmds []tea.Cmd
+		for _, inst := range sessions {
+			if inst.IsWorktree() && inst.WorktreePath != "" {
+				h.prCacheMu.Lock()
+				h.prCacheTs[inst.ID] = time.Time{} // reset TTL
+				h.prCacheMu.Unlock()
+				sid := inst.ID
+				wtPath := inst.WorktreePath
+				ghPath := h.ghPath
+				cmds = append(cmds, func() tea.Msg {
+					return fetchPRInfo(sid, wtPath, ghPath)
+				})
+			}
+		}
+		return h, tea.Batch(cmds...)
 	}
 
 	return h, nil
@@ -5857,6 +5978,11 @@ func (h *Home) View() string {
 		return h.todoDialog.View()
 	}
 
+	// PR overview takes full screen
+	if h.viewMode == "prs" {
+		return h.renderPROverview()
+	}
+
 	// Reuse viewBuilder to reduce allocations (reset and pre-allocate)
 	h.viewBuilder.Reset()
 	h.viewBuilder.Grow(32768) // Pre-allocate 32KB for typical view size
@@ -6855,8 +6981,12 @@ func (h *Home) renderHelpBarCompact() string {
 
 	// Global hints (abbreviated)
 	globalStyle := lipgloss.NewStyle().Foreground(ColorComment)
+	compactSearchHint := "/"
+	if h.ghPath != "" {
+		compactSearchHint += " P"
+	}
 	globalHints := globalStyle.Render("↑↓ Nav") + " " +
-		globalStyle.Render("/") + " " +
+		globalStyle.Render(compactSearchHint) + " " +
 		globalStyle.Render("?") + " " +
 		globalStyle.Render("q")
 
@@ -6993,8 +7123,12 @@ func (h *Home) renderHelpBarFull() string {
 
 	// Global shortcuts (right side) - more compact with separators
 	globalStyle := lipgloss.NewStyle().Foreground(ColorComment)
+	searchHint := "/ Search"
+	if h.ghPath != "" {
+		searchHint += "  P PRs"
+	}
 	globalHints := globalStyle.Render("↑↓ Nav") + sep +
-		globalStyle.Render("/ Search") + sep +
+		globalStyle.Render(searchHint) + sep +
 		globalStyle.Render("S Settings  ? Help  q Quit")
 
 	// Calculate spacing between left (context) and right (global) portions
@@ -7014,6 +7148,186 @@ func (h *Home) renderHelpBarFull() string {
 
 	raw := lipgloss.JoinVertical(lipgloss.Left, border, helpContent)
 	return lipgloss.NewStyle().MaxWidth(h.width).Render(raw)
+}
+
+// renderPROverview renders the full-screen PR overview mode.
+func (h *Home) renderPROverview() string {
+	sessions := h.prViewSessions()
+
+	var b strings.Builder
+
+	// ── Header ──────────────────────────────────────────────────────────
+	running, waiting, idle, _ := h.countSessionStatuses()
+	logo := RenderLogoCompact(running, waiting, idle)
+	titleStyle := lipgloss.NewStyle().Bold(true).Foreground(ColorAccent)
+	viewLabel := lipgloss.NewStyle().Foreground(ColorPurple).Bold(true).Render("PR Overview")
+	headerRight := lipgloss.NewStyle().Foreground(ColorComment).Render(fmt.Sprintf("%d PRs", len(sessions)))
+	headerLeft := logo + "  " + titleStyle.Render("Hangar") + "  " + viewLabel
+	pad := h.width - lipgloss.Width(headerLeft) - lipgloss.Width(headerRight)
+	if pad < 1 {
+		pad = 1
+	}
+	b.WriteString(headerLeft + strings.Repeat(" ", pad) + headerRight)
+	b.WriteString("\n")
+
+	// ── Column header ────────────────────────────────────────────────────
+	colStyle := lipgloss.NewStyle().Foreground(ColorComment).Bold(true)
+	b.WriteString(colStyle.Render(fmt.Sprintf("  %-7s  %-8s  %-14s  %s", "PR", "STATE", "CHECKS", "SESSION")))
+	b.WriteString("\n")
+	borderStyle := lipgloss.NewStyle().Foreground(ColorBorder)
+	b.WriteString(borderStyle.Render(strings.Repeat("─", max(0, h.width))))
+	b.WriteString("\n")
+
+	// ── Rows ─────────────────────────────────────────────────────────────
+	contentHeight := h.height - 5 // header(1) + colheader(1) + border(1) + helpbar(2)
+	startIdx := 0
+	if h.prViewCursor >= contentHeight {
+		startIdx = h.prViewCursor - contentHeight + 1
+	}
+
+	dataRowsRendered := 0
+
+	if len(sessions) == 0 {
+		emptyStyle := lipgloss.NewStyle().Foreground(ColorComment).Italic(true)
+		b.WriteString("\n")
+		b.WriteString(lipgloss.PlaceHorizontal(h.width, lipgloss.Center, emptyStyle.Render("No sessions with open PRs")))
+		b.WriteString("\n")
+	} else {
+		for i := startIdx; i < len(sessions) && i < startIdx+contentHeight; i++ {
+			inst := sessions[i]
+			selected := i == h.prViewCursor
+
+			h.prCacheMu.Lock()
+			pr := h.prCache[inst.ID]
+			h.prCacheMu.Unlock()
+
+			if pr == nil {
+				continue
+			}
+
+			// PR number
+			prNumStyle := lipgloss.NewStyle().Foreground(ColorAccent).Bold(true)
+			prNum := prNumStyle.Render(fmt.Sprintf("#%-5d", pr.Number))
+
+			// State
+			var stateStyle lipgloss.Style
+			var stateLabel string
+			switch pr.State {
+			case "OPEN":
+				stateStyle = lipgloss.NewStyle().Foreground(ColorGreen)
+				stateLabel = "open"
+			case "DRAFT":
+				stateStyle = lipgloss.NewStyle().Foreground(ColorComment)
+				stateLabel = "draft"
+			case "MERGED":
+				stateStyle = lipgloss.NewStyle().Foreground(ColorPurple)
+				stateLabel = "merged"
+			case "CLOSED":
+				stateStyle = lipgloss.NewStyle().Foreground(ColorRed)
+				stateLabel = "closed"
+			default:
+				stateStyle = lipgloss.NewStyle().Foreground(ColorComment)
+				stateLabel = strings.ToLower(pr.State)
+			}
+			stateCol := stateStyle.Render(fmt.Sprintf("%-8s", stateLabel))
+
+			// Checks
+			var checkParts []string
+			if pr.HasChecks {
+				if pr.ChecksFailed > 0 {
+					checkParts = append(checkParts, lipgloss.NewStyle().Foreground(ColorRed).Render(fmt.Sprintf("✗%d", pr.ChecksFailed)))
+				}
+				if pr.ChecksPending > 0 {
+					checkParts = append(checkParts, lipgloss.NewStyle().Foreground(ColorYellow).Render(fmt.Sprintf("●%d", pr.ChecksPending)))
+				}
+				if pr.ChecksPassed > 0 {
+					checkParts = append(checkParts, lipgloss.NewStyle().Foreground(ColorGreen).Render(fmt.Sprintf("✓%d", pr.ChecksPassed)))
+				}
+			}
+			checksRaw := strings.Join(checkParts, " ")
+			// Pad checks column to fixed width (14 visible chars)
+			checksVisible := lipgloss.Width(checksRaw)
+			if checksVisible < 14 {
+				checksRaw += strings.Repeat(" ", 14-checksVisible)
+			} else if checksVisible > 14 {
+				// Truncate check summary to fit column — drop least-important parts from the right
+				// Re-build a truncated version using only what fits
+				var truncParts []string
+				width := 0
+				for _, part := range checkParts {
+					w := lipgloss.Width(part)
+					if width+w+1 <= 14 { // +1 for separator space
+						truncParts = append(truncParts, part)
+						if width > 0 {
+							width++ // separator
+						}
+						width += w
+					}
+				}
+				checksRaw = strings.Join(truncParts, " ")
+				checksVisible = lipgloss.Width(checksRaw)
+				if checksVisible < 14 {
+					checksRaw += strings.Repeat(" ", 14-checksVisible)
+				}
+			}
+
+			// Session title — bright if running, dim if idle
+			status := inst.GetStatusThreadSafe()
+			var titleStyle lipgloss.Style
+			if status == session.StatusRunning {
+				titleStyle = lipgloss.NewStyle().Foreground(ColorText).Bold(true)
+			} else {
+				titleStyle = lipgloss.NewStyle().Foreground(ColorComment)
+			}
+			title := inst.Title
+			maxTitleWidth := h.width - 2 - 7 - 2 - 8 - 2 - 14 - 2 - 4
+			runes := []rune(title)
+			if maxTitleWidth > 0 && len(runes) > maxTitleWidth {
+				title = string(runes[:maxTitleWidth-1]) + "…"
+			}
+			sessionCol := titleStyle.Render(title)
+
+			row := fmt.Sprintf("  %s  %s  %s  %s", prNum, stateCol, checksRaw, sessionCol)
+
+			if selected {
+				row = lipgloss.NewStyle().
+					Background(ColorSurface).
+					Width(h.width).
+					Render(row)
+			}
+
+			b.WriteString(row)
+			b.WriteString("\n")
+			dataRowsRendered++
+		}
+	}
+
+	// Fill remaining lines to push help bar to the bottom
+	for i := dataRowsRendered; i < contentHeight; i++ {
+		b.WriteString("\n")
+	}
+
+	// ── Help bar ─────────────────────────────────────────────────────────
+	borderLine := borderStyle.Render(strings.Repeat("─", max(0, h.width)))
+	b.WriteString(borderLine)
+	b.WriteString("\n")
+	helpKeyStyle := lipgloss.NewStyle().Foreground(ColorText).Bold(true)
+	helpDescStyle := lipgloss.NewStyle().Foreground(ColorComment)
+	renderKey := func(key, desc string) string {
+		return helpKeyStyle.Render(key) + " " + helpDescStyle.Render(desc)
+	}
+	sepStyle := lipgloss.NewStyle().Foreground(ColorBorder)
+	sep := sepStyle.Render(" │ ")
+	hints := strings.Join([]string{
+		renderKey("Enter", "Attach"),
+		renderKey("o", "Open PR"),
+		renderKey("r", "Refresh"),
+		renderKey("P/Esc", "Back"),
+		renderKey("↑↓/jk", "Nav"),
+	}, sep)
+	b.WriteString(hints)
+
+	return lipgloss.NewStyle().MaxWidth(h.width).Render(b.String())
 }
 
 // helpKey formats a keyboard shortcut for the help bar

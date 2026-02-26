@@ -1440,3 +1440,146 @@ func TestDeleteKey_NonWorktreeSessionOpensConfirmDialog(t *testing.T) {
 		t.Error("expected ConfirmDialog visible for non-worktree session")
 	}
 }
+
+func TestPRView_ToggleWithP(t *testing.T) {
+	home := NewHome()
+	home.width = 120
+	home.height = 40
+	home.ghPath = "/usr/bin/gh" // fake path — just needs to be non-empty
+
+	if home.viewMode == "prs" {
+		t.Fatal("viewMode should not start in prs mode")
+	}
+
+	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'P'}}
+	model, _ := home.Update(msg)
+	h := model.(*Home)
+
+	if h.viewMode != "prs" {
+		t.Errorf("viewMode = %q, want \"prs\"", h.viewMode)
+	}
+	if h.prViewCursor != 0 {
+		t.Errorf("prViewCursor = %d, want 0", h.prViewCursor)
+	}
+}
+
+func TestPRView_NoToggleWithoutGh(t *testing.T) {
+	home := NewHome()
+	home.width = 120
+	home.height = 40
+	home.ghPath = "" // explicitly clear to simulate gh not installed
+
+	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'P'}}
+	model, _ := home.Update(msg)
+	h := model.(*Home)
+
+	if h.viewMode == "prs" {
+		t.Error("viewMode should not switch to prs when gh is not installed")
+	}
+}
+
+func TestPRView_EscReturnsToSessions(t *testing.T) {
+	home := NewHome()
+	home.width = 120
+	home.height = 40
+	home.viewMode = "prs"
+
+	msg := tea.KeyMsg{Type: tea.KeyEsc}
+	model, _ := home.Update(msg)
+	h := model.(*Home)
+
+	if h.viewMode == "prs" {
+		t.Error("esc should exit PR view")
+	}
+}
+
+func TestPRView_Navigation(t *testing.T) {
+	home := NewHome()
+	home.width = 120
+	home.height = 40
+	home.viewMode = "prs"
+
+	// Seed PR cache with two sessions
+	sess1 := &session.Instance{ID: "s1", Title: "Session 1", WorktreePath: "/tmp/s1"}
+	sess2 := &session.Instance{ID: "s2", Title: "Session 2", WorktreePath: "/tmp/s2"}
+	home.instances = []*session.Instance{sess1, sess2}
+	home.groupTree = session.NewGroupTree(home.instances)
+	home.rebuildFlatItems()
+	home.prCache["s1"] = &prCacheEntry{Number: 1, Title: "PR 1", State: "OPEN", URL: "https://github.com/x/y/pull/1"}
+	home.prCache["s2"] = &prCacheEntry{Number: 2, Title: "PR 2", State: "DRAFT", URL: "https://github.com/x/y/pull/2"}
+
+	// Navigate down
+	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}}
+	model, _ := home.Update(msg)
+	h := model.(*Home)
+	if h.prViewCursor != 1 {
+		t.Errorf("prViewCursor after down = %d, want 1", h.prViewCursor)
+	}
+
+	// Navigate up
+	msg = tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'k'}}
+	model, _ = h.Update(msg)
+	h = model.(*Home)
+	if h.prViewCursor != 0 {
+		t.Errorf("prViewCursor after up = %d, want 0", h.prViewCursor)
+	}
+
+	// Navigate up at top — stays at 0
+	model, _ = h.Update(msg)
+	h = model.(*Home)
+	if h.prViewCursor != 0 {
+		t.Errorf("prViewCursor should clamp at 0, got %d", h.prViewCursor)
+	}
+}
+
+func TestPRView_RenderShowsPRs(t *testing.T) {
+	home := NewHome()
+	home.width = 120
+	home.height = 30
+	home.viewMode = "prs"
+	home.ghPath = "/usr/bin/gh"
+	home.initialLoading = false
+
+	sess1 := &session.Instance{ID: "s1", Title: "Fix auth bug", WorktreePath: "/tmp/s1"}
+	home.instances = []*session.Instance{sess1}
+	home.groupTree = session.NewGroupTree(home.instances)
+	home.rebuildFlatItems()
+	home.prCache["s1"] = &prCacheEntry{
+		Number:       42,
+		Title:        "Fix auth bug",
+		State:        "OPEN",
+		URL:          "https://github.com/x/y/pull/42",
+		HasChecks:    true,
+		ChecksPassed: 5,
+		ChecksFailed: 1,
+	}
+
+	view := home.View()
+
+	if !strings.Contains(view, "#42") {
+		t.Error("View should contain PR number #42")
+	}
+	if !strings.Contains(view, "open") {
+		t.Error("View should contain PR state 'open'")
+	}
+	if !strings.Contains(view, "Fix auth bug") {
+		t.Error("View should contain session title")
+	}
+	if !strings.Contains(view, "PR Overview") {
+		t.Error("View should show 'PR Overview' header label")
+	}
+}
+
+func TestPRView_RenderEmpty(t *testing.T) {
+	home := NewHome()
+	home.width = 120
+	home.height = 30
+	home.viewMode = "prs"
+	home.initialLoading = false
+
+	view := home.View()
+
+	if !strings.Contains(view, "No sessions") {
+		t.Error("Empty PR view should show empty state message")
+	}
+}
