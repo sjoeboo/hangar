@@ -1,6 +1,8 @@
 package ui
 
 import (
+	"os"
+	"strings"
 	"testing"
 )
 
@@ -134,4 +136,24 @@ func TestToolStyleCache_ReinitializedOnThemeChange(t *testing.T) {
 
 	// Reset to dark for other tests
 	InitTheme("dark")
+}
+
+func TestShortenPath(t *testing.T) {
+	home, _ := os.UserHomeDir()
+	tests := []struct {
+		input      string
+		maxLen     int
+		wantPrefix string
+	}{
+		{home + "/code/hangar", 100, "~/"},
+		{home, 100, "~"},
+		{"/tmp/other", 100, "/tmp/"},
+		{home + "/very/long/path/that/exceeds/the/limit/yes/it/does", 20, "~/"},
+	}
+	for _, tt := range tests {
+		got := shortenPath(tt.input, tt.maxLen)
+		if !strings.HasPrefix(got, tt.wantPrefix) {
+			t.Errorf("shortenPath(%q, %d) = %q, want prefix %q", tt.input, tt.maxLen, got, tt.wantPrefix)
+		}
+	}
 }

@@ -8293,6 +8293,18 @@ func truncatePath(path string, maxLen int) string {
 	return string(runes[:startLen]) + "..." + string(runes[len(runes)-endLen:])
 }
 
+// shortenPath replaces the home directory prefix with ~ then truncates to fit maxLen.
+func shortenPath(path string, maxLen int) string {
+	if home, err := os.UserHomeDir(); err == nil {
+		if strings.HasPrefix(path, home+"/") {
+			path = "~/" + path[len(home)+1:]
+		} else if path == home {
+			path = "~"
+		}
+	}
+	return truncatePath(path, maxLen)
+}
+
 // formatRelativeTime formats a time as a human-readable relative string
 // Examples: "just now", "2m ago", "1h ago", "3h ago", "1d ago"
 func formatRelativeTime(t time.Time) string {
