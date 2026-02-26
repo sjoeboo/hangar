@@ -143,6 +143,7 @@ type Home struct {
 	geminiModelDialog    *GeminiModelDialog    // For selecting Gemini model
 	sessionPickerDialog  *SessionPickerDialog  // For sending output to another session
 	worktreeFinishDialog *WorktreeFinishDialog // For finishing worktree sessions (optional merge + cleanup)
+	reviewDialog         *ReviewDialog         // For launching a review session for the current branch
 	todoDialog           *TodoDialog           // For viewing/managing per-project todos
 	pendingTodoID        string                // Todo ID waiting for a session to be created from it
 	sendTextDialog       *SendTextDialog       // For sending text to a session without attaching
@@ -517,6 +518,25 @@ type worktreeCreatedForNewSessionMsg struct {
 	err          error
 }
 
+// reviewPRResolvedMsg is returned when the async gh pr view lookup completes.
+type reviewPRResolvedMsg struct {
+	branch string
+	title  string
+	isPR   bool
+	prNum  string
+	err    error
+}
+
+// reviewSessionCreatedMsg is returned when the review worktree and session are ready.
+type reviewSessionCreatedMsg struct {
+	instance      *session.Instance
+	initialPrompt string
+	err           error
+}
+
+// reviewPromptSentMsg is returned after the /pr-review prompt is delivered.
+type reviewPromptSentMsg struct{}
+
 // worktreeCreatedForForkMsg is sent when async worktree creation for a fork completes
 type worktreeCreatedForForkMsg struct {
 	source      *session.Instance
@@ -593,6 +613,7 @@ func NewHomeWithProfileAndMode(profile string) *Home {
 		geminiModelDialog:    NewGeminiModelDialog(),
 		sessionPickerDialog:  NewSessionPickerDialog(),
 		worktreeFinishDialog: NewWorktreeFinishDialog(),
+		reviewDialog:         NewReviewDialog(),
 		todoDialog:           NewTodoDialog(),
 		sendTextDialog:       NewSendTextDialog(),
 		cursor:               0,
@@ -5885,6 +5906,7 @@ func (h *Home) updateSizes() {
 	h.confirmDialog.SetSize(h.width, h.height)
 	h.geminiModelDialog.SetSize(h.width, h.height)
 	h.worktreeFinishDialog.SetSize(h.width, h.height)
+	h.reviewDialog.SetSize(h.width, h.height)
 	h.sendTextDialog.SetSize(h.width, h.height)
 	h.todoDialog.SetSize(h.width, h.height)
 	h.diffView.SetSize(h.width, h.height)
@@ -5973,6 +5995,9 @@ func (h *Home) View() string {
 	}
 	if h.worktreeFinishDialog.IsVisible() {
 		return h.worktreeFinishDialog.View()
+	}
+	if h.reviewDialog.IsVisible() {
+		return h.reviewDialog.View()
 	}
 	if h.todoDialog.IsVisible() {
 		return h.todoDialog.View()
