@@ -8050,16 +8050,10 @@ func (h *Home) renderPreviewPane(width, height int) string {
 	b.WriteString(termHeader)
 	b.WriteString("\n")
 
-	// Render diffstat via Preview.View() — the sole owner of "~ diffstat" rendering.
-	if h.preview.DiffStat != "" {
-		h.preview.SetSize(width, height)
-		for _, line := range strings.Split(h.preview.View(), "\n") {
-			if strings.Contains(tmux.StripANSI(line), "~ ") {
-				b.WriteString(line)
-				b.WriteString("\n")
-				break
-			}
-		}
+	// Render diffstat line using the dedicated method (avoids fragile ANSI scanning).
+	if line := h.preview.DiffStatLine(); line != "" {
+		b.WriteString(line)
+		b.WriteString("\n")
 	}
 
 	// Check if this session is launching (newly created), resuming (restarted), or forking

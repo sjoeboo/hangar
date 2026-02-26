@@ -92,6 +92,15 @@ func (p *Preview) View() string {
 	return b.String()
 }
 
+// DiffStatLine returns the styled diffstat line for embedding in other views,
+// or empty string if no diffstat is available.
+func (p *Preview) DiffStatLine() string {
+	if p.DiffStat == "" {
+		return ""
+	}
+	return lipgloss.NewStyle().Foreground(ColorTextDim).Render("~ " + p.DiffStat)
+}
+
 func min(a, b int) int {
 	if a < b {
 		return a
