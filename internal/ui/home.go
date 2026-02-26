@@ -10144,10 +10144,10 @@ func (h *Home) handleTodoDialogKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		h.todoDialog.Hide()
 
 	case TodoActionSaveTodo:
-		title, desc, editingID, newStatus := h.todoDialog.GetFormValues()
+		title, desc, prompt, editingID, newStatus := h.todoDialog.GetFormValues()
 		projectPath := h.todoDialog.projectPath
 		if editingID == "" {
-			todo := session.NewTodo(title, desc, projectPath)
+			todo := session.NewTodo(title, desc, prompt, projectPath)
 			todo.Status = newStatus
 			if err := h.storage.SaveTodo(todo); err != nil {
 				h.setError(fmt.Errorf("save todo: %w", err))

@@ -222,7 +222,7 @@ func TestTodoDialog_HandleKanban_NewPreSelectsColumnStatus(t *testing.T) {
 	d.Show("/proj", "", "", nil)
 	d.selectedCol = 1
 	d.HandleKey(keyMsg("n"))
-	_, _, _, status := d.GetFormValues()
+	_, _, _, _, status := d.GetFormValues()
 	if status != session.TodoStatusInProgress {
 		t.Errorf("expected InProgress status for new todo in col 1, got %s", status)
 	}
