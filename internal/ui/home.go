@@ -7402,7 +7402,7 @@ func (h *Home) renderPreviewPane(width, height int) string {
 
 	// Info lines: path and activity time
 	infoStyle := lipgloss.NewStyle().Foreground(ColorText)
-	pathStr := truncatePath(selected.ProjectPath, width-4)
+	pathStr := shortenPath(selected.ProjectPath, width-4)
 	b.WriteString(infoStyle.Render("📁 " + pathStr))
 	b.WriteString("\n")
 
@@ -7532,7 +7532,7 @@ func (h *Home) renderPreviewPane(width, height int) string {
 
 		// Worktree path (truncated)
 		if selected.WorktreePath != "" {
-			wtPath := truncatePath(selected.WorktreePath, width-4-9)
+			wtPath := shortenPath(selected.WorktreePath, width-4-9)
 			b.WriteString(wtLabelStyle.Render("Path:    "))
 			b.WriteString(wtValueStyle.Render(wtPath))
 			b.WriteString("\n")
