@@ -1531,3 +1531,55 @@ func TestPRView_Navigation(t *testing.T) {
 		t.Errorf("prViewCursor should clamp at 0, got %d", h.prViewCursor)
 	}
 }
+
+func TestPRView_RenderShowsPRs(t *testing.T) {
+	home := NewHome()
+	home.width = 120
+	home.height = 30
+	home.viewMode = "prs"
+	home.ghPath = "/usr/bin/gh"
+	home.initialLoading = false
+
+	sess1 := &session.Instance{ID: "s1", Title: "Fix auth bug", WorktreePath: "/tmp/s1"}
+	home.instances = []*session.Instance{sess1}
+	home.groupTree = session.NewGroupTree(home.instances)
+	home.rebuildFlatItems()
+	home.prCache["s1"] = &prCacheEntry{
+		Number:       42,
+		Title:        "Fix auth bug",
+		State:        "OPEN",
+		URL:          "https://github.com/x/y/pull/42",
+		HasChecks:    true,
+		ChecksPassed: 5,
+		ChecksFailed: 1,
+	}
+
+	view := home.View()
+
+	if !strings.Contains(view, "#42") {
+		t.Error("View should contain PR number #42")
+	}
+	if !strings.Contains(view, "open") {
+		t.Error("View should contain PR state 'open'")
+	}
+	if !strings.Contains(view, "Fix auth bug") {
+		t.Error("View should contain session title")
+	}
+	if !strings.Contains(view, "PR Overview") {
+		t.Error("View should show 'PR Overview' header label")
+	}
+}
+
+func TestPRView_RenderEmpty(t *testing.T) {
+	home := NewHome()
+	home.width = 120
+	home.height = 30
+	home.viewMode = "prs"
+	home.initialLoading = false
+
+	view := home.View()
+
+	if !strings.Contains(view, "No sessions") {
+		t.Error("Empty PR view should show empty state message")
+	}
+}

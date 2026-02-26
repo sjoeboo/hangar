@@ -5974,6 +5974,11 @@ func (h *Home) View() string {
 		return h.todoDialog.View()
 	}
 
+	// PR overview takes full screen
+	if h.viewMode == "prs" {
+		return h.renderPROverview()
+	}
+
 	// Reuse viewBuilder to reduce allocations (reset and pre-allocate)
 	h.viewBuilder.Reset()
 	h.viewBuilder.Grow(32768) // Pre-allocate 32KB for typical view size
@@ -7131,6 +7136,159 @@ func (h *Home) renderHelpBarFull() string {
 
 	raw := lipgloss.JoinVertical(lipgloss.Left, border, helpContent)
 	return lipgloss.NewStyle().MaxWidth(h.width).Render(raw)
+}
+
+// renderPROverview renders the full-screen PR overview mode.
+func (h *Home) renderPROverview() string {
+	sessions := h.prViewSessions()
+
+	var b strings.Builder
+
+	// ── Header ──────────────────────────────────────────────────────────
+	running, waiting, idle, _ := h.countSessionStatuses()
+	logo := RenderLogoCompact(running, waiting, idle)
+	titleStyle := lipgloss.NewStyle().Bold(true).Foreground(ColorAccent)
+	viewLabel := lipgloss.NewStyle().Foreground(ColorPurple).Bold(true).Render("PR Overview")
+	headerRight := lipgloss.NewStyle().Foreground(ColorComment).Render(fmt.Sprintf("%d PRs", len(sessions)))
+	headerLeft := logo + "  " + titleStyle.Render("Hangar") + "  " + viewLabel
+	pad := h.width - lipgloss.Width(headerLeft) - lipgloss.Width(headerRight)
+	if pad < 1 {
+		pad = 1
+	}
+	b.WriteString(headerLeft + strings.Repeat(" ", pad) + headerRight)
+	b.WriteString("\n")
+
+	// ── Column header ────────────────────────────────────────────────────
+	colStyle := lipgloss.NewStyle().Foreground(ColorComment).Bold(true)
+	b.WriteString(colStyle.Render(fmt.Sprintf("  %-7s  %-8s  %-14s  %s", "PR", "STATE", "CHECKS", "SESSION")))
+	b.WriteString("\n")
+	borderStyle := lipgloss.NewStyle().Foreground(ColorBorder)
+	b.WriteString(borderStyle.Render(strings.Repeat("─", max(0, h.width))))
+	b.WriteString("\n")
+
+	// ── Rows ─────────────────────────────────────────────────────────────
+	contentHeight := h.height - 5 // header(1) + colheader(1) + border(1) + helpbar(2)
+	startIdx := 0
+	if h.prViewCursor >= contentHeight {
+		startIdx = h.prViewCursor - contentHeight + 1
+	}
+
+	if len(sessions) == 0 {
+		emptyStyle := lipgloss.NewStyle().Foreground(ColorComment).Italic(true)
+		b.WriteString("\n")
+		b.WriteString(lipgloss.PlaceHorizontal(h.width, lipgloss.Center, emptyStyle.Render("No sessions with open PRs")))
+		b.WriteString("\n")
+	}
+
+	for i := startIdx; i < len(sessions) && i < startIdx+contentHeight; i++ {
+		inst := sessions[i]
+		selected := i == h.prViewCursor
+
+		h.prCacheMu.Lock()
+		pr := h.prCache[inst.ID]
+		h.prCacheMu.Unlock()
+
+		// PR number
+		prNumStyle := lipgloss.NewStyle().Foreground(ColorAccent).Bold(true)
+		prNum := prNumStyle.Render(fmt.Sprintf("#%-5d", pr.Number))
+
+		// State
+		var stateStyle lipgloss.Style
+		var stateLabel string
+		switch pr.State {
+		case "OPEN":
+			stateStyle = lipgloss.NewStyle().Foreground(ColorGreen)
+			stateLabel = "open"
+		case "DRAFT":
+			stateStyle = lipgloss.NewStyle().Foreground(ColorComment)
+			stateLabel = "draft"
+		case "MERGED":
+			stateStyle = lipgloss.NewStyle().Foreground(ColorPurple)
+			stateLabel = "merged"
+		case "CLOSED":
+			stateStyle = lipgloss.NewStyle().Foreground(ColorRed)
+			stateLabel = "closed"
+		default:
+			stateStyle = lipgloss.NewStyle().Foreground(ColorComment)
+			stateLabel = strings.ToLower(pr.State)
+		}
+		stateCol := stateStyle.Render(fmt.Sprintf("%-8s", stateLabel))
+
+		// Checks
+		var checkParts []string
+		if pr.HasChecks {
+			if pr.ChecksFailed > 0 {
+				checkParts = append(checkParts, lipgloss.NewStyle().Foreground(ColorRed).Render(fmt.Sprintf("✗%d", pr.ChecksFailed)))
+			}
+			if pr.ChecksPending > 0 {
+				checkParts = append(checkParts, lipgloss.NewStyle().Foreground(ColorYellow).Render(fmt.Sprintf("●%d", pr.ChecksPending)))
+			}
+			if pr.ChecksPassed > 0 {
+				checkParts = append(checkParts, lipgloss.NewStyle().Foreground(ColorGreen).Render(fmt.Sprintf("✓%d", pr.ChecksPassed)))
+			}
+		}
+		checksRaw := strings.Join(checkParts, " ")
+		// Pad checks column to fixed width (14 visible chars)
+		checksVisible := lipgloss.Width(checksRaw)
+		if checksVisible < 14 {
+			checksRaw += strings.Repeat(" ", 14-checksVisible)
+		}
+
+		// Session title — bright if running, dim if idle
+		status := inst.GetStatusThreadSafe()
+		var titleStyle lipgloss.Style
+		if status == session.StatusRunning {
+			titleStyle = lipgloss.NewStyle().Foreground(ColorText).Bold(true)
+		} else {
+			titleStyle = lipgloss.NewStyle().Foreground(ColorComment)
+		}
+		title := inst.Title
+		maxTitleWidth := h.width - 2 - 7 - 2 - 8 - 2 - 14 - 2 - 4
+		if maxTitleWidth > 0 && len(title) > maxTitleWidth {
+			title = title[:maxTitleWidth-1] + "…"
+		}
+		sessionCol := titleStyle.Render(title)
+
+		row := fmt.Sprintf("  %s  %s  %s  %s", prNum, stateCol, checksRaw, sessionCol)
+
+		if selected {
+			row = lipgloss.NewStyle().
+				Background(ColorSurface).
+				Width(h.width).
+				Render(row)
+		}
+
+		b.WriteString(row)
+		b.WriteString("\n")
+	}
+
+	// Fill remaining lines
+	rendered := strings.Count(b.String(), "\n") - 3 // subtract header lines
+	for i := rendered; i < contentHeight; i++ {
+		b.WriteString("\n")
+	}
+
+	// ── Help bar ─────────────────────────────────────────────────────────
+	borderLine := borderStyle.Render(strings.Repeat("─", max(0, h.width)))
+	b.WriteString(borderLine)
+	b.WriteString("\n")
+	helpKeyStyle := lipgloss.NewStyle().Foreground(ColorText).Bold(true)
+	helpDescStyle := lipgloss.NewStyle().Foreground(ColorComment)
+	renderKey := func(key, desc string) string {
+		return helpKeyStyle.Render(key) + " " + helpDescStyle.Render(desc)
+	}
+	sepStyle := lipgloss.NewStyle().Foreground(ColorBorder)
+	sep := sepStyle.Render(" │ ")
+	hints := strings.Join([]string{
+		renderKey("Enter", "Attach"),
+		renderKey("o", "Open PR"),
+		renderKey("r", "Refresh"),
+		renderKey("P/Esc", "Back"),
+		renderKey("↑↓/jk", "Nav"),
+	}, sep)
+	b.WriteString(hints)
+
+	return lipgloss.NewStyle().MaxWidth(h.width).Render(b.String())
 }
 
 // helpKey formats a keyboard shortcut for the help bar
