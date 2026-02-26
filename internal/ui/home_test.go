@@ -1874,3 +1874,75 @@ func TestBulkSelectMode_DKeyFallsThrough_WhenNoSelections(t *testing.T) {
 		t.Errorf("confirm type = %v, want ConfirmDeleteSession", h.confirmDialog.GetConfirmType())
 	}
 }
+
+func TestBulkSelectMode_XKeyOpensSendDialog(t *testing.T) {
+	home := NewHome()
+	home.width = 100
+	home.height = 30
+	home.initialLoading = false
+
+	inst1 := &session.Instance{ID: "id-1", Title: "sess-1", Tool: "claude"}
+	inst2 := &session.Instance{ID: "id-2", Title: "sess-2", Tool: "claude"}
+	home.instancesMu.Lock()
+	home.instances = []*session.Instance{inst1, inst2}
+	home.instanceByID = map[string]*session.Instance{"id-1": inst1, "id-2": inst2}
+	home.instancesMu.Unlock()
+	home.groupTree = session.NewGroupTree(home.instances)
+	home.rebuildFlatItems()
+
+	home.bulkSelectMode = true
+	home.selectedSessionIDs = map[string]bool{"id-1": true, "id-2": true}
+
+	xMsg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'x'}}
+	model, _ := home.Update(xMsg)
+	h := model.(*Home)
+
+	if !h.sendTextDialog.IsVisible() {
+		t.Error("x in bulk mode should open send text dialog")
+	}
+	if len(h.sendTextTargetIDs) != 2 {
+		t.Errorf("sendTextTargetIDs len = %d, want 2", len(h.sendTextTargetIDs))
+	}
+	if h.sendTextTargetID != "" {
+		t.Error("sendTextTargetID should be empty when bulk send is active")
+	}
+}
+
+func TestBulkSelectMode_XKeyFallsThrough_WhenNoSelections(t *testing.T) {
+	home := NewHome()
+	home.width = 100
+	home.height = 30
+	home.initialLoading = false
+
+	inst := &session.Instance{ID: "id-1", Title: "sess-1", Tool: "claude"}
+	home.instancesMu.Lock()
+	home.instances = []*session.Instance{inst}
+	home.instanceByID = map[string]*session.Instance{"id-1": inst}
+	home.instancesMu.Unlock()
+	home.groupTree = session.NewGroupTree(home.instances)
+	home.rebuildFlatItems()
+	// Find session item cursor position
+	for i, item := range home.flatItems {
+		if item.Type == session.ItemTypeSession && item.Session != nil {
+			home.cursor = i
+			break
+		}
+	}
+
+	home.bulkSelectMode = true
+	home.selectedSessionIDs = map[string]bool{} // nothing selected
+
+	xMsg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'x'}}
+	model, _ := home.Update(xMsg)
+	h := model.(*Home)
+
+	if !h.sendTextDialog.IsVisible() {
+		t.Error("x with no selections should fall through to single-session send dialog")
+	}
+	if h.sendTextTargetID != "id-1" {
+		t.Errorf("sendTextTargetID = %q, want 'id-1'", h.sendTextTargetID)
+	}
+	if len(h.sendTextTargetIDs) != 0 {
+		t.Error("sendTextTargetIDs should be nil/empty for single-session send")
+	}
+}

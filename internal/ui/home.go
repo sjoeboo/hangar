@@ -147,6 +147,7 @@ type Home struct {
 	pendingTodoID        string                // Todo ID waiting for a session to be created from it
 	sendTextDialog       *SendTextDialog       // For sending text to a session without attaching
 	sendTextTargetID     string                // Session ID targeted by sendTextDialog
+	sendTextTargetIDs    []string              // Session IDs for bulk send-text
 
 	// State
 	cursor         int            // Selected item index in flatItems
@@ -4596,11 +4597,28 @@ func (h *Home) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return h, nil
 
 	case "x":
-		// Send text to a session without attaching
+		// Bulk mode: send to all selected sessions
+		if h.bulkSelectMode && len(h.selectedSessionIDs) > 0 {
+			var ids []string
+			for _, item := range h.flatItems {
+				if item.Type == session.ItemTypeSession && item.Session != nil {
+					if h.selectedSessionIDs[item.Session.ID] {
+						ids = append(ids, item.Session.ID)
+					}
+				}
+			}
+			h.sendTextTargetIDs = ids
+			h.sendTextTargetID = ""
+			h.sendTextDialog.SetSize(h.width, h.height)
+			h.sendTextDialog.Show(fmt.Sprintf("%d sessions", len(ids)))
+			return h, nil
+		}
+		// Single-session send (existing logic unchanged)
 		if h.cursor < len(h.flatItems) {
 			item := h.flatItems[h.cursor]
 			if item.Type == session.ItemTypeSession && item.Session != nil {
 				h.sendTextTargetID = item.Session.ID
+				h.sendTextTargetIDs = nil
 				h.sendTextDialog.SetSize(h.width, h.height)
 				h.sendTextDialog.Show(item.Session.Title)
 			}
@@ -9555,6 +9573,40 @@ func (h *Home) handleSendTextDialogKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "confirm":
 		text := h.sendTextDialog.GetText()
 		h.sendTextDialog.Hide()
+		// Bulk send
+		if len(h.sendTextTargetIDs) > 0 && text != "" {
+			targetIDs := h.sendTextTargetIDs
+			h.sendTextTargetIDs = nil
+			h.sendTextTargetID = ""
+			h.bulkSelectMode = false
+			h.selectedSessionIDs = make(map[string]bool)
+			return h, func() tea.Msg {
+				count := 0
+				var lastErr error
+				for _, id := range targetIDs {
+					h.instancesMu.RLock()
+					inst := h.instanceByID[id]
+					h.instancesMu.RUnlock()
+					if inst == nil {
+						continue
+					}
+					tmuxSession := inst.GetTmuxSession()
+					if tmuxSession == nil {
+						continue
+					}
+					if err := tmuxSession.SendKeysAndEnter(text); err != nil {
+						lastErr = err
+					} else {
+						count++
+					}
+				}
+				targetTitle := fmt.Sprintf("%d sessions", len(targetIDs))
+				if lastErr != nil {
+					return sendTextResultMsg{targetTitle: targetTitle, err: lastErr}
+				}
+				return sendTextResultMsg{targetTitle: targetTitle}
+			}
+		}
 		if text != "" && h.sendTextTargetID != "" {
 			targetID := h.sendTextTargetID
 			h.sendTextTargetID = ""
@@ -9563,6 +9615,7 @@ func (h *Home) handleSendTextDialogKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return h, nil
 	case "close":
 		h.sendTextTargetID = ""
+		h.sendTextTargetIDs = nil
 		return h, nil
 	default:
 		h.sendTextDialog.Update(msg)
