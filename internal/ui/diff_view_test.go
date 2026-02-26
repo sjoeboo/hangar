@@ -75,3 +75,56 @@ func TestDiffView_FileUnderCursor(t *testing.T) {
 		t.Errorf("expected line >= 1, got %d", line)
 	}
 }
+
+func TestDiffView_Scroll(t *testing.T) {
+	dv := NewDiffView()
+	_ = dv.Parse(sampleDiff)
+	dv.SetSize(120, 10)
+
+	initial := dv.scrollOffset
+	dv.ScrollDown(3)
+	if dv.scrollOffset != initial+3 {
+		t.Errorf("expected scrollOffset %d, got %d", initial+3, dv.scrollOffset)
+	}
+
+	dv.ScrollUp(1)
+	if dv.scrollOffset != initial+2 {
+		t.Errorf("expected scrollOffset %d, got %d", initial+2, dv.scrollOffset)
+	}
+
+	// Cannot scroll above 0
+	dv.ScrollUp(999)
+	if dv.scrollOffset != 0 {
+		t.Errorf("expected scrollOffset 0 after large scroll up, got %d", dv.scrollOffset)
+	}
+}
+
+func TestDiffView_HandleKey_Close(t *testing.T) {
+	dv := NewDiffView()
+	_ = dv.Parse(sampleDiff)
+	dv.Show()
+
+	handled, _ := dv.HandleKey("q")
+	if !handled {
+		t.Error("expected q to be handled")
+	}
+	if dv.IsVisible() {
+		t.Error("expected DiffView to be hidden after q")
+	}
+}
+
+func TestDiffView_HandleKey_Scroll(t *testing.T) {
+	dv := NewDiffView()
+	_ = dv.Parse(sampleDiff)
+	dv.Show()
+	dv.SetSize(120, 10)
+
+	before := dv.scrollOffset
+	handled, _ := dv.HandleKey("j")
+	if !handled {
+		t.Error("expected j to be handled")
+	}
+	if dv.scrollOffset != before+1 {
+		t.Errorf("expected scroll +1, got offset %d (was %d)", dv.scrollOffset, before)
+	}
+}

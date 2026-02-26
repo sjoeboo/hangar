@@ -2,8 +2,11 @@ package ui
 
 import (
 	"fmt"
+	"os"
+	"os/exec"
 	"strings"
 
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/sourcegraph/go-diff/diff"
 )
@@ -171,6 +174,83 @@ func (dv *DiffView) View() string {
 		Background(ColorBg).
 		Padding(0, 1).
 		Render(b.String())
+}
+
+// ScrollDown scrolls down by n lines, clamped to end of content.
+func (dv *DiffView) ScrollDown(n int) {
+	limit := len(dv.lines) - 1
+	if limit < 0 {
+		limit = 0
+	}
+	dv.scrollOffset += n
+	if dv.scrollOffset > limit {
+		dv.scrollOffset = limit
+	}
+}
+
+// ScrollUp scrolls up by n lines, clamped to 0.
+func (dv *DiffView) ScrollUp(n int) {
+	dv.scrollOffset -= n
+	if dv.scrollOffset < 0 {
+		dv.scrollOffset = 0
+	}
+}
+
+// HandleKey processes a key press when the overlay is visible.
+// Returns (handled bool, cmd tea.Cmd).
+func (dv *DiffView) HandleKey(key string) (bool, tea.Cmd) {
+	if !dv.visible {
+		return false, nil
+	}
+
+	pageSize := dv.height / 2
+	if pageSize < 1 {
+		pageSize = 5
+	}
+
+	switch key {
+	case "q", "esc", "D":
+		dv.Hide()
+		return true, nil
+	case "j", "down":
+		dv.ScrollDown(1)
+		return true, nil
+	case "k", "up":
+		dv.ScrollUp(1)
+		return true, nil
+	case "pgdown", "ctrl+d":
+		dv.ScrollDown(pageSize)
+		return true, nil
+	case "pgup", "ctrl+u":
+		dv.ScrollUp(pageSize)
+		return true, nil
+	case "e":
+		path, line := dv.FileUnderCursor()
+		if path != "" {
+			dv.Hide()
+			return true, openInEditor(path, line)
+		}
+		return true, nil
+	}
+	return false, nil
+}
+
+// openInEditor returns a tea.Cmd that opens the given file at the given line
+// in $EDITOR (falls back to "vi").
+func openInEditor(path string, line int) tea.Cmd {
+	editor := os.Getenv("EDITOR")
+	if editor == "" {
+		editor = "vi"
+	}
+	var args []string
+	if line > 0 {
+		args = []string{fmt.Sprintf("+%d", line), path}
+	} else {
+		args = []string{path}
+	}
+	return tea.ExecProcess(exec.Command(editor, args...), func(err error) tea.Msg {
+		return nil
+	})
 }
 
 // rebuildLines rebuilds the flat rendered-line cache from dv.files.
