@@ -36,6 +36,48 @@ func TestSanitizeName(t *testing.T) {
 	}
 }
 
+func TestExtractWindowName(t *testing.T) {
+	tests := []struct {
+		name     string
+		command  string
+		expected string
+	}{
+		// Simple cases
+		{"empty", "", "shell"},
+		{"simple binary", "claude", "claude"},
+		{"simple with flag", "bash --login", "bash"},
+		// Inline env-var prefix
+		{"env prefix", "HANGAR_INSTANCE_ID=abc claude -c", "claude"},
+		{"multi env prefix", "HANGAR_INSTANCE_ID=abc CLAUDE_CONFIG_DIR=/x claude -c", "claude"},
+		// Compound commands (the main bug case)
+		{
+			"capture-resume new session",
+			`session_id=$(uuidgen | tr '[:upper:]' '[:lower:]'); tmux set-environment CLAUDE_SESSION_ID "$session_id"; export HANGAR_INSTANCE_ID=abc; claude --session-id "$session_id"`,
+			"claude",
+		},
+		{
+			"capture-resume with message",
+			`session_id=$(uuidgen | tr '[:upper:]' '[:lower:]'); tmux set-environment CLAUDE_SESSION_ID "$session_id"; (sleep 2; echo hi) & export HANGAR_INSTANCE_ID=abc; claude --session-id "$session_id"`,
+			"claude",
+		},
+		{
+			"gemini compound",
+			`session_id=$(uuidgen); tmux set-environment GEMINI_SESSION_ID "$session_id"; export HANGAR_INSTANCE_ID=abc; gemini --session-id "$session_id"`,
+			"gemini",
+		},
+		// Paths
+		{"path binary", "/usr/local/bin/claude", "claude"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := extractWindowName(tt.command)
+			if result != tt.expected {
+				t.Errorf("extractWindowName(%q) = %q, want %q", tt.command, result, tt.expected)
+			}
+		})
+	}
+}
+
 func TestNewSession(t *testing.T) {
 	sess := NewSession("test-session", "/tmp")
 	if sess.DisplayName != "test-session" {
