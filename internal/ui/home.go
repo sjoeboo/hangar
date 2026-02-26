@@ -307,6 +307,10 @@ type Home struct {
 
 	// Diff data for the focused session (populated async in Task 8; defaults to "" until fetched)
 	currentDiffRaw string // raw unified diff output for the currently focused session
+	currentDiffErr error  // non-nil if the last diff fetch failed; causes "diff unavailable" in preview
+
+	// Preview struct for the currently focused session (holds DiffStat for rendering)
+	preview *Preview
 }
 
 // reloadState preserves UI state during storage reload
@@ -567,6 +571,7 @@ func NewHomeWithProfileAndMode(profile string) *Home {
 		boundKeys:            make(map[string]string),
 		undoStack:            make([]deletedSessionEntry, 0, 10),
 		pendingTitleChanges:  make(map[string]string),
+		preview:              NewPreview(),
 	}
 
 	// Detect gh CLI once at startup for PR status display in the preview pane.
@@ -7474,11 +7479,19 @@ func (h *Home) renderPreviewPane(width, height int) string {
 	b.WriteString(groupBadge)
 	b.WriteString("\n")
 
-	// Diffstat line: show a one-line summary when the session lives in a git repo
+	// Diffstat line: route through Preview.DiffStat so the Preview struct owns rendering.
 	if dir := h.effectiveDir(selected); dir != "" && git.IsGitRepo(dir) {
-		diffStat := git.DiffSummary(h.currentDiffRaw)
+		if h.currentDiffErr != nil {
+			h.preview.DiffStat = "diff unavailable"
+		} else {
+			h.preview.DiffStat = git.DiffSummary(h.currentDiffRaw)
+		}
+	} else {
+		h.preview.DiffStat = ""
+	}
+	if h.preview.DiffStat != "" {
 		dimStyle := lipgloss.NewStyle().Foreground(ColorTextDim)
-		b.WriteString(dimStyle.Render("~ " + diffStat))
+		b.WriteString(dimStyle.Render("~ " + h.preview.DiffStat))
 		b.WriteString("\n")
 	}
 
