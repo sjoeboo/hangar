@@ -9016,6 +9016,40 @@ func (h *Home) handleTodoDialogKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			h.todoDialog.SetTodos(todos)
 		}
 
+	case TodoActionMoveCardLeft:
+		todo := h.todoDialog.SelectedTodo()
+		if todo != nil {
+			if targetStatus, ok := h.todoDialog.MoveCardTargetStatus(-1); ok {
+				if err := h.storage.UpdateTodoStatus(todo.ID, targetStatus, todo.SessionID); err != nil {
+					h.setError(fmt.Errorf("move card: %w", err))
+					return h, nil
+				}
+				todos, err := h.storage.LoadTodos(h.todoDialog.projectPath)
+				if err != nil {
+					h.setError(fmt.Errorf("reload todos: %w", err))
+					return h, nil
+				}
+				h.todoDialog.SetTodos(todos)
+			}
+		}
+
+	case TodoActionMoveCardRight:
+		todo := h.todoDialog.SelectedTodo()
+		if todo != nil {
+			if targetStatus, ok := h.todoDialog.MoveCardTargetStatus(1); ok {
+				if err := h.storage.UpdateTodoStatus(todo.ID, targetStatus, todo.SessionID); err != nil {
+					h.setError(fmt.Errorf("move card: %w", err))
+					return h, nil
+				}
+				todos, err := h.storage.LoadTodos(h.todoDialog.projectPath)
+				if err != nil {
+					h.setError(fmt.Errorf("reload todos: %w", err))
+					return h, nil
+				}
+				h.todoDialog.SetTodos(todos)
+			}
+		}
+
 	case TodoActionCreateSession:
 		todo := h.todoDialog.SelectedTodo()
 		if todo == nil {
