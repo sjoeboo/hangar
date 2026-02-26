@@ -11,6 +11,11 @@ import (
 	"github.com/sourcegraph/go-diff/diff"
 )
 
+// editorFinishedMsg is returned by the tea.ExecProcess callback when the
+// editor process exits. The err field is non-nil if the editor exited with a
+// non-zero status or could not be started.
+type editorFinishedMsg struct{ err error }
+
 // DiffView renders a parsed git diff as a scrollable full-screen overlay.
 // It follows the same Show/Hide/IsVisible/SetSize contract as other overlays
 // (HelpOverlay, GlobalSearch, etc.) in home.go.
@@ -240,20 +245,23 @@ func (dv *DiffView) HandleKey(key string) (bool, tea.Cmd) {
 }
 
 // openInEditor returns a tea.Cmd that opens the given file at the given line
-// in $EDITOR (falls back to "vi").
+// in $EDITOR (falls back to "vi").  $EDITOR may contain flags (e.g. "vim -u
+// NONE"), so it is split on whitespace before constructing the exec.Command.
 func openInEditor(path string, line int) tea.Cmd {
 	editor := os.Getenv("EDITOR")
 	if editor == "" {
 		editor = "vi"
 	}
+	parts := strings.Fields(editor)
 	var args []string
 	if line > 0 {
-		args = []string{fmt.Sprintf("+%d", line), path}
+		args = append(parts[1:], fmt.Sprintf("+%d", line), path)
 	} else {
-		args = []string{path}
+		args = append(parts[1:], path)
 	}
-	return tea.ExecProcess(exec.Command(editor, args...), func(err error) tea.Msg {
-		return nil
+	cmd := exec.Command(parts[0], args...)
+	return tea.ExecProcess(cmd, func(err error) tea.Msg {
+		return editorFinishedMsg{err: err}
 	})
 }
 

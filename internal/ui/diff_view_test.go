@@ -136,6 +136,24 @@ func TestDiffView_HandleKey_Close(t *testing.T) {
 	}
 }
 
+func TestDiffView_HandleKey_EditorNoFile(t *testing.T) {
+	// 'e' key with no file under cursor (empty diff) — handled but no cmd.
+	dv := NewDiffView()
+	dv.SetSize(80, 24)
+	dv.Show()
+	// don't parse any diff — lines will be empty
+	handled, cmd := dv.HandleKey("e")
+	if !handled {
+		t.Error("expected 'e' to be handled even with empty diff")
+	}
+	if cmd != nil {
+		t.Error("expected nil cmd when no file under cursor")
+	}
+	if !dv.IsVisible() {
+		t.Error("overlay should remain visible when no file under cursor")
+	}
+}
+
 func TestDiffView_HandleKey_Scroll(t *testing.T) {
 	dv := NewDiffView()
 	_ = dv.Parse(sampleDiff)
