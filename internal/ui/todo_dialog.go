@@ -156,7 +156,9 @@ func (d *TodoDialog) rebuildCols() {
 		d.selectedCol = len(d.cols) - 1
 	}
 
-	// Restore cursor to the same todo ID
+	// Restore cursor to the same todo ID. Any found position is guaranteed to
+	// be within bounds because buildColumns only includes todos from d.todos,
+	// so no second clamp pass is needed.
 	if prevID != "" {
 		for colIdx, col := range d.cols {
 			for rowIdx, t := range col.todos {
@@ -180,8 +182,11 @@ func (d *TodoDialog) Show(projectPath, groupPath, groupName string, todos []*ses
 	d.groupPath = groupPath
 	d.groupName = groupName
 	d.todos = todos
+	// Reset cursor to top-left. Clear cols so rebuildCols doesn't restore the
+	// previous cursor position via ID lookup — Show() always opens fresh.
+	d.cols = nil
 	d.selectedCol = 0
-	d.selectedRow = nil // rebuildCols initialises this
+	d.selectedRow = nil
 	d.mode = todoModeKanban
 	d.errorMsg = ""
 	d.rebuildCols()
@@ -215,6 +220,9 @@ func (d *TodoDialog) SelectedTodo() *session.Todo {
 	}
 	col := d.cols[d.selectedCol]
 	if len(col.todos) == 0 {
+		return nil
+	}
+	if d.selectedCol >= len(d.selectedRow) {
 		return nil
 	}
 	row := d.selectedRow[d.selectedCol]

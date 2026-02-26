@@ -137,3 +137,53 @@ func TestTodoDialog_SetTodos_PreservesCursorByID(t *testing.T) {
 		t.Errorf("expected cursor to stay on b, got %v", got)
 	}
 }
+
+func TestTodoDialog_SetTodos_ClampsWhenSelectedDeleted(t *testing.T) {
+	d := NewTodoDialog()
+	d.SetSize(120, 40)
+	todos := []*session.Todo{
+		makeTodo("a", session.TodoStatusTodo),
+		makeTodo("b", session.TodoStatusTodo),
+	}
+	d.Show("/proj", "", "", todos)
+	// Move cursor to row 1 (todo b)
+	d.selectedRow[0] = 1
+	// Reload with only a — b is gone, cursor should clamp to row 0
+	d.SetTodos([]*session.Todo{makeTodo("a", session.TodoStatusTodo)})
+	got := d.SelectedTodo()
+	if got == nil || got.ID != "a" {
+		t.Errorf("expected cursor clamped to a, got %v", got)
+	}
+}
+
+func TestTodoDialog_SetTodos_FollowsTodoAcrossColumns(t *testing.T) {
+	d := NewTodoDialog()
+	d.SetSize(120, 40)
+	todos := []*session.Todo{
+		makeTodo("a", session.TodoStatusTodo),
+		makeTodo("b", session.TodoStatusInProgress),
+	}
+	d.Show("/proj", "", "", todos)
+	// Select b in col 1
+	d.selectedCol = 1
+	// Reload with b now in Done (col 3)
+	d.SetTodos([]*session.Todo{
+		makeTodo("a", session.TodoStatusTodo),
+		makeTodo("b", session.TodoStatusDone),
+	})
+	got := d.SelectedTodo()
+	if got == nil || got.ID != "b" {
+		t.Errorf("expected cursor to follow b to Done column, got %v", got)
+	}
+	if d.selectedCol != 3 {
+		t.Errorf("expected selectedCol=3 (Done), got %d", d.selectedCol)
+	}
+}
+
+func TestTodoDialog_SelectedTodo_BeforeShow(t *testing.T) {
+	d := NewTodoDialog()
+	// No Show() called — must not panic and must return nil
+	if d.SelectedTodo() != nil {
+		t.Error("expected nil SelectedTodo before Show()")
+	}
+}
