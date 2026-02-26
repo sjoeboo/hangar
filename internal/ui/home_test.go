@@ -1583,3 +1583,415 @@ func TestPRView_RenderEmpty(t *testing.T) {
 		t.Error("Empty PR view should show empty state message")
 	}
 }
+
+func TestBulkSelectMode_VKeyToggle(t *testing.T) {
+	home := NewHome()
+	home.width = 100
+	home.height = 30
+
+	// Initially not in bulk mode
+	if home.bulkSelectMode {
+		t.Fatal("bulkSelectMode should be false initially")
+	}
+
+	// V enters bulk mode
+	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'V'}}
+	model, _ := home.Update(msg)
+	h := model.(*Home)
+	if !h.bulkSelectMode {
+		t.Error("V should enter bulk select mode")
+	}
+	if h.selectedSessionIDs == nil {
+		t.Error("selectedSessionIDs should be initialized")
+	}
+
+	// V again exits bulk mode
+	model, _ = h.Update(msg)
+	h = model.(*Home)
+	if h.bulkSelectMode {
+		t.Error("V again should exit bulk select mode")
+	}
+	if len(h.selectedSessionIDs) != 0 {
+		t.Error("selectedSessionIDs should be cleared on exit")
+	}
+
+	// Re-enter bulk mode — selectedSessionIDs should still be non-nil
+	model, _ = h.Update(msg)
+	h = model.(*Home)
+	if !h.bulkSelectMode {
+		t.Error("V should re-enter bulk select mode")
+	}
+	if h.selectedSessionIDs == nil {
+		t.Error("selectedSessionIDs should be non-nil on re-entry")
+	}
+}
+
+func TestBulkSelectMode_EscExits(t *testing.T) {
+	home := NewHome()
+	home.width = 100
+	home.height = 30
+
+	// Enter bulk mode
+	vMsg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'V'}}
+	model, _ := home.Update(vMsg)
+	h := model.(*Home)
+	if !h.bulkSelectMode {
+		t.Fatal("should be in bulk mode after V")
+	}
+
+	// Esc exits bulk mode
+	escMsg := tea.KeyMsg{Type: tea.KeyEsc}
+	model, _ = h.Update(escMsg)
+	h = model.(*Home)
+	if h.bulkSelectMode {
+		t.Error("Esc should exit bulk select mode")
+	}
+}
+
+func TestBulkSelectMode_SpaceTogglesSelection(t *testing.T) {
+	home := NewHome()
+	home.width = 100
+	home.height = 30
+
+	// Set up one session at cursor
+	inst := &session.Instance{ID: "test-1", Title: "test-session"}
+	home.instances = []*session.Instance{inst}
+	home.instanceByID = map[string]*session.Instance{"test-1": inst}
+	home.groupTree = session.NewGroupTree(home.instances)
+	home.rebuildFlatItems()
+	// flatItems: [0]=group header, [1]=session — point cursor at the session
+	home.cursor = 1
+
+	// Enter bulk mode
+	vMsg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'V'}}
+	model, _ := home.Update(vMsg)
+	h := model.(*Home)
+
+	// Space selects the session
+	spaceMsg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{' '}}
+	model, _ = h.Update(spaceMsg)
+	h = model.(*Home)
+	if !h.selectedSessionIDs["test-1"] {
+		t.Error("space should select the focused session")
+	}
+
+	// Space again deselects
+	model, _ = h.Update(spaceMsg)
+	h = model.(*Home)
+	if h.selectedSessionIDs["test-1"] {
+		t.Error("space again should deselect the focused session")
+	}
+}
+
+func TestBulkSelectMode_SpaceOnGroupIsNoop(t *testing.T) {
+	home := NewHome()
+	home.width = 100
+	home.height = 30
+
+	// Manually place a group item at cursor position
+	home.flatItems = []session.Item{
+		{Type: session.ItemTypeGroup, Path: "default", Group: &session.Group{Name: "default"}},
+	}
+	home.cursor = 0
+	home.bulkSelectMode = true
+
+	spaceMsg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{' '}}
+	model, _ := home.Update(spaceMsg)
+	h := model.(*Home)
+	if len(h.selectedSessionIDs) != 0 {
+		t.Error("space on group should be a no-op")
+	}
+}
+
+func TestBulkSelectMode_SpaceOutsideBulkModeIsNoop(t *testing.T) {
+	home := NewHome()
+	home.width = 100
+	home.height = 30
+
+	inst := &session.Instance{ID: "test-1", Title: "test-session"}
+	home.instances = []*session.Instance{inst}
+	home.instanceByID = map[string]*session.Instance{"test-1": inst}
+	home.groupTree = session.NewGroupTree(home.instances)
+	home.rebuildFlatItems()
+	// flatItems: [0]=group header, [1]=session — point cursor at the session
+	home.cursor = 1
+
+	// NOT in bulk mode
+	spaceMsg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{' '}}
+	model, _ := home.Update(spaceMsg)
+	h := model.(*Home)
+	if len(h.selectedSessionIDs) != 0 {
+		t.Error("space outside bulk mode should not select anything")
+	}
+}
+
+func TestBulkSelectMode_CheckboxRendering(t *testing.T) {
+	home := NewHome()
+	home.width = 120
+	home.height = 30
+	home.initialLoading = false
+
+	inst := &session.Instance{
+		ID:     "test-1",
+		Title:  "my-session",
+		Tool:   "claude",
+		Status: session.StatusIdle,
+	}
+	home.instancesMu.Lock()
+	home.instances = []*session.Instance{inst}
+	home.instanceByID[inst.ID] = inst
+	home.instancesMu.Unlock()
+	home.groupTree = session.NewGroupTree(home.instances)
+	home.rebuildFlatItems()
+
+	// In bulk mode, view should contain unselected checkbox
+	home.bulkSelectMode = true
+
+	view := home.View()
+	if !strings.Contains(view, "□") {
+		t.Error("bulk mode should render □ for unselected session")
+	}
+	if strings.Contains(view, "▶") {
+		t.Error("bulk mode should not render ▶ cursor arrow")
+	}
+
+	// After selecting, should show checked box
+	home.selectedSessionIDs["test-1"] = true
+	view = home.View()
+	if !strings.Contains(view, "☑") {
+		t.Error("selected session should render ☑")
+	}
+
+	// Outside bulk mode, should render normal arrow cursor (not checkboxes)
+	home.bulkSelectMode = false
+	home.selectedSessionIDs = make(map[string]bool)
+	view = home.View()
+	if strings.Contains(view, "□") {
+		t.Error("normal mode should not render □ checkboxes")
+	}
+	if strings.Contains(view, "☑") {
+		t.Error("normal mode should not render ☑ checkboxes")
+	}
+}
+
+func TestBulkSelectMode_HelpBarBulkMode(t *testing.T) {
+	home := NewHome()
+	home.width = 120
+	home.height = 30
+	home.initialLoading = false
+	home.bulkSelectMode = true
+	home.selectedSessionIDs = map[string]bool{"a": true, "b": true}
+
+	view := home.View()
+	if !strings.Contains(view, "VISUAL") {
+		t.Error("bulk mode should show VISUAL in help bar")
+	}
+	if !strings.Contains(view, "2 selected") {
+		t.Error("bulk mode should show selection count")
+	}
+	if !strings.Contains(view, ":delete") {
+		t.Error("bulk mode help bar should mention delete action")
+	}
+}
+
+func TestBulkSelectMode_HelpBarNormalMode(t *testing.T) {
+	home := NewHome()
+	home.width = 120
+	home.height = 30
+	home.initialLoading = false
+	home.bulkSelectMode = false
+
+	view := home.View()
+	if strings.Contains(view, "VISUAL") {
+		t.Error("normal mode should not show VISUAL in help bar")
+	}
+}
+
+func TestBulkSelectMode_DKeyShowsBulkConfirm(t *testing.T) {
+	home := NewHome()
+	home.width = 100
+	home.height = 30
+	home.initialLoading = false
+
+	inst1 := &session.Instance{ID: "id-1", Title: "sess-1", Tool: "claude"}
+	inst2 := &session.Instance{ID: "id-2", Title: "sess-2", Tool: "claude"}
+	home.instancesMu.Lock()
+	home.instances = []*session.Instance{inst1, inst2}
+	home.instanceByID = map[string]*session.Instance{"id-1": inst1, "id-2": inst2}
+	home.instancesMu.Unlock()
+	home.groupTree = session.NewGroupTree(home.instances)
+	home.rebuildFlatItems()
+
+	home.bulkSelectMode = true
+	home.selectedSessionIDs = map[string]bool{"id-1": true, "id-2": true}
+
+	dMsg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'d'}}
+	model, _ := home.Update(dMsg)
+	h := model.(*Home)
+
+	if !h.confirmDialog.IsVisible() {
+		t.Error("d in bulk mode with selections should show confirm dialog")
+	}
+	if h.confirmDialog.GetConfirmType() != ConfirmBulkDeleteSessions {
+		t.Errorf("confirm type = %v, want ConfirmBulkDeleteSessions", h.confirmDialog.GetConfirmType())
+	}
+}
+
+func TestBulkSelectMode_DKeyFallsThrough_WhenNoSelections(t *testing.T) {
+	home := NewHome()
+	home.width = 100
+	home.height = 30
+	home.initialLoading = false
+
+	inst := &session.Instance{ID: "id-1", Title: "sess-1", Tool: "claude"}
+	home.instancesMu.Lock()
+	home.instances = []*session.Instance{inst}
+	home.instanceByID = map[string]*session.Instance{"id-1": inst}
+	home.instancesMu.Unlock()
+	home.groupTree = session.NewGroupTree(home.instances)
+	home.rebuildFlatItems()
+	// Set cursor to the session item (index 1, after the group header)
+	for i, item := range home.flatItems {
+		if item.Type == session.ItemTypeSession && item.Session != nil && item.Session.ID == "id-1" {
+			home.cursor = i
+			break
+		}
+	}
+
+	// Bulk mode but nothing selected
+	home.bulkSelectMode = true
+	home.selectedSessionIDs = map[string]bool{}
+
+	dMsg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'d'}}
+	model, _ := home.Update(dMsg)
+	h := model.(*Home)
+
+	// Should fall through to single-session confirm
+	if !h.confirmDialog.IsVisible() {
+		t.Error("d with no selections should fall through to single-session delete confirm")
+	}
+	if h.confirmDialog.GetConfirmType() != ConfirmDeleteSession {
+		t.Errorf("confirm type = %v, want ConfirmDeleteSession", h.confirmDialog.GetConfirmType())
+	}
+}
+
+func TestBulkSelectMode_XKeyOpensSendDialog(t *testing.T) {
+	home := NewHome()
+	home.width = 100
+	home.height = 30
+	home.initialLoading = false
+
+	inst1 := &session.Instance{ID: "id-1", Title: "sess-1", Tool: "claude"}
+	inst2 := &session.Instance{ID: "id-2", Title: "sess-2", Tool: "claude"}
+	home.instancesMu.Lock()
+	home.instances = []*session.Instance{inst1, inst2}
+	home.instanceByID = map[string]*session.Instance{"id-1": inst1, "id-2": inst2}
+	home.instancesMu.Unlock()
+	home.groupTree = session.NewGroupTree(home.instances)
+	home.rebuildFlatItems()
+
+	home.bulkSelectMode = true
+	home.selectedSessionIDs = map[string]bool{"id-1": true, "id-2": true}
+
+	xMsg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'x'}}
+	model, _ := home.Update(xMsg)
+	h := model.(*Home)
+
+	if !h.sendTextDialog.IsVisible() {
+		t.Error("x in bulk mode should open send text dialog")
+	}
+	if len(h.sendTextTargetIDs) != 2 {
+		t.Errorf("sendTextTargetIDs len = %d, want 2", len(h.sendTextTargetIDs))
+	}
+	if h.sendTextTargetID != "" {
+		t.Error("sendTextTargetID should be empty when bulk send is active")
+	}
+}
+
+func TestBulkSelectMode_XKeyFallsThrough_WhenNoSelections(t *testing.T) {
+	home := NewHome()
+	home.width = 100
+	home.height = 30
+	home.initialLoading = false
+
+	inst := &session.Instance{ID: "id-1", Title: "sess-1", Tool: "claude"}
+	home.instancesMu.Lock()
+	home.instances = []*session.Instance{inst}
+	home.instanceByID = map[string]*session.Instance{"id-1": inst}
+	home.instancesMu.Unlock()
+	home.groupTree = session.NewGroupTree(home.instances)
+	home.rebuildFlatItems()
+	// Find session item cursor position
+	for i, item := range home.flatItems {
+		if item.Type == session.ItemTypeSession && item.Session != nil {
+			home.cursor = i
+			break
+		}
+	}
+
+	home.bulkSelectMode = true
+	home.selectedSessionIDs = map[string]bool{} // nothing selected
+
+	xMsg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'x'}}
+	model, _ := home.Update(xMsg)
+	h := model.(*Home)
+
+	if !h.sendTextDialog.IsVisible() {
+		t.Error("x with no selections should fall through to single-session send dialog")
+	}
+	if h.sendTextTargetID != "id-1" {
+		t.Errorf("sendTextTargetID = %q, want 'id-1'", h.sendTextTargetID)
+	}
+	if len(h.sendTextTargetIDs) != 0 {
+		t.Error("sendTextTargetIDs should be nil/empty for single-session send")
+	}
+}
+
+func TestBulkSelectMode_RKeyShowsBulkRestartConfirm(t *testing.T) {
+	home := NewHome()
+	home.width = 100
+	home.height = 30
+	home.initialLoading = false
+
+	inst1 := &session.Instance{ID: "id-1", Title: "sess-1", Tool: "claude"}
+	inst2 := &session.Instance{ID: "id-2", Title: "sess-2", Tool: "claude"}
+	home.instancesMu.Lock()
+	home.instances = []*session.Instance{inst1, inst2}
+	home.instanceByID = map[string]*session.Instance{"id-1": inst1, "id-2": inst2}
+	home.instancesMu.Unlock()
+	home.groupTree = session.NewGroupTree(home.instances)
+	home.rebuildFlatItems()
+
+	home.bulkSelectMode = true
+	home.selectedSessionIDs = map[string]bool{"id-1": true, "id-2": true}
+
+	rMsg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'R'}}
+	model, _ := home.Update(rMsg)
+	h := model.(*Home)
+
+	if !h.confirmDialog.IsVisible() {
+		t.Error("R in bulk mode should show confirm dialog")
+	}
+	if h.confirmDialog.GetConfirmType() != ConfirmBulkRestart {
+		t.Errorf("confirm type = %v, want ConfirmBulkRestart", h.confirmDialog.GetConfirmType())
+	}
+}
+
+func TestBulkSelectMode_RKeyFallsThrough_WhenNoSelections(t *testing.T) {
+	home := NewHome()
+	home.width = 100
+	home.height = 30
+	home.initialLoading = false
+
+	// Bulk mode but nothing selected — should not show any confirm dialog
+	home.bulkSelectMode = true
+	home.selectedSessionIDs = map[string]bool{}
+
+	rMsg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'R'}}
+	model, _ := home.Update(rMsg)
+	h := model.(*Home)
+
+	if h.confirmDialog.IsVisible() {
+		t.Error("R with no selections should not show bulk confirm dialog")
+	}
+}

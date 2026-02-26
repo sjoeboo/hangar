@@ -253,7 +253,8 @@ var (
 	SessionTitleSelStyle lipgloss.Style
 
 	// Selection indicator
-	SessionSelectionPrefix lipgloss.Style
+	SessionSelectionPrefix   lipgloss.Style
+	SessionCheckboxUnchecked lipgloss.Style
 
 	// Group item styles
 	GroupExpandStyle   lipgloss.Style
@@ -508,7 +509,8 @@ func initStyles() {
 	SessionTitleSelStyle = lipgloss.NewStyle().Bold(true).Foreground(ColorBg).Background(ColorAccent)
 
 	// Selection indicator
-	SessionSelectionPrefix = lipgloss.NewStyle().Foreground(ColorAccent).Bold(true)
+	SessionSelectionPrefix    = lipgloss.NewStyle().Foreground(ColorAccent).Bold(true)
+	SessionCheckboxUnchecked  = lipgloss.NewStyle().Foreground(ColorTextDim)
 
 	// Group item styles
 	GroupExpandStyle = lipgloss.NewStyle().Foreground(ColorText)

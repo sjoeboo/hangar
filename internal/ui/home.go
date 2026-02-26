@@ -147,6 +147,7 @@ type Home struct {
 	pendingTodoID        string                // Todo ID waiting for a session to be created from it
 	sendTextDialog       *SendTextDialog       // For sending text to a session without attaching
 	sendTextTargetID     string                // Session ID targeted by sendTextDialog
+	sendTextTargetIDs    []string              // Session IDs for bulk send-text
 
 	// State
 	cursor         int            // Selected item index in flatItems
@@ -315,6 +316,10 @@ type Home struct {
 
 	// Preview struct for the currently focused session (holds DiffStat for rendering)
 	preview *Preview
+
+	// Bulk select mode state
+	bulkSelectMode     bool
+	selectedSessionIDs map[string]bool
 }
 
 // reloadState preserves UI state during storage reload
@@ -622,6 +627,7 @@ func NewHomeWithProfileAndMode(profile string) *Home {
 		undoStack:            make([]deletedSessionEntry, 0, 10),
 		pendingTitleChanges:  make(map[string]string),
 		preview:              NewPreview(),
+		selectedSessionIDs:   make(map[string]bool),
 	}
 
 	// Detect gh CLI once at startup for PR status display in the preview pane.
@@ -2537,6 +2543,64 @@ func (h *Home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return h, nil
 
+	case bulkDeletedMsg:
+		// CRITICAL FIX: Skip processing during reload to prevent state corruption
+		h.reloadMu.Lock()
+		reloading := h.isReloading
+		h.reloadMu.Unlock()
+		if reloading {
+			uiLog.Debug("reload_skip_bulk_deleted")
+			return h, nil
+		}
+
+		for _, id := range msg.deletedIDs {
+			var deletedInstance *session.Instance
+			h.instancesMu.Lock()
+			for i, inst := range h.instances {
+				if inst.ID == id {
+					deletedInstance = inst
+					h.instances = append(h.instances[:i], h.instances[i+1:]...)
+					break
+				}
+			}
+			delete(h.instanceByID, id)
+			h.instancesMu.Unlock()
+
+			// Push to undo stack before removing from group tree
+			if deletedInstance != nil {
+				h.pushUndoStack(deletedInstance)
+				// Remove from group tree (preserves empty groups)
+				h.groupTree.RemoveSession(deletedInstance)
+			}
+			// Invalidate caches for deleted session
+			h.cachedStatusCounts.valid.Store(false)
+			h.invalidatePreviewCache(id)
+			h.logActivityMu.Lock()
+			delete(h.lastLogActivity, id)
+			h.logActivityMu.Unlock()
+			// Explicitly delete from database to prevent resurrection on reload
+			if err := h.storage.DeleteInstance(id); err != nil {
+				uiLog.Warn("bulk_delete_instance_db_err", slog.String("id", id), slog.String("err", err.Error()))
+			}
+			// Orphan any todos linked to the deleted session
+			if err := h.storage.OrphanTodosForSession(id); err != nil {
+				uiLog.Warn("bulk_orphan_todo_err", slog.String("session", id), slog.String("err", err.Error()))
+			}
+		}
+		h.rebuildFlatItems()
+		// Update search items
+		h.search.SetItems(h.instances)
+		h.forceSaveInstances()
+		// Exit bulk select mode and clear selections
+		h.bulkSelectMode = false
+		h.selectedSessionIDs = make(map[string]bool)
+		if len(msg.killErrs) > 0 {
+			h.setError(fmt.Errorf("deleted %d sessions (warning: some tmux sessions may still be running)", len(msg.deletedIDs)))
+		} else {
+			h.setError(fmt.Errorf("deleted %d sessions. Ctrl+Z to undo (one at a time)", len(msg.deletedIDs)))
+		}
+		return h, nil
+
 	case sessionRestoredMsg:
 		h.reloadMu.Lock()
 		reloading := h.isReloading
@@ -2628,6 +2692,16 @@ func (h *Home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			h.invalidatePreviewCache(msg.sessionID)
 			// Save the updated session state (new tmux session name)
 			h.saveInstances()
+		}
+		return h, nil
+
+	case bulkRestartedMsg:
+		h.bulkSelectMode = false
+		h.selectedSessionIDs = make(map[string]bool)
+		if len(msg.errs) > 0 {
+			h.setError(fmt.Errorf("restarted %d sessions (%d failed)", len(msg.restartedIDs), len(msg.errs)))
+		} else {
+			h.setError(fmt.Errorf("restarted %d sessions", len(msg.restartedIDs)))
 		}
 		return h, nil
 
@@ -3819,6 +3893,12 @@ func (h *Home) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return h.tryQuit()
 
 	case "esc":
+		// Exit bulk select mode if active
+		if h.bulkSelectMode {
+			h.bulkSelectMode = false
+			h.selectedSessionIDs = make(map[string]bool)
+			return h, nil
+		}
 		// Dismiss maintenance banner if visible
 		if h.maintenanceMsg != "" {
 			h.maintenanceMsg = ""
@@ -4353,7 +4433,44 @@ func (h *Home) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// Quick create: auto-generated name, smart defaults from group context
 		return h, h.quickCreateSession()
 
+	case "V":
+		h.bulkSelectMode = !h.bulkSelectMode
+		h.selectedSessionIDs = make(map[string]bool)
+		return h, nil
+
+	case " ":
+		if h.bulkSelectMode && h.cursor < len(h.flatItems) {
+			item := h.flatItems[h.cursor]
+			if item.Type == session.ItemTypeSession && item.Session != nil {
+				id := item.Session.ID
+				if h.selectedSessionIDs[id] {
+					delete(h.selectedSessionIDs, id)
+				} else {
+					h.selectedSessionIDs[id] = true
+				}
+			}
+		}
+		return h, nil
+
 	case "d":
+		// Bulk mode: if any sessions are selected, show bulk confirm dialog
+		if h.bulkSelectMode && len(h.selectedSessionIDs) > 0 {
+			var ids, names []string
+			for _, item := range h.flatItems {
+				if item.Type == session.ItemTypeSession && item.Session != nil {
+					if h.selectedSessionIDs[item.Session.ID] {
+						name := item.Session.Title
+						if item.Session.IsWorktree() {
+							name += " [worktree]"
+						}
+						ids = append(ids, item.Session.ID)
+						names = append(names, name)
+					}
+				}
+			}
+			h.confirmDialog.ShowBulkDeleteSessions(ids, names)
+			return h, nil
+		}
 		// Show confirmation dialog before deletion (prevents accidental deletion)
 		if h.cursor < len(h.flatItems) {
 			item := h.flatItems[h.cursor]
@@ -4440,7 +4557,20 @@ func (h *Home) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return h, nil
 
 	case "R":
-		// Restart session (Shift+R - recreate tmux session with resume)
+		// Bulk mode: confirm restart of all selected sessions
+		if h.bulkSelectMode && len(h.selectedSessionIDs) > 0 {
+			var ids []string
+			for _, item := range h.flatItems {
+				if item.Type == session.ItemTypeSession && item.Session != nil {
+					if h.selectedSessionIDs[item.Session.ID] {
+						ids = append(ids, item.Session.ID)
+					}
+				}
+			}
+			h.confirmDialog.ShowBulkRestart(ids)
+			return h, nil
+		}
+		// Single-session restart (existing logic unchanged below)
 		if h.cursor < len(h.flatItems) {
 			item := h.flatItems[h.cursor]
 			if item.Type == session.ItemTypeSession && item.Session != nil {
@@ -4484,11 +4614,28 @@ func (h *Home) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return h, nil
 
 	case "x":
-		// Send text to a session without attaching
+		// Bulk mode: send to all selected sessions
+		if h.bulkSelectMode && len(h.selectedSessionIDs) > 0 {
+			var ids []string
+			for _, item := range h.flatItems {
+				if item.Type == session.ItemTypeSession && item.Session != nil {
+					if h.selectedSessionIDs[item.Session.ID] {
+						ids = append(ids, item.Session.ID)
+					}
+				}
+			}
+			h.sendTextTargetIDs = ids
+			h.sendTextTargetID = ""
+			h.sendTextDialog.SetSize(h.width, h.height)
+			h.sendTextDialog.Show(fmt.Sprintf("%d sessions", len(ids)))
+			return h, nil
+		}
+		// Single-session send (existing logic unchanged)
 		if h.cursor < len(h.flatItems) {
 			item := h.flatItems[h.cursor]
 			if item.Type == session.ItemTypeSession && item.Session != nil {
 				h.sendTextTargetID = item.Session.ID
+				h.sendTextTargetIDs = nil
 				h.sendTextDialog.SetSize(h.width, h.height)
 				h.sendTextDialog.Show(item.Session.Title)
 			}
@@ -4791,6 +4938,35 @@ func (h *Home) handleConfirmDialogKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				h.instancesMu.Unlock()
 				h.rebuildFlatItems()
 				h.saveInstances()
+			case ConfirmBulkDeleteSessions:
+				ids := h.confirmDialog.GetTargetIDs()
+				var insts []*session.Instance
+				for _, id := range ids {
+					if inst := h.getInstanceByID(id); inst != nil {
+						insts = append(insts, inst)
+					}
+				}
+				h.confirmDialog.Hide()
+				if len(insts) > 0 {
+					return h, h.bulkDeleteSessions(insts)
+				}
+				return h, nil
+			case ConfirmBulkRestart:
+				ids := h.confirmDialog.GetTargetIDs()
+				var insts []*session.Instance
+				for _, id := range ids {
+					if inst := h.getInstanceByID(id); inst != nil {
+						insts = append(insts, inst)
+					}
+				}
+				h.confirmDialog.Hide()
+				if len(insts) > 0 {
+					for _, inst := range insts {
+						h.resumingSessions[inst.ID] = time.Now()
+					}
+					return h, h.bulkRestartSessions(insts)
+				}
+				return h, nil
 			}
 			h.confirmDialog.Hide()
 			return h, nil
@@ -5518,6 +5694,49 @@ type sessionDeletedMsg struct {
 	killErr   error // Error from Kill() if any
 }
 
+// bulkDeletedMsg signals that a bulk delete operation completed
+type bulkDeletedMsg struct {
+	deletedIDs []string
+	killErrs   []error
+}
+
+// bulkDeleteSessions deletes multiple sessions, cleaning up worktrees where needed
+func (h *Home) bulkDeleteSessions(insts []*session.Instance) tea.Cmd {
+	type entry struct {
+		id               string
+		inst             *session.Instance
+		isWorktree       bool
+		worktreePath     string
+		worktreeRepoRoot string
+	}
+	entries := make([]entry, len(insts))
+	for i, inst := range insts {
+		entries[i] = entry{
+			id:               inst.ID,
+			inst:             inst,
+			isWorktree:       inst.IsWorktree(),
+			worktreePath:     inst.WorktreePath,
+			worktreeRepoRoot: inst.WorktreeRepoRoot,
+		}
+	}
+	return func() tea.Msg {
+		var deletedIDs []string
+		var killErrs []error
+		for _, e := range entries {
+			err := e.inst.Kill()
+			if e.isWorktree {
+				_ = git.RemoveWorktree(e.worktreeRepoRoot, e.worktreePath, false)
+				_ = git.PruneWorktrees(e.worktreeRepoRoot)
+			}
+			deletedIDs = append(deletedIDs, e.id)
+			if err != nil {
+				killErrs = append(killErrs, err)
+			}
+		}
+		return bulkDeletedMsg{deletedIDs: deletedIDs, killErrs: killErrs}
+	}
+}
+
 // sessionRestoredMsg signals that an undo-delete restore completed
 type sessionRestoredMsg struct {
 	instance *session.Instance
@@ -5573,6 +5792,38 @@ func (h *Home) restartSession(inst *session.Instance) tea.Cmd {
 		err := current.Restart()
 		mcpUILog.Debug("restart_session_result", slog.String("id", id), slog.Any("error", err))
 		return sessionRestartedMsg{sessionID: id, err: err}
+	}
+}
+
+// bulkRestartedMsg signals that a bulk restart completed
+type bulkRestartedMsg struct {
+	restartedIDs []string
+	errs         []error
+}
+
+// bulkRestartSessions restarts multiple sessions concurrently
+func (h *Home) bulkRestartSessions(insts []*session.Instance) tea.Cmd {
+	ids := make([]string, len(insts))
+	for i, inst := range insts {
+		ids[i] = inst.ID
+	}
+	return func() tea.Msg {
+		var restartedIDs []string
+		var errs []error
+		for _, id := range ids {
+			h.instancesMu.RLock()
+			inst := h.instanceByID[id]
+			h.instancesMu.RUnlock()
+			if inst == nil {
+				continue
+			}
+			if err := inst.Restart(); err != nil {
+				errs = append(errs, err)
+			} else {
+				restartedIDs = append(restartedIDs, id)
+			}
+		}
+		return bulkRestartedMsg{restartedIDs: restartedIDs, errs: errs}
 	}
 }
 
@@ -6837,6 +7088,9 @@ func renderSimpleMCPLine(b *strings.Builder, mcpInfo *session.MCPInfo, width int
 
 // renderHelpBar renders context-aware keyboard shortcuts, adapting to terminal width
 func (h *Home) renderHelpBar() string {
+	if h.bulkSelectMode {
+		return h.renderHelpBarBulkMode()
+	}
 	// Route to appropriate tier based on width
 	switch {
 	case h.width < layoutBreakpointSingle:
@@ -7147,6 +7401,33 @@ func (h *Home) renderHelpBarFull() string {
 	helpContent := leftPart + strings.Repeat(" ", padding) + rightPart
 
 	raw := lipgloss.JoinVertical(lipgloss.Left, border, helpContent)
+	return lipgloss.NewStyle().MaxWidth(h.width).Render(raw)
+}
+
+// renderHelpBarBulkMode renders the bulk-select mode hint bar
+func (h *Home) renderHelpBarBulkMode() string {
+	borderStyle := lipgloss.NewStyle().Foreground(ColorAccent)
+	border := borderStyle.Render(strings.Repeat("─", max(0, h.width)))
+
+	keyStyle := lipgloss.NewStyle().
+		Foreground(ColorBg).
+		Background(ColorAccent).
+		Bold(true)
+	dimStyle := lipgloss.NewStyle().Foreground(ColorTextDim)
+	labelStyle := lipgloss.NewStyle().Foreground(ColorAccent).Bold(true)
+
+	count := len(h.selectedSessionIDs)
+	countStr := fmt.Sprintf("%d selected", count)
+
+	sep := dimStyle.Render("  ·  ")
+	hint := labelStyle.Render("VISUAL") + "  " + dimStyle.Render(countStr) +
+		sep + keyStyle.Render("spc") + dimStyle.Render(":toggle") +
+		sep + keyStyle.Render("d") + dimStyle.Render(":delete") +
+		sep + keyStyle.Render("x") + dimStyle.Render(":message") +
+		sep + keyStyle.Render("R") + dimStyle.Render(":restart") +
+		sep + keyStyle.Render("Esc") + dimStyle.Render(":cancel")
+
+	raw := lipgloss.JoinVertical(lipgloss.Left, border, hint)
 	return lipgloss.NewStyle().MaxWidth(h.width).Render(raw)
 }
 
@@ -7631,19 +7912,42 @@ func (h *Home) renderSessionItem(b *strings.Builder, item session.Item, selected
 	toolStyle := GetToolStyle(instTool)
 
 	// Selection indicator
-	selectionPrefix := " "
-	if selected {
-		selectionPrefix = SessionSelectionPrefix.Render("▶")
-		titleStyle = SessionTitleSelStyle
-		toolStyle = SessionStatusSelStyle
-		statusStyle = SessionStatusSelStyle
-		status = statusStyle.Render(statusIcon)
-		// Tree connector also gets selection styling
-		treeStyle = TreeConnectorSelStyle
-		// Rebuild baseIndent with selection styling for sub-sessions
-		if item.IsSubSession && !item.ParentIsLastInGroup {
-			groupIndent := strings.Repeat(treeEmpty, max(0, item.Level-2))
-			baseIndent = groupIndent + " " + treeStyle.Render("│")
+	var selectionPrefix string
+	if h.bulkSelectMode {
+		// In bulk mode: show checkbox, apply cursor highlight independently
+		if h.selectedSessionIDs[inst.ID] {
+			selectionPrefix = SessionSelectionPrefix.Render("☑")
+		} else {
+			selectionPrefix = SessionCheckboxUnchecked.Render("□")
+		}
+		if selected {
+			// Apply cursor highlight styling (background color) for focused row
+			titleStyle = SessionTitleSelStyle
+			toolStyle = SessionStatusSelStyle
+			statusStyle = SessionStatusSelStyle
+			status = statusStyle.Render(statusIcon)
+			treeStyle = TreeConnectorSelStyle
+			if item.IsSubSession && !item.ParentIsLastInGroup {
+				groupIndent := strings.Repeat(treeEmpty, max(0, item.Level-2))
+				baseIndent = groupIndent + " " + treeStyle.Render("│")
+			}
+		}
+	} else {
+		// Normal mode: arrow cursor indicator
+		selectionPrefix = " "
+		if selected {
+			selectionPrefix = SessionSelectionPrefix.Render("▶")
+			titleStyle = SessionTitleSelStyle
+			toolStyle = SessionStatusSelStyle
+			statusStyle = SessionStatusSelStyle
+			status = statusStyle.Render(statusIcon)
+			// Tree connector also gets selection styling
+			treeStyle = TreeConnectorSelStyle
+			// Rebuild baseIndent with selection styling for sub-sessions
+			if item.IsSubSession && !item.ParentIsLastInGroup {
+				groupIndent := strings.Repeat(treeEmpty, max(0, item.Level-2))
+				baseIndent = groupIndent + " " + treeStyle.Render("│")
+			}
 		}
 	}
 
@@ -9334,6 +9638,34 @@ func (h *Home) handleSendTextDialogKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "confirm":
 		text := h.sendTextDialog.GetText()
 		h.sendTextDialog.Hide()
+		// Bulk send
+		if len(h.sendTextTargetIDs) > 0 && text != "" {
+			targetIDs := h.sendTextTargetIDs
+			h.sendTextTargetIDs = nil
+			h.sendTextTargetID = ""
+			h.bulkSelectMode = false
+			h.selectedSessionIDs = make(map[string]bool)
+			return h, func() tea.Msg {
+				var lastErr error
+				for _, id := range targetIDs {
+					h.instancesMu.RLock()
+					inst := h.instanceByID[id]
+					h.instancesMu.RUnlock()
+					if inst == nil {
+						continue
+					}
+					tmuxSession := inst.GetTmuxSession()
+					if tmuxSession == nil {
+						continue
+					}
+					if err := tmuxSession.SendKeysAndEnter(text); err != nil {
+						lastErr = err
+					}
+				}
+				targetTitle := fmt.Sprintf("%d sessions", len(targetIDs))
+				return sendTextResultMsg{targetTitle: targetTitle, err: lastErr}
+			}
+		}
 		if text != "" && h.sendTextTargetID != "" {
 			targetID := h.sendTextTargetID
 			h.sendTextTargetID = ""
@@ -9342,6 +9674,7 @@ func (h *Home) handleSendTextDialogKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return h, nil
 	case "close":
 		h.sendTextTargetID = ""
+		h.sendTextTargetIDs = nil
 		return h, nil
 	default:
 		h.sendTextDialog.Update(msg)

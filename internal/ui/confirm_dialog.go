@@ -18,6 +18,8 @@ const (
 	ConfirmQuitWithPool
 	ConfirmCreateDirectory
 	ConfirmInstallHooks
+	ConfirmBulkDeleteSessions
+	ConfirmBulkRestart
 )
 
 // ConfirmDialog handles confirmation for destructive actions
@@ -29,6 +31,10 @@ type ConfirmDialog struct {
 	width       int
 	height      int
 	mcpCount    int // Number of running MCPs (for quit confirmation)
+
+	// Bulk operation fields
+	targetIDs   []string // Session IDs for bulk operations
+	targetNames []string // Display names for bulk targets
 
 	// Pending session creation data (for ConfirmCreateDirectory)
 	pendingSessionName      string
@@ -89,6 +95,30 @@ func (c *ConfirmDialog) ShowInstallHooks() {
 	c.targetName = ""
 }
 
+// ShowBulkDeleteSessions shows confirmation for bulk session deletion
+func (c *ConfirmDialog) ShowBulkDeleteSessions(ids []string, names []string) {
+	c.visible = true
+	c.confirmType = ConfirmBulkDeleteSessions
+	c.targetIDs = ids
+	c.targetNames = names
+	c.targetID = ""
+	c.targetName = fmt.Sprintf("%d sessions", len(ids))
+}
+
+// ShowBulkRestart shows confirmation for bulk session restart
+func (c *ConfirmDialog) ShowBulkRestart(ids []string) {
+	c.visible = true
+	c.confirmType = ConfirmBulkRestart
+	c.targetIDs = ids
+	c.targetID = ""
+	c.targetName = fmt.Sprintf("%d sessions", len(ids))
+}
+
+// GetTargetIDs returns the session IDs for bulk operations
+func (c *ConfirmDialog) GetTargetIDs() []string {
+	return c.targetIDs
+}
+
 // GetPendingSession returns the pending session creation data
 func (c *ConfirmDialog) GetPendingSession() (name, path, command, groupPath string, toolOptionsJSON json.RawMessage) {
 	return c.pendingSessionName, c.pendingSessionPath, c.pendingSessionCommand, c.pendingSessionGroupPath, c.pendingToolOptionsJSON
@@ -99,6 +129,8 @@ func (c *ConfirmDialog) Hide() {
 	c.visible = false
 	c.targetID = ""
 	c.targetName = ""
+	c.targetIDs = nil
+	c.targetNames = nil
 }
 
 // IsVisible returns whether the dialog is visible
@@ -259,6 +291,50 @@ func (c *ConfirmDialog) View() string {
 		escHint := lipgloss.NewStyle().
 			Foreground(ColorTextDim).
 			Render("(Esc to skip)")
+		buttons = lipgloss.JoinHorizontal(lipgloss.Center, buttonYes, "  ", buttonNo, "  ", escHint)
+
+	case ConfirmBulkDeleteSessions:
+		title = fmt.Sprintf("⚠️  Delete %s?", c.targetName)
+		// Build session list (show up to 8, then "and N more...")
+		shown := c.targetNames
+		extra := 0
+		if len(c.targetNames) > 8 {
+			shown = c.targetNames[:8]
+			extra = len(c.targetNames) - 8
+		}
+		listStr := ""
+		for _, name := range shown {
+			listStr += fmt.Sprintf("  • %s\n", name)
+		}
+		if extra > 0 {
+			listStr += fmt.Sprintf("  … and %d more", extra)
+		}
+		warning = "This will PERMANENTLY KILL these tmux sessions:\n\n" + strings.TrimRight(listStr, "\n")
+		details = "• Worktrees will be removed where applicable\n• Press Ctrl+Z after deletion to undo (one at a time)"
+		borderColor = ColorRed
+
+		buttonYes := lipgloss.NewStyle().
+			Foreground(ColorBg).Background(ColorRed).Padding(0, 2).Bold(true).
+			Render(fmt.Sprintf("y Delete %s", c.targetName))
+		buttonNo := lipgloss.NewStyle().
+			Foreground(ColorBg).Background(ColorAccent).Padding(0, 2).Bold(true).
+			Render("n Cancel")
+		escHint := lipgloss.NewStyle().Foreground(ColorTextDim).Render("(Esc to cancel)")
+		buttons = lipgloss.JoinHorizontal(lipgloss.Center, buttonYes, "  ", buttonNo, "  ", escHint)
+
+	case ConfirmBulkRestart:
+		title = fmt.Sprintf("Restart %s?", c.targetName)
+		warning = fmt.Sprintf("Restart all %s?", c.targetName)
+		details = "Each session will be recreated and resumed."
+		borderColor = ColorAccent
+
+		buttonYes := lipgloss.NewStyle().
+			Foreground(ColorBg).Background(ColorAccent).Padding(0, 2).Bold(true).
+			Render("y Restart")
+		buttonNo := lipgloss.NewStyle().
+			Foreground(ColorBg).Background(ColorRed).Padding(0, 2).Bold(true).
+			Render("n Cancel")
+		escHint := lipgloss.NewStyle().Foreground(ColorTextDim).Render("(Esc to cancel)")
 		buttons = lipgloss.JoinHorizontal(lipgloss.Center, buttonYes, "  ", buttonNo, "  ", escHint)
 	}
 
