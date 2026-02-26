@@ -55,6 +55,9 @@ func runDiff(dir string, args ...string) (string, error) {
 	out, err := cmd.Output()
 	if err != nil {
 		if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() == 1 {
+			// git diff exits 1 when differences are found — this is expected.
+			// If stderr is non-empty it may indicate a reference error, but we
+			// still return whatever output we got rather than failing the caller.
 			return string(out), nil
 		}
 		return "", fmt.Errorf("git %v failed: %w", args, err)

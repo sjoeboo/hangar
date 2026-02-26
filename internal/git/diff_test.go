@@ -72,6 +72,34 @@ func TestFetchDiff_NotGitRepo(t *testing.T) {
 	}
 }
 
+func TestFetchDiff_StagedChanges(t *testing.T) {
+	dir := makeRepo(t)
+	run := func(args ...string) {
+		t.Helper()
+		cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
+		cmd.Env = append(os.Environ(),
+			"GIT_AUTHOR_NAME=test", "GIT_AUTHOR_EMAIL=test@test.com",
+			"GIT_COMMITTER_NAME=test", "GIT_COMMITTER_EMAIL=test@test.com",
+		)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	// Write and stage (but don't commit) a new file
+	if err := os.WriteFile(filepath.Join(dir, "staged.txt"), []byte("staged content\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	run("add", "staged.txt")
+
+	diff, err := git.FetchDiff(dir)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(diff, "staged.txt") {
+		t.Errorf("expected diff to contain staged.txt, got: %q", diff)
+	}
+}
+
 func TestFetchDiff_WorktreeBranch(t *testing.T) {
 	dir := makeRepo(t)
 	run := func(args ...string) {
