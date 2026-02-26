@@ -127,6 +127,9 @@ To check status: `hangar hooks status`
 - **PR cache**: `prCache map[string]*prInfo` protected by `prCacheMu sync.Mutex`; 60-second TTL; populated by `gh pr view --json`
 - **Todo storage**: SQLite via `internal/statedb`; `session/todo.go` provides domain model + Storage methods with mutex guards
 - **Sidebar badges**: Tool badge is hidden for `claude` (default); only shown for non-default tools. Worktree branch badge removed from sidebar (shown in detail panel instead)
+- **Worktree lifecycle**: Never offer to merge worktrees directly into master/main — PRs are the product of a session. Worktree cleanup (`W` key) archives the branch, not merges it.
+- **Worktree creation**: Always update the base branch (main/master) first before branching a new worktree.
+- **Complex tasks**: Use agent teams (`TeamCreate`) when possible for multi-step work; fall back to parallel subagents via `Task`.
 
 ## Environment Variables
 
