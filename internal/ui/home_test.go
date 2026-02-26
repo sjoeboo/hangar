@@ -1326,3 +1326,69 @@ func TestWorktreeFinishDialog_ShowWithNoCachedPR(t *testing.T) {
 		t.Error("expected prLoaded=false when no cache entry")
 	}
 }
+
+func TestWorktreeFinishDialog_PRFetchedUpdatesDialog(t *testing.T) {
+	home := NewHome()
+	home.width = 120
+	home.height = 40
+	home.initialLoading = false
+	inst := makeWorktreeInstance("sess1", "feat/test")
+	home.instancesMu.Lock()
+	home.instances = []*session.Instance{inst}
+	home.instanceByID[inst.ID] = inst
+	home.instancesMu.Unlock()
+	home.groupTree = session.NewGroupTree(home.instances)
+	home.rebuildFlatItems()
+
+	// Open dialog (no PR cached yet — dialog shows "checking...")
+	home.cursor = 1 // index 0 is the group header
+	home.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("W")})
+
+	if home.worktreeFinishDialog.prLoaded {
+		t.Fatal("expected prLoaded=false before fetch")
+	}
+
+	// Simulate PR fetch arriving
+	home.Update(prFetchedMsg{
+		sessionID: inst.ID,
+		pr:        &prCacheEntry{Number: 99, State: "MERGED", Title: "Done"},
+	})
+
+	if !home.worktreeFinishDialog.prLoaded {
+		t.Error("expected prLoaded=true after fetch")
+	}
+	if home.worktreeFinishDialog.prEntry == nil {
+		t.Fatal("expected prEntry set after fetch")
+	}
+	if home.worktreeFinishDialog.prEntry.Number != 99 {
+		t.Errorf("expected PR #99, got %d", home.worktreeFinishDialog.prEntry.Number)
+	}
+}
+
+func TestWorktreeFinishDialog_PRFetchedIgnoresDifferentSession(t *testing.T) {
+	home := NewHome()
+	home.width = 120
+	home.height = 40
+	home.initialLoading = false
+	inst := makeWorktreeInstance("sess1", "feat/test")
+	home.instancesMu.Lock()
+	home.instances = []*session.Instance{inst}
+	home.instanceByID[inst.ID] = inst
+	home.instancesMu.Unlock()
+	home.groupTree = session.NewGroupTree(home.instances)
+	home.rebuildFlatItems()
+
+	home.cursor = 1
+	home.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("W")})
+
+	// Fetch for a different session
+	home.Update(prFetchedMsg{
+		sessionID: "other-session",
+		pr:        &prCacheEntry{Number: 77, State: "OPEN"},
+	})
+
+	// Dialog should remain in "checking..." state
+	if home.worktreeFinishDialog.prLoaded {
+		t.Error("expected prLoaded unchanged for different session")
+	}
+}

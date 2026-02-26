@@ -2830,6 +2830,11 @@ func (h *Home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		h.prCacheTs[msg.sessionID] = time.Now()
 		h.prCacheMu.Unlock()
 
+		// If WorktreeFinishDialog is open for this session, push updated PR data
+		if h.worktreeFinishDialog.IsVisible() && h.worktreeFinishDialog.GetSessionID() == msg.sessionID {
+			h.worktreeFinishDialog.SetPR(msg.pr, true)
+		}
+
 		// Auto-advance todo status based on PR state
 		if msg.pr != nil {
 			if todo, err := h.storage.FindTodoBySessionID(msg.sessionID); err == nil && todo != nil {
