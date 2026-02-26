@@ -246,21 +246,20 @@ func (d *WorktreeFinishDialog) viewOptions(titleStyle, labelStyle, valueStyle, c
 		default: // DRAFT, unknown
 			stateStyle = labelStyle
 		}
+		titleRunes := []rune(pr.Title)
+		maxTitle := dialogWidth - 20
+		title := pr.Title
+		if maxTitle > 0 && len(titleRunes) > maxTitle {
+			title = string(titleRunes[:maxTitle]) + "…"
+		}
 		b.WriteString(valueStyle.Render(fmt.Sprintf("#%d", pr.Number)))
 		b.WriteString(labelStyle.Render(" · "))
 		b.WriteString(stateStyle.Render(pr.State))
 		b.WriteString(labelStyle.Render(" · "))
-		// Truncate title to fit dialog width
-		title := pr.Title
-		maxTitle := dialogWidth - 20
-		if maxTitle > 0 && len(title) > maxTitle {
-			title = title[:maxTitle] + "…"
-		}
 		b.WriteString(valueStyle.Render(title))
-		b.WriteString("\n")
-
 		// CI check line (only if checks exist; omit zero counts)
 		if pr.HasChecks {
+			b.WriteString("\n")
 			b.WriteString(labelStyle.Render("             "))
 			ciParts := []string{}
 			if pr.ChecksPassed > 0 {
