@@ -7648,7 +7648,10 @@ func (h *Home) renderSessionItem(b *strings.Builder, item session.Item, selected
 	}
 
 	title := titleStyle.Render(inst.Title)
-	tool := toolStyle.Render(" " + instTool)
+	tool := ""
+	if instTool != "claude" {
+		tool = toolStyle.Render(" " + instTool)
+	}
 
 	// YOLO badge for Gemini sessions with YOLO mode enabled
 	yoloBadge := ""
@@ -7658,20 +7661,6 @@ func (h *Home) renderSessionItem(b *strings.Builder, item session.Item, selected
 			yoloStyle = SessionStatusSelStyle
 		}
 		yoloBadge = yoloStyle.Render(" [YOLO]")
-	}
-
-	// Worktree branch badge for sessions running in git worktrees
-	worktreeBadge := ""
-	if inst.IsWorktree() && inst.WorktreeBranch != "" {
-		branch := inst.WorktreeBranch
-		if len(branch) > 15 {
-			branch = branch[:12] + "..."
-		}
-		wtStyle := lipgloss.NewStyle().Foreground(ColorCyan)
-		if selected {
-			wtStyle = SessionStatusSelStyle
-		}
-		worktreeBadge = wtStyle.Render(" [" + branch + "]")
 	}
 
 	// PR badge for sessions with an open/merged/closed pull request
@@ -7702,10 +7691,10 @@ func (h *Home) renderSessionItem(b *strings.Builder, item session.Item, selected
 		}
 	}
 
-	// Build row: [baseIndent][selection][tree][status] [title] [tool] [yolo] [worktree] [pr]
-	// Format: " ├─ ● session-name tool" or "▶└─ ● session-name tool"
-	// Sub-sessions get extra indent: "   ├─◐ sub-session tool"
-	row := fmt.Sprintf("%s%s%s %s %s%s%s%s%s", baseIndent, selectionPrefix, treeStyle.Render(treeConnector), status, title, tool, yoloBadge, worktreeBadge, prBadge)
+	// Build row: [baseIndent][selection][tree][status] [title] [tool] [yolo] [pr]
+	// Format: " ├─ ● session-name" or "▶└─ ● session-name"
+	// Sub-sessions get extra indent: "   ├─◐ sub-session"
+	row := fmt.Sprintf("%s%s%s %s %s%s%s%s", baseIndent, selectionPrefix, treeStyle.Render(treeConnector), status, title, tool, yoloBadge, prBadge)
 	b.WriteString(row)
 	b.WriteString("\n")
 }
