@@ -549,7 +549,7 @@ func (d *TodoDialog) handleKanbanKey(key string) TodoAction {
 			d.selectedRow[d.selectedCol]--
 		}
 	case "down", "j":
-		if d.selectedCol < len(d.cols) {
+		if d.selectedCol < len(d.cols) && d.selectedCol < len(d.selectedRow) {
 			col := d.cols[d.selectedCol]
 			if d.selectedRow[d.selectedCol] < len(col.todos)-1 {
 				d.selectedRow[d.selectedCol]++
