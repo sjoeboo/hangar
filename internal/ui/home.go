@@ -7483,13 +7483,6 @@ func (h *Home) renderPreviewPane(width, height int) string {
 		wtHintStyle := lipgloss.NewStyle().Foreground(ColorText).Italic(true)
 		wtKeyStyle := lipgloss.NewStyle().Foreground(ColorAccent).Bold(true)
 
-		// Branch
-		if selected.WorktreeBranch != "" {
-			b.WriteString(wtLabelStyle.Render("Branch:  "))
-			b.WriteString(wtBranchStyle.Render(selected.WorktreeBranch))
-			b.WriteString("\n")
-		}
-
 		// PR status (from gh CLI, lazy-cached with 60s TTL)
 		if h.ghPath != "" {
 			h.prCacheMu.Lock()
@@ -7498,7 +7491,6 @@ func (h *Home) renderPreviewPane(width, height int) string {
 			h.prCacheMu.Unlock()
 
 			if !hasTs || (hasTs && !hasPR) {
-				// Not yet fetched, or fetch in flight
 				b.WriteString(wtLabelStyle.Render("PR:      "))
 				b.WriteString(lipgloss.NewStyle().Foreground(ColorComment).Render("checking..."))
 				b.WriteString("\n")
@@ -7516,7 +7508,6 @@ func (h *Home) renderPreviewPane(width, height int) string {
 					stateStyle = stateStyle.Foreground(ColorRed)
 				}
 				prNumStyle := lipgloss.NewStyle().Foreground(ColorAccent).Bold(true).Underline(true)
-				// Truncate title to fit the available width
 				titleMax := width - 4 - 9 - 6 - len(stateLabel) - 3
 				title := pr.Title
 				if titleMax > 10 && runewidth.StringWidth(title) > titleMax {
@@ -7528,12 +7519,9 @@ func (h *Home) renderPreviewPane(width, height int) string {
 				b.WriteString(stateStyle.Render(stateLabel))
 				b.WriteString(wtValueStyle.Render(" · " + title))
 				b.WriteString("\n")
-				// URL on its own line — terminals (iTerm2, WezTerm, etc.) auto-detect
-				// plain URLs and make them clickable on hover, no escape sequences needed.
-				// OSC 8 is stripped by lipgloss's MaxWidth.Render() in the layout pass.
 				if pr.URL != "" {
 					urlStyle := lipgloss.NewStyle().Foreground(ColorComment)
-					urlMax := width - 4 - 9 // account for label indent
+					urlMax := width - 4 - 9
 					displayURL := pr.URL
 					if runewidth.StringWidth(displayURL) > urlMax && urlMax > 15 {
 						displayURL = runewidth.Truncate(displayURL, urlMax, "…")
@@ -7542,8 +7530,6 @@ func (h *Home) renderPreviewPane(width, height int) string {
 					b.WriteString(urlStyle.Render(displayURL))
 					b.WriteString("\n")
 				}
-
-				// CI checks summary line
 				if pr.HasChecks {
 					b.WriteString(wtLabelStyle.Render("Checks:  "))
 					var parts []string
@@ -7563,15 +7549,30 @@ func (h *Home) renderPreviewPane(width, height int) string {
 			// pr == nil means no PR found; omit line silently
 		}
 
-		// Repo root (truncated)
-		if selected.WorktreeRepoRoot != "" {
-			repoPath := truncatePath(selected.WorktreeRepoRoot, width-4-9)
-			b.WriteString(wtLabelStyle.Render("Repo:    "))
-			b.WriteString(wtValueStyle.Render(repoPath))
+		// Branch
+		if selected.WorktreeBranch != "" {
+			b.WriteString(wtLabelStyle.Render("Branch:  "))
+			b.WriteString(wtBranchStyle.Render(selected.WorktreeBranch))
 			b.WriteString("\n")
 		}
 
-		// Worktree path (truncated)
+		// Remote URL (lazy-cached, 5m TTL)
+		h.worktreeRemoteMu.Lock()
+		remoteURL, hasRemote := h.worktreeRemoteCache[selected.ID]
+		_, hasRemoteTs := h.worktreeRemoteCacheTs[selected.ID]
+		h.worktreeRemoteMu.Unlock()
+		if !hasRemoteTs {
+			b.WriteString(wtLabelStyle.Render("Remote:  "))
+			b.WriteString(lipgloss.NewStyle().Foreground(ColorComment).Render("checking..."))
+			b.WriteString("\n")
+		} else if hasRemote && remoteURL != "" {
+			displayRemote := truncatePath(remoteURL, width-4-9)
+			b.WriteString(wtLabelStyle.Render("Remote:  "))
+			b.WriteString(wtValueStyle.Render(displayRemote))
+			b.WriteString("\n")
+		}
+
+		// Worktree path (tilde-compressed via shortenPath, already wired in Task 2)
 		if selected.WorktreePath != "" {
 			wtPath := shortenPath(selected.WorktreePath, width-4-9)
 			b.WriteString(wtLabelStyle.Render("Path:    "))
