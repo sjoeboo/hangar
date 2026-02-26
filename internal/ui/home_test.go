@@ -1806,3 +1806,71 @@ func TestBulkSelectMode_HelpBarNormalMode(t *testing.T) {
 		t.Error("normal mode should not show VISUAL in help bar")
 	}
 }
+
+func TestBulkSelectMode_DKeyShowsBulkConfirm(t *testing.T) {
+	home := NewHome()
+	home.width = 100
+	home.height = 30
+	home.initialLoading = false
+
+	inst1 := &session.Instance{ID: "id-1", Title: "sess-1", Tool: "claude"}
+	inst2 := &session.Instance{ID: "id-2", Title: "sess-2", Tool: "claude"}
+	home.instancesMu.Lock()
+	home.instances = []*session.Instance{inst1, inst2}
+	home.instanceByID = map[string]*session.Instance{"id-1": inst1, "id-2": inst2}
+	home.instancesMu.Unlock()
+	home.groupTree = session.NewGroupTree(home.instances)
+	home.rebuildFlatItems()
+
+	home.bulkSelectMode = true
+	home.selectedSessionIDs = map[string]bool{"id-1": true, "id-2": true}
+
+	dMsg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'d'}}
+	model, _ := home.Update(dMsg)
+	h := model.(*Home)
+
+	if !h.confirmDialog.IsVisible() {
+		t.Error("d in bulk mode with selections should show confirm dialog")
+	}
+	if h.confirmDialog.GetConfirmType() != ConfirmBulkDeleteSessions {
+		t.Errorf("confirm type = %v, want ConfirmBulkDeleteSessions", h.confirmDialog.GetConfirmType())
+	}
+}
+
+func TestBulkSelectMode_DKeyFallsThrough_WhenNoSelections(t *testing.T) {
+	home := NewHome()
+	home.width = 100
+	home.height = 30
+	home.initialLoading = false
+
+	inst := &session.Instance{ID: "id-1", Title: "sess-1", Tool: "claude"}
+	home.instancesMu.Lock()
+	home.instances = []*session.Instance{inst}
+	home.instanceByID = map[string]*session.Instance{"id-1": inst}
+	home.instancesMu.Unlock()
+	home.groupTree = session.NewGroupTree(home.instances)
+	home.rebuildFlatItems()
+	// Set cursor to the session item (index 1, after the group header)
+	for i, item := range home.flatItems {
+		if item.Type == session.ItemTypeSession && item.Session != nil && item.Session.ID == "id-1" {
+			home.cursor = i
+			break
+		}
+	}
+
+	// Bulk mode but nothing selected
+	home.bulkSelectMode = true
+	home.selectedSessionIDs = map[string]bool{}
+
+	dMsg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'d'}}
+	model, _ := home.Update(dMsg)
+	h := model.(*Home)
+
+	// Should fall through to single-session confirm
+	if !h.confirmDialog.IsVisible() {
+		t.Error("d with no selections should fall through to single-session delete confirm")
+	}
+	if h.confirmDialog.GetConfirmType() != ConfirmDeleteSession {
+		t.Errorf("confirm type = %v, want ConfirmDeleteSession", h.confirmDialog.GetConfirmType())
+	}
+}

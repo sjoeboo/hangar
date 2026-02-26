@@ -2542,6 +2542,55 @@ func (h *Home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return h, nil
 
+	case bulkDeletedMsg:
+		for _, id := range msg.deletedIDs {
+			var deletedInstance *session.Instance
+			h.instancesMu.Lock()
+			for i, inst := range h.instances {
+				if inst.ID == id {
+					deletedInstance = inst
+					h.instances = append(h.instances[:i], h.instances[i+1:]...)
+					break
+				}
+			}
+			delete(h.instanceByID, id)
+			h.instancesMu.Unlock()
+
+			// Push to undo stack before removing from group tree
+			if deletedInstance != nil {
+				h.pushUndoStack(deletedInstance)
+				// Remove from group tree (preserves empty groups)
+				h.groupTree.RemoveSession(deletedInstance)
+			}
+			// Invalidate caches for deleted session
+			h.cachedStatusCounts.valid.Store(false)
+			h.invalidatePreviewCache(id)
+			h.logActivityMu.Lock()
+			delete(h.lastLogActivity, id)
+			h.logActivityMu.Unlock()
+			// Explicitly delete from database to prevent resurrection on reload
+			if err := h.storage.DeleteInstance(id); err != nil {
+				uiLog.Warn("bulk_delete_instance_db_err", slog.String("id", id), slog.String("err", err.Error()))
+			}
+			// Orphan any todos linked to the deleted session
+			if err := h.storage.OrphanTodosForSession(id); err != nil {
+				uiLog.Warn("bulk_orphan_todo_err", slog.String("session", id), slog.String("err", err.Error()))
+			}
+		}
+		h.rebuildFlatItems()
+		// Update search items
+		h.search.SetItems(h.instances)
+		h.forceSaveInstances()
+		// Exit bulk select mode and clear selections
+		h.bulkSelectMode = false
+		h.selectedSessionIDs = make(map[string]bool)
+		if len(msg.killErrs) > 0 {
+			h.setError(fmt.Errorf("deleted %d sessions (some errors occurred)", len(msg.deletedIDs)))
+		} else {
+			h.setError(fmt.Errorf("deleted %d sessions. Ctrl+Z to undo (one at a time)", len(msg.deletedIDs)))
+		}
+		return h, nil
+
 	case sessionRestoredMsg:
 		h.reloadMu.Lock()
 		reloading := h.isReloading
@@ -4390,6 +4439,24 @@ func (h *Home) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return h, nil
 
 	case "d":
+		// Bulk mode: if any sessions are selected, show bulk confirm dialog
+		if h.bulkSelectMode && len(h.selectedSessionIDs) > 0 {
+			var ids, names []string
+			for _, item := range h.flatItems {
+				if item.Type == session.ItemTypeSession && item.Session != nil {
+					if h.selectedSessionIDs[item.Session.ID] {
+						name := item.Session.Title
+						if item.Session.IsWorktree() {
+							name += " [worktree]"
+						}
+						ids = append(ids, item.Session.ID)
+						names = append(names, name)
+					}
+				}
+			}
+			h.confirmDialog.ShowBulkDeleteSessions(ids, names)
+			return h, nil
+		}
 		// Show confirmation dialog before deletion (prevents accidental deletion)
 		if h.cursor < len(h.flatItems) {
 			item := h.flatItems[h.cursor]
@@ -4827,6 +4894,19 @@ func (h *Home) handleConfirmDialogKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				h.instancesMu.Unlock()
 				h.rebuildFlatItems()
 				h.saveInstances()
+			case ConfirmBulkDeleteSessions:
+				ids := h.confirmDialog.GetTargetIDs()
+				var insts []*session.Instance
+				for _, id := range ids {
+					if inst := h.getInstanceByID(id); inst != nil {
+						insts = append(insts, inst)
+					}
+				}
+				h.confirmDialog.Hide()
+				if len(insts) > 0 {
+					return h, h.bulkDeleteSessions(insts)
+				}
+				return h, nil
 			}
 			h.confirmDialog.Hide()
 			return h, nil
@@ -5552,6 +5632,49 @@ func (h *Home) forkSessionCmdWithOptions(source *session.Instance, title, groupP
 type sessionDeletedMsg struct {
 	deletedID string
 	killErr   error // Error from Kill() if any
+}
+
+// bulkDeletedMsg signals that a bulk delete operation completed
+type bulkDeletedMsg struct {
+	deletedIDs []string
+	killErrs   []error
+}
+
+// bulkDeleteSessions deletes multiple sessions, cleaning up worktrees where needed
+func (h *Home) bulkDeleteSessions(insts []*session.Instance) tea.Cmd {
+	type entry struct {
+		id               string
+		inst             *session.Instance
+		isWorktree       bool
+		worktreePath     string
+		worktreeRepoRoot string
+	}
+	entries := make([]entry, len(insts))
+	for i, inst := range insts {
+		entries[i] = entry{
+			id:               inst.ID,
+			inst:             inst,
+			isWorktree:       inst.IsWorktree(),
+			worktreePath:     inst.WorktreePath,
+			worktreeRepoRoot: inst.WorktreeRepoRoot,
+		}
+	}
+	return func() tea.Msg {
+		var deletedIDs []string
+		var killErrs []error
+		for _, e := range entries {
+			err := e.inst.Kill()
+			if e.isWorktree {
+				_ = git.RemoveWorktree(e.worktreeRepoRoot, e.worktreePath, false)
+				_ = git.PruneWorktrees(e.worktreeRepoRoot)
+			}
+			deletedIDs = append(deletedIDs, e.id)
+			if err != nil {
+				killErrs = append(killErrs, err)
+			}
+		}
+		return bulkDeletedMsg{deletedIDs: deletedIDs, killErrs: killErrs}
+	}
 }
 
 // sessionRestoredMsg signals that an undo-delete restore completed
