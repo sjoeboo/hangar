@@ -437,8 +437,9 @@ type sendTextResultMsg struct {
 
 // diffFetchedMsg is sent when a git diff has been fetched for the focused session.
 type diffFetchedMsg struct {
-	raw string
-	err error
+	sessionID string
+	raw       string
+	err       error
 }
 
 // systemThemeMsg is sent when the OS dark mode setting changes.
@@ -1495,16 +1496,16 @@ func (h *Home) fetchPreviewDebounced(sessionID string) tea.Cmd {
 	}
 }
 
-// detectOpenCodeSessionCmd returns a command that asynchronously detects
 // fetchDiffCmd returns a tea.Cmd that fetches the git diff for the given
 // directory and returns the result as a diffFetchedMsg.
-func fetchDiffCmd(dir string) tea.Cmd {
+func fetchDiffCmd(dir string, sessionID string) tea.Cmd {
 	return func() tea.Msg {
 		raw, err := git.FetchDiff(dir)
-		return diffFetchedMsg{raw: raw, err: err}
+		return diffFetchedMsg{sessionID: sessionID, raw: raw, err: err}
 	}
 }
 
+// detectOpenCodeSessionCmd returns a command that asynchronously detects
 // the OpenCode session ID for a restored session and signals completion.
 // This follows the Bubble Tea pattern of returning a tea.Cmd for async work.
 func (h *Home) detectOpenCodeSessionCmd(inst *session.Instance) tea.Cmd {
@@ -2279,7 +2280,7 @@ func (h *Home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				// Batch preview fetch with any OpenCode detection commands and diff fetch
 				allCmds := append(detectionCmds, h.fetchPreview(selected))
 				if dir := h.effectiveDir(selected); dir != "" && git.IsGitRepo(dir) {
-					allCmds = append(allCmds, fetchDiffCmd(dir))
+					allCmds = append(allCmds, fetchDiffCmd(dir, selected.ID))
 				}
 				return h, tea.Batch(allCmds...)
 			}
@@ -3018,14 +3019,16 @@ func (h *Home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return h, nil
 
 	case diffFetchedMsg:
+		selected := h.getSelectedSession()
+		if selected == nil || selected.ID != msg.sessionID {
+			return h, nil // stale result, discard
+		}
 		h.currentDiffRaw = msg.raw
 		h.currentDiffErr = msg.err
 		h.updateDiffStat()
 		// If the diff overlay is currently visible, re-parse with fresh data
-		if h.diffView.IsVisible() {
-			if msg.err == nil {
-				_ = h.diffView.Parse(msg.raw)
-			}
+		if h.diffView.IsVisible() && msg.err == nil {
+			_ = h.diffView.Parse(msg.raw)
 		}
 		return h, nil
 
@@ -3610,9 +3613,11 @@ func (h *Home) handleMouseMsg(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 			h.updateDiffStat()
 		}
 		if selected := h.getSelectedSession(); selected != nil {
+			cmds := []tea.Cmd{h.fetchPreviewDebounced(selected.ID)}
 			if dir := h.effectiveDir(selected); dir != "" && git.IsGitRepo(dir) {
-				return h, fetchDiffCmd(dir)
+				cmds = append(cmds, fetchDiffCmd(dir, selected.ID))
 			}
+			return h, tea.Batch(cmds...)
 		}
 		return h, nil
 
@@ -3625,9 +3630,11 @@ func (h *Home) handleMouseMsg(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 			h.updateDiffStat()
 		}
 		if selected := h.getSelectedSession(); selected != nil {
+			cmds := []tea.Cmd{h.fetchPreviewDebounced(selected.ID)}
 			if dir := h.effectiveDir(selected); dir != "" && git.IsGitRepo(dir) {
-				return h, fetchDiffCmd(dir)
+				cmds = append(cmds, fetchDiffCmd(dir, selected.ID))
 			}
+			return h, tea.Batch(cmds...)
 		}
 		return h, nil
 
@@ -3679,7 +3686,7 @@ func (h *Home) handleMouseMsg(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 
 		if selected := h.getSelectedSession(); selected != nil {
 			if dir := h.effectiveDir(selected); dir != "" && git.IsGitRepo(dir) {
-				return h, fetchDiffCmd(dir)
+				return h, fetchDiffCmd(dir, selected.ID)
 			}
 		}
 		return h, nil
@@ -3724,7 +3731,7 @@ func (h *Home) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			if selected := h.getSelectedSession(); selected != nil {
 				cmds := []tea.Cmd{h.fetchPreviewDebounced(selected.ID)}
 				if dir := h.effectiveDir(selected); dir != "" && git.IsGitRepo(dir) {
-					cmds = append(cmds, fetchDiffCmd(dir))
+					cmds = append(cmds, fetchDiffCmd(dir, selected.ID))
 				}
 				return h, tea.Batch(cmds...)
 			}
@@ -3746,7 +3753,7 @@ func (h *Home) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			if selected := h.getSelectedSession(); selected != nil {
 				cmds := []tea.Cmd{h.fetchPreviewDebounced(selected.ID)}
 				if dir := h.effectiveDir(selected); dir != "" && git.IsGitRepo(dir) {
-					cmds = append(cmds, fetchDiffCmd(dir))
+					cmds = append(cmds, fetchDiffCmd(dir, selected.ID))
 				}
 				return h, tea.Batch(cmds...)
 			}
@@ -3772,7 +3779,7 @@ func (h *Home) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if selected := h.getSelectedSession(); selected != nil {
 			cmds := []tea.Cmd{h.fetchPreviewDebounced(selected.ID)}
 			if dir := h.effectiveDir(selected); dir != "" && git.IsGitRepo(dir) {
-				cmds = append(cmds, fetchDiffCmd(dir))
+				cmds = append(cmds, fetchDiffCmd(dir, selected.ID))
 			}
 			return h, tea.Batch(cmds...)
 		}
@@ -3799,7 +3806,7 @@ func (h *Home) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if selected := h.getSelectedSession(); selected != nil {
 			cmds := []tea.Cmd{h.fetchPreviewDebounced(selected.ID)}
 			if dir := h.effectiveDir(selected); dir != "" && git.IsGitRepo(dir) {
-				cmds = append(cmds, fetchDiffCmd(dir))
+				cmds = append(cmds, fetchDiffCmd(dir, selected.ID))
 			}
 			return h, tea.Batch(cmds...)
 		}
@@ -3823,7 +3830,7 @@ func (h *Home) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if selected := h.getSelectedSession(); selected != nil {
 			cmds := []tea.Cmd{h.fetchPreviewDebounced(selected.ID)}
 			if dir := h.effectiveDir(selected); dir != "" && git.IsGitRepo(dir) {
-				cmds = append(cmds, fetchDiffCmd(dir))
+				cmds = append(cmds, fetchDiffCmd(dir, selected.ID))
 			}
 			return h, tea.Batch(cmds...)
 		}
@@ -3850,7 +3857,7 @@ func (h *Home) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if selected := h.getSelectedSession(); selected != nil {
 			cmds := []tea.Cmd{h.fetchPreviewDebounced(selected.ID)}
 			if dir := h.effectiveDir(selected); dir != "" && git.IsGitRepo(dir) {
-				cmds = append(cmds, fetchDiffCmd(dir))
+				cmds = append(cmds, fetchDiffCmd(dir, selected.ID))
 			}
 			return h, tea.Batch(cmds...)
 		}
