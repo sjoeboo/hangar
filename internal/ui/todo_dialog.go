@@ -388,7 +388,7 @@ func (d *TodoDialog) handleFormKey(msg tea.KeyMsg) TodoAction {
 			d.titleInput, _ = d.titleInput.Update(msg)
 		case 1:
 			d.descInput, _ = d.descInput.Update(msg)
-		default:
+		case 2:
 			d.promptInput, _ = d.promptInput.Update(msg)
 		}
 	}
@@ -509,16 +509,18 @@ func (d *TodoDialog) viewForm() string {
 
 	header := lipgloss.NewStyle().Bold(true).Render(title)
 
-	titleLabel := "Title:"
-	descLabel := "Description:"
-	promptLabel := lipgloss.NewStyle().Foreground(lipgloss.Color("#5a6a7a")).Render("Prompt (optional):")
+	dimStyle    := lipgloss.NewStyle().Foreground(lipgloss.Color("#5a6a7a"))
+	activeStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#5fd7ff"))
+	titleLabel  := dimStyle.Render("Title:")
+	descLabel   := dimStyle.Render("Description:")
+	promptLabel := dimStyle.Render("Prompt (optional):")
 	switch d.formFocus {
 	case 0:
-		titleLabel = lipgloss.NewStyle().Foreground(lipgloss.Color("#5fd7ff")).Render("Title:")
+		titleLabel = activeStyle.Render("Title:")
 	case 1:
-		descLabel = lipgloss.NewStyle().Foreground(lipgloss.Color("#5fd7ff")).Render("Description:")
+		descLabel = activeStyle.Render("Description:")
 	case 2:
-		promptLabel = lipgloss.NewStyle().Foreground(lipgloss.Color("#5fd7ff")).Render("Prompt (optional):")
+		promptLabel = activeStyle.Render("Prompt (optional):")
 	}
 
 	var errLine string
@@ -688,16 +690,17 @@ func (d *TodoDialog) renderDetailPanel(innerW int) string {
 		Foreground(lipgloss.Color("#5a6a7a")).
 		Render("description")
 
+	textWidth := innerW - 4
+	if textWidth < 10 {
+		textWidth = 10
+	}
+
 	var body string
 	if t.Description == "" {
 		body = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#3a4a5a")).
 			Render("no description")
 	} else {
-		textWidth := innerW - 4
-		if textWidth < 10 {
-			textWidth = 10
-		}
 		wrapped := wordWrapText(t.Description, textWidth, 3)
 		body = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#c0ccd8")).
@@ -708,10 +711,6 @@ func (d *TodoDialog) renderDetailPanel(innerW int) string {
 
 	if t.Prompt != "" {
 		promptLabel := lipgloss.NewStyle().Foreground(lipgloss.Color("#5a6a7a")).Render("⌨ prompt")
-		textWidth := innerW - 4
-		if textWidth < 10 {
-			textWidth = 10
-		}
 		promptPreview := wordWrapText(t.Prompt, textWidth, 2)
 		promptBody := lipgloss.NewStyle().Foreground(lipgloss.Color("#c0ccd8")).Italic(true).Render(promptPreview)
 		content += "\n\n" + promptLabel + "\n" + promptBody

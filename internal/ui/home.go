@@ -10163,6 +10163,7 @@ func (h *Home) handleTodoDialogKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				if t.ID == editingID {
 					t.Title = title
 					t.Description = desc
+					t.Prompt = prompt
 					if err := h.storage.SaveTodo(t); err != nil {
 						h.setError(fmt.Errorf("update todo: %w", err))
 						return h, nil

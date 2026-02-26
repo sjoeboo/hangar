@@ -488,6 +488,124 @@ func TestTodoDialog_ViewKanban_NoDetailPanelOnEmptyColumn(t *testing.T) {
 	}
 }
 
+func TestTodoDialog_PromptField_TabCycle(t *testing.T) {
+	d := NewTodoDialog()
+	d.SetSize(120, 40)
+	d.Show("/proj", "", "", nil)
+	d.HandleKey(keyMsg("n")) // open new form
+
+	// Initially focused on title (formFocus == 0)
+	if d.formFocus != 0 {
+		t.Fatalf("expected formFocus=0 after opening form, got %d", d.formFocus)
+	}
+
+	// Tab → desc
+	d.HandleKey(tea.KeyMsg{Type: tea.KeyTab})
+	if d.formFocus != 1 {
+		t.Errorf("expected formFocus=1 after first tab, got %d", d.formFocus)
+	}
+
+	// Tab → prompt
+	d.HandleKey(tea.KeyMsg{Type: tea.KeyTab})
+	if d.formFocus != 2 {
+		t.Errorf("expected formFocus=2 after second tab, got %d", d.formFocus)
+	}
+
+	// Tab → wraps back to title
+	d.HandleKey(tea.KeyMsg{Type: tea.KeyTab})
+	if d.formFocus != 0 {
+		t.Errorf("expected formFocus=0 after third tab (wrap), got %d", d.formFocus)
+	}
+}
+
+func TestTodoDialog_PromptField_ShiftTabCycle(t *testing.T) {
+	d := NewTodoDialog()
+	d.SetSize(120, 40)
+	d.Show("/proj", "", "", nil)
+	d.HandleKey(keyMsg("n"))
+
+	// shift+tab from title wraps to prompt
+	d.HandleKey(tea.KeyMsg{Type: tea.KeyShiftTab})
+	if d.formFocus != 2 {
+		t.Errorf("expected formFocus=2 after shift+tab from title, got %d", d.formFocus)
+	}
+}
+
+func TestTodoDialog_PromptField_GetFormValues(t *testing.T) {
+	d := NewTodoDialog()
+	d.SetSize(120, 40)
+	d.Show("/proj", "", "", nil)
+	d.HandleKey(keyMsg("n"))
+
+	// Type into title
+	for _, ch := range "My Task" {
+		d.HandleKey(keyMsg(string(ch)))
+	}
+
+	// Tab to prompt field
+	d.HandleKey(tea.KeyMsg{Type: tea.KeyTab})
+	d.HandleKey(tea.KeyMsg{Type: tea.KeyTab})
+
+	// Type into prompt
+	for _, ch := range "implement hello world" {
+		d.HandleKey(keyMsg(string(ch)))
+	}
+
+	title, _, prompt, _, _ := d.GetFormValues()
+	if title != "My Task" {
+		t.Errorf("expected title='My Task', got %q", title)
+	}
+	if prompt != "implement hello world" {
+		t.Errorf("expected prompt='implement hello world', got %q", prompt)
+	}
+}
+
+func TestTodoDialog_PromptField_OpenEditForm_Populates(t *testing.T) {
+	d := NewTodoDialog()
+	d.SetSize(120, 40)
+
+	todo := &session.Todo{
+		ID:          "t1",
+		Title:       "Existing Task",
+		Description: "some desc",
+		Prompt:      "do the thing",
+		Status:      session.TodoStatusTodo,
+	}
+
+	d.openEditForm(todo)
+
+	_, _, prompt, editingID, _ := d.GetFormValues()
+	if prompt != "do the thing" {
+		t.Errorf("expected prompt='do the thing', got %q", prompt)
+	}
+	if editingID != "t1" {
+		t.Errorf("expected editingID='t1', got %q", editingID)
+	}
+}
+
+func TestTodoDialog_PromptField_OpenNewForm_Clears(t *testing.T) {
+	d := NewTodoDialog()
+	d.SetSize(120, 40)
+	d.Show("/proj", "", "", nil)
+
+	// First open: type a prompt
+	d.HandleKey(keyMsg("n"))
+	d.HandleKey(tea.KeyMsg{Type: tea.KeyTab})
+	d.HandleKey(tea.KeyMsg{Type: tea.KeyTab})
+	for _, ch := range "old prompt" {
+		d.HandleKey(keyMsg(string(ch)))
+	}
+
+	// Escape back to kanban, open form again
+	d.HandleKey(tea.KeyMsg{Type: tea.KeyEsc})
+	d.HandleKey(keyMsg("n"))
+
+	_, _, prompt, _, _ := d.GetFormValues()
+	if prompt != "" {
+		t.Errorf("expected empty prompt after re-opening new form, got %q", prompt)
+	}
+}
+
 func TestWordWrapText(t *testing.T) {
 	tests := []struct {
 		name     string
