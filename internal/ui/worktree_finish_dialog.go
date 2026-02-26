@@ -26,6 +26,10 @@ type WorktreeFinishDialog struct {
 	isExecuting  bool // True while finish operation is running
 	errorMsg     string
 
+	// PR data (set from Home's cache via SetPR)
+	prEntry  *prCacheEntry // nil = no PR found
+	prLoaded bool         // false = still fetching
+
 	// Options (step 0)
 	keepBranch bool
 
@@ -50,6 +54,8 @@ func (d *WorktreeFinishDialog) Show(sessionID, sessionTitle, branchName, repoRoo
 	d.dirtyChecked = false
 	d.isExecuting = false
 	d.errorMsg = ""
+	d.prEntry = nil
+	d.prLoaded = false
 	d.keepBranch = false
 	d.step = 0
 }
@@ -59,6 +65,8 @@ func (d *WorktreeFinishDialog) Hide() {
 	d.visible = false
 	d.isExecuting = false
 	d.errorMsg = ""
+	d.prEntry = nil
+	d.prLoaded = false
 }
 
 // IsVisible returns whether the dialog is visible
@@ -87,6 +95,14 @@ func (d *WorktreeFinishDialog) SetError(msg string) {
 // SetExecuting sets the executing state
 func (d *WorktreeFinishDialog) SetExecuting(executing bool) {
 	d.isExecuting = executing
+}
+
+// SetPR updates the PR data shown in the options view.
+// Call with loaded=false (default on Show) to show "checking...",
+// loaded=true+nil pr to show "No PR found", loaded=true+non-nil for full info.
+func (d *WorktreeFinishDialog) SetPR(pr *prCacheEntry, loaded bool) {
+	d.prEntry = pr
+	d.prLoaded = loaded
 }
 
 // GetSessionID returns the session ID this dialog is for
@@ -179,10 +195,10 @@ func (d *WorktreeFinishDialog) View() string {
 		return d.viewConfirm(titleStyle, labelStyle, errStyle, footerStyle, boxStyle)
 	}
 
-	return d.viewOptions(titleStyle, labelStyle, valueStyle, checkboxStyle, footerStyle, boxStyle)
+	return d.viewOptions(titleStyle, labelStyle, valueStyle, checkboxStyle, footerStyle, boxStyle, dialogWidth)
 }
 
-func (d *WorktreeFinishDialog) viewOptions(titleStyle, labelStyle, valueStyle, checkboxStyle, footerStyle lipgloss.Style, boxStyle lipgloss.Style) string {
+func (d *WorktreeFinishDialog) viewOptions(titleStyle, labelStyle, valueStyle, checkboxStyle, footerStyle lipgloss.Style, boxStyle lipgloss.Style, dialogWidth int) string {
 	var b strings.Builder
 
 	b.WriteString(titleStyle.Render("Finish Worktree"))
@@ -208,6 +224,55 @@ func (d *WorktreeFinishDialog) viewOptions(titleStyle, labelStyle, valueStyle, c
 	} else {
 		cleanStyle := lipgloss.NewStyle().Foreground(ColorGreen)
 		b.WriteString(cleanStyle.Render("clean"))
+	}
+	b.WriteString("\n")
+
+	// PR status
+	b.WriteString(labelStyle.Render("  PR:       "))
+	if !d.prLoaded {
+		b.WriteString(labelStyle.Render("checking..."))
+	} else if d.prEntry == nil {
+		b.WriteString(labelStyle.Render("No PR found"))
+	} else {
+		pr := d.prEntry
+		var stateStyle lipgloss.Style
+		switch pr.State {
+		case "OPEN":
+			stateStyle = PRBadgeOpen
+		case "MERGED":
+			stateStyle = PRBadgeMerged
+		case "CLOSED":
+			stateStyle = PRBadgeClosed
+		default: // DRAFT, unknown
+			stateStyle = labelStyle
+		}
+		titleRunes := []rune(pr.Title)
+		maxTitle := dialogWidth - 20
+		title := pr.Title
+		if maxTitle > 0 && len(titleRunes) > maxTitle {
+			title = string(titleRunes[:maxTitle]) + "…"
+		}
+		b.WriteString(valueStyle.Render(fmt.Sprintf("#%d", pr.Number)))
+		b.WriteString(labelStyle.Render(" · "))
+		b.WriteString(stateStyle.Render(pr.State))
+		b.WriteString(labelStyle.Render(" · "))
+		b.WriteString(valueStyle.Render(title))
+		// CI check line (only if checks exist; omit zero counts)
+		if pr.HasChecks {
+			b.WriteString("\n")
+			b.WriteString(labelStyle.Render("             "))
+			ciParts := []string{}
+			if pr.ChecksPassed > 0 {
+				ciParts = append(ciParts, lipgloss.NewStyle().Foreground(ColorGreen).Render(fmt.Sprintf("✓ %d passed", pr.ChecksPassed)))
+			}
+			if pr.ChecksFailed > 0 {
+				ciParts = append(ciParts, lipgloss.NewStyle().Foreground(ColorRed).Render(fmt.Sprintf("✗ %d failed", pr.ChecksFailed)))
+			}
+			if pr.ChecksPending > 0 {
+				ciParts = append(ciParts, lipgloss.NewStyle().Foreground(ColorYellow).Render(fmt.Sprintf("⟳ %d pending", pr.ChecksPending)))
+			}
+			b.WriteString(strings.Join(ciParts, "  "))
+		}
 	}
 	b.WriteString("\n\n")
 

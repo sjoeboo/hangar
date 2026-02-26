@@ -2864,6 +2864,11 @@ func (h *Home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		h.prCacheTs[msg.sessionID] = time.Now()
 		h.prCacheMu.Unlock()
 
+		// If WorktreeFinishDialog is open for this session, push updated PR data
+		if h.worktreeFinishDialog.IsVisible() && h.worktreeFinishDialog.GetSessionID() == msg.sessionID {
+			h.worktreeFinishDialog.SetPR(msg.pr, true)
+		}
+
 		// Auto-advance todo status based on PR state
 		if msg.pr != nil {
 			if todo, err := h.storage.FindTodoBySessionID(msg.sessionID); err == nil && todo != nil {
@@ -3943,6 +3948,13 @@ func (h *Home) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				}
 				h.worktreeFinishDialog.SetSize(h.width, h.height)
 				h.worktreeFinishDialog.Show(inst.ID, inst.Title, inst.WorktreeBranch, inst.WorktreeRepoRoot, inst.WorktreePath)
+				// Wire in current PR cache entry (if any)
+				h.prCacheMu.Lock()
+				cachedPR, hasPRCached := h.prCache[inst.ID]
+				h.prCacheMu.Unlock()
+				if hasPRCached {
+					h.worktreeFinishDialog.SetPR(cachedPR, true)
+				}
 				// Trigger async dirty check
 				sid := inst.ID
 				wtPath := inst.WorktreePath
@@ -4092,7 +4104,27 @@ func (h *Home) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if h.cursor < len(h.flatItems) {
 			item := h.flatItems[h.cursor]
 			if item.Type == session.ItemTypeSession && item.Session != nil {
-				h.confirmDialog.ShowDeleteSession(item.Session.ID, item.Session.Title)
+				inst := item.Session
+				if inst.IsWorktree() {
+					// Worktree sessions get the full finish dialog (same as W)
+					h.worktreeFinishDialog.SetSize(h.width, h.height)
+					h.worktreeFinishDialog.Show(inst.ID, inst.Title, inst.WorktreeBranch, inst.WorktreeRepoRoot, inst.WorktreePath)
+					// Wire in current PR cache entry (if any)
+					h.prCacheMu.Lock()
+					cachedPR, hasPRCached := h.prCache[inst.ID]
+					h.prCacheMu.Unlock()
+					if hasPRCached {
+						h.worktreeFinishDialog.SetPR(cachedPR, true)
+					}
+					// Trigger async dirty check
+					sid := inst.ID
+					wtPath := inst.WorktreePath
+					return h, func() tea.Msg {
+						dirty, err := git.HasUncommittedChanges(wtPath)
+						return worktreeDirtyCheckMsg{sessionID: sid, isDirty: dirty, err: err}
+					}
+				}
+				h.confirmDialog.ShowDeleteSession(inst.ID, inst.Title)
 			} else if item.Type == session.ItemTypeGroup && item.Path != session.DefaultGroupPath {
 				h.confirmDialog.ShowDeleteGroup(item.Path, item.Group.Name)
 			}
