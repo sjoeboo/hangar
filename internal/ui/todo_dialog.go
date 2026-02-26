@@ -296,13 +296,16 @@ const (
 	TodoActionSaveTodo                 // save new/edited todo (caller reads GetFormValues)
 	TodoActionDeleteTodo               // delete selected todo
 	TodoActionUpdateStatus             // update status of selected todo (caller reads GetPickedStatus)
+	TodoActionMoveCardLeft             // shift+left: move selected card to previous status column
+	TodoActionMoveCardRight            // shift+right: move selected card to next status column
 )
 
-// GetFormValues returns the title, description, and editing ID after TodoActionSaveTodo.
-func (d *TodoDialog) GetFormValues() (title, description, editingID string) {
+// GetFormValues returns the title, description, editing ID, and status after TodoActionSaveTodo.
+func (d *TodoDialog) GetFormValues() (title, description, editingID string, status session.TodoStatus) {
 	return strings.TrimSpace(d.titleInput.Value()),
 		strings.TrimSpace(d.descInput.Value()),
-		d.editingID
+		d.editingID,
+		d.newTodoStatus
 }
 
 // GetPickedStatus returns the status chosen in the status picker.
@@ -426,6 +429,12 @@ func (d *TodoDialog) openNewForm() {
 	d.titleInput.Focus()
 	d.descInput.Blur()
 	d.errorMsg = ""
+	// Pre-select the focused column's status so new cards land in the right column
+	if d.selectedCol < len(d.cols) {
+		d.newTodoStatus = d.cols[d.selectedCol].status
+	} else {
+		d.newTodoStatus = session.TodoStatusTodo
+	}
 }
 
 func (d *TodoDialog) openEditForm(t *session.Todo) {
@@ -448,6 +457,21 @@ func (d *TodoDialog) openStatusPicker(t *session.Todo) {
 			break
 		}
 	}
+}
+
+// MoveCardTargetStatus returns the target status when moving the selected card
+// by direction (+1 = right, -1 = left). Returns false if the move is a no-op
+// (boundary or would move into the orphaned column).
+func (d *TodoDialog) MoveCardTargetStatus(direction int) (session.TodoStatus, bool) {
+	targetCol := d.selectedCol + direction
+	if targetCol < 0 || targetCol >= len(d.cols) {
+		return "", false
+	}
+	target := d.cols[targetCol].status
+	if target == session.TodoStatusOrphaned {
+		return "", false
+	}
+	return target, true
 }
 
 // ResetFormToList returns dialog to list mode (call after successful save/update).
@@ -624,7 +648,61 @@ func TodoBranchName(title string) string {
 }
 
 func (d *TodoDialog) handleKanbanKey(key string) TodoAction {
-	return d.handleListKey(key) // temporary stub, replaced in Task 4
+	switch key {
+	case "left", "h":
+		if d.selectedCol > 0 {
+			d.selectedCol--
+		}
+	case "right", "l":
+		if d.selectedCol < len(d.cols)-1 {
+			d.selectedCol++
+		}
+	case "up", "k":
+		if d.selectedCol < len(d.selectedRow) && d.selectedRow[d.selectedCol] > 0 {
+			d.selectedRow[d.selectedCol]--
+		}
+	case "down", "j":
+		if d.selectedCol < len(d.cols) {
+			col := d.cols[d.selectedCol]
+			if d.selectedRow[d.selectedCol] < len(col.todos)-1 {
+				d.selectedRow[d.selectedCol]++
+			}
+		}
+	case "shift+left":
+		if d.SelectedTodo() != nil {
+			if _, ok := d.MoveCardTargetStatus(-1); ok {
+				return TodoActionMoveCardLeft
+			}
+		}
+	case "shift+right":
+		if d.SelectedTodo() != nil {
+			if _, ok := d.MoveCardTargetStatus(1); ok {
+				return TodoActionMoveCardRight
+			}
+		}
+	case "n":
+		d.openNewForm()
+	case "e":
+		if t := d.SelectedTodo(); t != nil {
+			d.openEditForm(t)
+		}
+	case "d":
+		if d.SelectedTodo() != nil {
+			return TodoActionDeleteTodo
+		}
+	case "s":
+		if t := d.SelectedTodo(); t != nil {
+			d.openStatusPicker(t)
+		}
+	case "enter":
+		if d.SelectedTodo() == nil {
+			return TodoActionNone
+		}
+		return TodoActionCreateSession
+	case "esc", "t":
+		return TodoActionClose
+	}
+	return TodoActionNone
 }
 
 func (d *TodoDialog) viewKanban() string {

@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"ghe.spotify.net/mnicholson/hangar/internal/session"
+	tea "github.com/charmbracelet/bubbletea"
 )
 
 func makeTodo(id string, status session.TodoStatus) *session.Todo {
@@ -186,4 +187,85 @@ func TestTodoDialog_SelectedTodo_BeforeShow(t *testing.T) {
 	if d.SelectedTodo() != nil {
 		t.Error("expected nil SelectedTodo before Show()")
 	}
+}
+
+func TestTodoDialog_HandleKanban_LeftRight(t *testing.T) {
+	d := NewTodoDialog()
+	d.SetSize(120, 40)
+	todos := []*session.Todo{
+		makeTodo("a", session.TodoStatusTodo),
+		makeTodo("b", session.TodoStatusInProgress),
+	}
+	d.Show("/proj", "", "", todos)
+
+	if d.selectedCol != 0 {
+		t.Fatalf("expected col 0, got %d", d.selectedCol)
+	}
+	d.HandleKey(keyMsg("right"))
+	if d.selectedCol != 1 {
+		t.Errorf("expected col 1 after right, got %d", d.selectedCol)
+	}
+	d.HandleKey(keyMsg("left"))
+	if d.selectedCol != 0 {
+		t.Errorf("expected col 0 after left, got %d", d.selectedCol)
+	}
+	d.HandleKey(keyMsg("left"))
+	if d.selectedCol != 0 {
+		t.Errorf("expected col 0 (no wrap at left boundary), got %d", d.selectedCol)
+	}
+}
+
+func TestTodoDialog_HandleKanban_NewPreSelectsColumnStatus(t *testing.T) {
+	d := NewTodoDialog()
+	d.SetSize(120, 40)
+	d.Show("/proj", "", "", nil)
+	d.selectedCol = 1
+	d.HandleKey(keyMsg("n"))
+	_, _, _, status := d.GetFormValues()
+	if status != session.TodoStatusInProgress {
+		t.Errorf("expected InProgress status for new todo in col 1, got %s", status)
+	}
+}
+
+func TestTodoDialog_MoveCardTargetStatus(t *testing.T) {
+	d := NewTodoDialog()
+	d.SetSize(120, 40)
+	todos := []*session.Todo{makeTodo("a", session.TodoStatusTodo)}
+	d.Show("/proj", "", "", todos)
+
+	status, ok := d.MoveCardTargetStatus(1)
+	if !ok || status != session.TodoStatusInProgress {
+		t.Errorf("expected InProgress moving right from Todo, got %s ok=%v", status, ok)
+	}
+	_, ok = d.MoveCardTargetStatus(-1)
+	if ok {
+		t.Error("expected no-op when moving left from Todo column (leftmost)")
+	}
+}
+
+func TestTodoDialog_HandleKey_ShiftRight_ReturnsMoveCardRight(t *testing.T) {
+	d := NewTodoDialog()
+	d.SetSize(120, 40)
+	todos := []*session.Todo{makeTodo("a", session.TodoStatusTodo)}
+	d.Show("/proj", "", "", todos)
+	action := d.HandleKey(tea.KeyMsg{Type: tea.KeyShiftRight})
+	if action != TodoActionMoveCardRight {
+		t.Errorf("expected TodoActionMoveCardRight, got %v", action)
+	}
+}
+
+func TestTodoDialog_HandleKey_ShiftLeft_NoOpAtBoundary(t *testing.T) {
+	d := NewTodoDialog()
+	d.SetSize(120, 40)
+	todos := []*session.Todo{makeTodo("a", session.TodoStatusTodo)}
+	d.Show("/proj", "", "", todos)
+	action := d.HandleKey(tea.KeyMsg{Type: tea.KeyShiftLeft})
+	if action != TodoActionNone {
+		t.Errorf("expected TodoActionNone at left boundary, got %v", action)
+	}
+}
+
+// keyMsg is a test helper that creates a tea.KeyMsg from a string.
+func keyMsg(s string) tea.KeyMsg {
+	return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(s)}
 }
