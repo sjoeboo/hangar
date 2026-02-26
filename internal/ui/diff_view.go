@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/charmbracelet/lipgloss"
 	"github.com/sourcegraph/go-diff/diff"
 )
 
@@ -121,9 +122,55 @@ func (dv *DiffView) FileUnderCursor() (string, int) {
 	return "", 0
 }
 
-// View is a stub — rendering is added in Task 4.
 func (dv *DiffView) View() string {
-	return ""
+	if !dv.visible {
+		return ""
+	}
+
+	headerStyle := lipgloss.NewStyle().Foreground(ColorAccent).Bold(true)
+	footerStyle := lipgloss.NewStyle().Foreground(ColorTextDim).Italic(true)
+	dimStyle := lipgloss.NewStyle().Foreground(ColorTextDim).Italic(true)
+	separatorStyle := lipgloss.NewStyle().Foreground(ColorBorder)
+
+	sep := separatorStyle.Render(strings.Repeat("─", max(dv.width-2, 0)))
+
+	var b strings.Builder
+	b.WriteString(headerStyle.Render("  Diff: "+dv.Summary()) + "\n")
+	b.WriteString(sep + "\n")
+
+	contentHeight := dv.height - 4
+	if contentHeight < 1 {
+		contentHeight = 1
+	}
+
+	if len(dv.lines) == 0 {
+		b.WriteString(dimStyle.Render("  nothing to diff") + "\n")
+	} else {
+		start := dv.scrollOffset
+		if start >= len(dv.lines) {
+			start = len(dv.lines) - 1
+		}
+		if start < 0 {
+			start = 0
+		}
+		end := start + contentHeight
+		if end > len(dv.lines) {
+			end = len(dv.lines)
+		}
+		for _, rl := range dv.lines[start:end] {
+			b.WriteString(rl.text + "\n")
+		}
+	}
+
+	b.WriteString(sep + "\n")
+	b.WriteString(footerStyle.Render("  j/k scroll · e open editor · q/esc close"))
+
+	return lipgloss.NewStyle().
+		Width(dv.width).
+		Height(dv.height).
+		Background(ColorBg).
+		Padding(0, 1).
+		Render(b.String())
 }
 
 // rebuildLines rebuilds the flat rendered-line cache from dv.files.
@@ -140,28 +187,47 @@ func (dv *DiffView) rebuildLines() {
 			firstLine = int(f.Hunks[0].NewStartLine)
 		}
 
-		// File header line — filePath is set so FileUnderCursor can find it
 		dv.lines = append(dv.lines, renderedLine{
-			text:     "  " + path,
+			text:     renderFileHeader(path),
 			filePath: path,
 			line:     firstLine,
 		})
 
 		for _, h := range f.Hunks {
-			// Hunk header
-			hdr := fmt.Sprintf("@@ -%d,%d +%d,%d @@", h.OrigStartLine, h.OrigLines, h.NewStartLine, h.NewLines)
-			if h.Section != "" {
-				hdr += " " + h.Section
-			}
-			dv.lines = append(dv.lines, renderedLine{text: "  " + hdr})
-
-			// Hunk body lines
+			dv.lines = append(dv.lines, renderedLine{text: renderHunkHeader(h)})
 			for _, bodyLine := range strings.Split(string(h.Body), "\n") {
-				dv.lines = append(dv.lines, renderedLine{text: bodyLine})
+				dv.lines = append(dv.lines, renderedLine{text: renderDiffLine(bodyLine)})
 			}
 		}
-
-		// Blank separator between files
 		dv.lines = append(dv.lines, renderedLine{text: ""})
+	}
+}
+
+func renderFileHeader(path string) string {
+	return lipgloss.NewStyle().Foreground(ColorAccent).Bold(true).Render("  " + path)
+}
+
+func renderHunkHeader(h *diff.Hunk) string {
+	hdr := fmt.Sprintf("@@ -%d,%d +%d,%d @@", h.OrigStartLine, h.OrigLines, h.NewStartLine, h.NewLines)
+	if h.Section != "" {
+		hdr += " " + h.Section
+	}
+	return lipgloss.NewStyle().Foreground(ColorComment).Render("  " + hdr)
+}
+
+func renderDiffLine(line string) string {
+	if line == "" {
+		return ""
+	}
+	switch line[0] {
+	case '+':
+		return lipgloss.NewStyle().Foreground(ColorGreen).Render(line)
+	case '-':
+		return lipgloss.NewStyle().Foreground(ColorRed).Render(line)
+	case '\\':
+		// "\ No newline at end of file"
+		return lipgloss.NewStyle().Foreground(ColorComment).Italic(true).Render(line)
+	default:
+		return lipgloss.NewStyle().Foreground(ColorTextDim).Render(line)
 	}
 }
