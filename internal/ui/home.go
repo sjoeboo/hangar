@@ -9581,7 +9581,6 @@ func (h *Home) handleSendTextDialogKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			h.bulkSelectMode = false
 			h.selectedSessionIDs = make(map[string]bool)
 			return h, func() tea.Msg {
-				count := 0
 				var lastErr error
 				for _, id := range targetIDs {
 					h.instancesMu.RLock()
@@ -9596,15 +9595,10 @@ func (h *Home) handleSendTextDialogKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 					}
 					if err := tmuxSession.SendKeysAndEnter(text); err != nil {
 						lastErr = err
-					} else {
-						count++
 					}
 				}
 				targetTitle := fmt.Sprintf("%d sessions", len(targetIDs))
-				if lastErr != nil {
-					return sendTextResultMsg{targetTitle: targetTitle, err: lastErr}
-				}
-				return sendTextResultMsg{targetTitle: targetTitle}
+				return sendTextResultMsg{targetTitle: targetTitle, err: lastErr}
 			}
 		}
 		if text != "" && h.sendTextTargetID != "" {
