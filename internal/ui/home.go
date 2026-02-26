@@ -6977,8 +6977,12 @@ func (h *Home) renderHelpBarCompact() string {
 
 	// Global hints (abbreviated)
 	globalStyle := lipgloss.NewStyle().Foreground(ColorComment)
+	compactSearchHint := "/"
+	if h.ghPath != "" {
+		compactSearchHint += " P"
+	}
 	globalHints := globalStyle.Render("↑↓ Nav") + " " +
-		globalStyle.Render("/") + " " +
+		globalStyle.Render(compactSearchHint) + " " +
 		globalStyle.Render("?") + " " +
 		globalStyle.Render("q")
 
@@ -7115,8 +7119,12 @@ func (h *Home) renderHelpBarFull() string {
 
 	// Global shortcuts (right side) - more compact with separators
 	globalStyle := lipgloss.NewStyle().Foreground(ColorComment)
+	searchHint := "/ Search"
+	if h.ghPath != "" {
+		searchHint += "  P PRs"
+	}
 	globalHints := globalStyle.Render("↑↓ Nav") + sep +
-		globalStyle.Render("/ Search") + sep +
+		globalStyle.Render(searchHint) + sep +
 		globalStyle.Render("S Settings  ? Help  q Quit")
 
 	// Calculate spacing between left (context) and right (global) portions
