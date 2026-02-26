@@ -195,10 +195,10 @@ func (d *WorktreeFinishDialog) View() string {
 		return d.viewConfirm(titleStyle, labelStyle, errStyle, footerStyle, boxStyle)
 	}
 
-	return d.viewOptions(titleStyle, labelStyle, valueStyle, checkboxStyle, footerStyle, boxStyle)
+	return d.viewOptions(titleStyle, labelStyle, valueStyle, checkboxStyle, footerStyle, boxStyle, dialogWidth)
 }
 
-func (d *WorktreeFinishDialog) viewOptions(titleStyle, labelStyle, valueStyle, checkboxStyle, footerStyle lipgloss.Style, boxStyle lipgloss.Style) string {
+func (d *WorktreeFinishDialog) viewOptions(titleStyle, labelStyle, valueStyle, checkboxStyle, footerStyle lipgloss.Style, boxStyle lipgloss.Style, dialogWidth int) string {
 	var b strings.Builder
 
 	b.WriteString(titleStyle.Render("Finish Worktree"))
@@ -224,6 +224,56 @@ func (d *WorktreeFinishDialog) viewOptions(titleStyle, labelStyle, valueStyle, c
 	} else {
 		cleanStyle := lipgloss.NewStyle().Foreground(ColorGreen)
 		b.WriteString(cleanStyle.Render("clean"))
+	}
+	b.WriteString("\n")
+
+	// PR status
+	b.WriteString(labelStyle.Render("  PR:       "))
+	if !d.prLoaded {
+		b.WriteString(labelStyle.Render("checking..."))
+	} else if d.prEntry == nil {
+		b.WriteString(labelStyle.Render("No PR found"))
+	} else {
+		pr := d.prEntry
+		var stateStyle lipgloss.Style
+		switch pr.State {
+		case "OPEN":
+			stateStyle = PRBadgeOpen
+		case "MERGED":
+			stateStyle = PRBadgeMerged
+		case "CLOSED":
+			stateStyle = PRBadgeClosed
+		default: // DRAFT, unknown
+			stateStyle = labelStyle
+		}
+		b.WriteString(valueStyle.Render(fmt.Sprintf("#%d", pr.Number)))
+		b.WriteString(labelStyle.Render(" · "))
+		b.WriteString(stateStyle.Render(pr.State))
+		b.WriteString(labelStyle.Render(" · "))
+		// Truncate title to fit dialog width
+		title := pr.Title
+		maxTitle := dialogWidth - 20
+		if maxTitle > 0 && len(title) > maxTitle {
+			title = title[:maxTitle] + "…"
+		}
+		b.WriteString(valueStyle.Render(title))
+		b.WriteString("\n")
+
+		// CI check line (only if checks exist; omit zero counts)
+		if pr.HasChecks {
+			b.WriteString(labelStyle.Render("             "))
+			ciParts := []string{}
+			if pr.ChecksPassed > 0 {
+				ciParts = append(ciParts, lipgloss.NewStyle().Foreground(ColorGreen).Render(fmt.Sprintf("✓ %d passed", pr.ChecksPassed)))
+			}
+			if pr.ChecksFailed > 0 {
+				ciParts = append(ciParts, lipgloss.NewStyle().Foreground(ColorRed).Render(fmt.Sprintf("✗ %d failed", pr.ChecksFailed)))
+			}
+			if pr.ChecksPending > 0 {
+				ciParts = append(ciParts, lipgloss.NewStyle().Foreground(ColorYellow).Render(fmt.Sprintf("⟳ %d pending", pr.ChecksPending)))
+			}
+			b.WriteString(strings.Join(ciParts, "  "))
+		}
 	}
 	b.WriteString("\n\n")
 
