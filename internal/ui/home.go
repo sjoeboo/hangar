@@ -3708,7 +3708,7 @@ func (h *Home) handleMouseMsg(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 		h.confirmDialog.IsVisible() || h.geminiModelDialog.IsVisible() ||
 		h.sessionPickerDialog.IsVisible() || h.sendTextDialog.IsVisible() ||
 		h.worktreeFinishDialog.IsVisible() ||
-		h.todoDialog.IsVisible() {
+		h.todoDialog.IsVisible() || h.reviewDialog.IsVisible() {
 		return h, nil
 	}
 
@@ -4502,6 +4502,18 @@ func (h *Home) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				}
 			}
 		}
+		return h, nil
+
+	case "v":
+		// Open review dialog for the current project
+		repoDir, projectName, groupPath := h.getReviewContext()
+		if repoDir == "" {
+			h.setError(fmt.Errorf("no project found — select a session or project group first"))
+			return h, nil
+		}
+		h.reviewDialog.SetSize(h.width, h.height)
+		h.reviewDialog.Show(projectName, repoDir)
+		h.reviewDialog.groupPath = groupPath
 		return h, nil
 
 	case "x":
@@ -9440,6 +9452,46 @@ func (h *Home) handleWorktreeFinishDialogKey(msg tea.KeyMsg) (tea.Model, tea.Cmd
 	}
 
 	return h, nil
+}
+
+// getReviewContext derives the project repo directory, display name, and group path
+// from the currently selected sidebar item. Returns empty strings if no project context
+// can be determined.
+func (h *Home) getReviewContext() (repoDir, projectName, groupPath string) {
+	if h.cursor >= len(h.flatItems) {
+		return "", "", ""
+	}
+	item := h.flatItems[h.cursor]
+
+	switch item.Type {
+	case session.ItemTypeSession:
+		inst := item.Session
+		if inst == nil || inst.ProjectPath == "" {
+			return "", "", ""
+		}
+		dir := inst.ProjectPath
+		if inst.WorktreeRepoRoot != "" {
+			dir = inst.WorktreeRepoRoot
+		}
+		name := inst.GroupPath
+		if name == "" {
+			name = inst.Title
+		}
+		return dir, name, inst.GroupPath
+
+	case session.ItemTypeGroup:
+		if item.Group == nil || item.Group.Name == "" {
+			return "", "", ""
+		}
+		groupName := item.Group.Name
+		proj, err := session.GetProject(groupName)
+		if err != nil || proj == nil {
+			return "", "", ""
+		}
+		return proj.BaseDir, proj.Name, item.Group.Path
+	}
+
+	return "", "", ""
 }
 
 // finishWorktree performs the worktree finish operation asynchronously:
