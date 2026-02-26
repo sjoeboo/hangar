@@ -434,12 +434,18 @@ func PruneWorktrees(repoDir string) error {
 // Returns an error on failure so callers can warn but continue.
 func UpdateBaseBranch(repoPath, branch string) error {
 	const timeout = 60 * time.Second
+	// WaitDelay ensures CombinedOutput returns even if git's child processes
+	// (e.g. git-remote-https, ssh) keep the pipe open after the parent is
+	// killed by the context timeout. Without this, the goroutine hangs forever
+	// on large monorepos where fetch exceeds the timeout.
+	const waitDelay = 5 * time.Second
 
 	// Step 1: fetch only the specific branch (not all of origin) to avoid
 	// slow full-fetches on large monorepos.
 	fetchCtx, fetchCancel := context.WithTimeout(context.Background(), timeout)
 	defer fetchCancel()
 	fetchCmd := exec.CommandContext(fetchCtx, "git", "-C", repoPath, "fetch", "origin", branch)
+	fetchCmd.WaitDelay = waitDelay
 	if output, err := fetchCmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("fetch failed: %s: %w", strings.TrimSpace(string(output)), err)
 	}
@@ -451,6 +457,7 @@ func UpdateBaseBranch(repoPath, branch string) error {
 	mergeCtx, mergeCancel := context.WithTimeout(context.Background(), timeout)
 	defer mergeCancel()
 	mergeCmd := exec.CommandContext(mergeCtx, "git", "-C", repoPath, "merge", "--ff-only", "origin/"+branch)
+	mergeCmd.WaitDelay = waitDelay
 	if output, err := mergeCmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("merge --ff-only failed: %s: %w", strings.TrimSpace(string(output)), err)
 	}
