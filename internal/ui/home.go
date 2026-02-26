@@ -315,6 +315,10 @@ type Home struct {
 
 	// Preview struct for the currently focused session (holds DiffStat for rendering)
 	preview *Preview
+
+	// Bulk select mode state
+	bulkSelectMode     bool
+	selectedSessionIDs map[string]bool
 }
 
 // reloadState preserves UI state during storage reload
@@ -622,6 +626,7 @@ func NewHomeWithProfileAndMode(profile string) *Home {
 		undoStack:            make([]deletedSessionEntry, 0, 10),
 		pendingTitleChanges:  make(map[string]string),
 		preview:              NewPreview(),
+		selectedSessionIDs:   make(map[string]bool),
 	}
 
 	// Detect gh CLI once at startup for PR status display in the preview pane.
@@ -3819,6 +3824,12 @@ func (h *Home) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return h.tryQuit()
 
 	case "esc":
+		// Exit bulk select mode if active
+		if h.bulkSelectMode {
+			h.bulkSelectMode = false
+			h.selectedSessionIDs = make(map[string]bool)
+			return h, nil
+		}
 		// Dismiss maintenance banner if visible
 		if h.maintenanceMsg != "" {
 			h.maintenanceMsg = ""
@@ -4352,6 +4363,16 @@ func (h *Home) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "N":
 		// Quick create: auto-generated name, smart defaults from group context
 		return h, h.quickCreateSession()
+
+	case "V":
+		// Toggle bulk select mode
+		if h.bulkSelectMode {
+			h.bulkSelectMode = false
+			h.selectedSessionIDs = make(map[string]bool)
+		} else {
+			h.bulkSelectMode = true
+		}
+		return h, nil
 
 	case "d":
 		// Show confirmation dialog before deletion (prevents accidental deletion)

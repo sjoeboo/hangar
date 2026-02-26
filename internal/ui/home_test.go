@@ -1583,3 +1583,57 @@ func TestPRView_RenderEmpty(t *testing.T) {
 		t.Error("Empty PR view should show empty state message")
 	}
 }
+
+func TestBulkSelectMode_VKeyToggle(t *testing.T) {
+	home := NewHome()
+	home.width = 100
+	home.height = 30
+
+	// Initially not in bulk mode
+	if home.bulkSelectMode {
+		t.Fatal("bulkSelectMode should be false initially")
+	}
+
+	// V enters bulk mode
+	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'V'}}
+	model, _ := home.Update(msg)
+	h := model.(*Home)
+	if !h.bulkSelectMode {
+		t.Error("V should enter bulk select mode")
+	}
+	if h.selectedSessionIDs == nil {
+		t.Error("selectedSessionIDs should be initialized")
+	}
+
+	// V again exits bulk mode
+	model, _ = h.Update(msg)
+	h = model.(*Home)
+	if h.bulkSelectMode {
+		t.Error("V again should exit bulk select mode")
+	}
+	if len(h.selectedSessionIDs) != 0 {
+		t.Error("selectedSessionIDs should be cleared on exit")
+	}
+}
+
+func TestBulkSelectMode_EscExits(t *testing.T) {
+	home := NewHome()
+	home.width = 100
+	home.height = 30
+
+	// Enter bulk mode
+	vMsg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'V'}}
+	model, _ := home.Update(vMsg)
+	h := model.(*Home)
+	if !h.bulkSelectMode {
+		t.Fatal("should be in bulk mode after V")
+	}
+
+	// Esc exits bulk mode
+	escMsg := tea.KeyMsg{Type: tea.KeyEsc}
+	model, _ = h.Update(escMsg)
+	h = model.(*Home)
+	if h.bulkSelectMode {
+		t.Error("Esc should exit bulk select mode")
+	}
+}
