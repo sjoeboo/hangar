@@ -8,10 +8,11 @@ import (
 
 // Preview shows session terminal content
 type Preview struct {
-	content string
-	title   string
-	width   int
-	height  int
+	content  string
+	title    string
+	width    int
+	height   int
+	DiffStat string // optional one-line diffstat (e.g. "3 files, +47 -12"); empty = not shown
 }
 
 // NewPreview creates a new preview pane
@@ -49,6 +50,13 @@ func (p *Preview) View() string {
 	b.WriteString(strings.Repeat("─", lineLen))
 	b.WriteString("\n\n")
 
+	// DiffStat line (shown when available)
+	if p.DiffStat != "" {
+		dimStyle := lipgloss.NewStyle().Foreground(ColorTextDim)
+		b.WriteString(dimStyle.Render("~ " + p.DiffStat))
+		b.WriteString("\n")
+	}
+
 	// Content
 	if p.content == "" {
 		dimStyle := lipgloss.NewStyle().Foreground(ColorTextDim).Italic(true)
@@ -82,6 +90,15 @@ func (p *Preview) View() string {
 	}
 
 	return b.String()
+}
+
+// DiffStatLine returns the styled diffstat line for embedding in other views,
+// or empty string if no diffstat is available.
+func (p *Preview) DiffStatLine() string {
+	if p.DiffStat == "" {
+		return ""
+	}
+	return lipgloss.NewStyle().Foreground(ColorTextDim).Render("~ " + p.DiffStat)
 }
 
 func min(a, b int) int {

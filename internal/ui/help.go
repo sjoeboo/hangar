@@ -134,6 +134,7 @@ func (h *HelpOverlay) View() string {
 				{"n → w", "Create session in worktree"},
 				{"F → w", "Fork session into worktree"},
 				{"o", "Open PR in browser"},
+				{"D", "Show git diff overlay for focused session"},
 			},
 		},
 		{

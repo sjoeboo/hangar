@@ -137,6 +137,7 @@ type Home struct {
 	forkDialog           *ForkDialog           // For forking sessions
 	confirmDialog        *ConfirmDialog        // For confirming destructive actions
 	helpOverlay          *HelpOverlay          // For showing keyboard shortcuts
+	diffView             *DiffView             // For showing inline git diff overlay
 	setupWizard          *SetupWizard          // For first-run setup
 	settingsPanel        *SettingsPanel        // For editing settings
 	geminiModelDialog    *GeminiModelDialog    // For selecting Gemini model
@@ -304,6 +305,13 @@ type Home struct {
 	// UI state persistence across restarts
 	pendingCursorRestore *uiState // Consumed on first loadSessionsMsg to restore cursor
 	uiStateSaveTicks     int      // Counter for periodic UI state saves in tick handler
+
+	// Diff data for the focused session (populated async in Task 8; defaults to "" until fetched)
+	currentDiffRaw string // raw unified diff output for the currently focused session
+	currentDiffErr error  // non-nil if the last diff fetch failed; causes "diff unavailable" in preview
+
+	// Preview struct for the currently focused session (holds DiffStat for rendering)
+	preview *Preview
 }
 
 // reloadState preserves UI state during storage reload
@@ -427,6 +435,13 @@ type sendTextResultMsg struct {
 	err         error
 }
 
+// diffFetchedMsg is sent when a git diff has been fetched for the focused session.
+type diffFetchedMsg struct {
+	sessionID string
+	raw       string
+	err       error
+}
+
 // systemThemeMsg is sent when the OS dark mode setting changes.
 type systemThemeMsg struct {
 	dark bool
@@ -531,6 +546,7 @@ func NewHomeWithProfileAndMode(profile string) *Home {
 		forkDialog:           NewForkDialog(),
 		confirmDialog:        NewConfirmDialog(),
 		helpOverlay:          NewHelpOverlay(),
+		diffView:             NewDiffView(),
 		setupWizard:          NewSetupWizard(),
 		settingsPanel:        NewSettingsPanel(),
 		geminiModelDialog:    NewGeminiModelDialog(),
@@ -564,6 +580,7 @@ func NewHomeWithProfileAndMode(profile string) *Home {
 		boundKeys:            make(map[string]string),
 		undoStack:            make([]deletedSessionEntry, 0, 10),
 		pendingTitleChanges:  make(map[string]string),
+		preview:              NewPreview(),
 	}
 
 	// Detect gh CLI once at startup for PR status display in the preview pane.
@@ -1479,6 +1496,15 @@ func (h *Home) fetchPreviewDebounced(sessionID string) tea.Cmd {
 	}
 }
 
+// fetchDiffCmd returns a tea.Cmd that fetches the git diff for the given
+// directory and returns the result as a diffFetchedMsg.
+func fetchDiffCmd(dir string, sessionID string) tea.Cmd {
+	return func() tea.Msg {
+		raw, err := git.FetchDiff(dir)
+		return diffFetchedMsg{sessionID: sessionID, raw: raw, err: err}
+	}
+}
+
 // detectOpenCodeSessionCmd returns a command that asynchronously detects
 // the OpenCode session ID for a restored session and signals completion.
 // This follows the Bubble Tea pattern of returning a tea.Cmd for async work.
@@ -2246,12 +2272,16 @@ func (h *Home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				h.saveInstances()
 			}
 			// Trigger immediate preview fetch for initial selection (mutex-protected)
+			h.updateDiffStat()
 			if selected := h.getSelectedSession(); selected != nil {
 				h.previewCacheMu.Lock()
 				h.previewFetchingID = selected.ID
 				h.previewCacheMu.Unlock()
-				// Batch preview fetch with any OpenCode detection commands
+				// Batch preview fetch with any OpenCode detection commands and diff fetch
 				allCmds := append(detectionCmds, h.fetchPreview(selected))
+				if dir := h.effectiveDir(selected); dir != "" && git.IsGitRepo(dir) {
+					allCmds = append(allCmds, fetchDiffCmd(dir, selected.ID))
+				}
 				return h, tea.Batch(allCmds...)
 			}
 			// No selection, but still run detection commands if any
@@ -2993,6 +3023,26 @@ func (h *Home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return h, nil
 
+	case diffFetchedMsg:
+		selected := h.getSelectedSession()
+		if selected == nil || selected.ID != msg.sessionID {
+			return h, nil // stale result, discard
+		}
+		h.currentDiffRaw = msg.raw
+		h.currentDiffErr = msg.err
+		h.updateDiffStat()
+		// If the diff overlay is currently visible, re-parse with fresh data
+		if h.diffView.IsVisible() && msg.err == nil {
+			_ = h.diffView.Parse(msg.raw)
+		}
+		return h, nil
+
+	case editorFinishedMsg:
+		if msg.err != nil {
+			h.setError(msg.err)
+		}
+		return h, nil
+
 	case tickMsg:
 		// Auto-dismiss errors after 5 seconds
 		if h.err != nil && !h.errTime.IsZero() && time.Since(h.errTime) > 5*time.Second {
@@ -3203,6 +3253,13 @@ func (h *Home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		// Handle overlays first
+		// DiffView overlay intercepts keys when visible
+		if h.diffView.IsVisible() {
+			if handled, cmd := h.diffView.HandleKey(msg.String()); handled {
+				return h, cmd
+			}
+		}
+
 		// Help overlay takes priority (any key closes it)
 		if h.helpOverlay.IsVisible() {
 			h.helpOverlay, _ = h.helpOverlay.Update(msg)
@@ -3540,7 +3597,8 @@ func (h *Home) handleMouseMsg(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 
 	// Do not process mouse events when any modal dialog is open
 	if h.setupWizard.IsVisible() || h.settingsPanel.IsVisible() ||
-		h.helpOverlay.IsVisible() || h.search.IsVisible() ||
+		h.helpOverlay.IsVisible() || h.diffView.IsVisible() ||
+		h.search.IsVisible() ||
 		h.globalSearch.IsVisible() || h.newDialog.IsVisible() ||
 		h.groupDialog.IsVisible() || h.forkDialog.IsVisible() ||
 		h.confirmDialog.IsVisible() || h.geminiModelDialog.IsVisible() ||
@@ -3555,6 +3613,16 @@ func (h *Home) handleMouseMsg(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 		if h.cursor > 0 {
 			h.cursor--
 			h.syncViewport()
+			h.currentDiffRaw = ""
+			h.currentDiffErr = nil
+			h.updateDiffStat()
+		}
+		if selected := h.getSelectedSession(); selected != nil {
+			cmds := []tea.Cmd{h.fetchPreviewDebounced(selected.ID)}
+			if dir := h.effectiveDir(selected); dir != "" && git.IsGitRepo(dir) {
+				cmds = append(cmds, fetchDiffCmd(dir, selected.ID))
+			}
+			return h, tea.Batch(cmds...)
 		}
 		return h, nil
 
@@ -3562,6 +3630,16 @@ func (h *Home) handleMouseMsg(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 		if h.cursor < len(h.flatItems)-1 {
 			h.cursor++
 			h.syncViewport()
+			h.currentDiffRaw = ""
+			h.currentDiffErr = nil
+			h.updateDiffStat()
+		}
+		if selected := h.getSelectedSession(); selected != nil {
+			cmds := []tea.Cmd{h.fetchPreviewDebounced(selected.ID)}
+			if dir := h.effectiveDir(selected); dir != "" && git.IsGitRepo(dir) {
+				cmds = append(cmds, fetchDiffCmd(dir, selected.ID))
+			}
+			return h, tea.Batch(cmds...)
 		}
 		return h, nil
 
@@ -3602,12 +3680,20 @@ func (h *Home) handleMouseMsg(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 		// Move cursor to clicked row
 		h.cursor = idx
 		h.syncViewport()
+		h.currentDiffRaw = ""
+		h.currentDiffErr = nil
+		h.updateDiffStat()
 
 		if isDoubleClick && item.Session != nil && item.Session.Exists() {
 			h.isAttaching.Store(true)
 			return h, h.attachSession(item.Session)
 		}
 
+		if selected := h.getSelectedSession(); selected != nil {
+			if dir := h.effectiveDir(selected); dir != "" && git.IsGitRepo(dir) {
+				return h, fetchDiffCmd(dir, selected.ID)
+			}
+		}
 		return h, nil
 	}
 
@@ -3642,10 +3728,17 @@ func (h *Home) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			// Track navigation for adaptive background updates
 			h.lastNavigationTime = time.Now()
 			h.isNavigating = true
+			h.currentDiffRaw = ""
+			h.currentDiffErr = nil
+			h.updateDiffStat()
 			// PERFORMANCE: Debounced preview fetch - waits 150ms for navigation to settle
 			// This prevents spawning tmux subprocess on every keystroke
 			if selected := h.getSelectedSession(); selected != nil {
-				return h, h.fetchPreviewDebounced(selected.ID)
+				cmds := []tea.Cmd{h.fetchPreviewDebounced(selected.ID)}
+				if dir := h.effectiveDir(selected); dir != "" && git.IsGitRepo(dir) {
+					cmds = append(cmds, fetchDiffCmd(dir, selected.ID))
+				}
+				return h, tea.Batch(cmds...)
 			}
 		}
 		return h, nil
@@ -3657,10 +3750,17 @@ func (h *Home) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			// Track navigation for adaptive background updates
 			h.lastNavigationTime = time.Now()
 			h.isNavigating = true
+			h.currentDiffRaw = ""
+			h.currentDiffErr = nil
+			h.updateDiffStat()
 			// PERFORMANCE: Debounced preview fetch - waits 150ms for navigation to settle
 			// This prevents spawning tmux subprocess on every keystroke
 			if selected := h.getSelectedSession(); selected != nil {
-				return h, h.fetchPreviewDebounced(selected.ID)
+				cmds := []tea.Cmd{h.fetchPreviewDebounced(selected.ID)}
+				if dir := h.effectiveDir(selected); dir != "" && git.IsGitRepo(dir) {
+					cmds = append(cmds, fetchDiffCmd(dir, selected.ID))
+				}
+				return h, tea.Batch(cmds...)
 			}
 		}
 		return h, nil
@@ -3678,8 +3778,15 @@ func (h *Home) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		h.syncViewport()
 		h.lastNavigationTime = time.Now()
 		h.isNavigating = true
+		h.currentDiffRaw = ""
+		h.currentDiffErr = nil
+		h.updateDiffStat()
 		if selected := h.getSelectedSession(); selected != nil {
-			return h, h.fetchPreviewDebounced(selected.ID)
+			cmds := []tea.Cmd{h.fetchPreviewDebounced(selected.ID)}
+			if dir := h.effectiveDir(selected); dir != "" && git.IsGitRepo(dir) {
+				cmds = append(cmds, fetchDiffCmd(dir, selected.ID))
+			}
+			return h, tea.Batch(cmds...)
 		}
 		return h, nil
 
@@ -3698,8 +3805,15 @@ func (h *Home) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		h.syncViewport()
 		h.lastNavigationTime = time.Now()
 		h.isNavigating = true
+		h.currentDiffRaw = ""
+		h.currentDiffErr = nil
+		h.updateDiffStat()
 		if selected := h.getSelectedSession(); selected != nil {
-			return h, h.fetchPreviewDebounced(selected.ID)
+			cmds := []tea.Cmd{h.fetchPreviewDebounced(selected.ID)}
+			if dir := h.effectiveDir(selected); dir != "" && git.IsGitRepo(dir) {
+				cmds = append(cmds, fetchDiffCmd(dir, selected.ID))
+			}
+			return h, tea.Batch(cmds...)
 		}
 		return h, nil
 
@@ -3715,8 +3829,15 @@ func (h *Home) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		h.syncViewport()
 		h.lastNavigationTime = time.Now()
 		h.isNavigating = true
+		h.currentDiffRaw = ""
+		h.currentDiffErr = nil
+		h.updateDiffStat()
 		if selected := h.getSelectedSession(); selected != nil {
-			return h, h.fetchPreviewDebounced(selected.ID)
+			cmds := []tea.Cmd{h.fetchPreviewDebounced(selected.ID)}
+			if dir := h.effectiveDir(selected); dir != "" && git.IsGitRepo(dir) {
+				cmds = append(cmds, fetchDiffCmd(dir, selected.ID))
+			}
+			return h, tea.Batch(cmds...)
 		}
 		return h, nil
 
@@ -3735,8 +3856,15 @@ func (h *Home) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		h.syncViewport()
 		h.lastNavigationTime = time.Now()
 		h.isNavigating = true
+		h.currentDiffRaw = ""
+		h.currentDiffErr = nil
+		h.updateDiffStat()
 		if selected := h.getSelectedSession(); selected != nil {
-			return h, h.fetchPreviewDebounced(selected.ID)
+			cmds := []tea.Cmd{h.fetchPreviewDebounced(selected.ID)}
+			if dir := h.effectiveDir(selected); dir != "" && git.IsGitRepo(dir) {
+				cmds = append(cmds, fetchDiffCmd(dir, selected.ID))
+			}
+			return h, tea.Batch(cmds...)
 		}
 		return h, nil
 
@@ -3773,6 +3901,20 @@ func (h *Home) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				return h, func() tea.Msg {
 					exec.Command("tmux", "new-window", "-t", sessionName, "-c", wdir, "-n", "lazygit", "lazygit").Run()
 					return lazygitReadyMsg{session: sess}
+				}
+			}
+		}
+		return h, nil
+
+	case "D": // Show inline git diff overlay for the focused session
+		if h.cursor < len(h.flatItems) {
+			item := h.flatItems[h.cursor]
+			if item.Type == session.ItemTypeSession && item.Session != nil {
+				dir := h.effectiveDir(item.Session)
+				if dir != "" && git.IsGitRepo(dir) {
+					h.diffView.Parse(h.currentDiffRaw) //nolint:errcheck
+					h.diffView.SetSize(h.width, h.height)
+					h.diffView.Show()
 				}
 			}
 		}
@@ -5514,6 +5656,7 @@ func (h *Home) updateSizes() {
 	h.worktreeFinishDialog.SetSize(h.width, h.height)
 	h.sendTextDialog.SetSize(h.width, h.height)
 	h.todoDialog.SetSize(h.width, h.height)
+	h.diffView.SetSize(h.width, h.height)
 }
 
 // View renders the UI
@@ -5564,6 +5707,9 @@ func (h *Home) View() string {
 	}
 
 	// Overlays take full screen
+	if h.diffView.IsVisible() {
+		return h.diffView.View()
+	}
 	if h.helpOverlay.IsVisible() {
 		return h.helpOverlay.View()
 	}
@@ -8062,6 +8208,12 @@ func (h *Home) renderPreviewPane(width, height int) string {
 	b.WriteString(termHeader)
 	b.WriteString("\n")
 
+	// Render diffstat line using the dedicated method (avoids fragile ANSI scanning).
+	if line := h.preview.DiffStatLine(); line != "" {
+		b.WriteString(line)
+		b.WriteString("\n")
+	}
+
 	// Check if this session is launching (newly created), resuming (restarted), or forking
 	launchTime, isLaunching := h.launchingSessions[selected.ID]
 	resumeTime, isResuming := h.resumingSessions[selected.ID]
@@ -8875,6 +9027,36 @@ func (h *Home) getOtherActiveSessions(excludeID string) []*session.Instance {
 		result = append(result, inst)
 	}
 	return result
+}
+
+// effectiveDir returns the filesystem directory to use for git operations on a
+// session. For worktree sessions the worktree path is used; for regular
+// sessions the session's project path is used.
+func (h *Home) effectiveDir(s *session.Instance) string {
+	if s.IsWorktree() {
+		return s.WorktreePath
+	}
+	return s.ProjectPath
+}
+
+// updateDiffStat recomputes h.preview.DiffStat from the current diff data and
+// the currently focused session.  Call this from Update() whenever the focused
+// session or the diff data changes — never from View().
+func (h *Home) updateDiffStat() {
+	selected := h.getSelectedSession()
+	if selected == nil {
+		h.preview.DiffStat = ""
+		return
+	}
+	if dir := h.effectiveDir(selected); dir != "" && git.IsGitRepo(dir) {
+		if h.currentDiffErr != nil {
+			h.preview.DiffStat = "diff unavailable"
+		} else {
+			h.preview.DiffStat = git.DiffSummary(h.currentDiffRaw)
+		}
+	} else {
+		h.preview.DiffStat = ""
+	}
 }
 
 // getSessionContent retrieves displayable content from a session.
