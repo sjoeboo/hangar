@@ -668,7 +668,7 @@ func (d *TodoDialog) renderDetailPanel(innerW int) string {
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(lipgloss.Color("#3a4a5a")).
 		Padding(0, 1).
-		Width(innerW).
+		Width(innerW - 2).
 		Render(label + "\n" + body)
 }
 
