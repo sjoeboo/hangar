@@ -3465,11 +3465,14 @@ func (h *Home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					}
 				}
 			case "confirm":
-				branch, prNum, sessionName, initialPrompt := h.reviewDialog.GetReviewValues()
+				branch, _, sessionName, initialPrompt := h.reviewDialog.GetReviewValues()
 				repoDir := h.reviewDialog.GetRepoDir()
 				groupPath := h.reviewDialog.groupPath
 				h.reviewDialog.Hide()
-				return h, h.createReviewSession(repoDir, branch, prNum, sessionName, groupPath, initialPrompt)
+				return h, h.createReviewSession(repoDir, branch, sessionName, groupPath, initialPrompt)
+			}
+			if cmd := h.reviewDialog.Update(msg); cmd != nil {
+				return h, cmd
 			}
 			return h, nil
 		}
@@ -9619,7 +9622,7 @@ func resolvePRBranch(repoDir, prNum string) (branch, title string, err error) {
 
 // createReviewSession fetches the branch, creates a worktree, and starts a Claude session.
 func (h *Home) createReviewSession(
-	repoDir, branch, prNum, sessionName, groupPath, initialPrompt string,
+	repoDir, branch, sessionName, groupPath, initialPrompt string,
 ) tea.Cmd {
 	return func() tea.Msg {
 		if err := git.FetchBranch(repoDir, branch); err != nil {
@@ -9634,6 +9637,10 @@ func (h *Home) createReviewSession(
 			SessionID: git.GeneratePathID(),
 			Template:  wtSettings.Template(),
 		})
+
+		if err := os.MkdirAll(filepath.Dir(worktreePath), 0755); err != nil {
+			return reviewSessionCreatedMsg{err: fmt.Errorf("create worktree parent dir: %w", err)}
+		}
 
 		if err := git.CreateWorktree(repoDir, worktreePath, branch); err != nil {
 			return reviewSessionCreatedMsg{err: fmt.Errorf("create worktree: %w", err)}
