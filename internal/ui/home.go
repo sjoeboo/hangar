@@ -6757,12 +6757,10 @@ func (h *Home) renderHelpBarMinimal() string {
 			if item.Session != nil && item.Session.CanFork() {
 				contextKeys += " " + keyStyle.Render("f")
 			}
-			if item.Session != nil && (item.Session.Tool == "claude" || item.Session.Tool == "gemini") {
-				contextKeys += " " + keyStyle.Render("m")
+			if item.Session != nil && item.Session.IsWorktree() {
+				contextKeys += " " + keyStyle.Render("W")
 			}
-			if item.Session != nil && item.Session.Tool == "claude" {
-				contextKeys += " " + keyStyle.Render("s")
-			}
+			contextKeys += " " + keyStyle.Render("D") + " " + keyStyle.Render("G") + " " + keyStyle.Render("t")
 		}
 	}
 
@@ -6818,8 +6816,16 @@ func (h *Home) renderHelpBarCompact() string {
 			if item.Session != nil && item.Session.CanFork() {
 				contextHints = append(contextHints, h.helpKeyShort("f", "Fork"))
 			}
-			contextHints = append(contextHints, h.helpKeyShort("c", "Copy"))
-			contextHints = append(contextHints, h.helpKeyShort("x", "Send"))
+			if item.Session != nil && item.Session.IsWorktree() {
+				contextHints = append(contextHints, h.helpKeyShort("W", "Finish"))
+			}
+			contextHints = append(contextHints,
+				h.helpKeyShort("c", "Copy"),
+				h.helpKeyShort("x", "Send"),
+				h.helpKeyShort("D", "Diff"),
+				h.helpKeyShort("G", "Git"),
+				h.helpKeyShort("t", "Todos"),
+			)
 			if item.Session != nil {
 				h.prCacheMu.Lock()
 				pr, hasPR := h.prCache[item.Session.ID]
@@ -6894,9 +6900,11 @@ func (h *Home) renderHelpBarFull() string {
 				h.helpKey("Tab", "Toggle"),
 				h.helpKey("n/N", "New/Quick"),
 				h.helpKey("p", "Project"),
+				h.helpKey("t", "Todos"),
 			}
 			secondaryHints = []string{
 				h.helpKey("r", "Rename"),
+				h.helpKey("K/J", "Reorder"),
 				h.helpKey("d", "Delete"),
 			}
 		} else {
@@ -6911,8 +6919,16 @@ func (h *Home) renderHelpBarFull() string {
 			if item.Session != nil && item.Session.CanFork() {
 				primaryHints = append(primaryHints, h.helpKey("f/F", "Fork"))
 			}
-			primaryHints = append(primaryHints, h.helpKey("c", "Copy"))
-			primaryHints = append(primaryHints, h.helpKey("x", "Send"))
+			if item.Session != nil && item.Session.IsWorktree() {
+				primaryHints = append(primaryHints, h.helpKey("W", "Finish"))
+			}
+			primaryHints = append(primaryHints,
+				h.helpKey("c", "Copy"),
+				h.helpKey("x", "Send"),
+				h.helpKey("D", "Diff"),
+				h.helpKey("t", "Todos"),
+			)
+			primaryHints = append(primaryHints, h.helpKey("G", "Git"))
 			if item.Session != nil {
 				h.prCacheMu.Lock()
 				pr, hasPR := h.prCache[item.Session.ID]
@@ -6924,6 +6940,7 @@ func (h *Home) renderHelpBarFull() string {
 			secondaryHints = []string{
 				h.helpKey("r", "Rename"),
 				h.helpKey("M", "Move"),
+				h.helpKey("K/J", "Reorder"),
 				h.helpKey("d", "Delete"),
 			}
 		}
@@ -6966,8 +6983,8 @@ func (h *Home) renderHelpBarFull() string {
 	// Global shortcuts (right side) - more compact with separators
 	globalStyle := lipgloss.NewStyle().Foreground(ColorComment)
 	globalHints := globalStyle.Render("↑↓ Nav") + sep +
-		globalStyle.Render("/ Search  G Global") + sep +
-		globalStyle.Render("? Help  q Quit")
+		globalStyle.Render("/ Search") + sep +
+		globalStyle.Render("S Settings  ? Help  q Quit")
 
 	// Calculate spacing between left (context) and right (global) portions
 	leftPart := contextLabel + " " + shortcutsLine
