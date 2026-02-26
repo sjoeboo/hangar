@@ -1946,3 +1946,52 @@ func TestBulkSelectMode_XKeyFallsThrough_WhenNoSelections(t *testing.T) {
 		t.Error("sendTextTargetIDs should be nil/empty for single-session send")
 	}
 }
+
+func TestBulkSelectMode_RKeyShowsBulkRestartConfirm(t *testing.T) {
+	home := NewHome()
+	home.width = 100
+	home.height = 30
+	home.initialLoading = false
+
+	inst1 := &session.Instance{ID: "id-1", Title: "sess-1", Tool: "claude"}
+	inst2 := &session.Instance{ID: "id-2", Title: "sess-2", Tool: "claude"}
+	home.instancesMu.Lock()
+	home.instances = []*session.Instance{inst1, inst2}
+	home.instanceByID = map[string]*session.Instance{"id-1": inst1, "id-2": inst2}
+	home.instancesMu.Unlock()
+	home.groupTree = session.NewGroupTree(home.instances)
+	home.rebuildFlatItems()
+
+	home.bulkSelectMode = true
+	home.selectedSessionIDs = map[string]bool{"id-1": true, "id-2": true}
+
+	rMsg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'R'}}
+	model, _ := home.Update(rMsg)
+	h := model.(*Home)
+
+	if !h.confirmDialog.IsVisible() {
+		t.Error("R in bulk mode should show confirm dialog")
+	}
+	if h.confirmDialog.GetConfirmType() != ConfirmBulkRestart {
+		t.Errorf("confirm type = %v, want ConfirmBulkRestart", h.confirmDialog.GetConfirmType())
+	}
+}
+
+func TestBulkSelectMode_RKeyFallsThrough_WhenNoSelections(t *testing.T) {
+	home := NewHome()
+	home.width = 100
+	home.height = 30
+	home.initialLoading = false
+
+	// Bulk mode but nothing selected — should not show any confirm dialog
+	home.bulkSelectMode = true
+	home.selectedSessionIDs = map[string]bool{}
+
+	rMsg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'R'}}
+	model, _ := home.Update(rMsg)
+	h := model.(*Home)
+
+	if h.confirmDialog.IsVisible() {
+		t.Error("R with no selections should not show bulk confirm dialog")
+	}
+}

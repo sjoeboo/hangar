@@ -2695,6 +2695,16 @@ func (h *Home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return h, nil
 
+	case bulkRestartedMsg:
+		h.bulkSelectMode = false
+		h.selectedSessionIDs = make(map[string]bool)
+		if len(msg.errs) > 0 {
+			h.setError(fmt.Errorf("restarted %d sessions (%d failed)", len(msg.restartedIDs), len(msg.errs)))
+		} else {
+			h.setError(fmt.Errorf("restarted %d sessions", len(msg.restartedIDs)))
+		}
+		return h, nil
+
 	case mcpRestartedMsg:
 		if msg.err != nil {
 			h.setError(fmt.Errorf("failed to restart session for MCP changes: %w", msg.err))
@@ -4553,7 +4563,12 @@ func (h *Home) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return h, nil
 
 	case "R":
-		// Restart session (Shift+R - recreate tmux session with resume)
+		// Bulk mode: confirm restart of all selected sessions
+		if h.bulkSelectMode && len(h.selectedSessionIDs) > 0 {
+			h.confirmDialog.ShowBulkRestart(len(h.selectedSessionIDs))
+			return h, nil
+		}
+		// Single-session restart (existing logic unchanged below)
 		if h.cursor < len(h.flatItems) {
 			item := h.flatItems[h.cursor]
 			if item.Type == session.ItemTypeSession && item.Session != nil {
@@ -4932,6 +4947,23 @@ func (h *Home) handleConfirmDialogKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				h.confirmDialog.Hide()
 				if len(insts) > 0 {
 					return h, h.bulkDeleteSessions(insts)
+				}
+				return h, nil
+			case ConfirmBulkRestart:
+				var insts []*session.Instance
+				for _, item := range h.flatItems {
+					if item.Type == session.ItemTypeSession && item.Session != nil {
+						if h.selectedSessionIDs[item.Session.ID] {
+							insts = append(insts, item.Session)
+						}
+					}
+				}
+				h.confirmDialog.Hide()
+				if len(insts) > 0 {
+					for _, inst := range insts {
+						h.resumingSessions[inst.ID] = time.Now()
+					}
+					return h, h.bulkRestartSessions(insts)
 				}
 				return h, nil
 			}
@@ -5759,6 +5791,38 @@ func (h *Home) restartSession(inst *session.Instance) tea.Cmd {
 		err := current.Restart()
 		mcpUILog.Debug("restart_session_result", slog.String("id", id), slog.Any("error", err))
 		return sessionRestartedMsg{sessionID: id, err: err}
+	}
+}
+
+// bulkRestartedMsg signals that a bulk restart completed
+type bulkRestartedMsg struct {
+	restartedIDs []string
+	errs         []error
+}
+
+// bulkRestartSessions restarts multiple sessions concurrently
+func (h *Home) bulkRestartSessions(insts []*session.Instance) tea.Cmd {
+	ids := make([]string, len(insts))
+	for i, inst := range insts {
+		ids[i] = inst.ID
+	}
+	return func() tea.Msg {
+		var restartedIDs []string
+		var errs []error
+		for _, id := range ids {
+			h.instancesMu.RLock()
+			inst := h.instanceByID[id]
+			h.instancesMu.RUnlock()
+			if inst == nil {
+				continue
+			}
+			if err := inst.Restart(); err != nil {
+				errs = append(errs, err)
+			} else {
+				restartedIDs = append(restartedIDs, id)
+			}
+		}
+		return bulkRestartedMsg{restartedIDs: restartedIDs, errs: errs}
 	}
 }
 
