@@ -435,6 +435,12 @@ type sendTextResultMsg struct {
 	err         error
 }
 
+// diffFetchedMsg is sent when a git diff has been fetched for the focused session.
+type diffFetchedMsg struct {
+	raw string
+	err error
+}
+
 // systemThemeMsg is sent when the OS dark mode setting changes.
 type systemThemeMsg struct {
 	dark bool
@@ -1490,6 +1496,15 @@ func (h *Home) fetchPreviewDebounced(sessionID string) tea.Cmd {
 }
 
 // detectOpenCodeSessionCmd returns a command that asynchronously detects
+// fetchDiffCmd returns a tea.Cmd that fetches the git diff for the given
+// directory and returns the result as a diffFetchedMsg.
+func fetchDiffCmd(dir string) tea.Cmd {
+	return func() tea.Msg {
+		raw, err := git.FetchDiff(dir)
+		return diffFetchedMsg{raw: raw, err: err}
+	}
+}
+
 // the OpenCode session ID for a restored session and signals completion.
 // This follows the Bubble Tea pattern of returning a tea.Cmd for async work.
 func (h *Home) detectOpenCodeSessionCmd(inst *session.Instance) tea.Cmd {
@@ -2261,8 +2276,11 @@ func (h *Home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				h.previewCacheMu.Lock()
 				h.previewFetchingID = selected.ID
 				h.previewCacheMu.Unlock()
-				// Batch preview fetch with any OpenCode detection commands
+				// Batch preview fetch with any OpenCode detection commands and diff fetch
 				allCmds := append(detectionCmds, h.fetchPreview(selected))
+				if dir := h.effectiveDir(selected); dir != "" && git.IsGitRepo(dir) {
+					allCmds = append(allCmds, fetchDiffCmd(dir))
+				}
 				return h, tea.Batch(allCmds...)
 			}
 			// No selection, but still run detection commands if any
@@ -2999,6 +3017,18 @@ func (h *Home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return h, nil
 
+	case diffFetchedMsg:
+		h.currentDiffRaw = msg.raw
+		h.currentDiffErr = msg.err
+		h.updateDiffStat()
+		// If the diff overlay is currently visible, re-parse with fresh data
+		if h.diffView.IsVisible() {
+			if msg.err == nil {
+				_ = h.diffView.Parse(msg.raw)
+			}
+		}
+		return h, nil
+
 	case editorFinishedMsg:
 		if msg.err != nil {
 			h.setError(msg.err)
@@ -3579,6 +3609,11 @@ func (h *Home) handleMouseMsg(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 			h.currentDiffErr = nil
 			h.updateDiffStat()
 		}
+		if selected := h.getSelectedSession(); selected != nil {
+			if dir := h.effectiveDir(selected); dir != "" && git.IsGitRepo(dir) {
+				return h, fetchDiffCmd(dir)
+			}
+		}
 		return h, nil
 
 	case tea.MouseButtonWheelDown:
@@ -3588,6 +3623,11 @@ func (h *Home) handleMouseMsg(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 			h.currentDiffRaw = ""
 			h.currentDiffErr = nil
 			h.updateDiffStat()
+		}
+		if selected := h.getSelectedSession(); selected != nil {
+			if dir := h.effectiveDir(selected); dir != "" && git.IsGitRepo(dir) {
+				return h, fetchDiffCmd(dir)
+			}
 		}
 		return h, nil
 
@@ -3637,6 +3677,11 @@ func (h *Home) handleMouseMsg(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 			return h, h.attachSession(item.Session)
 		}
 
+		if selected := h.getSelectedSession(); selected != nil {
+			if dir := h.effectiveDir(selected); dir != "" && git.IsGitRepo(dir) {
+				return h, fetchDiffCmd(dir)
+			}
+		}
 		return h, nil
 	}
 
@@ -3677,7 +3722,11 @@ func (h *Home) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			// PERFORMANCE: Debounced preview fetch - waits 150ms for navigation to settle
 			// This prevents spawning tmux subprocess on every keystroke
 			if selected := h.getSelectedSession(); selected != nil {
-				return h, h.fetchPreviewDebounced(selected.ID)
+				cmds := []tea.Cmd{h.fetchPreviewDebounced(selected.ID)}
+				if dir := h.effectiveDir(selected); dir != "" && git.IsGitRepo(dir) {
+					cmds = append(cmds, fetchDiffCmd(dir))
+				}
+				return h, tea.Batch(cmds...)
 			}
 		}
 		return h, nil
@@ -3695,7 +3744,11 @@ func (h *Home) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			// PERFORMANCE: Debounced preview fetch - waits 150ms for navigation to settle
 			// This prevents spawning tmux subprocess on every keystroke
 			if selected := h.getSelectedSession(); selected != nil {
-				return h, h.fetchPreviewDebounced(selected.ID)
+				cmds := []tea.Cmd{h.fetchPreviewDebounced(selected.ID)}
+				if dir := h.effectiveDir(selected); dir != "" && git.IsGitRepo(dir) {
+					cmds = append(cmds, fetchDiffCmd(dir))
+				}
+				return h, tea.Batch(cmds...)
 			}
 		}
 		return h, nil
@@ -3717,7 +3770,11 @@ func (h *Home) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		h.currentDiffErr = nil
 		h.updateDiffStat()
 		if selected := h.getSelectedSession(); selected != nil {
-			return h, h.fetchPreviewDebounced(selected.ID)
+			cmds := []tea.Cmd{h.fetchPreviewDebounced(selected.ID)}
+			if dir := h.effectiveDir(selected); dir != "" && git.IsGitRepo(dir) {
+				cmds = append(cmds, fetchDiffCmd(dir))
+			}
+			return h, tea.Batch(cmds...)
 		}
 		return h, nil
 
@@ -3740,7 +3797,11 @@ func (h *Home) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		h.currentDiffErr = nil
 		h.updateDiffStat()
 		if selected := h.getSelectedSession(); selected != nil {
-			return h, h.fetchPreviewDebounced(selected.ID)
+			cmds := []tea.Cmd{h.fetchPreviewDebounced(selected.ID)}
+			if dir := h.effectiveDir(selected); dir != "" && git.IsGitRepo(dir) {
+				cmds = append(cmds, fetchDiffCmd(dir))
+			}
+			return h, tea.Batch(cmds...)
 		}
 		return h, nil
 
@@ -3760,7 +3821,11 @@ func (h *Home) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		h.currentDiffErr = nil
 		h.updateDiffStat()
 		if selected := h.getSelectedSession(); selected != nil {
-			return h, h.fetchPreviewDebounced(selected.ID)
+			cmds := []tea.Cmd{h.fetchPreviewDebounced(selected.ID)}
+			if dir := h.effectiveDir(selected); dir != "" && git.IsGitRepo(dir) {
+				cmds = append(cmds, fetchDiffCmd(dir))
+			}
+			return h, tea.Batch(cmds...)
 		}
 		return h, nil
 
@@ -3783,7 +3848,11 @@ func (h *Home) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		h.currentDiffErr = nil
 		h.updateDiffStat()
 		if selected := h.getSelectedSession(); selected != nil {
-			return h, h.fetchPreviewDebounced(selected.ID)
+			cmds := []tea.Cmd{h.fetchPreviewDebounced(selected.ID)}
+			if dir := h.effectiveDir(selected); dir != "" && git.IsGitRepo(dir) {
+				cmds = append(cmds, fetchDiffCmd(dir))
+			}
+			return h, tea.Batch(cmds...)
 		}
 		return h, nil
 
