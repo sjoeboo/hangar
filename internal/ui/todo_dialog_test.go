@@ -99,3 +99,41 @@ func TestBuildColumns_TodosDistributedCorrectly(t *testing.T) {
 		t.Errorf("Done column should have 1 item, got %d", len(cols[3].todos))
 	}
 }
+
+func TestTodoDialog_SelectedTodo_EmptyBoard(t *testing.T) {
+	d := NewTodoDialog()
+	d.SetSize(120, 40)
+	d.Show("/proj", "", "", nil)
+	if d.SelectedTodo() != nil {
+		t.Error("expected nil SelectedTodo on empty board")
+	}
+}
+
+func TestTodoDialog_SelectedTodo_FirstTodo(t *testing.T) {
+	d := NewTodoDialog()
+	d.SetSize(120, 40)
+	todos := []*session.Todo{makeTodo("x", session.TodoStatusTodo)}
+	d.Show("/proj", "", "", todos)
+	got := d.SelectedTodo()
+	if got == nil || got.ID != "x" {
+		t.Errorf("expected todo x, got %v", got)
+	}
+}
+
+func TestTodoDialog_SetTodos_PreservesCursorByID(t *testing.T) {
+	d := NewTodoDialog()
+	d.SetSize(120, 40)
+	todos := []*session.Todo{
+		makeTodo("a", session.TodoStatusTodo),
+		makeTodo("b", session.TodoStatusInProgress),
+	}
+	d.Show("/proj", "", "", todos)
+	// Move cursor to the InProgress column (col 1)
+	d.selectedCol = 1
+	// Now reload todos — b should still be selected
+	d.SetTodos(todos)
+	got := d.SelectedTodo()
+	if got == nil || got.ID != "b" {
+		t.Errorf("expected cursor to stay on b, got %v", got)
+	}
+}

@@ -57,7 +57,7 @@ func buildColumns(todos []*session.Todo) []kanbanColumn {
 type todoDialogMode int
 
 const (
-	todoModeList   todoDialogMode = iota
+	todoModeKanban todoDialogMode = iota
 	todoModeNew                   // new-todo form
 	todoModeEdit                  // edit-todo form
 	todoModeStatus                // status picker
@@ -69,18 +69,24 @@ type TodoDialog struct {
 	width       int
 	height      int
 	projectPath string
-	groupPath   string // group this project belongs to
+	groupPath   string
 	groupName   string
 	todos       []*session.Todo
-	cursor      int
-	mode        todoDialogMode
-	errorMsg    string
+
+	// kanban cursor state (derived cols cached here, rebuilt on SetTodos/Show)
+	cols        []kanbanColumn
+	selectedCol int
+	selectedRow []int // one cursor per column; indexed by column index
+
+	mode     todoDialogMode
+	errorMsg string
 
 	// new/edit form fields
-	titleInput textinput.Model
-	descInput  textinput.Model
-	formFocus  int    // 0=title, 1=desc
-	editingID  string // non-empty when editing
+	titleInput    textinput.Model
+	descInput     textinput.Model
+	formFocus     int               // 0=title, 1=desc
+	editingID     string            // non-empty when editing
+	newTodoStatus session.TodoStatus // status pre-selected from focused column when pressing n
 
 	// status picker
 	statusOptions []session.TodoStatus
@@ -112,6 +118,58 @@ func NewTodoDialog() *TodoDialog {
 	}
 }
 
+// rebuildCols rebuilds the derived column structure from d.todos.
+// Preserves the cursor position by todo ID where possible; otherwise clamps.
+func (d *TodoDialog) rebuildCols() {
+	// Snapshot current selected ID before rebuild
+	var prevID string
+	if t := d.SelectedTodo(); t != nil {
+		prevID = t.ID
+	}
+
+	d.cols = buildColumns(d.todos)
+
+	// Ensure selectedRow has one entry per column
+	newRow := make([]int, len(d.cols))
+	for i := range newRow {
+		if i < len(d.selectedRow) {
+			newRow[i] = d.selectedRow[i]
+		}
+	}
+	d.selectedRow = newRow
+
+	// Clamp each row cursor to valid range
+	for i, col := range d.cols {
+		if len(col.todos) == 0 {
+			d.selectedRow[i] = 0
+		} else if d.selectedRow[i] >= len(col.todos) {
+			d.selectedRow[i] = len(col.todos) - 1
+		}
+	}
+
+	// Clamp column cursor
+	if len(d.cols) == 0 {
+		d.selectedCol = 0
+		return
+	}
+	if d.selectedCol >= len(d.cols) {
+		d.selectedCol = len(d.cols) - 1
+	}
+
+	// Restore cursor to the same todo ID
+	if prevID != "" {
+		for colIdx, col := range d.cols {
+			for rowIdx, t := range col.todos {
+				if t.ID == prevID {
+					d.selectedCol = colIdx
+					d.selectedRow[colIdx] = rowIdx
+					return
+				}
+			}
+		}
+	}
+}
+
 // IsVisible returns true if the dialog is open.
 func (d *TodoDialog) IsVisible() bool { return d.visible }
 
@@ -122,9 +180,11 @@ func (d *TodoDialog) Show(projectPath, groupPath, groupName string, todos []*ses
 	d.groupPath = groupPath
 	d.groupName = groupName
 	d.todos = todos
-	d.cursor = 0
-	d.mode = todoModeList
+	d.selectedCol = 0
+	d.selectedRow = nil // rebuildCols initialises this
+	d.mode = todoModeKanban
 	d.errorMsg = ""
+	d.rebuildCols()
 }
 
 // Hide closes the dialog.
@@ -145,21 +205,23 @@ func (d *TodoDialog) SetSize(w, h int) {
 // SetTodos replaces the current todo list (used after reloads).
 func (d *TodoDialog) SetTodos(todos []*session.Todo) {
 	d.todos = todos
-	if d.cursor >= len(d.todos) {
-		if len(d.todos) > 0 {
-			d.cursor = len(d.todos) - 1
-		} else {
-			d.cursor = 0
-		}
-	}
+	d.rebuildCols()
 }
 
 // SelectedTodo returns the currently selected todo, or nil.
 func (d *TodoDialog) SelectedTodo() *session.Todo {
-	if len(d.todos) == 0 || d.cursor >= len(d.todos) {
+	if len(d.cols) == 0 || d.selectedCol >= len(d.cols) {
 		return nil
 	}
-	return d.todos[d.cursor]
+	col := d.cols[d.selectedCol]
+	if len(col.todos) == 0 {
+		return nil
+	}
+	row := d.selectedRow[d.selectedCol]
+	if row >= len(col.todos) {
+		return nil
+	}
+	return col.todos[row]
 }
 
 // todoStatusIcon returns the icon string for a given status.
@@ -246,8 +308,8 @@ func (d *TodoDialog) GetPickedStatus() session.TodoStatus {
 // HandleKey processes a keypress and returns the action the caller should take.
 func (d *TodoDialog) HandleKey(msg tea.KeyMsg) TodoAction {
 	switch d.mode {
-	case todoModeList:
-		return d.handleListKey(msg.String())
+	case todoModeKanban:
+		return d.handleKanbanKey(msg.String())
 	case todoModeNew, todoModeEdit:
 		return d.handleFormKey(msg)
 	case todoModeStatus:
@@ -259,12 +321,12 @@ func (d *TodoDialog) HandleKey(msg tea.KeyMsg) TodoAction {
 func (d *TodoDialog) handleListKey(key string) TodoAction {
 	switch key {
 	case "up", "k":
-		if d.cursor > 0 {
-			d.cursor--
+		if d.selectedCol < len(d.selectedRow) && d.selectedRow[d.selectedCol] > 0 {
+			d.selectedRow[d.selectedCol]--
 		}
 	case "down", "j":
-		if d.cursor < len(d.todos)-1 {
-			d.cursor++
+		if d.selectedCol < len(d.cols) && d.selectedRow[d.selectedCol] < len(d.cols[d.selectedCol].todos)-1 {
+			d.selectedRow[d.selectedCol]++
 		}
 	case "n":
 		d.openNewForm()
@@ -315,7 +377,7 @@ func (d *TodoDialog) handleFormKey(msg tea.KeyMsg) TodoAction {
 		}
 		return TodoActionSaveTodo
 	case "esc":
-		d.mode = todoModeList
+		d.mode = todoModeKanban
 		d.errorMsg = ""
 	default:
 		// Pass the real tea.KeyMsg to preserve Type (backspace, arrows, ctrl+w, etc.)
@@ -339,10 +401,10 @@ func (d *TodoDialog) handleStatusKey(key string) TodoAction {
 			d.statusCursor++
 		}
 	case "enter":
-		d.mode = todoModeList
+		d.mode = todoModeKanban
 		return TodoActionUpdateStatus
 	case "esc":
-		d.mode = todoModeList
+		d.mode = todoModeKanban
 	}
 	return TodoActionNone
 }
@@ -382,7 +444,7 @@ func (d *TodoDialog) openStatusPicker(t *session.Todo) {
 
 // ResetFormToList returns dialog to list mode (call after successful save/update).
 func (d *TodoDialog) ResetFormToList() {
-	d.mode = todoModeList
+	d.mode = todoModeKanban
 	d.errorMsg = ""
 }
 
@@ -397,7 +459,7 @@ func (d *TodoDialog) View() string {
 	case todoModeStatus:
 		return d.viewStatusPicker()
 	default:
-		return d.viewList()
+		return d.viewKanban()
 	}
 }
 
@@ -427,7 +489,8 @@ func (d *TodoDialog) viewList() string {
 	if innerWidth < 20 {
 		innerWidth = 20
 	}
-	for i, t := range d.todos {
+	selectedTodo := d.SelectedTodo()
+	for _, t := range d.todos {
 		statusSt := todoStatusStyle(t.Status)
 		icon := statusSt.Render(todoStatusIcon(t.Status))
 		label := statusSt.Render(todoStatusLabel(t.Status))
@@ -444,7 +507,8 @@ func (d *TodoDialog) viewList() string {
 		}
 		line := fmt.Sprintf(" %s %s%s%s", icon, titleCol, strings.Repeat(" ", gap), label)
 
-		if i == d.cursor {
+		isSelected := selectedTodo != nil && t.ID == selectedTodo.ID
+		if isSelected {
 			line = lipgloss.NewStyle().
 				Background(lipgloss.Color("#2a3a4a")).
 				Foreground(lipgloss.Color("#ffffff")).
@@ -453,7 +517,7 @@ func (d *TodoDialog) viewList() string {
 		rows = append(rows, line)
 
 		// For the selected item, show description and session hint
-		if i == d.cursor {
+		if isSelected {
 			if t.Description != "" {
 				desc := t.Description
 				maxDescWidth := innerWidth - 5
@@ -549,4 +613,12 @@ func (d *TodoDialog) viewStatusPicker() string {
 func TodoBranchName(title string) string {
 	lower := strings.ToLower(title)
 	return git.SanitizeBranchName(lower)
+}
+
+func (d *TodoDialog) handleKanbanKey(key string) TodoAction {
+	return d.handleListKey(key) // temporary stub, replaced in Task 4
+}
+
+func (d *TodoDialog) viewKanban() string {
+	return d.viewList() // temporary stub, replaced in Task 5
 }
