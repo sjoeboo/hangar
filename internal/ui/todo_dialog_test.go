@@ -467,6 +467,27 @@ func TestTodoDialog_ViewKanban_NoDescriptionShowsPlaceholder(t *testing.T) {
 	}
 }
 
+func TestTodoDialog_ViewKanban_NoDetailPanelOnEmptyColumn(t *testing.T) {
+	d := NewTodoDialog()
+	d.SetSize(160, 40)
+	// Only a todo-column todo exists; in-progress (col 1) is empty
+	todos := []*session.Todo{
+		{ID: "1", Title: "A task", Description: "some desc", Status: session.TodoStatusTodo},
+	}
+	d.Show("/proj", "/proj", "proj", todos)
+	// Move cursor to the empty in-progress column
+	d.selectedCol = 1
+
+	view := d.View()
+	// Panel should be hidden — no placeholder, no description text
+	if strings.Contains(view, "no description") {
+		t.Errorf("expected no detail panel when cursor is on empty column, but got 'no description' in view")
+	}
+	if strings.Contains(view, "some desc") {
+		t.Errorf("expected no description text when cursor is on empty column")
+	}
+}
+
 func TestWordWrapText(t *testing.T) {
 	tests := []struct {
 		name     string
