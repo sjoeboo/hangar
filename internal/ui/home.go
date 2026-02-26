@@ -304,6 +304,9 @@ type Home struct {
 	// UI state persistence across restarts
 	pendingCursorRestore *uiState // Consumed on first loadSessionsMsg to restore cursor
 	uiStateSaveTicks     int      // Counter for periodic UI state saves in tick handler
+
+	// Diff data for the focused session (populated async in Task 8; defaults to "" until fetched)
+	currentDiffRaw string // raw unified diff output for the currently focused session
 }
 
 // reloadState preserves UI state during storage reload
@@ -7471,6 +7474,14 @@ func (h *Home) renderPreviewPane(width, height int) string {
 	b.WriteString(groupBadge)
 	b.WriteString("\n")
 
+	// Diffstat line: show a one-line summary when the session lives in a git repo
+	if dir := h.effectiveDir(selected); dir != "" && git.IsGitRepo(dir) {
+		diffStat := git.DiffSummary(h.currentDiffRaw)
+		dimStyle := lipgloss.NewStyle().Foreground(ColorTextDim)
+		b.WriteString(dimStyle.Render("~ " + diffStat))
+		b.WriteString("\n")
+	}
+
 	// Worktree info section (for sessions running in git worktrees)
 	if selected.IsWorktree() {
 		wtHeader := renderSectionDivider("Worktree", width-4)
@@ -8843,6 +8854,16 @@ func (h *Home) getOtherActiveSessions(excludeID string) []*session.Instance {
 		result = append(result, inst)
 	}
 	return result
+}
+
+// effectiveDir returns the filesystem directory to use for git operations on a
+// session. For worktree sessions the worktree path is used; for regular
+// sessions the session's project path is used.
+func (h *Home) effectiveDir(s *session.Instance) string {
+	if s.IsWorktree() && s.WorktreePath != "" {
+		return s.WorktreePath
+	}
+	return s.ProjectPath
 }
 
 // getSessionContent retrieves displayable content from a session.
