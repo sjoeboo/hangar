@@ -27,6 +27,31 @@ func TestBuildColumns_AlwaysFourMainCols(t *testing.T) {
 	if cols[3].status != session.TodoStatusDone {
 		t.Errorf("col 3 should be Done, got %s", cols[3].status)
 	}
+	if cols[0].label == "" {
+		t.Error("col 0 label should not be empty")
+	}
+	if cols[1].label == "" {
+		t.Error("col 1 label should not be empty")
+	}
+	if cols[2].label == "" {
+		t.Error("col 2 label should not be empty")
+	}
+	if cols[3].label == "" {
+		t.Error("col 3 label should not be empty")
+	}
+}
+
+func TestBuildColumns_UnrecognisedStatusGoesToOrphaned(t *testing.T) {
+	todos := []*session.Todo{
+		makeTodo("x", session.TodoStatus("future_status")),
+	}
+	cols := buildColumns(todos)
+	if len(cols) != 5 {
+		t.Fatalf("expected 5 columns (orphaned), got %d", len(cols))
+	}
+	if len(cols[4].todos) != 1 || cols[4].todos[0].ID != "x" {
+		t.Errorf("expected future_status todo in orphaned column, got %v", cols[4])
+	}
 }
 
 func TestBuildColumns_OrphanedColHiddenWhenNone(t *testing.T) {

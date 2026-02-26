@@ -39,7 +39,7 @@ func buildColumns(todos []*session.Todo) []kanbanColumn {
 	for _, t := range todos {
 		if idx, ok := statusIndex[t.Status]; ok {
 			cols[idx].todos = append(cols[idx].todos, t)
-		} else if t.Status == session.TodoStatusOrphaned {
+		} else {
 			orphaned = append(orphaned, t)
 		}
 	}
