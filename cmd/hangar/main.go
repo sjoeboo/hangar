@@ -2451,7 +2451,7 @@ func handleUninstall(args []string) {
 
 	fmt.Println()
 	fmt.Println("Thank you for using Hangar!")
-	fmt.Println("Feedback: https://ghe.spotify.net/mnicholson/hangar/issues")
+	fmt.Println("Feedback: https://github.com/sjoeboo/hangar/issues")
 }
 
 // isNestedSession returns true if we're running inside an hangar managed tmux session.
