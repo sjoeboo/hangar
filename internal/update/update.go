@@ -375,7 +375,7 @@ type ChangelogEntry struct {
 
 // FetchChangelog fetches the CHANGELOG.md from GitHub
 func FetchChangelog() (string, error) {
-	url := fmt.Sprintf("https://raw.githubusercontent.com/%s/main/CHANGELOG.md", GitHubRepo)
+	url := fmt.Sprintf("https://raw.githubusercontent.com/%s/master/CHANGELOG.md", GitHubRepo)
 
 	client := &http.Client{Timeout: 10 * time.Second}
 	resp, err := client.Get(url)
