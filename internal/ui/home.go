@@ -228,6 +228,7 @@ type Home struct {
 	resumingSessions   map[string]time.Time // sessionID -> resume time (for restart/resume)
 	forkingSessions    map[string]time.Time // sessionID -> fork start time (fork in progress)
 	animationFrame     int                  // Current frame for spinner animation
+	pendingWorktrees   []pendingWorktreeItem // worktrees being created in the background
 
 	// Context for cleanup
 	ctx    context.Context
@@ -507,6 +508,14 @@ type worktreeCreatedForNewSessionMsg struct {
 	branchName   string
 	toolOptions  json.RawMessage
 	err          error
+}
+
+// pendingWorktreeItem tracks a worktree being created in the background.
+// It is used to show a ghost spinner row in the session list.
+type pendingWorktreeItem struct {
+	branchName string
+	groupPath  string
+	startedAt  time.Time
 }
 
 // reviewPRResolvedMsg is returned when the async gh pr view lookup completes.
