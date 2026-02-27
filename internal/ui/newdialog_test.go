@@ -527,7 +527,8 @@ func TestNewDialog_BranchInputInitialized(t *testing.T) {
 func TestNewDialog_WorktreeToggle_ViaKeyPress(t *testing.T) {
 	dialog := NewNewDialog()
 	dialog.Show()
-	dialog.focusIndex = 2 // Command field
+	dialog.worktreeEnabled = false // start disabled so first 'w' press enables it
+	dialog.focusIndex = 2          // Command field
 
 	// Press 'w' to toggle worktree
 	dialog, _ = dialog.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'w'}})
