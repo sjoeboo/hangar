@@ -158,24 +158,54 @@ func TestShortenPath(t *testing.T) {
 	}
 }
 
-func TestNormalizeRemoteURL(t *testing.T) {
+func TestExtractRemoteHost(t *testing.T) {
 	tests := []struct {
 		input string
 		want  string
 	}{
-		{"git@github.com:mnicholson/hangar.git", "github: mnicholson/hangar"},
-		{"git@ghe.spotify.net:squad/service.git", "ghe: squad/service"},
-		{"https://github.com/mnicholson/hangar.git", "github: mnicholson/hangar"},
-		{"https://github.com/mnicholson/hangar", "github: mnicholson/hangar"},
-		{"https://ghe.spotify.net/squad/service.git", "ghe: squad/service"},
-		{"https://ghe.spotify.net/squad/service", "ghe: squad/service"},
-		{"git@gitlab.com:user/repo.git", "git@gitlab.com:user/repo.git"},
+		{"git@github.com:user/repo.git", "github.com"},
+		{"git@ghe.mycompany.com:user/repo.git", "ghe.mycompany.com"},
+		{"https://github.com/user/repo.git", "github.com"},
+		{"https://ghe.mycompany.com/user/repo", "ghe.mycompany.com"},
+		{"http://gitlab.company.com/user/repo", "gitlab.company.com"},
 		{"", ""},
+		{"not-a-url", ""},
 	}
 	for _, tt := range tests {
-		got := normalizeRemoteURL(tt.input)
+		got := extractRemoteHost(tt.input)
 		if got != tt.want {
-			t.Errorf("normalizeRemoteURL(%q) = %q, want %q", tt.input, got, tt.want)
+			t.Errorf("extractRemoteHost(%q) = %q, want %q", tt.input, got, tt.want)
+		}
+	}
+}
+
+func TestNormalizeRemoteURL(t *testing.T) {
+	customLabels := map[string]string{"ghe.mycompany.com": "github"}
+
+	tests := []struct {
+		input  string
+		labels map[string]string
+		want   string
+	}{
+		// Built-in github.com — always works regardless of labels map
+		{"git@github.com:mnicholson/hangar.git", nil, "github: mnicholson/hangar"},
+		{"https://github.com/mnicholson/hangar.git", nil, "github: mnicholson/hangar"},
+		{"https://github.com/mnicholson/hangar", nil, "github: mnicholson/hangar"},
+		// Custom label via config (SSH)
+		{"git@ghe.mycompany.com:squad/service.git", customLabels, "github: squad/service"},
+		// Custom label via config (HTTPS, with and without .git)
+		{"https://ghe.mycompany.com/squad/service.git", customLabels, "github: squad/service"},
+		{"https://ghe.mycompany.com/squad/service", customLabels, "github: squad/service"},
+		// No label configured for host → raw URL unchanged
+		{"git@ghe.mycompany.com:squad/service.git", nil, "git@ghe.mycompany.com:squad/service.git"},
+		{"git@gitlab.com:user/repo.git", nil, "git@gitlab.com:user/repo.git"},
+		// Empty input
+		{"", nil, ""},
+	}
+	for _, tt := range tests {
+		got := normalizeRemoteURL(tt.input, tt.labels)
+		if got != tt.want {
+			t.Errorf("normalizeRemoteURL(%q, %v) = %q, want %q", tt.input, tt.labels, got, tt.want)
 		}
 	}
 }

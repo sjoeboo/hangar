@@ -788,10 +788,11 @@ func (h *Home) handlePreviewDebounce(msg previewDebounceMsg) tea.Cmd {
 			if needsRemote {
 				sid := inst.ID
 				wtPath := inst.WorktreePath
+				remoteLabels := h.remoteLabels
 				cmds = append(cmds, func() tea.Msg {
 					out, err := exec.Command("git", "-C", wtPath, "config", "--get", "remote.origin.url").Output()
 					url := strings.TrimSpace(string(out))
-					return worktreeRemoteCheckMsg{sessionID: sid, remoteURL: normalizeRemoteURL(url), err: err}
+					return worktreeRemoteCheckMsg{sessionID: sid, remoteURL: normalizeRemoteURL(url, remoteLabels), err: err}
 				})
 			}
 		}
