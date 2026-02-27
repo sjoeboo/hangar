@@ -13,7 +13,6 @@ import (
 const (
 	treeBranch = "├─" // Mid-level item (has siblings below)
 	treeLast   = "└─" // Last item in group (no siblings below)
-	treeLine   = "│ " // Continuation line
 	treeEmpty  = "  " // Empty space (for alignment)
 	// Sub-session connectors (nested under parent)
 	subBranch = "├─" // Sub-session with siblings below

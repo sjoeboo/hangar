@@ -7681,8 +7681,6 @@ func (h *Home) getLeftPanelWidth() int {
 	return int(float64(h.width) * 0.35)
 }
 
-// renderSessionList renders the left panel with hierarchical session list
-
 // listItemAt returns the flatItems index for the given screen coordinates (0-indexed),
 // or -1 if the coordinates don't correspond to a visible list item.
 func (h *Home) listItemAt(x, y int) int {
