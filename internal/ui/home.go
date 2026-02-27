@@ -6591,6 +6591,9 @@ func fetchPRInfo(sessionID, worktreePath, ghPath string) prFetchedMsg {
 	}
 	cmd := exec.Command(ghPath, "pr", "view", "--json", "number,title,state,url,statusCheckRollup")
 	cmd.Dir = worktreePath
+	if host := ghHostFromDir(worktreePath); host != "" && host != "github.com" {
+		cmd.Env = append(os.Environ(), "GH_HOST="+host)
+	}
 	out, err := cmd.Output()
 	if err != nil {
 		return prFetchedMsg{sessionID: sessionID, pr: nil}
@@ -6680,6 +6683,16 @@ func extractRemoteHost(u string) string {
 		}
 	}
 	return ""
+}
+
+// ghHostFromDir returns the git remote hostname for the origin remote in dir,
+// or "" if it cannot be determined. Used to set GH_HOST for gh CLI invocations.
+func ghHostFromDir(dir string) string {
+	out, err := exec.Command("git", "-C", dir, "remote", "get-url", "origin").Output()
+	if err != nil {
+		return ""
+	}
+	return extractRemoteHost(strings.TrimSpace(string(out)))
 }
 
 // --- Copy & Send Output helpers ---
@@ -6919,6 +6932,9 @@ func resolvePRBranch(repoDir, prNum string) (branch, title string, err error) {
 		"--json", "headRefName,title",
 		"--jq", ".headRefName+\"\\t\"+.title")
 	cmd.Dir = repoDir
+	if host := ghHostFromDir(repoDir); host != "" && host != "github.com" {
+		cmd.Env = append(os.Environ(), "GH_HOST="+host)
+	}
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return "", "", fmt.Errorf("gh pr view failed: %s", strings.TrimSpace(string(output)))
