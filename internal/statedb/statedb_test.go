@@ -600,6 +600,7 @@ func TestSaveTodo(t *testing.T) {
 		Status:      "todo",
 		SessionID:   "",
 		Order:       0,
+		Prompt:      "do the thing",
 		CreatedAt:   time.Unix(1000, 0),
 		UpdatedAt:   time.Unix(1000, 0),
 	}
@@ -620,6 +621,9 @@ func TestSaveTodo(t *testing.T) {
 	}
 	if got.Status != "todo" {
 		t.Errorf("Status: got %q want %q", got.Status, "todo")
+	}
+	if got.Prompt != "do the thing" {
+		t.Errorf("expected Prompt=%q, got %q", "do the thing", got.Prompt)
 	}
 }
 

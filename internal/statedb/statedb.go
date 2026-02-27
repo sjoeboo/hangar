@@ -15,7 +15,7 @@ import (
 
 // SchemaVersion tracks the current database schema version.
 // Bump this when adding migrations.
-const SchemaVersion = 2
+const SchemaVersion = 3
 
 // StateDB wraps a SQLite database for session/group persistence.
 // Thread-safe for concurrent use from multiple goroutines within one process.
@@ -61,6 +61,7 @@ type TodoRow struct {
 	ProjectPath string
 	Title       string
 	Description string
+	Prompt      string // optional; sent to session on creation
 	Status      string // todo | in_progress | in_review | done | orphaned
 	SessionID   string // soft FK to instances.id (empty = unlinked)
 	Order       int
@@ -224,6 +225,18 @@ func (s *StateDB) Migrate() error {
 		)
 	`); err != nil {
 		return fmt.Errorf("statedb: create todos: %w", err)
+	}
+
+	// Migration v3: add prompt column to todos table for existing databases.
+	// SQLite's ALTER TABLE ADD COLUMN has no IF NOT EXISTS syntax, so we must
+	// execute it unconditionally and swallow the "duplicate column name" error
+	// when the column already exists (i.e. database was already at schema v3).
+	// modernc.org/sqlite does not expose a typed sentinel for this condition,
+	// so string matching on the error message is the only available approach.
+	if _, err := tx.Exec(`ALTER TABLE todos ADD COLUMN prompt TEXT NOT NULL DEFAULT ''`); err != nil {
+		if !strings.Contains(err.Error(), "duplicate column name") {
+			return fmt.Errorf("statedb: add prompt column: %w", err)
+		}
 	}
 
 	// Set schema version only when missing or changed.
@@ -668,10 +681,10 @@ func (s *StateDB) LastModified() (int64, error) {
 func (s *StateDB) SaveTodo(row *TodoRow) error {
 	_, err := s.db.Exec(`
 		INSERT OR REPLACE INTO todos
-			(id, project_path, title, description, status, session_id, sort_order, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+			(id, project_path, title, description, prompt, status, session_id, sort_order, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`,
-		row.ID, row.ProjectPath, row.Title, row.Description,
+		row.ID, row.ProjectPath, row.Title, row.Description, row.Prompt,
 		row.Status, row.SessionID, row.Order,
 		row.CreatedAt.Unix(), row.UpdatedAt.Unix(),
 	)
@@ -681,7 +694,7 @@ func (s *StateDB) SaveTodo(row *TodoRow) error {
 // LoadTodos returns all todos for a given project path, ordered by sort_order then created_at.
 func (s *StateDB) LoadTodos(projectPath string) ([]*TodoRow, error) {
 	rows, err := s.db.Query(`
-		SELECT id, project_path, title, description, status, session_id, sort_order, created_at, updated_at
+		SELECT id, project_path, title, description, prompt, status, session_id, sort_order, created_at, updated_at
 		FROM todos WHERE project_path = ? ORDER BY sort_order, created_at
 	`, projectPath)
 	if err != nil {
@@ -694,7 +707,7 @@ func (s *StateDB) LoadTodos(projectPath string) ([]*TodoRow, error) {
 		r := &TodoRow{}
 		var createdUnix, updatedUnix int64
 		if err := rows.Scan(
-			&r.ID, &r.ProjectPath, &r.Title, &r.Description,
+			&r.ID, &r.ProjectPath, &r.Title, &r.Description, &r.Prompt,
 			&r.Status, &r.SessionID, &r.Order,
 			&createdUnix, &updatedUnix,
 		); err != nil {
@@ -740,10 +753,10 @@ func (s *StateDB) FindTodoBySessionID(sessionID string) (*TodoRow, error) {
 	r := &TodoRow{}
 	var createdUnix, updatedUnix int64
 	err := s.db.QueryRow(`
-		SELECT id, project_path, title, description, status, session_id, sort_order, created_at, updated_at
+		SELECT id, project_path, title, description, prompt, status, session_id, sort_order, created_at, updated_at
 		FROM todos WHERE session_id = ? LIMIT 1
 	`, sessionID).Scan(
-		&r.ID, &r.ProjectPath, &r.Title, &r.Description,
+		&r.ID, &r.ProjectPath, &r.Title, &r.Description, &r.Prompt,
 		&r.Status, &r.SessionID, &r.Order,
 		&createdUnix, &updatedUnix,
 	)

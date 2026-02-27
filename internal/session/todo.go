@@ -24,6 +24,7 @@ type Todo struct {
 	ProjectPath string
 	Title       string
 	Description string
+	Prompt      string // optional; sent to session on creation
 	Status      TodoStatus
 	SessionID   string // empty = unlinked
 	Order       int
@@ -37,13 +38,14 @@ func generateTodoID() string {
 }
 
 // NewTodo creates a new Todo for the given project with todo status.
-func NewTodo(title, description, projectPath string) *Todo {
+func NewTodo(title, description, prompt, projectPath string) *Todo {
 	now := time.Now()
 	return &Todo{
 		ID:          generateTodoID(),
 		ProjectPath: projectPath,
 		Title:       title,
 		Description: description,
+		Prompt:      prompt,
 		Status:      TodoStatusTodo,
 		CreatedAt:   now,
 		UpdatedAt:   now,
@@ -56,6 +58,7 @@ func todoFromRow(r *statedb.TodoRow) *Todo {
 		ProjectPath: r.ProjectPath,
 		Title:       r.Title,
 		Description: r.Description,
+		Prompt:      r.Prompt,
 		Status:      TodoStatus(r.Status),
 		SessionID:   r.SessionID,
 		Order:       r.Order,
@@ -70,6 +73,7 @@ func todoToRow(t *Todo) *statedb.TodoRow {
 		ProjectPath: t.ProjectPath,
 		Title:       t.Title,
 		Description: t.Description,
+		Prompt:      t.Prompt,
 		Status:      string(t.Status),
 		SessionID:   t.SessionID,
 		Order:       t.Order,

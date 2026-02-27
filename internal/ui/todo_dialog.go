@@ -84,7 +84,8 @@ type TodoDialog struct {
 	// new/edit form fields
 	titleInput    textinput.Model
 	descInput     textinput.Model
-	formFocus     int               // 0=title, 1=desc
+	promptInput   textinput.Model
+	formFocus     int               // 0=title, 1=desc, 2=prompt
 	editingID     string            // non-empty when editing
 	newTodoStatus session.TodoStatus // status pre-selected from focused column when pressing n
 
@@ -105,9 +106,15 @@ func NewTodoDialog() *TodoDialog {
 	descInput.CharLimit = 500
 	descInput.Width = 50
 
+	promptInput := textinput.New()
+	promptInput.Placeholder = "Prompt (optional, sent when session starts)"
+	promptInput.CharLimit = 2000
+	promptInput.Width = 50
+
 	return &TodoDialog{
-		titleInput: titleInput,
-		descInput:  descInput,
+		titleInput:  titleInput,
+		descInput:   descInput,
+		promptInput: promptInput,
 		statusOptions: []session.TodoStatus{
 			session.TodoStatusTodo,
 			session.TodoStatusInProgress,
@@ -205,6 +212,7 @@ func (d *TodoDialog) SetSize(w, h int) {
 	}
 	d.titleInput.Width = inputWidth
 	d.descInput.Width = inputWidth
+	d.promptInput.Width = inputWidth
 }
 
 // SetTodos replaces the current todo list (used after reloads).
@@ -300,10 +308,11 @@ const (
 	TodoActionMoveCardRight            // shift+right: move selected card to next status column
 )
 
-// GetFormValues returns the title, description, editing ID, and status after TodoActionSaveTodo.
-func (d *TodoDialog) GetFormValues() (title, description, editingID string, status session.TodoStatus) {
+// GetFormValues returns the title, description, prompt, editing ID, and status after TodoActionSaveTodo.
+func (d *TodoDialog) GetFormValues() (title, description, prompt, editingID string, status session.TodoStatus) {
 	return strings.TrimSpace(d.titleInput.Value()),
 		strings.TrimSpace(d.descInput.Value()),
+		strings.TrimSpace(d.promptInput.Value()),
 		d.editingID,
 		d.newTodoStatus
 }
@@ -333,15 +342,35 @@ func (d *TodoDialog) HandleKey(msg tea.KeyMsg) TodoAction {
 func (d *TodoDialog) handleFormKey(msg tea.KeyMsg) TodoAction {
 	key := msg.String()
 	switch key {
-	case "tab", "shift+tab":
-		if d.formFocus == 0 {
+	case "tab":
+		switch d.formFocus {
+		case 0:
 			d.formFocus = 1
 			d.titleInput.Blur()
 			d.descInput.Focus()
-		} else {
+		case 1:
+			d.formFocus = 2
+			d.descInput.Blur()
+			d.promptInput.Focus()
+		default:
+			d.formFocus = 0
+			d.promptInput.Blur()
+			d.titleInput.Focus()
+		}
+	case "shift+tab":
+		switch d.formFocus {
+		case 0:
+			d.formFocus = 2
+			d.titleInput.Blur()
+			d.promptInput.Focus()
+		case 1:
 			d.formFocus = 0
 			d.descInput.Blur()
 			d.titleInput.Focus()
+		default:
+			d.formFocus = 1
+			d.promptInput.Blur()
+			d.descInput.Focus()
 		}
 	case "enter":
 		title := strings.TrimSpace(d.titleInput.Value())
@@ -354,11 +383,13 @@ func (d *TodoDialog) handleFormKey(msg tea.KeyMsg) TodoAction {
 		d.mode = todoModeKanban
 		d.errorMsg = ""
 	default:
-		// Pass the real tea.KeyMsg to preserve Type (backspace, arrows, ctrl+w, etc.)
-		if d.formFocus == 0 {
+		switch d.formFocus {
+		case 0:
 			d.titleInput, _ = d.titleInput.Update(msg)
-		} else {
+		case 1:
 			d.descInput, _ = d.descInput.Update(msg)
+		case 2:
+			d.promptInput, _ = d.promptInput.Update(msg)
 		}
 	}
 	return TodoActionNone
@@ -388,9 +419,11 @@ func (d *TodoDialog) openNewForm() {
 	d.editingID = ""
 	d.titleInput.SetValue("")
 	d.descInput.SetValue("")
+	d.promptInput.SetValue("")
 	d.formFocus = 0
 	d.titleInput.Focus()
 	d.descInput.Blur()
+	d.promptInput.Blur()
 	d.errorMsg = ""
 	// Pre-select the focused column's status so new cards land in the right column
 	if d.selectedCol < len(d.cols) {
@@ -405,9 +438,11 @@ func (d *TodoDialog) openEditForm(t *session.Todo) {
 	d.editingID = t.ID
 	d.titleInput.SetValue(t.Title)
 	d.descInput.SetValue(t.Description)
+	d.promptInput.SetValue(t.Prompt)
 	d.formFocus = 0
 	d.titleInput.Focus()
 	d.descInput.Blur()
+	d.promptInput.Blur()
 	d.errorMsg = ""
 	d.newTodoStatus = t.Status // keeps GetFormValues coherent in edit flow
 }
@@ -474,12 +509,18 @@ func (d *TodoDialog) viewForm() string {
 
 	header := lipgloss.NewStyle().Bold(true).Render(title)
 
-	titleLabel := "Title:"
-	descLabel := "Description:"
-	if d.formFocus == 0 {
-		titleLabel = lipgloss.NewStyle().Foreground(lipgloss.Color("#5fd7ff")).Render("Title:")
-	} else {
-		descLabel = lipgloss.NewStyle().Foreground(lipgloss.Color("#5fd7ff")).Render("Description:")
+	dimStyle    := lipgloss.NewStyle().Foreground(lipgloss.Color("#5a6a7a"))
+	activeStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#5fd7ff"))
+	titleLabel  := dimStyle.Render("Title:")
+	descLabel   := dimStyle.Render("Description:")
+	promptLabel := dimStyle.Render("Prompt (optional):")
+	switch d.formFocus {
+	case 0:
+		titleLabel = activeStyle.Render("Title:")
+	case 1:
+		descLabel = activeStyle.Render("Description:")
+	case 2:
+		promptLabel = activeStyle.Render("Prompt (optional):")
 	}
 
 	var errLine string
@@ -489,10 +530,11 @@ func (d *TodoDialog) viewForm() string {
 
 	hint := lipgloss.NewStyle().Foreground(lipgloss.Color("#5a6a7a")).Render("tab switch  enter save  esc cancel")
 
-	content := fmt.Sprintf("%s\n\n%s\n%s\n\n%s\n%s%s\n\n%s",
+	content := fmt.Sprintf("%s\n\n%s\n%s\n\n%s\n%s\n\n%s\n%s%s\n\n%s",
 		header,
 		titleLabel, d.titleInput.View(),
 		descLabel, d.descInput.View(),
+		promptLabel, d.promptInput.View(),
 		errLine, hint,
 	)
 
@@ -648,20 +690,30 @@ func (d *TodoDialog) renderDetailPanel(innerW int) string {
 		Foreground(lipgloss.Color("#5a6a7a")).
 		Render("description")
 
+	textWidth := innerW - 4
+	if textWidth < 10 {
+		textWidth = 10
+	}
+
 	var body string
 	if t.Description == "" {
 		body = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#3a4a5a")).
 			Render("no description")
 	} else {
-		textWidth := innerW - 4 // reserve space for border(2) + padding(2)
-		if textWidth < 10 {
-			textWidth = 10
-		}
 		wrapped := wordWrapText(t.Description, textWidth, 3)
 		body = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#c0ccd8")).
 			Render(wrapped)
+	}
+
+	content := label + "\n" + body
+
+	if t.Prompt != "" {
+		promptLabel := lipgloss.NewStyle().Foreground(lipgloss.Color("#5a6a7a")).Render("⌨ prompt")
+		promptPreview := wordWrapText(t.Prompt, textWidth, 2)
+		promptBody := lipgloss.NewStyle().Foreground(lipgloss.Color("#c0ccd8")).Italic(true).Render(promptPreview)
+		content += "\n\n" + promptLabel + "\n" + promptBody
 	}
 
 	return lipgloss.NewStyle().
@@ -669,7 +721,7 @@ func (d *TodoDialog) renderDetailPanel(innerW int) string {
 		BorderForeground(lipgloss.Color("#3a4a5a")).
 		Padding(0, 1).
 		Width(innerW - 2).
-		Render(label + "\n" + body)
+		Render(content)
 }
 
 func (d *TodoDialog) viewKanban() string {
