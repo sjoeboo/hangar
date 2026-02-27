@@ -2748,14 +2748,6 @@ func (h *Home) getCurrentGroupPath() string {
 func (h *Home) handleNewDialogKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "enter":
-		// When in the project-picker step, delegate Enter to the dialog so it
-		// advances to the name input instead of trying to validate/create a session.
-		if h.newDialog.IsChoosingProject() {
-			var cmd tea.Cmd
-			h.newDialog, cmd = h.newDialog.Update(msg)
-			return h, cmd
-		}
-
 		// Validate before creating session
 		if validationErr := h.newDialog.Validate(); validationErr != "" {
 			h.newDialog.SetError(validationErr)
