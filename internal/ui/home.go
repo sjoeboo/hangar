@@ -361,6 +361,7 @@ func (h *Home) prViewSessions() []*session.Instance {
 type loadSessionsMsg struct {
 	instances    []*session.Instance
 	groups       []*session.GroupData
+	projects     []*session.Project // loaded from projects.toml
 	err          error
 	restoreState *reloadState // Optional state to restore after reload
 	loadMtime    time.Time    // File mtime at load time (for external change detection)
@@ -1325,8 +1326,11 @@ func (h *Home) loadSessions() tea.Msg {
 	loadMtime, _ := h.storage.GetFileMtime()
 
 	instances, groups, err := h.storage.LoadWithGroups()
-	msg := loadSessionsMsg{instances: instances, groups: groups, err: err, loadMtime: loadMtime}
 
+	// Load projects for sidebar — errors are non-fatal (empty projects.toml → fallback to DB groups)
+	projects, _ := session.ListProjects()
+
+	msg := loadSessionsMsg{instances: instances, groups: groups, projects: projects, err: err, loadMtime: loadMtime}
 
 	return msg
 }
@@ -3807,9 +3811,11 @@ func (h *Home) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 		cmds := []tea.Cmd{func() tea.Msg {
 			instances, groups, err := h.storage.LoadWithGroups()
+			projects, _ := session.ListProjects()
 			return loadSessionsMsg{
 				instances:    instances,
 				groups:       groups,
+				projects:     projects,
 				err:          err,
 				restoreState: &state,
 			}
@@ -5094,7 +5100,9 @@ func (h *Home) importSessions() tea.Msg {
 	// Save both instances AND groups (critical fix: was losing groups!)
 	h.saveInstances()
 	state := h.preserveState()
-	return loadSessionsMsg{instances: instancesCopy, restoreState: &state}
+	_, groups, _ := h.storage.LoadWithGroups()
+	projects, _ := session.ListProjects()
+	return loadSessionsMsg{instances: instancesCopy, groups: groups, projects: projects, restoreState: &state}
 }
 
 // countSessionStatuses counts sessions by status for the logo display

@@ -91,28 +91,40 @@ func (h *Home) handleLoadSessions(msg loadSessionsMsg) tea.Cmd {
 		h.instancesMu.Unlock()
 		// Invalidate status counts cache
 		h.cachedStatusCounts.valid.Store(false)
-		// Sync group tree with loaded data
-		if h.groupTree.GroupCount() == 0 {
-			// Initial load - use stored groups if available
+		// Build group tree. When projects.toml is populated, it is the authoritative
+		// source for which groups exist (empty projects always show). Fall back to
+		// DB-stored groups when no projects are configured.
+		if len(msg.projects) > 0 {
+			// Merge live expanded state into storedGroups so a just-toggled group
+			// doesn't snap back to its stored state during an auto-reload.
+			expandedState := make(map[string]bool)
+			if h.groupTree != nil {
+				for path, group := range h.groupTree.Groups {
+					expandedState[path] = group.Expanded
+				}
+			}
+			for _, sg := range msg.groups {
+				if live, ok := expandedState[sg.Path]; ok {
+					sg.Expanded = live
+				}
+			}
+			h.groupTree = session.NewGroupTreeFromProjects(h.instances, msg.projects, msg.groups)
+		} else if h.groupTree == nil || h.groupTree.GroupCount() == 0 {
 			if len(msg.groups) > 0 {
 				h.groupTree = session.NewGroupTreeWithGroups(h.instances, msg.groups)
 			} else {
 				h.groupTree = session.NewGroupTree(h.instances)
 			}
 		} else {
-			// Refresh - update existing tree with loaded sessions AND groups
-			// Preserve expanded state before recreating tree
 			expandedState := make(map[string]bool)
 			for path, group := range h.groupTree.Groups {
 				expandedState[path] = group.Expanded
 			}
-			// Recreate tree with fresh groups from storage
 			if len(msg.groups) > 0 {
 				h.groupTree = session.NewGroupTreeWithGroups(h.instances, msg.groups)
 			} else {
 				h.groupTree = session.NewGroupTree(h.instances)
 			}
-			// Restore expanded state for groups that still exist
 			for path, expanded := range expandedState {
 				if group, exists := h.groupTree.Groups[path]; exists {
 					group.Expanded = expanded
@@ -618,10 +630,12 @@ func (h *Home) handleStorageChanged(msg storageChangedMsg) tea.Cmd {
 		// Capture file mtime BEFORE loading to detect external changes later
 		loadMtime, _ := h.storage.GetFileMtime()
 		instances, groups, err := h.storage.LoadWithGroups()
+		projects, _ := session.ListProjects()
 		uiLog.Debug("reload_load_with_groups", slog.Int("instances", len(instances)), slog.Any("error", err))
 		return loadSessionsMsg{
 			instances:    instances,
 			groups:       groups,
+			projects:     projects,
 			err:          err,
 			restoreState: &state, // Pass state to restore after load
 			loadMtime:    loadMtime,
