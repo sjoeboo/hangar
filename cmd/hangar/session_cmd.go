@@ -878,6 +878,15 @@ func handleSessionSet(profile string, args []string) {
 		inst.Title = value
 		inst.SyncTmuxDisplayName()
 	case "path":
+		info, err := os.Stat(value)
+		if err != nil {
+			out.Error(fmt.Sprintf("invalid path: %s (%v)", value, err), ErrCodeInvalidOperation)
+			os.Exit(1)
+		}
+		if !info.IsDir() {
+			out.Error(fmt.Sprintf("path is not a directory: %s", value), ErrCodeInvalidOperation)
+			os.Exit(1)
+		}
 		oldValue = inst.ProjectPath
 		inst.ProjectPath = value
 	case "command":
