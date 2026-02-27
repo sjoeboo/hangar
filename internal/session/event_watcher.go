@@ -68,6 +68,11 @@ func (w *StatusEventWatcher) Start() {
 
 	// Debounce timer: coalesce rapid file events (same pattern as hook_watcher.go)
 	var debounceTimer *time.Timer
+	defer func() {
+		if debounceTimer != nil {
+			debounceTimer.Stop()
+		}
+	}()
 	pendingFiles := make(map[string]bool)
 	var pendingMu sync.Mutex
 

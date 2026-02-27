@@ -1,11 +1,14 @@
 package session
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/fsnotify/fsnotify"
 )
 
 func TestStatusFileWatcher_ProcessFile(t *testing.T) {
@@ -170,4 +173,39 @@ func TestStatusFileWatcher_UpdatesExisting(t *testing.T) {
 	if w.GetHookStatus("inst-x").Status != "idle" {
 		t.Error("Expected idle after second write")
 	}
+}
+
+func TestStatusFileWatcher_StopDuringDebounce(t *testing.T) {
+	hooksDir := t.TempDir()
+
+	fswatcher, err := fsnotify.NewWatcher()
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	w := &StatusFileWatcher{
+		hooksDir: hooksDir,
+		watcher:  fswatcher,
+		statuses: make(map[string]*HookStatus),
+		ctx:      ctx,
+		cancel:   cancel,
+		onChange: func() {},
+	}
+
+	go w.Start()
+
+	// Write a file to trigger the debounce timer
+	path := filepath.Join(hooksDir, "test-id.json")
+	data := `{"status":"waiting","session_id":"s1","event":"UserPromptSubmit","ts":1}`
+	if err := os.WriteFile(path, []byte(data), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Stop immediately — before the 100ms debounce fires
+	w.Stop()
+
+	// Sleep past the debounce window; without the fix, the timer callback
+	// may access the stopped watcher — detectable with -race
+	time.Sleep(200 * time.Millisecond)
+	// Reaching here without panic or race = success
 }

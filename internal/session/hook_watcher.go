@@ -80,6 +80,11 @@ func (w *StatusFileWatcher) Start() {
 
 	// Debounce timer: coalesce rapid file events
 	var debounceTimer *time.Timer
+	defer func() {
+		if debounceTimer != nil {
+			debounceTimer.Stop()
+		}
+	}()
 	pendingFiles := make(map[string]bool)
 	var pendingMu sync.Mutex
 
