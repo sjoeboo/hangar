@@ -561,8 +561,9 @@ func (d *NewDialog) Update(msg tea.Msg) (*NewDialog, tea.Cmd) {
 	case 0:
 		oldName := d.nameInput.Value()
 		d.nameInput, cmd = d.nameInput.Update(msg)
-		// Auto-update branch when name changes and worktree is enabled
-		if d.worktreeEnabled && d.branchAutoSet && d.nameInput.Value() != oldName {
+		// Auto-update branch when name changes and worktree is enabled.
+		// Also auto-populate when branch is still empty (initial state before any auto-set).
+		if d.worktreeEnabled && (d.branchAutoSet || d.branchInput.Value() == "") && d.nameInput.Value() != oldName {
 			d.autoBranchFromName()
 		}
 	case 1:
