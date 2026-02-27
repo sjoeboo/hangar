@@ -17,15 +17,15 @@ Hangar is a TUI (Terminal User Interface) that manages Claude Code sessions from
 ## Install
 
 ```bash
-git clone https://ghe.spotify.net/mnicholson/hangar.git
+git clone https://github.com/sjoeboo/hangar.git
 cd hangar
 go install ./cmd/hangar
 ```
 
-Or via Homebrew: `brew install mnicholson/tap/hangar`
+Or via Homebrew: `brew install sjoeboo/tap/hangar`
 
 ## Links
 
-- GitHub: https://ghe.spotify.net/mnicholson/hangar
-- Full documentation for LLMs: https://ghe.spotify.net/mnicholson/hangar/raw/master/main/llms-full.txt
-- Latest release: https://ghe.spotify.net/mnicholson/hangar/releases/latest
+- GitHub: https://github.com/sjoeboo/hangar
+- Full documentation for LLMs: https://raw.githubusercontent.com/sjoeboo/hangar/master/llms-full.txt
+- Latest release: https://github.com/sjoeboo/hangar/releases/latest
