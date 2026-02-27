@@ -5091,7 +5091,12 @@ func (h *Home) handleConfirmDialogKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				}
 			case ConfirmDeleteGroup:
 				groupPath := h.confirmDialog.GetTargetID()
-				h.groupTree.DeleteGroup(groupPath)
+				h.confirmDialog.Hide()
+				if h.groupTree.DeleteGroup(groupPath) == nil {
+					// Deletion refused (group has sessions or doesn't exist)
+					h.setError(fmt.Errorf("cannot delete project: move or delete all sessions first"))
+					return h, nil
+				}
 				h.instancesMu.Lock()
 				h.instances = h.groupTree.GetAllInstances()
 				h.instancesMu.Unlock()

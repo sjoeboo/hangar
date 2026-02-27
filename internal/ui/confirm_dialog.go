@@ -201,9 +201,9 @@ func (c *ConfirmDialog) View() string {
 		buttons = lipgloss.JoinHorizontal(lipgloss.Center, buttonYes, "  ", buttonNo, "  ", escHint)
 
 	case ConfirmDeleteGroup:
-		title = "⚠️  Delete Group?"
-		warning = fmt.Sprintf("This will delete the group:\n\n  \"%s\"", c.targetName)
-		details = "• All sessions will be MOVED to 'default' group\n• Sessions will NOT be killed\n• The group structure will be lost"
+		title = "⚠️  Delete Project?"
+		warning = fmt.Sprintf("This will delete the project:\n\n  \"%s\"", c.targetName)
+		details = "• This project has no sessions\n• The project will be permanently removed"
 		borderColor = ColorRed
 
 		buttonYes := lipgloss.NewStyle().
