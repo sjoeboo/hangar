@@ -552,6 +552,12 @@ func TestFindActiveSessionIDExcluding(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(projectDir, sessionB+".jsonl"), []byte("{}"), 0644); err != nil {
 		t.Fatal(err)
 	}
+	// Explicitly set sessionB's mtime 1s after sessionA so the ordering is
+	// deterministic on fast CI runners where both writes share the same timestamp.
+	tA := time.Now().Add(-2 * time.Second)
+	tB := time.Now().Add(-1 * time.Second)
+	_ = os.Chtimes(filepath.Join(projectDir, sessionA+".jsonl"), tA, tA)
+	_ = os.Chtimes(filepath.Join(projectDir, sessionB+".jsonl"), tB, tB)
 
 	t.Run("no exclude returns most recent", func(t *testing.T) {
 		got := findActiveSessionIDExcluding(configDir, projectPath, nil)
