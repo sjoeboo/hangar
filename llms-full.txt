@@ -9,9 +9,6 @@ This file contains complete documentation for AI/LLM consumption.
 # README
 <div align="center">
 
-<!-- Status Grid Logo -->
-<img src="site/logo.svg" alt="Hangar Logo" width="120">
-
 # Hangar
 
 **Your AI agent command center**
