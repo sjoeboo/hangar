@@ -2019,3 +2019,13 @@ func TestRenderLayouts_Smoke(t *testing.T) {
 		t.Error("renderSingleColumnLayout returned empty string")
 	}
 }
+
+func TestRenderSessionList_Smoke(t *testing.T) {
+	h := NewHome()
+	h.width = 80
+	h.height = 24
+	result := h.renderSessionList(40, 20)
+	if result == "" {
+		t.Error("renderSessionList returned empty string")
+	}
+}
