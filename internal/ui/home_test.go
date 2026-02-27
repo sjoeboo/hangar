@@ -1999,3 +1999,23 @@ func TestBulkSelectMode_RKeyFallsThrough_WhenNoSelections(t *testing.T) {
 		t.Error("R with no selections should not show bulk confirm dialog")
 	}
 }
+
+func TestRenderLayouts_Smoke(t *testing.T) {
+	h := NewHome()
+	h.width = 120
+	h.height = 40
+	dual := h.renderDualColumnLayout(38)
+	if dual == "" {
+		t.Error("renderDualColumnLayout returned empty string")
+	}
+	h.width = 70
+	stacked := h.renderStackedLayout(40)
+	if stacked == "" {
+		t.Error("renderStackedLayout returned empty string")
+	}
+	h.width = 40
+	single := h.renderSingleColumnLayout(40)
+	if single == "" {
+		t.Error("renderSingleColumnLayout returned empty string")
+	}
+}
