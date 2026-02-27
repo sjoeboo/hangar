@@ -100,6 +100,11 @@ type UserConfig struct {
 	// Conductor defines conductor (meta-agent orchestration) settings
 	Conductor ConductorSettings `toml:"conductor"`
 
+	// RemoteLabels maps git remote hostnames to short display labels shown in
+	// the preview pane. github.com → "github" is always built-in.
+	// Example: "ghe.mycompany.com" = "github"
+	RemoteLabels map[string]string `toml:"remote_labels"`
+
 	// Tmux defines tmux option overrides applied to every session
 	Tmux TmuxSettings `toml:"tmux"`
 }
@@ -1494,6 +1499,17 @@ auto_cleanup = true
 # Replace all defaults (use with caution):
 # [tools.claude]
 # busy_patterns = ["only-this-pattern"]
+
+# ============================================================================
+# Remote Host Display Labels
+# ============================================================================
+# Maps git remote hostnames to short labels shown in the preview pane.
+# github.com → "github" is built-in. Add entries for self-hosted GHE or
+# GitLab instances.
+#
+# [remote_labels]
+# "ghe.mycompany.com" = "github"
+# "gitlab.mycompany.com" = "gitlab"
 `
 
 

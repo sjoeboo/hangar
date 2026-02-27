@@ -309,6 +309,9 @@ type Home struct {
 	// Bulk select mode state
 	bulkSelectMode     bool
 	selectedSessionIDs map[string]bool
+
+	// Remote label mapping for normalizeRemoteURL (loaded once from UserConfig at startup)
+	remoteLabels map[string]string
 }
 
 // reloadState preserves UI state during storage reload
@@ -756,6 +759,10 @@ func NewHomeWithProfileAndMode(profile string) *Home {
 
 	// Hook-based status detection (Claude Code lifecycle hooks)
 	userConfig, _ := session.LoadUserConfig()
+	// Capture RemoteLabels once at startup to avoid repeated disk I/O on the hot path.
+	if userConfig != nil {
+		h.remoteLabels = userConfig.RemoteLabels
+	}
 	hooksEnabled := userConfig == nil || userConfig.Claude.GetHooksEnabled()
 	if hooksEnabled {
 		configDir := session.GetClaudeConfigDir()
@@ -6584,6 +6591,9 @@ func fetchPRInfo(sessionID, worktreePath, ghPath string) prFetchedMsg {
 	}
 	cmd := exec.Command(ghPath, "pr", "view", "--json", "number,title,state,url,statusCheckRollup")
 	cmd.Dir = worktreePath
+	if host := ghHostFromDir(worktreePath); host != "" && host != "github.com" {
+		cmd.Env = append(os.Environ(), "GH_HOST="+host)
+	}
 	out, err := cmd.Output()
 	if err != nil {
 		return prFetchedMsg{sessionID: sessionID, pr: nil}
@@ -6617,31 +6627,72 @@ func fetchPRInfo(sessionID, worktreePath, ghPath string) prFetchedMsg {
 
 // normalizeRemoteURL converts a git remote URL to a short human-readable form.
 //
-//	git@github.com:user/repo.git       -> "github: user/repo"
-//	git@ghe.spotify.net:user/repo.git  -> "ghe: user/repo"
-//	https://github.com/user/repo.git   -> "github: user/repo"
-//	https://ghe.spotify.net/user/repo  -> "ghe: user/repo"
-//	anything else                      -> returned unchanged
-func normalizeRemoteURL(u string) string {
-	// SSH format: git@HOST:PATH
+//	git@github.com:user/repo.git         -> "github: user/repo"
+//	https://github.com/user/repo.git     -> "github: user/repo"
+//	git@HOST:user/repo.git               -> "<label>: user/repo"  (if HOST in extraLabels)
+//	anything else                        -> returned unchanged
+//
+// extraLabels maps hostname → label (e.g. "ghe.mycompany.com" → "github").
+// github.com is always built-in and cannot be overridden.
+func normalizeRemoteURL(u string, extraLabels map[string]string) string {
+	// Built-in: github.com (SSH + HTTPS)
 	if rest, ok := strings.CutPrefix(u, "git@github.com:"); ok {
 		return "github: " + strings.TrimSuffix(rest, ".git")
 	}
-	if rest, ok := strings.CutPrefix(u, "git@ghe.spotify.net:"); ok {
-		return "ghe: " + strings.TrimSuffix(rest, ".git")
-	}
-	// HTTPS format
 	for _, prefix := range []string{"https://github.com/", "http://github.com/"} {
 		if rest, ok := strings.CutPrefix(u, prefix); ok {
 			return "github: " + strings.TrimSuffix(rest, ".git")
 		}
 	}
-	for _, prefix := range []string{"https://ghe.spotify.net/", "http://ghe.spotify.net/"} {
-		if rest, ok := strings.CutPrefix(u, prefix); ok {
-			return "ghe: " + strings.TrimSuffix(rest, ".git")
+	// Config-driven labels
+	if len(extraLabels) > 0 {
+		host := extractRemoteHost(u)
+		if label, ok := extraLabels[host]; ok && host != "" {
+			var path string
+			if rest, ok2 := strings.CutPrefix(u, "git@"+host+":"); ok2 {
+				path = strings.TrimSuffix(rest, ".git")
+			} else {
+				for _, scheme := range []string{"https://", "http://"} {
+					if rest, ok2 := strings.CutPrefix(u, scheme+host+"/"); ok2 {
+						path = strings.TrimSuffix(rest, ".git")
+						break
+					}
+				}
+			}
+			if path != "" {
+				return label + ": " + path
+			}
 		}
 	}
 	return u
+}
+
+// extractRemoteHost parses a git remote URL and returns just the hostname.
+//
+//	git@github.com:user/repo.git  → "github.com"
+//	https://github.com/user/repo  → "github.com"
+func extractRemoteHost(u string) string {
+	if after, ok := strings.CutPrefix(u, "git@"); ok {
+		host, _, _ := strings.Cut(after, ":")
+		return host
+	}
+	for _, scheme := range []string{"https://", "http://"} {
+		if after, ok := strings.CutPrefix(u, scheme); ok {
+			host, _, _ := strings.Cut(after, "/")
+			return host
+		}
+	}
+	return ""
+}
+
+// ghHostFromDir returns the git remote hostname for the origin remote in dir,
+// or "" if it cannot be determined. Used to set GH_HOST for gh CLI invocations.
+func ghHostFromDir(dir string) string {
+	out, err := exec.Command("git", "-C", dir, "remote", "get-url", "origin").Output()
+	if err != nil {
+		return ""
+	}
+	return extractRemoteHost(strings.TrimSpace(string(out)))
 }
 
 // --- Copy & Send Output helpers ---
@@ -6881,6 +6932,9 @@ func resolvePRBranch(repoDir, prNum string) (branch, title string, err error) {
 		"--json", "headRefName,title",
 		"--jq", ".headRefName+\"\\t\"+.title")
 	cmd.Dir = repoDir
+	if host := ghHostFromDir(repoDir); host != "" && host != "github.com" {
+		cmd.Env = append(os.Environ(), "GH_HOST="+host)
+	}
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return "", "", fmt.Errorf("gh pr view failed: %s", strings.TrimSpace(string(output)))
