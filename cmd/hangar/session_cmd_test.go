@@ -51,44 +51,38 @@ func TestMCPInfoForJSON_UsesSlicesAndIsMarshalable(t *testing.T) {
 // Tests for session set path validation logic
 // =============================================================================
 
-// TestSessionSetPath_ValidationLogic verifies that the os.Stat + IsDir checks
-// used in the "path" case of runSessionSet behave as expected.
-//
-// runSessionSet calls os.Exit so it cannot be invoked directly in tests.
-// These tests exercise the underlying os.Stat + IsDir semantics with real
-// filesystem paths to confirm the validation logic is correct.
-func TestSessionSetPath_ValidationLogic(t *testing.T) {
-	t.Run("existing directory passes validation", func(t *testing.T) {
-		dir := t.TempDir()
-		info, err := os.Stat(dir)
-		if err != nil {
-			t.Fatalf("os.Stat(%q) unexpected error: %v", dir, err)
-		}
-		if !info.IsDir() {
-			t.Errorf("expected %q to be a directory", dir)
-		}
-	})
-
-	t.Run("nonexistent path fails validation", func(t *testing.T) {
-		path := filepath.Join(t.TempDir(), "nonexistent", "deep", "path")
-		_, err := os.Stat(path)
+func TestValidateDirectoryPath(t *testing.T) {
+	t.Run("empty string is rejected", func(t *testing.T) {
+		err := validateDirectoryPath("")
 		if err == nil {
-			t.Errorf("expected os.Stat to fail for nonexistent path %q, but it succeeded", path)
+			t.Error("expected error for empty path, got nil")
 		}
 	})
 
-	t.Run("file path fails IsDir check", func(t *testing.T) {
+	t.Run("nonexistent path is rejected", func(t *testing.T) {
+		err := validateDirectoryPath("/nonexistent/path/xyz/abc")
+		if err == nil {
+			t.Error("expected error for nonexistent path, got nil")
+		}
+	})
+
+	t.Run("existing directory is accepted", func(t *testing.T) {
 		dir := t.TempDir()
-		file := filepath.Join(dir, "somefile.txt")
-		if err := os.WriteFile(file, []byte("x"), 0o644); err != nil {
-			t.Fatalf("failed to create test file: %v", err)
-		}
-		info, err := os.Stat(file)
+		err := validateDirectoryPath(dir)
 		if err != nil {
-			t.Fatalf("os.Stat(%q) unexpected error: %v", file, err)
+			t.Errorf("expected nil for valid directory, got: %v", err)
 		}
-		if info.IsDir() {
-			t.Errorf("expected %q to NOT be a directory", file)
+	})
+
+	t.Run("file path is rejected", func(t *testing.T) {
+		dir := t.TempDir()
+		filePath := filepath.Join(dir, "somefile.txt")
+		if err := os.WriteFile(filePath, []byte("x"), 0644); err != nil {
+			t.Fatal(err)
+		}
+		err := validateDirectoryPath(filePath)
+		if err == nil {
+			t.Error("expected error for file path, got nil")
 		}
 	})
 }
