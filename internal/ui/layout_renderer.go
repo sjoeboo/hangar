@@ -14,8 +14,6 @@ func (h *Home) renderDualColumnLayout(contentHeight int) string {
 	var b strings.Builder
 
 	// Calculate panel widths (35% left, 65% right for more preview space)
-
-
 	leftWidth := h.getLeftPanelWidth()
 	rightWidth := h.width - leftWidth - 3 // -3 for separator
 
