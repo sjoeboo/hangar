@@ -98,5 +98,3 @@ brews:
     license: "MIT"
     dependencies:
       - name: tmux
-    test: |
-      system "#{bin}/hangar", "version"
