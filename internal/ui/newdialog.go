@@ -95,7 +95,7 @@ func NewNewDialog() *NewDialog {
 		commandCursor:   1, // default to claude
 		parentGroupPath: "default",
 		parentGroupName: "default",
-		worktreeEnabled: false,
+		worktreeEnabled: true,
 	}
 	dlg.updateToolOptions()
 	return dlg
@@ -119,7 +119,7 @@ func (d *NewDialog) ShowInGroup(groupPath, groupName, defaultPath string) {
 	d.nameInput.Blur()
 	d.claudeOptions.Blur()
 	d.updateToolOptions()
-	d.worktreeEnabled = false
+	d.worktreeEnabled = true
 	d.branchInput.SetValue("")
 	d.branchAutoSet = false
 	if defaultPath != "" {

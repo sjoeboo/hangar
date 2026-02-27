@@ -351,27 +351,27 @@ func TestNewDialog_TypingResetsSuggestionNavigation(t *testing.T) {
 
 func TestNewDialog_WorktreeToggle(t *testing.T) {
 	dialog := NewNewDialog()
+	if !dialog.worktreeEnabled {
+		t.Error("Worktree should be enabled by default")
+	}
+	dialog.ToggleWorktree()
 	if dialog.worktreeEnabled {
-		t.Error("Worktree should be disabled by default")
+		t.Error("Worktree should be disabled after toggle")
 	}
 	dialog.ToggleWorktree()
 	if !dialog.worktreeEnabled {
-		t.Error("Worktree should be enabled after toggle")
-	}
-	dialog.ToggleWorktree()
-	if dialog.worktreeEnabled {
-		t.Error("Worktree should be disabled after second toggle")
+		t.Error("Worktree should be enabled after second toggle")
 	}
 }
 
 func TestNewDialog_IsWorktreeEnabled(t *testing.T) {
 	dialog := NewNewDialog()
-	if dialog.IsWorktreeEnabled() {
-		t.Error("IsWorktreeEnabled should return false by default")
-	}
-	dialog.worktreeEnabled = true
 	if !dialog.IsWorktreeEnabled() {
-		t.Error("IsWorktreeEnabled should return true when enabled")
+		t.Error("IsWorktreeEnabled should return true by default")
+	}
+	dialog.worktreeEnabled = false
+	if dialog.IsWorktreeEnabled() {
+		t.Error("IsWorktreeEnabled should return false when disabled")
 	}
 }
 
@@ -476,13 +476,13 @@ func TestNewDialog_Validate_WorktreeDisabled_IgnoresBranch(t *testing.T) {
 
 func TestNewDialog_ShowInGroup_ResetsWorktree(t *testing.T) {
 	dialog := NewNewDialog()
-	dialog.worktreeEnabled = true
+	dialog.worktreeEnabled = false
 	dialog.branchInput.SetValue("feature/old-branch")
 
 	dialog.ShowInGroup("projects", "Projects", "")
 
-	if dialog.worktreeEnabled {
-		t.Error("worktreeEnabled should be reset to false on ShowInGroup")
+	if !dialog.worktreeEnabled {
+		t.Error("worktreeEnabled should be reset to true on ShowInGroup")
 	}
 	if dialog.branchInput.Value() != "" {
 		t.Errorf("branchInput should be reset, got: %q", dialog.branchInput.Value())
@@ -679,6 +679,7 @@ func TestNewDialog_CharLimitTruncatesLongNames(t *testing.T) {
 	// Try to set a name longer than MaxNameLength via textinput
 	longName := strings.Repeat("a", MaxNameLength+10)
 	d.nameInput.SetValue(longName)
+	d.branchInput.SetValue("feature/test") // worktree is enabled by default
 
 	// CharLimit should truncate the value to MaxNameLength
 	actual := d.nameInput.Value()
@@ -698,6 +699,7 @@ func TestNewDialog_Validate_NameAtMaxLength(t *testing.T) {
 	d.pathInput.SetValue("/tmp/project")
 	exactName := strings.Repeat("a", MaxNameLength)
 	d.nameInput.SetValue(exactName)
+	d.branchInput.SetValue("feature/test") // worktree is enabled by default
 
 	err := d.Validate()
 	if err != "" {
@@ -748,8 +750,9 @@ func TestNewDialog_ToggleWorktree_AutoPopulatesBranch(t *testing.T) {
 	d := NewNewDialog()
 	d.nameInput.SetValue("amber-falcon")
 
-	// Toggling worktree ON should auto-populate branch from session name
-	d.ToggleWorktree()
+	// Worktree starts ON by default; toggle OFF then back ON to auto-populate branch
+	d.ToggleWorktree() // OFF
+	d.ToggleWorktree() // ON
 
 	if !d.worktreeEnabled {
 		t.Fatal("worktreeEnabled should be true after toggle")
@@ -781,5 +784,20 @@ func TestNewDialog_ShowInGroup_ResetsBranchAutoSet(t *testing.T) {
 
 	if d.branchAutoSet {
 		t.Error("branchAutoSet should be reset to false on ShowInGroup")
+	}
+}
+
+func TestNewDialog_WorktreeEnabledByDefault(t *testing.T) {
+	dlg := NewNewDialog()
+	if !dlg.IsWorktreeEnabled() {
+		t.Error("expected worktreeEnabled=true by default, got false")
+	}
+}
+
+func TestNewDialog_ShowInGroup_WorktreeEnabledByDefault(t *testing.T) {
+	dlg := NewNewDialog()
+	dlg.ShowInGroup("mygroup", "My Group", "/tmp")
+	if !dlg.IsWorktreeEnabled() {
+		t.Error("expected worktreeEnabled=true after ShowInGroup, got false")
 	}
 }
