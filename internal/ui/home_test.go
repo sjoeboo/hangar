@@ -1195,12 +1195,10 @@ func TestSessionRowPRBadgeStates(t *testing.T) {
 			home.groupTree = session.NewGroupTree(home.instances)
 			home.rebuildFlatItems()
 
-			home.prCacheMu.Lock()
-			home.prCache[inst.ID] = &prCacheEntry{
+			home.cache.SetPR(inst.ID, &prCacheEntry{
 				Number: tt.prNum,
 				State:  tt.state,
-			}
-			home.prCacheMu.Unlock()
+			})
 
 			view := home.View()
 
@@ -1235,9 +1233,7 @@ func TestSessionRowPRBadgeStates(t *testing.T) {
 		home.groupTree = session.NewGroupTree(home.instances)
 		home.rebuildFlatItems()
 
-		home.prCacheMu.Lock()
-		home.prCache[inst.ID] = &prCacheEntry{Number: 99, State: "OPEN"}
-		home.prCacheMu.Unlock()
+		home.cache.SetPR(inst.ID, &prCacheEntry{Number: 99, State: "OPEN"})
 
 		view := home.View()
 		if strings.Contains(view, "[#99]") {
@@ -1271,10 +1267,7 @@ func TestWorktreeFinishDialog_ShowWithCachedPR(t *testing.T) {
 	home.rebuildFlatItems()
 
 	// Pre-populate PR cache
-	home.prCacheMu.Lock()
-	home.prCache[inst.ID] = &prCacheEntry{Number: 55, State: "OPEN", Title: "My PR"}
-	home.prCacheTs[inst.ID] = time.Now()
-	home.prCacheMu.Unlock()
+	home.cache.SetPR(inst.ID, &prCacheEntry{Number: 55, State: "OPEN", Title: "My PR"})
 
 	// Trigger W key — capture the returned model
 	// flatItems[0] is the group header, flatItems[1] is the session
@@ -1508,8 +1501,8 @@ func TestPRView_Navigation(t *testing.T) {
 	home.instances = []*session.Instance{sess1, sess2}
 	home.groupTree = session.NewGroupTree(home.instances)
 	home.rebuildFlatItems()
-	home.prCache["s1"] = &prCacheEntry{Number: 1, Title: "PR 1", State: "OPEN", URL: "https://github.com/x/y/pull/1"}
-	home.prCache["s2"] = &prCacheEntry{Number: 2, Title: "PR 2", State: "DRAFT", URL: "https://github.com/x/y/pull/2"}
+	home.cache.SetPR("s1", &prCacheEntry{Number: 1, Title: "PR 1", State: "OPEN", URL: "https://github.com/x/y/pull/1"})
+	home.cache.SetPR("s2", &prCacheEntry{Number: 2, Title: "PR 2", State: "DRAFT", URL: "https://github.com/x/y/pull/2"})
 
 	// Navigate down
 	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}}
@@ -1547,7 +1540,7 @@ func TestPRView_RenderShowsPRs(t *testing.T) {
 	home.instances = []*session.Instance{sess1}
 	home.groupTree = session.NewGroupTree(home.instances)
 	home.rebuildFlatItems()
-	home.prCache["s1"] = &prCacheEntry{
+	home.cache.SetPR("s1", &prCacheEntry{
 		Number:       42,
 		Title:        "Fix auth bug",
 		State:        "OPEN",
@@ -1555,7 +1548,7 @@ func TestPRView_RenderShowsPRs(t *testing.T) {
 		HasChecks:    true,
 		ChecksPassed: 5,
 		ChecksFailed: 1,
-	}
+	})
 
 	view := home.View()
 
@@ -1997,5 +1990,93 @@ func TestBulkSelectMode_RKeyFallsThrough_WhenNoSelections(t *testing.T) {
 
 	if h.confirmDialog.IsVisible() {
 		t.Error("R with no selections should not show bulk confirm dialog")
+	}
+}
+
+func TestRenderLayouts_Smoke(t *testing.T) {
+	h := NewHome()
+	h.width = 120
+	h.height = 40
+	dual := h.renderDualColumnLayout(38)
+	if dual == "" {
+		t.Error("renderDualColumnLayout returned empty string")
+	}
+	h.width = 70
+	stacked := h.renderStackedLayout(40)
+	if stacked == "" {
+		t.Error("renderStackedLayout returned empty string")
+	}
+	h.width = 40
+	single := h.renderSingleColumnLayout(40)
+	if single == "" {
+		t.Error("renderSingleColumnLayout returned empty string")
+	}
+}
+
+func TestRenderSessionList_Smoke(t *testing.T) {
+	h := NewHome()
+	h.width = 80
+	h.height = 24
+	result := h.renderSessionList(40, 20)
+	if result == "" {
+		t.Error("renderSessionList returned empty string")
+	}
+}
+
+func TestRenderPreviewPane_Smoke(t *testing.T) {
+	h := NewHome()
+	h.width = 80
+	h.height = 40
+	result := h.renderPreviewPane(80, 40)
+	if result == "" {
+		t.Fatal("expected non-empty preview pane")
+	}
+}
+
+func TestRenderPreviewPane_Memoization(t *testing.T) {
+	h := NewHome()
+	h.width = 80
+	h.height = 40
+
+	// Add a session and position the cursor on it.
+	inst := session.NewInstance("memo-test-session", "/tmp/project")
+	h.instancesMu.Lock()
+	h.instances = []*session.Instance{inst}
+	h.instancesMu.Unlock()
+	h.groupTree = session.NewGroupTree(h.instances)
+	h.rebuildFlatItems()
+
+	sessionIdx := -1
+	for i, item := range h.flatItems {
+		if item.Type == session.ItemTypeSession {
+			sessionIdx = i
+			break
+		}
+	}
+	if sessionIdx == -1 {
+		t.Fatal("No session found in flatItems")
+	}
+	h.cursor = sessionIdx
+
+	// First render — populates the rendered-pane cache.
+	result1 := h.renderPreviewPane(80, 40)
+	if result1 == "" {
+		t.Fatal("expected non-empty preview pane on first render")
+	}
+
+	// Second render with identical state — must return the same string
+	// (cache hit path) and must not panic.
+	result2 := h.renderPreviewPane(80, 40)
+	if result1 != result2 {
+		t.Error("expected identical renders for same state (cache hit)")
+	}
+
+	// Change width — different layout must produce a different cache key
+	// and therefore a different (or at least independently rendered) result.
+	result3 := h.renderPreviewPane(60, 40)
+	// We only verify no panic and that the result is non-empty; the actual
+	// content may or may not differ depending on wrapping.
+	if result3 == "" {
+		t.Error("expected non-empty preview pane after width change")
 	}
 }

@@ -270,6 +270,79 @@ var (
 	GroupExpandSelStyle lipgloss.Style
 )
 
+// Preview Renderer Styles (PERFORMANCE: cached at package level)
+// These styles are used by preview_renderer.go, list_renderer.go, and layout_renderer.go
+// to avoid repeated allocations on every View() call.
+var (
+	// Section divider styles
+	styleSectionDividerLine  lipgloss.Style // Foreground(ColorBorder)
+	styleSectionDividerLabel lipgloss.Style // Foreground(ColorText).Bold(true)
+
+	// General preview text styles
+	stylePreviewLabel    lipgloss.Style // Foreground(ColorText) — label/value/info
+	stylePreviewLabelDim lipgloss.Style // Foreground(ColorTextDim) — dimmed label
+	stylePreviewDim      lipgloss.Style // Foreground(ColorText).Italic(true) — hints, elapsed, "more"
+	stylePreviewKey      lipgloss.Style // Foreground(ColorAccent).Bold(true) — keyboard key hints
+	stylePreviewAccent   lipgloss.Style // Foreground(ColorAccent) — dots, accented values
+	stylePreviewBoldName lipgloss.Style // Bold(true).Foreground(ColorAccent) — session name header
+
+	// Connection status styles
+	stylePreviewConnected  lipgloss.Style // Foreground(ColorGreen).Bold(true) — "● Connected"
+	stylePreviewDetecting  lipgloss.Style // Foreground(ColorYellow) — "◐ Detecting..." / pending MCPs
+	stylePreviewNotFound   lipgloss.Style // Foreground(ColorText) — "○ Not connected" / "○ No session found"
+	stylePreviewComment    lipgloss.Style // Foreground(ColorComment) — URLs, "checking..."
+	stylePreviewPRNum      lipgloss.Style // Foreground(ColorAccent).Bold(true).Underline(true) — PR number
+	stylePreviewTimeElapsed lipgloss.Style // Foreground(ColorYellow).Italic(true) — "Loading... Xs"
+
+	// PR check badge styles
+	stylePreviewChecksFailed  lipgloss.Style // Foreground(ColorRed)
+	stylePreviewChecksPending lipgloss.Style // Foreground(ColorYellow)
+	stylePreviewChecksPassed  lipgloss.Style // Foreground(ColorGreen)
+
+	// Loading state animation styles
+	styleSpinnerLaunch lipgloss.Style // Foreground(ColorAccent).Bold(true)
+	styleTitleLaunch   lipgloss.Style // Foreground(ColorPurple).Bold(true)
+	styleSpinnerMCP    lipgloss.Style // Foreground(ColorCyan).Bold(true)
+	styleTitleMCP      lipgloss.Style // Foreground(ColorCyan).Bold(true)
+	styleSpinnerFork   lipgloss.Style // Foreground(ColorPurple).Bold(true) — same as titleLaunch
+	styleDotsMCP       lipgloss.Style // Foreground(ColorCyan)
+	styleDotsFork      lipgloss.Style // Foreground(ColorPurple)
+
+	// Error state styles
+	stylePreviewWarn lipgloss.Style // Foreground(ColorYellow) — "⚠" warning
+
+	// Session info card styles
+	styleInfoCardHeader lipgloss.Style // Bold(true).Foreground(ColorAccent)
+
+	// Badge styles
+	styleToolBadge  lipgloss.Style // Foreground(ColorBg).Background(ColorPurple).Padding(0,1)
+	styleGroupBadge lipgloss.Style // Foreground(ColorBg).Background(ColorCyan).Padding(0,1)
+
+	// List renderer styles
+	styleListEmptyBorder lipgloss.Style // Border(RoundedBorder).BorderForeground(ColorBorder)
+	styleYoloBadge       lipgloss.Style // Foreground(ColorYellow).Bold(true)
+
+	// Layout renderer styles
+	styleLayoutSeparator lipgloss.Style // Foreground(ColorBorder)
+
+	// Group preview styles
+	styleGroupPreviewHeader lipgloss.Style // Foreground(ColorCyan).Bold(true)
+	styleGroupPreviewCount  lipgloss.Style // Foreground(ColorText).Bold(true)
+	styleGroupRepoBranch    lipgloss.Style // Foreground(ColorCyan).Bold(true)
+
+	// Group preview session status summary
+	styleGroupStatusRunning lipgloss.Style // Foreground(ColorGreen)
+	styleGroupStatusWaiting lipgloss.Style // Foreground(ColorYellow)
+	styleGroupStatusIdle    lipgloss.Style // Foreground(ColorText)
+	styleGroupStatusError   lipgloss.Style // Foreground(ColorRed)
+
+	// Group preview session list
+	styleGroupSessionTool lipgloss.Style // Foreground(ColorPurple).Faint(true)
+
+	// Group preview hints
+	styleGroupHint lipgloss.Style // Foreground(ColorComment).Italic(true)
+)
+
 // ToolStyleCache provides pre-allocated styles for each tool type
 // Avoids repeated lipgloss.NewStyle() calls in renderSessionItem()
 var ToolStyleCache map[string]lipgloss.Style
@@ -557,6 +630,80 @@ func initStyles() {
 
 	// LogoBorderStyle
 	LogoBorderStyle = lipgloss.NewStyle().Foreground(ColorBorder)
+
+	// Section divider styles
+	styleSectionDividerLine = lipgloss.NewStyle().Foreground(ColorBorder)
+	styleSectionDividerLabel = lipgloss.NewStyle().Foreground(ColorText).Bold(true)
+
+	// General preview text styles
+	stylePreviewLabel = lipgloss.NewStyle().Foreground(ColorText)
+	stylePreviewLabelDim = lipgloss.NewStyle().Foreground(ColorTextDim)
+	stylePreviewDim = lipgloss.NewStyle().Foreground(ColorText).Italic(true)
+	stylePreviewKey = lipgloss.NewStyle().Foreground(ColorAccent).Bold(true)
+	stylePreviewAccent = lipgloss.NewStyle().Foreground(ColorAccent)
+	stylePreviewBoldName = lipgloss.NewStyle().Bold(true).Foreground(ColorAccent)
+
+	// Connection status styles
+	stylePreviewConnected = lipgloss.NewStyle().Foreground(ColorGreen).Bold(true)
+	stylePreviewDetecting = lipgloss.NewStyle().Foreground(ColorYellow)
+	stylePreviewNotFound = lipgloss.NewStyle().Foreground(ColorText)
+	stylePreviewComment = lipgloss.NewStyle().Foreground(ColorComment)
+	stylePreviewPRNum = lipgloss.NewStyle().Foreground(ColorAccent).Bold(true).Underline(true)
+	stylePreviewTimeElapsed = lipgloss.NewStyle().Foreground(ColorYellow).Italic(true)
+
+	// PR check badge styles
+	stylePreviewChecksFailed = lipgloss.NewStyle().Foreground(ColorRed)
+	stylePreviewChecksPending = lipgloss.NewStyle().Foreground(ColorYellow)
+	stylePreviewChecksPassed = lipgloss.NewStyle().Foreground(ColorGreen)
+
+	// Loading state animation styles
+	styleSpinnerLaunch = lipgloss.NewStyle().Foreground(ColorAccent).Bold(true)
+	styleTitleLaunch = lipgloss.NewStyle().Foreground(ColorPurple).Bold(true)
+	styleSpinnerMCP = lipgloss.NewStyle().Foreground(ColorCyan).Bold(true)
+	styleTitleMCP = lipgloss.NewStyle().Foreground(ColorCyan).Bold(true)
+	styleSpinnerFork = lipgloss.NewStyle().Foreground(ColorPurple).Bold(true)
+	styleDotsMCP = lipgloss.NewStyle().Foreground(ColorCyan)
+	styleDotsFork = lipgloss.NewStyle().Foreground(ColorPurple)
+
+	// Error state styles
+	stylePreviewWarn = lipgloss.NewStyle().Foreground(ColorYellow)
+
+	// Session info card styles
+	styleInfoCardHeader = lipgloss.NewStyle().Bold(true).Foreground(ColorAccent)
+
+	// Badge styles
+	styleToolBadge = lipgloss.NewStyle().
+		Foreground(ColorBg).
+		Background(ColorPurple).
+		Padding(0, 1)
+	styleGroupBadge = lipgloss.NewStyle().
+		Foreground(ColorBg).
+		Background(ColorCyan).
+		Padding(0, 1)
+
+	// List renderer styles
+	styleListEmptyBorder = lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(ColorBorder)
+	styleYoloBadge = lipgloss.NewStyle().Foreground(ColorYellow).Bold(true)
+
+	// Layout renderer styles
+	styleLayoutSeparator = lipgloss.NewStyle().Foreground(ColorBorder)
+
+	// Group preview styles
+	styleGroupPreviewHeader = lipgloss.NewStyle().Foreground(ColorCyan).Bold(true)
+	styleGroupPreviewCount  = lipgloss.NewStyle().Foreground(ColorText).Bold(true)
+	styleGroupRepoBranch    = lipgloss.NewStyle().Foreground(ColorCyan).Bold(true)
+
+	// Group preview session status summary
+	styleGroupStatusRunning = lipgloss.NewStyle().Foreground(ColorGreen)
+	styleGroupStatusWaiting = lipgloss.NewStyle().Foreground(ColorYellow)
+	styleGroupStatusIdle    = lipgloss.NewStyle().Foreground(ColorText)
+	styleGroupStatusError   = lipgloss.NewStyle().Foreground(ColorRed)
+
+	// Group preview session list and hints
+	styleGroupSessionTool = lipgloss.NewStyle().Foreground(ColorPurple).Faint(true)
+	styleGroupHint        = lipgloss.NewStyle().Foreground(ColorComment).Italic(true)
 }
 
 // Helper Functions

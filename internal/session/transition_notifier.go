@@ -125,6 +125,7 @@ func (n *TransitionNotifier) dispatch(event TransitionNotificationEvent) Transit
 		event.DeliveryResult = transitionDeliveryFailed
 		return event
 	}
+	defer storage.Close()
 	instances, _, err := storage.LoadWithGroups()
 	if err != nil {
 		event.DeliveryResult = transitionDeliveryFailed

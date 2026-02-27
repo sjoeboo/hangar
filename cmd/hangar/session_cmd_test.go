@@ -2,6 +2,8 @@ package main
 
 import (
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"ghe.spotify.net/mnicholson/hangar/internal/session"
@@ -43,4 +45,56 @@ func TestMCPInfoForJSON_UsesSlicesAndIsMarshalable(t *testing.T) {
 	if _, err := json.Marshal(payload); err != nil {
 		t.Fatalf("json.Marshal failed: %v", err)
 	}
+}
+
+// =============================================================================
+// Tests for session set path validation logic
+// =============================================================================
+
+func TestValidateDirectoryPath(t *testing.T) {
+	t.Run("empty string is rejected", func(t *testing.T) {
+		err := validateDirectoryPath("")
+		if err == nil {
+			t.Error("expected error for empty path, got nil")
+		}
+	})
+
+	t.Run("nonexistent path is rejected", func(t *testing.T) {
+		err := validateDirectoryPath("/nonexistent/path/xyz/abc")
+		if err == nil {
+			t.Error("expected error for nonexistent path, got nil")
+		}
+	})
+
+	t.Run("existing directory is accepted", func(t *testing.T) {
+		dir := t.TempDir()
+		err := validateDirectoryPath(dir)
+		if err != nil {
+			t.Errorf("expected nil for valid directory, got: %v", err)
+		}
+	})
+
+	t.Run("file path is rejected", func(t *testing.T) {
+		dir := t.TempDir()
+		filePath := filepath.Join(dir, "somefile.txt")
+		if err := os.WriteFile(filePath, []byte("x"), 0644); err != nil {
+			t.Fatal(err)
+		}
+		err := validateDirectoryPath(filePath)
+		if err == nil {
+			t.Error("expected error for file path, got nil")
+		}
+	})
+}
+
+// TestSessionSetPath_RejectsNonexistentPath is an integration test that
+// exercises the full runSessionSet command path end-to-end.
+//
+// It validates that `hangar session set <id> path <value>` rejects
+// non-existent paths with a non-zero exit code. This test requires a running
+// hangar storage instance; run manually:
+//
+//	hangar session set <id> path /nonexistent/path/xyz
+func TestSessionSetPath_RejectsNonexistentPath(t *testing.T) {
+	t.Skip("integration test: run manually with: hangar session set <id> path /nonexistent")
 }

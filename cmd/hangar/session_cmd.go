@@ -782,6 +782,22 @@ func mcpInfoForJSON(mcpInfo *session.MCPInfo) map[string]interface{} {
 	}
 }
 
+// validateDirectoryPath returns an error if path is empty, does not exist,
+// or is not a directory. os.Stat follows symlinks; dangling symlinks are rejected.
+func validateDirectoryPath(path string) error {
+	if path == "" {
+		return fmt.Errorf("path cannot be empty")
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		return fmt.Errorf("invalid path: %s (%w)", path, err)
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("path is not a directory: %s", path)
+	}
+	return nil
+}
+
 // handleSessionSet updates a session property
 func handleSessionSet(profile string, args []string) {
 	fs := flag.NewFlagSet("session set", flag.ExitOnError)
@@ -878,6 +894,10 @@ func handleSessionSet(profile string, args []string) {
 		inst.Title = value
 		inst.SyncTmuxDisplayName()
 	case "path":
+		if err := validateDirectoryPath(value); err != nil {
+			out.Error(err.Error(), ErrCodeInvalidOperation)
+			os.Exit(1)
+		}
 		oldValue = inst.ProjectPath
 		inst.ProjectPath = value
 	case "command":
