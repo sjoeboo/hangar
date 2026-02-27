@@ -1,6 +1,8 @@
 package ui
 
 import (
+	"fmt"
+	"sync"
 	"testing"
 	"time"
 )
@@ -207,4 +209,22 @@ func TestUICache_InvalidatePRTimestamp(t *testing.T) {
 	if existsAfter {
 		t.Error("expected PR entry to be gone after InvalidatePRTimestamp")
 	}
+}
+
+func TestUICache_ConcurrentAccess(t *testing.T) {
+	c := newUICache()
+	var wg sync.WaitGroup
+	for i := 0; i < 50; i++ {
+		wg.Add(1)
+		go func(n int) {
+			defer wg.Done()
+			id := fmt.Sprintf("sess-%d", n%5)
+			c.SetPreview(id, "content")
+			c.GetPreview(id)
+			c.SetWorktreeDirty(id, n%2 == 0)
+			c.GetWorktreeDirty(id)
+			c.InvalidateSession(id)
+		}(i)
+	}
+	wg.Wait()
 }
