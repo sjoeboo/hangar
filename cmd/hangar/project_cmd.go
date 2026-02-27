@@ -111,6 +111,7 @@ func handleProjectAdd(profile string, args []string) {
 	}
 
 	fmt.Printf("Added project %q (base: %s, branch: %s)\n", name, expandedDir, baseBranch)
+	touchStorage(profile)
 }
 
 // handleProjectRemove removes a project by name
@@ -128,4 +129,16 @@ func handleProjectRemove(profile string, args []string) {
 	}
 
 	fmt.Printf("Removed project %q\n", name)
+	touchStorage(profile)
+}
+
+// touchStorage bumps the SQLite metadata timestamp so a running TUI instance
+// reloads after CLI project mutations.
+func touchStorage(profile string) {
+	storage, err := session.NewStorageWithProfile(profile)
+	if err != nil {
+		return // best-effort; TUI will reload on next poll
+	}
+	defer storage.Close()
+	_ = storage.GetDB().Touch()
 }
