@@ -37,10 +37,9 @@ func (h *Home) renderDualColumnLayout(contentHeight int) string {
 	rightPanel := rightTitle + "\n" + rightContent
 
 	// Build separator - must be exactly contentHeight lines
-	separatorStyle := lipgloss.NewStyle().Foreground(ColorBorder)
 	separatorLines := make([]string, contentHeight)
 	for i := range separatorLines {
-		separatorLines[i] = separatorStyle.Render(" │ ")
+		separatorLines[i] = styleLayoutSeparator.Render(" │ ")
 	}
 	separator := strings.Join(separatorLines, "\n")
 
@@ -93,8 +92,7 @@ func (h *Home) renderStackedLayout(totalHeight int) string {
 	b.WriteString("\n")
 
 	// Separator
-	sepStyle := lipgloss.NewStyle().Foreground(ColorBorder)
-	b.WriteString(sepStyle.Render(strings.Repeat("─", max(0, h.width))))
+	b.WriteString(styleLayoutSeparator.Render(strings.Repeat("─", max(0, h.width))))
 	b.WriteString("\n")
 
 	// Preview (full width)

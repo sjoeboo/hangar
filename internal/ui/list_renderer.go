@@ -46,10 +46,7 @@ func (h *Home) renderSessionList(width, height int) string {
 			},
 		}, contentWidth, contentHeight)
 
-		return lipgloss.NewStyle().
-			Border(lipgloss.RoundedBorder()).
-			BorderForeground(ColorBorder).
-			Render(emptyContent)
+		return styleListEmptyBorder.Render(emptyContent)
 	}
 
 	// Render items starting from viewOffset
@@ -303,7 +300,7 @@ func (h *Home) renderSessionItem(b *strings.Builder, item session.Item, selected
 	// YOLO badge for Gemini sessions with YOLO mode enabled
 	yoloBadge := ""
 	if instTool == "gemini" && inst.GeminiYoloMode != nil && *inst.GeminiYoloMode {
-		yoloStyle := lipgloss.NewStyle().Foreground(ColorYellow).Bold(true)
+		yoloStyle := styleYoloBadge
 		if selected {
 			yoloStyle = SessionStatusSelStyle
 		}

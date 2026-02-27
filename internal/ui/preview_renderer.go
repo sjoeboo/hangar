@@ -24,17 +24,11 @@ import (
 // renderSectionDivider creates a modern section divider with optional centered label
 // Format: ─────────── Label ─────────── (lines extend to fill width)
 func renderSectionDivider(label string, width int) string {
-	lineStyle := lipgloss.NewStyle().Foreground(ColorBorder)
-
 	if label == "" {
-		return lineStyle.Render(strings.Repeat("─", max(0, width)))
+		return styleSectionDividerLine.Render(strings.Repeat("─", max(0, width)))
 	}
 
 	// Label with subtle background for better visibility
-	labelStyle := lipgloss.NewStyle().
-		Foreground(ColorText).
-		Bold(true)
-
 	// Calculate side widths
 	labelWidth := len(label) + 2 // +2 for spacing on each side of label
 	sideWidth := (width - labelWidth) / 2
@@ -42,9 +36,9 @@ func renderSectionDivider(label string, width int) string {
 		sideWidth = 3
 	}
 
-	return lineStyle.Render(strings.Repeat("─", sideWidth)) +
-		" " + labelStyle.Render(label) + " " +
-		lineStyle.Render(strings.Repeat("─", sideWidth))
+	return styleSectionDividerLine.Render(strings.Repeat("─", sideWidth)) +
+		" " + styleSectionDividerLabel.Render(label) + " " +
+		styleSectionDividerLine.Render(strings.Repeat("─", sideWidth))
 }
 
 // renderToolStatusLine renders a Status + Session line for a tool section.
@@ -52,30 +46,24 @@ func renderSectionDivider(label string, width int) string {
 // detectedAt is when detection ran (zero = still detecting, used only when threeState is true).
 // threeState enables the "Detecting..." intermediate state (for tools like OpenCode/Codex).
 func renderToolStatusLine(b *strings.Builder, sessionID string, detectedAt time.Time, threeState bool) {
-	labelStyle := lipgloss.NewStyle().Foreground(ColorText)
-	valueStyle := lipgloss.NewStyle().Foreground(ColorText)
-
 	if sessionID != "" {
-		statusStyle := lipgloss.NewStyle().Foreground(ColorGreen).Bold(true)
-		b.WriteString(labelStyle.Render("Status:  "))
-		b.WriteString(statusStyle.Render("● Connected"))
+		b.WriteString(stylePreviewLabel.Render("Status:  "))
+		b.WriteString(stylePreviewConnected.Render("● Connected"))
 		b.WriteString("\n")
 
-		b.WriteString(labelStyle.Render("Session: "))
-		b.WriteString(valueStyle.Render(sessionID))
+		b.WriteString(stylePreviewLabel.Render("Session: "))
+		b.WriteString(stylePreviewLabel.Render(sessionID))
 		b.WriteString("\n")
 	} else if threeState && detectedAt.IsZero() {
-		statusStyle := lipgloss.NewStyle().Foreground(ColorYellow)
-		b.WriteString(labelStyle.Render("Status:  "))
-		b.WriteString(statusStyle.Render("◐ Detecting session..."))
+		b.WriteString(stylePreviewLabel.Render("Status:  "))
+		b.WriteString(stylePreviewDetecting.Render("◐ Detecting session..."))
 		b.WriteString("\n")
 	} else {
-		statusStyle := lipgloss.NewStyle().Foreground(ColorText)
-		b.WriteString(labelStyle.Render("Status:  "))
+		b.WriteString(stylePreviewLabel.Render("Status:  "))
 		if threeState {
-			b.WriteString(statusStyle.Render("○ No session found"))
+			b.WriteString(stylePreviewNotFound.Render("○ No session found"))
 		} else {
-			b.WriteString(statusStyle.Render("○ Not connected"))
+			b.WriteString(stylePreviewNotFound.Render("○ Not connected"))
 		}
 		b.WriteString("\n")
 	}
@@ -86,22 +74,18 @@ func renderDetectedAtLine(b *strings.Builder, detectedAt time.Time) {
 	if detectedAt.IsZero() {
 		return
 	}
-	labelStyle := lipgloss.NewStyle().Foreground(ColorText)
-	dimStyle := lipgloss.NewStyle().Foreground(ColorText).Italic(true)
-	b.WriteString(labelStyle.Render("Detected:"))
-	b.WriteString(dimStyle.Render(" " + formatRelativeTime(detectedAt)))
+	b.WriteString(stylePreviewLabel.Render("Detected:"))
+	b.WriteString(stylePreviewDim.Render(" " + formatRelativeTime(detectedAt)))
 	b.WriteString("\n")
 }
 
 // renderForkHintLine renders the fork keyboard hint line.
 func renderForkHintLine(b *strings.Builder) {
-	hintStyle := lipgloss.NewStyle().Foreground(ColorText).Italic(true)
-	keyStyle := lipgloss.NewStyle().Foreground(ColorAccent).Bold(true)
-	b.WriteString(hintStyle.Render("Fork:    "))
-	b.WriteString(keyStyle.Render("f"))
-	b.WriteString(hintStyle.Render(" quick fork, "))
-	b.WriteString(keyStyle.Render("F"))
-	b.WriteString(hintStyle.Render(" fork with options"))
+	b.WriteString(stylePreviewDim.Render("Fork:    "))
+	b.WriteString(stylePreviewKey.Render("f"))
+	b.WriteString(stylePreviewDim.Render(" quick fork, "))
+	b.WriteString(stylePreviewKey.Render("F"))
+	b.WriteString(stylePreviewDim.Render(" fork with options"))
 	b.WriteString("\n")
 }
 
@@ -112,25 +96,22 @@ func renderSimpleMCPLine(b *strings.Builder, mcpInfo *session.MCPInfo, width int
 		return
 	}
 
-	labelStyle := lipgloss.NewStyle().Foreground(ColorText)
-	valueStyle := lipgloss.NewStyle().Foreground(ColorText)
-
 	var mcpParts []string
 	for _, name := range mcpInfo.Global {
-		mcpParts = append(mcpParts, valueStyle.Render(name+" (g)"))
+		mcpParts = append(mcpParts, stylePreviewLabel.Render(name+" (g)"))
 	}
 	for _, name := range mcpInfo.Project {
-		mcpParts = append(mcpParts, valueStyle.Render(name+" (p)"))
+		mcpParts = append(mcpParts, stylePreviewLabel.Render(name+" (p)"))
 	}
 	for _, mcp := range mcpInfo.LocalMCPs {
-		mcpParts = append(mcpParts, valueStyle.Render(mcp.Name+" (l)"))
+		mcpParts = append(mcpParts, stylePreviewLabel.Render(mcp.Name+" (l)"))
 	}
 
 	if len(mcpParts) == 0 {
 		return
 	}
 
-	b.WriteString(labelStyle.Render("MCPs:    "))
+	b.WriteString(stylePreviewLabel.Render("MCPs:    "))
 
 	mcpMaxWidth := width - 4 - 9
 	if mcpMaxWidth < 20 {
@@ -163,11 +144,10 @@ func renderSimpleMCPLine(b *strings.Builder, mcpInfo *session.MCPInfo, width int
 		}
 
 		if wouldExceed {
-			moreStyle := lipgloss.NewStyle().Foreground(ColorText).Italic(true)
 			if mcpCount > 0 {
-				mcpResult.WriteString(moreStyle.Render(fmt.Sprintf(" (+%d more)", remaining)))
+				mcpResult.WriteString(stylePreviewDim.Render(fmt.Sprintf(" (+%d more)", remaining)))
 			} else {
-				mcpResult.WriteString(moreStyle.Render(fmt.Sprintf("(%d MCPs)", len(mcpParts))))
+				mcpResult.WriteString(stylePreviewDim.Render(fmt.Sprintf("(%d MCPs)", len(mcpParts))))
 			}
 			break
 		}
@@ -248,53 +228,38 @@ func (h *Home) renderLaunchingState(inst *session.Instance, width int, startTime
 		}
 	}
 
-	// Centered layout
+	// Centered layout (runtime width — must stay inline)
 	centerStyle := lipgloss.NewStyle().
 		Width(width - 4).
 		Align(lipgloss.Center)
 
-	// Spinner with tool color
-	spinnerStyle := lipgloss.NewStyle().
-		Foreground(ColorAccent).
-		Bold(true)
-	spinnerLine := spinnerStyle.Render(spinner + "  " + spinner + "  " + spinner)
+	spinnerLine := styleSpinnerLaunch.Render(spinner + "  " + spinner + "  " + spinner)
 	b.WriteString(centerStyle.Render(spinnerLine))
 	b.WriteString("\n\n")
 
 	// Title with emoji
-	titleStyle := lipgloss.NewStyle().
-		Foreground(ColorPurple).
-		Bold(true)
 	var actionVerb string
 	if isResuming {
 		actionVerb = "Resuming"
 	} else {
 		actionVerb = "Launching"
 	}
-	b.WriteString(centerStyle.Render(titleStyle.Render(emoji + " " + actionVerb + " " + toolName)))
+	b.WriteString(centerStyle.Render(styleTitleLaunch.Render(emoji + " " + actionVerb + " " + toolName)))
 	b.WriteString("\n\n")
 
 	// Description
-	descStyle := lipgloss.NewStyle().
-		Foreground(ColorText).
-		Italic(true)
-	b.WriteString(centerStyle.Render(descStyle.Render(toolDesc)))
+	b.WriteString(centerStyle.Render(stylePreviewDim.Render(toolDesc)))
 	b.WriteString("\n\n")
 
 	// Progress dots animation
 	dotsCount := (h.animationFrame % 4) + 1
 	dots := strings.Repeat("●", dotsCount) + strings.Repeat("○", 4-dotsCount)
-	dotsStyle := lipgloss.NewStyle().
-		Foreground(ColorAccent)
-	b.WriteString(centerStyle.Render(dotsStyle.Render(dots)))
+	b.WriteString(centerStyle.Render(stylePreviewAccent.Render(dots)))
 	b.WriteString("\n\n")
 
 	// Elapsed time (consistent with MCP and Fork animations)
 	elapsed := time.Since(startTime).Round(time.Second)
-	timeStyle := lipgloss.NewStyle().
-		Foreground(ColorYellow).
-		Italic(true)
-	b.WriteString(centerStyle.Render(timeStyle.Render(fmt.Sprintf("Loading... %s", elapsed))))
+	b.WriteString(centerStyle.Render(stylePreviewTimeElapsed.Render(fmt.Sprintf("Loading... %s", elapsed))))
 
 	return b.String()
 }
@@ -307,47 +272,31 @@ func (h *Home) renderMcpLoadingState(inst *session.Instance, width int, startTim
 	spinnerFrames := []string{"⣾", "⣽", "⣻", "⢿", "⡿", "⣟", "⣯", "⣷"}
 	spinner := spinnerFrames[h.animationFrame]
 
-	// Centered layout
+	// Centered layout (runtime width — must stay inline)
 	centerStyle := lipgloss.NewStyle().
 		Width(width - 4).
 		Align(lipgloss.Center)
 
-	// Spinner with cyan color (MCP-themed)
-	spinnerStyle := lipgloss.NewStyle().
-		Foreground(ColorCyan).
-		Bold(true)
-	spinnerLine := spinnerStyle.Render(spinner + "  " + spinner + "  " + spinner)
+	spinnerLine := styleSpinnerMCP.Render(spinner + "  " + spinner + "  " + spinner)
 	b.WriteString(centerStyle.Render(spinnerLine))
 	b.WriteString("\n\n")
 
-	// MCP loading title
-	titleStyle := lipgloss.NewStyle().
-		Foreground(ColorCyan).
-		Bold(true)
-	b.WriteString(centerStyle.Render(titleStyle.Render("🔌 Reloading MCPs")))
+	b.WriteString(centerStyle.Render(styleTitleMCP.Render("🔌 Reloading MCPs")))
 	b.WriteString("\n\n")
 
 	// Description
-	descStyle := lipgloss.NewStyle().
-		Foreground(ColorText).
-		Italic(true)
-	b.WriteString(centerStyle.Render(descStyle.Render("Restarting session with updated MCP configuration...")))
+	b.WriteString(centerStyle.Render(stylePreviewDim.Render("Restarting session with updated MCP configuration...")))
 	b.WriteString("\n\n")
 
 	// Progress dots animation
 	dotsCount := (h.animationFrame % 4) + 1
 	dots := strings.Repeat("●", dotsCount) + strings.Repeat("○", 4-dotsCount)
-	dotsStyle := lipgloss.NewStyle().
-		Foreground(ColorCyan)
-	b.WriteString(centerStyle.Render(dotsStyle.Render(dots)))
+	b.WriteString(centerStyle.Render(styleDotsMCP.Render(dots)))
 	b.WriteString("\n\n")
 
 	// Elapsed time
 	elapsed := time.Since(startTime).Round(time.Second)
-	timeStyle := lipgloss.NewStyle().
-		Foreground(ColorYellow).
-		Italic(true)
-	b.WriteString(centerStyle.Render(timeStyle.Render(fmt.Sprintf("Loading... %s", elapsed))))
+	b.WriteString(centerStyle.Render(stylePreviewTimeElapsed.Render(fmt.Sprintf("Loading... %s", elapsed))))
 
 	return b.String()
 }
@@ -365,42 +314,26 @@ func (h *Home) renderForkingState(inst *session.Instance, width int, startTime t
 	spinnerFrames := []string{"⣾", "⣽", "⣻", "⢿", "⡿", "⣟", "⣯", "⣷"}
 	spinner := spinnerFrames[h.animationFrame]
 
-	// Spinner with purple color (fork-themed)
-	spinnerStyle := lipgloss.NewStyle().
-		Foreground(ColorPurple).
-		Bold(true)
-	spinnerLine := spinnerStyle.Render(spinner + "  " + spinner + "  " + spinner)
+	spinnerLine := styleSpinnerFork.Render(spinner + "  " + spinner + "  " + spinner)
 	b.WriteString(centerStyle.Render(spinnerLine))
 	b.WriteString("\n\n")
 
-	// Forking title
-	titleStyle := lipgloss.NewStyle().
-		Foreground(ColorPurple).
-		Bold(true)
-	b.WriteString(centerStyle.Render(titleStyle.Render("🔀 Forking Session")))
+	b.WriteString(centerStyle.Render(styleTitleLaunch.Render("🔀 Forking Session")))
 	b.WriteString("\n\n")
 
 	// Description
-	descStyle := lipgloss.NewStyle().
-		Foreground(ColorText).
-		Italic(true)
-	b.WriteString(centerStyle.Render(descStyle.Render("Creating a new Claude session from this conversation...")))
+	b.WriteString(centerStyle.Render(stylePreviewDim.Render("Creating a new Claude session from this conversation...")))
 	b.WriteString("\n\n")
 
 	// Progress dots animation
 	dotsCount := (h.animationFrame % 4) + 1
 	dots := strings.Repeat("●", dotsCount) + strings.Repeat("○", 4-dotsCount)
-	dotsStyle := lipgloss.NewStyle().
-		Foreground(ColorPurple)
-	b.WriteString(centerStyle.Render(dotsStyle.Render(dots)))
+	b.WriteString(centerStyle.Render(styleDotsFork.Render(dots)))
 	b.WriteString("\n\n")
 
 	// Elapsed time (consistent with other animations)
 	elapsed := time.Since(startTime).Round(time.Second)
-	timeStyle := lipgloss.NewStyle().
-		Foreground(ColorYellow).
-		Italic(true)
-	b.WriteString(centerStyle.Render(timeStyle.Render(fmt.Sprintf("Loading... %s", elapsed))))
+	b.WriteString(centerStyle.Render(stylePreviewTimeElapsed.Render(fmt.Sprintf("Loading... %s", elapsed))))
 
 	return b.String()
 }
@@ -409,8 +342,7 @@ func (h *Home) renderForkingState(inst *session.Instance, width int, startTime t
 // Used when both show_output and show_analytics are disabled
 func (h *Home) renderSessionInfoCard(inst *session.Instance, width, height int) string {
 	if inst == nil {
-		dimStyle := lipgloss.NewStyle().Foreground(ColorTextDim).Italic(true)
-		return dimStyle.Render("No session selected")
+		return stylePreviewLabelDim.Render("No session selected")
 	}
 
 	var b strings.Builder
@@ -421,22 +353,15 @@ func (h *Home) renderSessionInfoCard(inst *session.Instance, width, height int) 
 
 	// Header with tool icon
 	icon := ToolIcon(cardTool)
-	header := lipgloss.NewStyle().
-		Bold(true).
-		Foreground(ColorAccent).
-		Render(fmt.Sprintf("%s %s", icon, inst.Title))
-	b.WriteString(header)
+	b.WriteString(styleInfoCardHeader.Render(fmt.Sprintf("%s %s", icon, inst.Title)))
 	b.WriteString("\n")
 	b.WriteString(strings.Repeat("─", max(0, min(width-4, 40))))
 	b.WriteString("\n\n")
 
-	labelStyle := lipgloss.NewStyle().Foreground(ColorTextDim)
-	valueStyle := lipgloss.NewStyle().Foreground(ColorText)
-
 	// Path
-	b.WriteString(fmt.Sprintf("%s %s\n", labelStyle.Render("Path:"), valueStyle.Render(inst.ProjectPath)))
+	b.WriteString(fmt.Sprintf("%s %s\n", stylePreviewLabelDim.Render("Path:"), stylePreviewLabel.Render(inst.ProjectPath)))
 
-	// Status with color
+	// Status with color (runtime-dependent — must stay inline)
 	var statusColor lipgloss.Color
 	switch cardStatus {
 	case session.StatusRunning:
@@ -449,10 +374,10 @@ func (h *Home) renderSessionInfoCard(inst *session.Instance, width, height int) 
 		statusColor = ColorTextDim
 	}
 	statusStyle := lipgloss.NewStyle().Foreground(statusColor)
-	b.WriteString(fmt.Sprintf("%s %s\n", labelStyle.Render("Status:"), statusStyle.Render(string(cardStatus))))
+	b.WriteString(fmt.Sprintf("%s %s\n", stylePreviewLabelDim.Render("Status:"), statusStyle.Render(string(cardStatus))))
 
 	// Tool
-	b.WriteString(fmt.Sprintf("%s %s\n", labelStyle.Render("Tool:"), valueStyle.Render(cardTool)))
+	b.WriteString(fmt.Sprintf("%s %s\n", stylePreviewLabelDim.Render("Tool:"), stylePreviewLabel.Render(cardTool)))
 
 	// Session ID (if available) - Claude, Gemini, or OpenCode
 	sessionID := inst.ClaudeSessionID
@@ -467,11 +392,11 @@ func (h *Home) renderSessionInfoCard(inst *session.Instance, width, height int) 
 		if len(shortID) > 12 {
 			shortID = shortID[:12] + "..."
 		}
-		b.WriteString(fmt.Sprintf("%s %s\n", labelStyle.Render("Session:"), valueStyle.Render(shortID)))
+		b.WriteString(fmt.Sprintf("%s %s\n", stylePreviewLabelDim.Render("Session:"), stylePreviewLabel.Render(shortID)))
 	}
 
 	// Created date
-	b.WriteString(fmt.Sprintf("%s %s\n", labelStyle.Render("Created:"), valueStyle.Render(inst.CreatedAt.Format("Jan 2 15:04"))))
+	b.WriteString(fmt.Sprintf("%s %s\n", stylePreviewLabelDim.Render("Created:"), stylePreviewLabel.Render(inst.CreatedAt.Format("Jan 2 15:04"))))
 
 	return b.String()
 }
@@ -526,18 +451,16 @@ func (h *Home) renderPreviewPane(width, height int) string {
 		statusColor = ColorRed
 	}
 
-	// Header with session name and status
+	// Header with session name and status (statusColor is runtime — stays inline)
 	statusBadge := lipgloss.NewStyle().Foreground(statusColor).Render(statusIcon + " " + string(selected.Status))
-	nameStyle := lipgloss.NewStyle().Bold(true).Foreground(ColorAccent)
-	b.WriteString(nameStyle.Render(selected.Title))
+	b.WriteString(stylePreviewBoldName.Render(selected.Title))
 	b.WriteString("  ")
 	b.WriteString(statusBadge)
 	b.WriteString("\n")
 
 	// Info lines: path and activity time
-	infoStyle := lipgloss.NewStyle().Foreground(ColorText)
 	pathStr := shortenPath(selected.ProjectPath, width-4)
-	b.WriteString(infoStyle.Render("📁 " + pathStr))
+	b.WriteString(stylePreviewLabel.Render("📁 " + pathStr))
 	b.WriteString("\n")
 
 	// Activity time - shows when session was last active
@@ -546,19 +469,11 @@ func (h *Home) renderPreviewPane(width, height int) string {
 	if selected.Status == session.StatusRunning {
 		activityStr = "active now"
 	}
-	b.WriteString(infoStyle.Render("⏱ " + activityStr))
+	b.WriteString(stylePreviewLabel.Render("⏱ " + activityStr))
 	b.WriteString("\n")
 
-	toolBadge := lipgloss.NewStyle().
-		Foreground(ColorBg).
-		Background(ColorPurple).
-		Padding(0, 1).
-		Render(selected.Tool)
-	groupBadge := lipgloss.NewStyle().
-		Foreground(ColorBg).
-		Background(ColorCyan).
-		Padding(0, 1).
-		Render(selected.GroupPath)
+	toolBadge := styleToolBadge.Render(selected.Tool)
+	groupBadge := styleGroupBadge.Render(selected.GroupPath)
 	b.WriteString(toolBadge)
 	b.WriteString(" ")
 	b.WriteString(groupBadge)
@@ -570,21 +485,16 @@ func (h *Home) renderPreviewPane(width, height int) string {
 		b.WriteString(wtHeader)
 		b.WriteString("\n")
 
-		wtLabelStyle := lipgloss.NewStyle().Foreground(ColorText)
-		wtBranchStyle := lipgloss.NewStyle().Foreground(ColorCyan).Bold(true)
-		wtValueStyle := lipgloss.NewStyle().Foreground(ColorText)
-		wtHintStyle := lipgloss.NewStyle().Foreground(ColorText).Italic(true)
-		wtKeyStyle := lipgloss.NewStyle().Foreground(ColorAccent).Bold(true)
-
 		// PR status (from gh CLI, lazy-cached with 60s TTL)
 		if h.ghPath != "" {
 			pr, _, hasPR := h.cache.HasPREntry(selected.ID)
 
 			if !hasPR {
-				b.WriteString(wtLabelStyle.Render("PR:      "))
-				b.WriteString(lipgloss.NewStyle().Foreground(ColorComment).Render("checking..."))
+				b.WriteString(stylePreviewLabel.Render("PR:      "))
+				b.WriteString(stylePreviewComment.Render("checking..."))
 				b.WriteString("\n")
 			} else if pr != nil {
+				// PR state style is runtime-dependent — must stay inline
 				stateStyle := lipgloss.NewStyle()
 				stateLabel := strings.ToLower(pr.State)
 				switch pr.State {
@@ -597,40 +507,38 @@ func (h *Home) renderPreviewPane(width, height int) string {
 				case "CLOSED":
 					stateStyle = stateStyle.Foreground(ColorRed)
 				}
-				prNumStyle := lipgloss.NewStyle().Foreground(ColorAccent).Bold(true).Underline(true)
 				titleMax := width - 4 - 9 - 6 - len(stateLabel) - 3
 				title := pr.Title
 				if titleMax > 10 && runewidth.StringWidth(title) > titleMax {
 					title = runewidth.Truncate(title, titleMax, "...")
 				}
-				b.WriteString(wtLabelStyle.Render("PR:      "))
-				b.WriteString(prNumStyle.Render(fmt.Sprintf("#%d", pr.Number)))
+				b.WriteString(stylePreviewLabel.Render("PR:      "))
+				b.WriteString(stylePreviewPRNum.Render(fmt.Sprintf("#%d", pr.Number)))
 				b.WriteString(" ")
 				b.WriteString(stateStyle.Render(stateLabel))
-				b.WriteString(wtValueStyle.Render(" · " + title))
+				b.WriteString(stylePreviewLabel.Render(" · " + title))
 				b.WriteString("\n")
 				if pr.URL != "" {
-					urlStyle := lipgloss.NewStyle().Foreground(ColorComment)
 					urlMax := width - 4 - 9
 					displayURL := pr.URL
 					if runewidth.StringWidth(displayURL) > urlMax && urlMax > 15 {
 						displayURL = runewidth.Truncate(displayURL, urlMax, "…")
 					}
-					b.WriteString(wtLabelStyle.Render("         "))
-					b.WriteString(urlStyle.Render(displayURL))
+					b.WriteString(stylePreviewLabel.Render("         "))
+					b.WriteString(stylePreviewComment.Render(displayURL))
 					b.WriteString("\n")
 				}
 				if pr.HasChecks {
-					b.WriteString(wtLabelStyle.Render("Checks:  "))
+					b.WriteString(stylePreviewLabel.Render("Checks:  "))
 					var parts []string
 					if pr.ChecksFailed > 0 {
-						parts = append(parts, lipgloss.NewStyle().Foreground(ColorRed).Render(fmt.Sprintf("✗ %d failed", pr.ChecksFailed)))
+						parts = append(parts, stylePreviewChecksFailed.Render(fmt.Sprintf("✗ %d failed", pr.ChecksFailed)))
 					}
 					if pr.ChecksPending > 0 {
-						parts = append(parts, lipgloss.NewStyle().Foreground(ColorYellow).Render(fmt.Sprintf("● %d running", pr.ChecksPending)))
+						parts = append(parts, stylePreviewChecksPending.Render(fmt.Sprintf("● %d running", pr.ChecksPending)))
 					}
 					if pr.ChecksPassed > 0 {
-						parts = append(parts, lipgloss.NewStyle().Foreground(ColorGreen).Render(fmt.Sprintf("✓ %d passed", pr.ChecksPassed)))
+						parts = append(parts, stylePreviewChecksPassed.Render(fmt.Sprintf("✓ %d passed", pr.ChecksPassed)))
 					}
 					b.WriteString(strings.Join(parts, "  "))
 					b.WriteString("\n")
@@ -641,8 +549,8 @@ func (h *Home) renderPreviewPane(width, height int) string {
 
 		// Branch
 		if selected.WorktreeBranch != "" {
-			b.WriteString(wtLabelStyle.Render("Branch:  "))
-			b.WriteString(wtBranchStyle.Render(selected.WorktreeBranch))
+			b.WriteString(stylePreviewLabel.Render("Branch:  "))
+			b.WriteString(InfoStyle.Render(selected.WorktreeBranch))
 			b.WriteString("\n")
 		}
 
@@ -650,46 +558,47 @@ func (h *Home) renderPreviewPane(width, height int) string {
 		remoteURL, hasRemote := h.cache.HasWorktreeRemoteEntry(selected.ID)
 		_, hasRemoteTs := h.cache.GetWorktreeRemoteCachedAt(selected.ID)
 		if !hasRemoteTs {
-			b.WriteString(wtLabelStyle.Render("Remote:  "))
-			b.WriteString(lipgloss.NewStyle().Foreground(ColorComment).Render("checking..."))
+			b.WriteString(stylePreviewLabel.Render("Remote:  "))
+			b.WriteString(stylePreviewComment.Render("checking..."))
 			b.WriteString("\n")
 		} else if hasRemote && remoteURL != "" {
 			displayRemote := truncatePath(remoteURL, width-4-9)
-			b.WriteString(wtLabelStyle.Render("Remote:  "))
-			b.WriteString(wtValueStyle.Render(displayRemote))
+			b.WriteString(stylePreviewLabel.Render("Remote:  "))
+			b.WriteString(stylePreviewLabel.Render(displayRemote))
 			b.WriteString("\n")
 		}
 
 		// Worktree path (tilde-compressed via shortenPath, already wired in Task 2)
 		if selected.WorktreePath != "" {
 			wtPath := shortenPath(selected.WorktreePath, width-4-9)
-			b.WriteString(wtLabelStyle.Render("Path:    "))
-			b.WriteString(wtValueStyle.Render(wtPath))
+			b.WriteString(stylePreviewLabel.Render("Path:    "))
+			b.WriteString(stylePreviewLabel.Render(wtPath))
 			b.WriteString("\n")
 		}
 
 		// Dirty status (lazy-cached, fetched via previewDebounce handler with 10s TTL)
+		// dirtyStyle is runtime-conditional — must stay inline
 		isDirty, hasCached := h.cache.GetWorktreeDirty(selected.ID)
 
 		dirtyLabel := "checking..."
-		dirtyStyle := wtValueStyle
+		dirtyStyle := stylePreviewLabel
 		if hasCached {
 			if isDirty {
 				dirtyLabel = "dirty (uncommitted changes)"
-				dirtyStyle = lipgloss.NewStyle().Foreground(ColorYellow)
+				dirtyStyle = stylePreviewDetecting
 			} else {
 				dirtyLabel = "clean"
-				dirtyStyle = lipgloss.NewStyle().Foreground(ColorGreen)
+				dirtyStyle = stylePreviewChecksPassed
 			}
 		}
-		b.WriteString(wtLabelStyle.Render("Status:  "))
+		b.WriteString(stylePreviewLabel.Render("Status:  "))
 		b.WriteString(dirtyStyle.Render(dirtyLabel))
 		b.WriteString("\n")
 
 		// Finish hint
-		b.WriteString(wtHintStyle.Render("Finish:  "))
-		b.WriteString(wtKeyStyle.Render("W"))
-		b.WriteString(wtHintStyle.Render(" finish + cleanup"))
+		b.WriteString(stylePreviewDim.Render("Finish:  "))
+		b.WriteString(stylePreviewKey.Render("W"))
+		b.WriteString(stylePreviewDim.Render(" finish + cleanup"))
 		b.WriteString("\n")
 	}
 
@@ -700,24 +609,19 @@ func (h *Home) renderPreviewPane(width, height int) string {
 		b.WriteString(claudeHeader)
 		b.WriteString("\n")
 
-		labelStyle := lipgloss.NewStyle().Foreground(ColorText)
-		valueStyle := lipgloss.NewStyle().Foreground(ColorText)
-
 		// Status line
 		if selected.ClaudeSessionID != "" {
-			statusStyle := lipgloss.NewStyle().Foreground(ColorGreen).Bold(true)
-			b.WriteString(labelStyle.Render("Status:  "))
-			b.WriteString(statusStyle.Render("● Connected"))
+			b.WriteString(stylePreviewLabel.Render("Status:  "))
+			b.WriteString(stylePreviewConnected.Render("● Connected"))
 			b.WriteString("\n")
 
 			// Full session ID on its own line
-			b.WriteString(labelStyle.Render("Session: "))
-			b.WriteString(valueStyle.Render(selected.ClaudeSessionID))
+			b.WriteString(stylePreviewLabel.Render("Session: "))
+			b.WriteString(stylePreviewLabel.Render(selected.ClaudeSessionID))
 			b.WriteString("\n")
 		} else {
-			statusStyle := lipgloss.NewStyle().Foreground(ColorText)
-			b.WriteString(labelStyle.Render("Status:  "))
-			b.WriteString(statusStyle.Render("○ Not connected"))
+			b.WriteString(stylePreviewLabel.Render("Status:  "))
+			b.WriteString(stylePreviewNotFound.Render("○ Not connected"))
 			b.WriteString("\n")
 		}
 
@@ -727,7 +631,7 @@ func (h *Home) renderPreviewPane(width, height int) string {
 		hasMCPs := mcpInfo != nil && mcpInfo.HasAny()
 
 		if hasMCPs || hasLoadedMCPs {
-			b.WriteString(labelStyle.Render("MCPs:    "))
+			b.WriteString(stylePreviewLabel.Render("MCPs:    "))
 
 			// Build set of loaded MCPs for comparison
 			loadedSet := make(map[string]bool)
@@ -749,10 +653,6 @@ func (h *Home) renderPreviewPane(width, height int) string {
 				}
 			}
 
-			// Styles for different MCP states
-			pendingStyle := lipgloss.NewStyle().Foreground(ColorYellow)
-			staleStyle := lipgloss.NewStyle().Foreground(ColorText)
-
 			var mcpParts []string
 
 			// Helper to add MCP with appropriate styling
@@ -760,13 +660,13 @@ func (h *Home) renderPreviewPane(width, height int) string {
 				label := name + " (" + source + ")"
 				if !hasLoadedMCPs {
 					// Old session without LoadedMCPNames - show all as normal (no sync info)
-					mcpParts = append(mcpParts, valueStyle.Render(label))
+					mcpParts = append(mcpParts, stylePreviewLabel.Render(label))
 				} else if loadedSet[name] {
 					// In both loaded and current - active (normal style)
-					mcpParts = append(mcpParts, valueStyle.Render(label))
+					mcpParts = append(mcpParts, stylePreviewLabel.Render(label))
 				} else {
 					// In current but not loaded - pending (needs restart)
-					mcpParts = append(mcpParts, pendingStyle.Render(label+" ⟳"))
+					mcpParts = append(mcpParts, stylePreviewDetecting.Render(label+" ⟳"))
 				}
 			}
 
@@ -794,7 +694,7 @@ func (h *Home) renderPreviewPane(width, height int) string {
 				for _, name := range selected.LoadedMCPNames {
 					if !currentSet[name] {
 						// Still running but removed from config
-						mcpParts = append(mcpParts, staleStyle.Render(name+" ✕"))
+						mcpParts = append(mcpParts, stylePreviewLabel.Render(name+" ✕"))
 					}
 				}
 			}
@@ -839,12 +739,11 @@ func (h *Home) renderPreviewPane(width, height int) string {
 
 				if wouldExceed {
 					// Would exceed - show indicator for remaining
-					moreStyle := lipgloss.NewStyle().Foreground(ColorText).Italic(true)
 					if mcpCount > 0 {
-						mcpResult.WriteString(moreStyle.Render(fmt.Sprintf(" (+%d more)", remaining)))
+						mcpResult.WriteString(stylePreviewDim.Render(fmt.Sprintf(" (+%d more)", remaining)))
 					} else {
 						// No MCPs fit - just show count
-						mcpResult.WriteString(moreStyle.Render(fmt.Sprintf("(%d MCPs)", len(mcpParts))))
+						mcpResult.WriteString(stylePreviewDim.Render(fmt.Sprintf("(%d MCPs)", len(mcpParts))))
 					}
 					break
 				}
@@ -864,14 +763,7 @@ func (h *Home) renderPreviewPane(width, height int) string {
 
 		// Fork hint when session can be forked
 		if selected.CanFork() {
-			hintStyle := lipgloss.NewStyle().Foreground(ColorText).Italic(true)
-			keyStyle := lipgloss.NewStyle().Foreground(ColorAccent).Bold(true)
-			b.WriteString(hintStyle.Render("Fork:    "))
-			b.WriteString(keyStyle.Render("f"))
-			b.WriteString(hintStyle.Render(" quick fork, "))
-			b.WriteString(keyStyle.Render("F"))
-			b.WriteString(hintStyle.Render(" fork with options"))
-			b.WriteString("\n")
+			renderForkHintLine(&b)
 		}
 	}
 
@@ -881,17 +773,13 @@ func (h *Home) renderPreviewPane(width, height int) string {
 		b.WriteString(geminiHeader)
 		b.WriteString("\n")
 
-		labelStyle := lipgloss.NewStyle().Foreground(ColorText)
-		valueStyle := lipgloss.NewStyle().Foreground(ColorText)
-
 		if selected.GeminiSessionID != "" {
-			statusStyle := lipgloss.NewStyle().Foreground(ColorGreen).Bold(true)
-			b.WriteString(labelStyle.Render("Status:  "))
-			b.WriteString(statusStyle.Render("● Connected"))
+			b.WriteString(stylePreviewLabel.Render("Status:  "))
+			b.WriteString(stylePreviewConnected.Render("● Connected"))
 			b.WriteString("\n")
 
-			b.WriteString(labelStyle.Render("Session: "))
-			b.WriteString(valueStyle.Render(selected.GeminiSessionID))
+			b.WriteString(stylePreviewLabel.Render("Session: "))
+			b.WriteString(stylePreviewLabel.Render(selected.GeminiSessionID))
 			b.WriteString("\n")
 
 			// Display active model
@@ -899,18 +787,16 @@ func (h *Home) renderPreviewPane(width, height int) string {
 			if selected.GeminiModel != "" {
 				modelDisplay = selected.GeminiModel
 			}
-			accentStyle := lipgloss.NewStyle().Foreground(ColorAccent)
-			b.WriteString(labelStyle.Render("Model:   "))
-			b.WriteString(accentStyle.Render(modelDisplay))
+			b.WriteString(stylePreviewLabel.Render("Model:   "))
+			b.WriteString(stylePreviewAccent.Render(modelDisplay))
 			b.WriteString("\n")
 
 			// MCPs for Gemini (global only)
 			mcpInfo := selected.GetMCPInfo()
 			renderSimpleMCPLine(&b, mcpInfo, width)
 		} else {
-			statusStyle := lipgloss.NewStyle().Foreground(ColorText)
-			b.WriteString(labelStyle.Render("Status:  "))
-			b.WriteString(statusStyle.Render("○ Not connected"))
+			b.WriteString(stylePreviewLabel.Render("Status:  "))
+			b.WriteString(stylePreviewNotFound.Render("○ Not connected"))
 			b.WriteString("\n")
 		}
 	}
@@ -921,28 +807,23 @@ func (h *Home) renderPreviewPane(width, height int) string {
 		b.WriteString(opencodeHeader)
 		b.WriteString("\n")
 
-		labelStyle := lipgloss.NewStyle().Foreground(ColorText)
-		valueStyle := lipgloss.NewStyle().Foreground(ColorText)
-
 		// Debug: log what value we're seeing
 		uiLog.Debug("opencode_rendering_preview", slog.String("title", selected.Title), slog.String("session_id", selected.OpenCodeSessionID))
 
 		if selected.OpenCodeSessionID != "" {
-			statusStyle := lipgloss.NewStyle().Foreground(ColorGreen).Bold(true)
-			b.WriteString(labelStyle.Render("Status:  "))
-			b.WriteString(statusStyle.Render("● Connected"))
+			b.WriteString(stylePreviewLabel.Render("Status:  "))
+			b.WriteString(stylePreviewConnected.Render("● Connected"))
 			b.WriteString("\n")
 
-			b.WriteString(labelStyle.Render("Session: "))
-			b.WriteString(valueStyle.Render(selected.OpenCodeSessionID))
+			b.WriteString(stylePreviewLabel.Render("Session: "))
+			b.WriteString(stylePreviewLabel.Render(selected.OpenCodeSessionID))
 			b.WriteString("\n")
 
 			// Show when session was detected
 			if !selected.OpenCodeDetectedAt.IsZero() {
 				detectedAgo := formatRelativeTime(selected.OpenCodeDetectedAt)
-				dimStyle := lipgloss.NewStyle().Foreground(ColorText).Italic(true)
-				b.WriteString(labelStyle.Render("Detected:"))
-				b.WriteString(dimStyle.Render(" " + detectedAgo))
+				b.WriteString(stylePreviewLabel.Render("Detected:"))
+				b.WriteString(stylePreviewDim.Render(" " + detectedAgo))
 				b.WriteString("\n")
 			}
 
@@ -954,15 +835,13 @@ func (h *Home) renderPreviewPane(width, height int) string {
 			// Check if detection has completed (OpenCodeDetectedAt is set even when no session found)
 			if selected.OpenCodeDetectedAt.IsZero() {
 				// Detection not yet completed - show detecting state
-				statusStyle := lipgloss.NewStyle().Foreground(ColorYellow)
-				b.WriteString(labelStyle.Render("Status:  "))
-				b.WriteString(statusStyle.Render("◐ Detecting session..."))
+				b.WriteString(stylePreviewLabel.Render("Status:  "))
+				b.WriteString(stylePreviewDetecting.Render("◐ Detecting session..."))
 				b.WriteString("\n")
 			} else {
 				// Detection completed but no session found
-				statusStyle := lipgloss.NewStyle().Foreground(ColorText)
-				b.WriteString(labelStyle.Render("Status:  "))
-				b.WriteString(statusStyle.Render("○ No session found"))
+				b.WriteString(stylePreviewLabel.Render("Status:  "))
+				b.WriteString(stylePreviewNotFound.Render("○ No session found"))
 				b.WriteString("\n")
 			}
 		}
@@ -991,33 +870,26 @@ func (h *Home) renderPreviewPane(width, height int) string {
 			b.WriteString(customHeader)
 			b.WriteString("\n")
 
-			labelStyle := lipgloss.NewStyle().Foreground(ColorText)
-
 			genericID := selected.GetGenericSessionID()
 			if genericID != "" {
-				statusStyle := lipgloss.NewStyle().Foreground(ColorGreen).Bold(true)
-				valueStyle := lipgloss.NewStyle().Foreground(ColorText)
-				b.WriteString(labelStyle.Render("Status:  "))
-				b.WriteString(statusStyle.Render("● Connected"))
+				b.WriteString(stylePreviewLabel.Render("Status:  "))
+				b.WriteString(stylePreviewConnected.Render("● Connected"))
 				b.WriteString("\n")
 
-				b.WriteString(labelStyle.Render("Session: "))
-				b.WriteString(valueStyle.Render(genericID))
+				b.WriteString(stylePreviewLabel.Render("Session: "))
+				b.WriteString(stylePreviewLabel.Render(genericID))
 				b.WriteString("\n")
 			} else {
-				statusStyle := lipgloss.NewStyle().Foreground(ColorText)
-				b.WriteString(labelStyle.Render("Status:  "))
-				b.WriteString(statusStyle.Render("○ Not connected"))
+				b.WriteString(stylePreviewLabel.Render("Status:  "))
+				b.WriteString(stylePreviewNotFound.Render("○ Not connected"))
 				b.WriteString("\n")
 			}
 
 			// Resume hint when tool supports restart with session resume
 			if selected.CanRestartGeneric() {
-				hintStyle := lipgloss.NewStyle().Foreground(ColorText).Italic(true)
-				keyStyle := lipgloss.NewStyle().Foreground(ColorAccent).Bold(true)
-				b.WriteString(hintStyle.Render("Resume:  "))
-				b.WriteString(keyStyle.Render("r"))
-				b.WriteString(hintStyle.Render(" restart with session resume"))
+				b.WriteString(stylePreviewDim.Render("Resume:  "))
+				b.WriteString(stylePreviewKey.Render("r"))
+				b.WriteString(stylePreviewDim.Render(" restart with session resume"))
 				b.WriteString("\n")
 			}
 		}
@@ -1031,34 +903,29 @@ func (h *Home) renderPreviewPane(width, height int) string {
 		b.WriteString(errorHeader)
 		b.WriteString("\n\n")
 
-		// Warning icon and message
-		warnStyle := lipgloss.NewStyle().Foreground(ColorYellow)
-		dimStyle := lipgloss.NewStyle().Foreground(ColorText)
-		keyStyle := lipgloss.NewStyle().Foreground(ColorAccent).Bold(true)
-
-		b.WriteString(warnStyle.Render("⚠ No tmux session running"))
+		b.WriteString(stylePreviewWarn.Render("⚠ No tmux session running"))
 		b.WriteString("\n\n")
-		b.WriteString(dimStyle.Render("This can happen if:"))
+		b.WriteString(stylePreviewLabel.Render("This can happen if:"))
 		b.WriteString("\n")
-		b.WriteString(dimStyle.Render("  • Session was added but not yet started"))
+		b.WriteString(stylePreviewLabel.Render("  • Session was added but not yet started"))
 		b.WriteString("\n")
-		b.WriteString(dimStyle.Render("  • tmux server was restarted"))
+		b.WriteString(stylePreviewLabel.Render("  • tmux server was restarted"))
 		b.WriteString("\n")
-		b.WriteString(dimStyle.Render("  • Terminal was closed or system rebooted"))
+		b.WriteString(stylePreviewLabel.Render("  • Terminal was closed or system rebooted"))
 		b.WriteString("\n\n")
-		b.WriteString(dimStyle.Render("Actions:"))
+		b.WriteString(stylePreviewLabel.Render("Actions:"))
 		b.WriteString("\n")
 		b.WriteString("  ")
-		b.WriteString(keyStyle.Render("R"))
-		b.WriteString(dimStyle.Render(" Start   - create and start tmux session"))
+		b.WriteString(stylePreviewKey.Render("R"))
+		b.WriteString(stylePreviewLabel.Render(" Start   - create and start tmux session"))
 		b.WriteString("\n")
 		b.WriteString("  ")
-		b.WriteString(keyStyle.Render("d"))
-		b.WriteString(dimStyle.Render(" Delete  - remove from list"))
+		b.WriteString(stylePreviewKey.Render("d"))
+		b.WriteString(stylePreviewLabel.Render(" Delete  - remove from list"))
 		b.WriteString("\n")
 		b.WriteString("  ")
-		b.WriteString(keyStyle.Render("Enter"))
-		b.WriteString(dimStyle.Render(" - attach (will auto-start)"))
+		b.WriteString(stylePreviewKey.Render("Enter"))
+		b.WriteString(stylePreviewLabel.Render(" - attach (will auto-start)"))
 		b.WriteString("\n")
 
 		// Pad output to exact height to prevent layout shifts
@@ -1201,16 +1068,9 @@ func (h *Home) renderPreviewPane(width, height int) string {
 		b.WriteString(h.renderLaunchingState(selected, width, animationStartTime))
 	} else if !hasCached {
 		// Show loading indicator while waiting for async fetch
-		loadingStyle := lipgloss.NewStyle().
-			Foreground(ColorText).
-			Italic(true)
-		b.WriteString(loadingStyle.Render("Loading preview..."))
+		b.WriteString(stylePreviewDim.Render("Loading preview..."))
 	} else if preview == "" {
-		emptyTerm := lipgloss.NewStyle().
-			Foreground(ColorText).
-			Italic(true).
-			Render("(terminal is empty)")
-		b.WriteString(emptyTerm)
+		b.WriteString(stylePreviewDim.Render("(terminal is empty)"))
 	} else {
 		// Calculate maxLines dynamically based on how many header lines we've already written
 		// This accounts for Claude sessions having more header lines than other sessions
@@ -1227,11 +1087,7 @@ func (h *Home) renderPreviewPane(width, height int) string {
 
 		// If all lines were empty, show empty indicator
 		if len(lines) == 0 {
-			emptyTerm := lipgloss.NewStyle().
-				Foreground(ColorText).
-				Italic(true).
-				Render("(terminal is empty)")
-			b.WriteString(emptyTerm)
+			b.WriteString(stylePreviewDim.Render("(terminal is empty)"))
 			return b.String()
 		}
 
@@ -1260,11 +1116,7 @@ func (h *Home) renderPreviewPane(width, height int) string {
 
 		// Show truncation indicator if content was cut from top
 		if truncatedFromTop {
-			truncIndicator := lipgloss.NewStyle().
-				Foreground(ColorText).
-				Italic(true).
-				Render(fmt.Sprintf("⋮ %d more lines above", truncatedCount))
-			b.WriteString(truncIndicator)
+			b.WriteString(stylePreviewDim.Render(fmt.Sprintf("⋮ %d more lines above", truncatedCount)))
 			b.WriteString("\n")
 		}
 
@@ -1425,17 +1277,11 @@ func (h *Home) renderGroupPreview(group *session.Group, width, height int) strin
 	var b strings.Builder
 
 	// Group header with folder icon
-	headerStyle := lipgloss.NewStyle().
-		Foreground(ColorCyan).
-		Bold(true)
-	b.WriteString(headerStyle.Render("📁 " + group.Name))
+	b.WriteString(styleGroupPreviewHeader.Render("📁 " + group.Name))
 	b.WriteString("\n\n")
 
 	// Session count
-	countStyle := lipgloss.NewStyle().
-		Foreground(ColorText).
-		Bold(true)
-	b.WriteString(countStyle.Render(fmt.Sprintf("%d sessions", len(group.Sessions))))
+	b.WriteString(styleGroupPreviewCount.Render(fmt.Sprintf("%d sessions", len(group.Sessions))))
 	b.WriteString("\n\n")
 
 	// Status breakdown with inline badges
@@ -1456,16 +1302,16 @@ func (h *Home) renderGroupPreview(group *session.Group, width, height int) strin
 	// Compact status line (inline, not badges)
 	var statuses []string
 	if running > 0 {
-		statuses = append(statuses, lipgloss.NewStyle().Foreground(ColorGreen).Render(fmt.Sprintf("● %d running", running)))
+		statuses = append(statuses, styleGroupStatusRunning.Render(fmt.Sprintf("● %d running", running)))
 	}
 	if waiting > 0 {
-		statuses = append(statuses, lipgloss.NewStyle().Foreground(ColorYellow).Render(fmt.Sprintf("◐ %d waiting", waiting)))
+		statuses = append(statuses, styleGroupStatusWaiting.Render(fmt.Sprintf("◐ %d waiting", waiting)))
 	}
 	if idle > 0 {
-		statuses = append(statuses, lipgloss.NewStyle().Foreground(ColorText).Render(fmt.Sprintf("○ %d idle", idle)))
+		statuses = append(statuses, styleGroupStatusIdle.Render(fmt.Sprintf("○ %d idle", idle)))
 	}
 	if errored > 0 {
-		statuses = append(statuses, lipgloss.NewStyle().Foreground(ColorRed).Render(fmt.Sprintf("✕ %d error", errored)))
+		statuses = append(statuses, styleGroupStatusError.Render(fmt.Sprintf("✕ %d error", errored)))
 	}
 
 	if len(statuses) > 0 {
@@ -1478,29 +1324,25 @@ func (h *Home) renderGroupPreview(group *session.Group, width, height int) strin
 		b.WriteString(renderSectionDivider("Repository", width-4))
 		b.WriteString("\n")
 
-		repoLabelStyle := lipgloss.NewStyle().Foreground(ColorText)
-		repoValueStyle := lipgloss.NewStyle().Foreground(ColorText)
-		repoBranchStyle := lipgloss.NewStyle().Foreground(ColorCyan).Bold(true)
-
-		b.WriteString(repoLabelStyle.Render("Repo:       "))
-		b.WriteString(repoValueStyle.Render(truncatePath(repoInfo.repoRoot, width-4-12)))
+		b.WriteString(stylePreviewLabel.Render("Repo:       "))
+		b.WriteString(stylePreviewLabel.Render(truncatePath(repoInfo.repoRoot, width-4-12)))
 		b.WriteString("\n")
 
-		b.WriteString(repoLabelStyle.Render("Worktrees:  "))
-		b.WriteString(repoValueStyle.Render(fmt.Sprintf("%d active", len(repoInfo.branches))))
+		b.WriteString(stylePreviewLabel.Render("Worktrees:  "))
+		b.WriteString(stylePreviewLabel.Render(fmt.Sprintf("%d active", len(repoInfo.branches))))
 		b.WriteString("\n")
 
 		for _, br := range repoInfo.branches {
 			dirtyMark := ""
 			if br.dirtyChecked {
 				if br.isDirty {
-					dirtyMark = lipgloss.NewStyle().Foreground(ColorYellow).Render(" (dirty)")
+					dirtyMark = stylePreviewDetecting.Render(" (dirty)")
 				} else {
-					dirtyMark = lipgloss.NewStyle().Foreground(ColorGreen).Render(" (clean)")
+					dirtyMark = stylePreviewChecksPassed.Render(" (clean)")
 				}
 			}
 			b.WriteString("  ")
-			b.WriteString(repoBranchStyle.Render("• " + br.branch))
+			b.WriteString(styleGroupRepoBranch.Render("• " + br.branch))
 			b.WriteString(dirtyMark)
 			b.WriteString("\n")
 		}
@@ -1533,7 +1375,7 @@ func (h *Home) renderGroupPreview(group *session.Group, width, height int) strin
 				if maxTitleWidth > 0 && len(title) > maxTitleWidth {
 					title = title[:maxTitleWidth-3] + "..."
 				}
-				b.WriteString(fmt.Sprintf("  %s %s\n", icon, lipgloss.NewStyle().Foreground(ColorText).Render(title)))
+				b.WriteString(fmt.Sprintf("  %s %s\n", icon, stylePreviewLabel.Render(title)))
 			}
 		}
 		b.WriteString("\n")
@@ -1545,8 +1387,7 @@ func (h *Home) renderGroupPreview(group *session.Group, width, height int) strin
 
 	// Session list (compact)
 	if len(group.Sessions) == 0 {
-		emptyStyle := lipgloss.NewStyle().Foreground(ColorText).Italic(true)
-		b.WriteString(emptyStyle.Render("  No sessions in this project"))
+		b.WriteString(stylePreviewDim.Render("  No sessions in this project"))
 		b.WriteString("\n")
 	} else {
 		maxShow := height - 12
@@ -1571,9 +1412,10 @@ func (h *Home) renderGroupPreview(group *session.Group, width, height int) strin
 			case session.StatusError:
 				statusIcon, statusColor = "✕", ColorRed
 			}
+			// statusColor is runtime-dependent — stays inline
 			status := lipgloss.NewStyle().Foreground(statusColor).Render(statusIcon)
-			name := lipgloss.NewStyle().Foreground(ColorText).Render(sess.Title)
-			tool := lipgloss.NewStyle().Foreground(ColorPurple).Faint(true).Render(sess.Tool)
+			name := stylePreviewLabel.Render(sess.Title)
+			tool := styleGroupSessionTool.Render(sess.Tool)
 
 			b.WriteString(fmt.Sprintf("  %s %s %s\n", status, name, tool))
 		}
@@ -1581,8 +1423,7 @@ func (h *Home) renderGroupPreview(group *session.Group, width, height int) strin
 
 	// Keyboard hints at bottom
 	b.WriteString("\n")
-	hintStyle := lipgloss.NewStyle().Foreground(ColorComment).Italic(true)
-	b.WriteString(hintStyle.Render("t todos • n new session • R rename • d delete"))
+	b.WriteString(styleGroupHint.Render("t todos • n new session • R rename • d delete"))
 
 	// CRITICAL: Enforce width constraint on ALL lines to prevent overflow into left panel
 	maxWidth := width - 2
