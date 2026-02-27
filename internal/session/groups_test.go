@@ -42,13 +42,12 @@ func TestNewGroupTreeEmptyGroupPath(t *testing.T) {
 
 	tree := NewGroupTree(instances)
 
-	// Empty group path should default to DefaultGroupPath
-	defaultGroup := tree.Groups[DefaultGroupPath]
-	if defaultGroup == nil {
-		t.Fatalf("default group '%s' not found", DefaultGroupPath)
+	// Sessions with empty GroupPath are skipped — no group should be created.
+	if tree.GroupCount() != 0 {
+		t.Errorf("Expected 0 groups (orphan sessions are skipped), got %d", tree.GroupCount())
 	}
-	if len(defaultGroup.Sessions) != 1 {
-		t.Errorf("Expected 1 session in default, got %d", len(defaultGroup.Sessions))
+	if tree.SessionCount() != 0 {
+		t.Errorf("Expected 0 sessions (orphan sessions are skipped), got %d", tree.SessionCount())
 	}
 }
 
@@ -213,21 +212,21 @@ func TestFlattenWithNestedGroupsCollapsed(t *testing.T) {
 
 // TestSubgroupSortingWithUnrelatedRoots verifies that subgroups stay with their
 // parent root and are not sorted between unrelated root groups.
-// This was a bug where "hangar/github-issues" would sort between "My Sessions"
+// This was a bug where "hangar/github-issues" would sort between "zephyr"
 // and "hangar" because full path comparison doesn't respect tree hierarchy.
 func TestSubgroupSortingWithUnrelatedRoots(t *testing.T) {
 	tree := NewGroupTree([]*Instance{})
 
-	// Create root groups with names that alphabetically interleave
-	// "My Sessions" (M) < "hangar" (a) in ASCII (uppercase < lowercase)
-	// But "hangar/github-issues" would sort before "my-sessions" by full path
-	tree.CreateGroup("My Sessions") // path: my-sessions
-	tree.CreateGroup("hangar")  // path: hangar
-	tree.CreateGroup("ard")         // path: ard
+	// Create root groups with names that alphabetically interleave:
+	// "Zephyr" (Z) > "hangar" (h) in ASCII (uppercase < lowercase),
+	// but "hangar/github-issues" would sort before "zephyr" by full path.
+	tree.CreateGroup("Zephyr") // path: zephyr
+	tree.CreateGroup("hangar") // path: hangar
+	tree.CreateGroup("ard")    // path: ard
 	tree.CreateSubgroup("hangar", "github-issues")
 
 	// Expand all so subgroups are visible
-	tree.ExpandGroup("my-sessions")
+	tree.ExpandGroup("zephyr")
 	tree.ExpandGroup("hangar")
 	tree.ExpandGroup("ard")
 
@@ -242,10 +241,10 @@ func TestSubgroupSortingWithUnrelatedRoots(t *testing.T) {
 		}
 	}
 
-	// Verify: github-issues must come immediately after hangar, not before my-sessions
+	// Verify: github-issues must come immediately after hangar, not before zephyr
 	hangarPos := positions["hangar"]
 	githubIssuesPos := positions["hangar/github-issues"]
-	mySessionsPos := positions["my-sessions"]
+	zephyrPos := positions["zephyr"]
 	ardPos := positions["ard"]
 
 	// hangar/github-issues should come right after hangar
@@ -254,10 +253,10 @@ func TestSubgroupSortingWithUnrelatedRoots(t *testing.T) {
 			githubIssuesPos, hangarPos)
 	}
 
-	// my-sessions should NOT be between hangar and github-issues
-	if mySessionsPos > hangarPos && mySessionsPos < githubIssuesPos {
-		t.Errorf("my-sessions (pos %d) should not be between hangar (pos %d) and github-issues (pos %d)",
-			mySessionsPos, hangarPos, githubIssuesPos)
+	// zephyr should NOT be between hangar and github-issues
+	if zephyrPos > hangarPos && zephyrPos < githubIssuesPos {
+		t.Errorf("zephyr (pos %d) should not be between hangar (pos %d) and github-issues (pos %d)",
+			zephyrPos, hangarPos, githubIssuesPos)
 	}
 
 	// ard should come after both hangar and github-issues (same root family, then ard)
@@ -482,89 +481,84 @@ func TestRenameSubgroup(t *testing.T) {
 }
 
 func TestDeleteGroup(t *testing.T) {
-	instances := []*Instance{
-		{ID: "1", Title: "session-1", GroupPath: "to-delete"},
-	}
+	t.Run("refuses when group has sessions", func(t *testing.T) {
+		instances := []*Instance{
+			{ID: "1", Title: "session-1", GroupPath: "to-delete"},
+		}
+		tree := NewGroupTree(instances)
 
-	tree := NewGroupTree(instances)
+		result := tree.DeleteGroup("to-delete")
 
-	// Note: DeleteGroup creates the default group if it doesn't exist
-	// when it moves sessions there
+		// Delete is refused when sessions exist — group must remain
+		if result != nil {
+			t.Error("DeleteGroup should return nil when sessions exist")
+		}
+		if tree.Groups["to-delete"] == nil {
+			t.Error("Group should still exist after refused delete")
+		}
+	})
 
-	movedSessions := tree.DeleteGroup("to-delete")
+	t.Run("succeeds when group is empty", func(t *testing.T) {
+		tree := NewGroupTree([]*Instance{})
+		tree.CreateGroup("to-delete")
 
-	// Group should be removed
-	if tree.Groups["to-delete"] != nil {
-		t.Error("Deleted group should not exist")
-	}
+		result := tree.DeleteGroup("to-delete")
 
-	// Session should be moved to default
-	if len(movedSessions) != 1 {
-		t.Errorf("Expected 1 moved session, got %d", len(movedSessions))
-	}
-	if movedSessions[0].GroupPath != DefaultGroupPath {
-		t.Errorf("Session should be moved to %s, got '%s'", DefaultGroupPath, movedSessions[0].GroupPath)
-	}
+		// Delete succeeds — returns empty slice (not nil)
+		if result == nil {
+			t.Error("DeleteGroup should return non-nil (empty slice) on success")
+		}
+		if len(result) != 0 {
+			t.Errorf("Expected 0 moved sessions, got %d", len(result))
+		}
+		if tree.Groups["to-delete"] != nil {
+			t.Error("Group should be gone after successful delete")
+		}
+	})
 }
 
 func TestDeleteGroupWithSubgroups(t *testing.T) {
-	tree := NewGroupTree([]*Instance{})
+	t.Run("refuses when subgroup has sessions", func(t *testing.T) {
+		tree := NewGroupTree([]*Instance{})
+		tree.CreateGroup("Parent")
+		tree.CreateSubgroup("parent", "Child")
+		tree.Groups["parent/child"].Sessions = []*Instance{{ID: "2", GroupPath: "parent/child"}}
 
-	// Create hierarchy
-	tree.CreateGroup("Parent")
-	tree.CreateSubgroup("parent", "Child")
+		result := tree.DeleteGroup("parent")
 
-	// Note: DeleteGroup creates the default group if it doesn't exist
-	// when it moves sessions there
-
-	// Add sessions
-	tree.Groups["parent"].Sessions = []*Instance{{ID: "1", GroupPath: "parent"}}
-	tree.Groups["parent/child"].Sessions = []*Instance{{ID: "2", GroupPath: "parent/child"}}
-
-	// Delete parent - should cascade to child
-	movedSessions := tree.DeleteGroup("parent")
-
-	// Both groups should be removed
-	if tree.Groups["parent"] != nil {
-		t.Error("Parent group should be deleted")
-	}
-	if tree.Groups["parent/child"] != nil {
-		t.Error("Child group should be deleted")
-	}
-
-	// Both sessions should be moved to default
-	if len(movedSessions) != 2 {
-		t.Errorf("Expected 2 moved sessions, got %d", len(movedSessions))
-	}
-
-	for _, sess := range movedSessions {
-		if sess.GroupPath != DefaultGroupPath {
-			t.Errorf("Session should be moved to %s, got '%s'", DefaultGroupPath, sess.GroupPath)
+		if result != nil {
+			t.Error("DeleteGroup should return nil when any subgroup has sessions")
 		}
-	}
+		if tree.Groups["parent"] == nil {
+			t.Error("Parent group should still exist after refused delete")
+		}
+		if tree.Groups["parent/child"] == nil {
+			t.Error("Child group should still exist after refused delete")
+		}
+	})
+
+	t.Run("succeeds when parent and all subgroups are empty", func(t *testing.T) {
+		tree := NewGroupTree([]*Instance{})
+		tree.CreateGroup("Parent")
+		tree.CreateSubgroup("parent", "Child")
+
+		result := tree.DeleteGroup("parent")
+
+		if result == nil {
+			t.Error("DeleteGroup should return non-nil (empty slice) on success")
+		}
+		if len(result) != 0 {
+			t.Errorf("Expected 0 moved sessions, got %d", len(result))
+		}
+		if tree.Groups["parent"] != nil {
+			t.Error("Parent group should be gone after successful delete")
+		}
+		if tree.Groups["parent/child"] != nil {
+			t.Error("Child group should be gone after successful delete")
+		}
+	})
 }
 
-func TestDeleteDefaultGroup(t *testing.T) {
-	// Create a session with empty GroupPath - this auto-creates the default group
-	instances := []*Instance{
-		{ID: "1", Title: "session-1", GroupPath: ""},
-	}
-	tree := NewGroupTree(instances)
-
-	// Verify default group was created (uses normalized path now)
-	if tree.Groups[DefaultGroupPath] == nil {
-		t.Fatalf("Default group '%s' should exist after creating session with empty GroupPath", DefaultGroupPath)
-	}
-
-	// Should not be able to delete default
-	result := tree.DeleteGroup(DefaultGroupPath)
-	if result != nil {
-		t.Error("Should not be able to delete default group")
-	}
-	if tree.Groups[DefaultGroupPath] == nil {
-		t.Errorf("Default group '%s' should still exist after delete attempt", DefaultGroupPath)
-	}
-}
 
 func TestMoveSessionToGroup(t *testing.T) {
 	instances := []*Instance{
@@ -1442,9 +1436,9 @@ func TestSortingTransitivity(t *testing.T) {
 	// could cause children to appear before their parents
 	tree := NewGroupTree([]*Instance{})
 
-	// Create "My Sessions" first (Order=0), then "Beta" (Order=1)
-	// Alphabetically: "beta" < "my-sessions", but by Order: my-sessions < beta
-	tree.CreateGroup("My Sessions")
+	// Create "Zephyr" first (Order=0), then "Beta" (Order=1)
+	// Alphabetically: "beta" < "zephyr", but by Order: zephyr < beta
+	tree.CreateGroup("Zephyr")
 	tree.CreateGroup("Beta")
 	tree.CreateSubgroup("beta", "Tasks")
 	tree.CreateSubgroup("beta/tasks", "Urgent")
