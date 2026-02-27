@@ -578,30 +578,6 @@ func (s *Storage) GetFileMtime() (time.Time, error) {
 // convertToInstances converts StorageData to Instance slice
 func (s *Storage) convertToInstances(data *StorageData) ([]*Instance, []*GroupData, error) {
 
-	// ═══════════════════════════════════════════════════════════════════
-	// MIGRATION: Convert old "My Sessions" paths to normalized "my-sessions"
-	// Old versions used "My Sessions" as both name AND path.
-	// This caused the group to be undeletable since path matched the protection check.
-	// Now we use "my-sessions" for paths, keeping name as display.
-	// ═══════════════════════════════════════════════════════════════════
-	migratedGroups := false
-	for i, g := range data.Groups {
-		if g.Path == "My Sessions" {
-			data.Groups[i].Path = "my-sessions"
-			migratedGroups = true
-			storageLog.Info("group_path_migrated", slog.String("old_path", "My Sessions"), slog.String("new_path", "my-sessions"))
-		}
-	}
-	for i, inst := range data.Instances {
-		if inst.GroupPath == "My Sessions" {
-			data.Instances[i].GroupPath = "my-sessions"
-			migratedGroups = true
-		}
-	}
-	if migratedGroups {
-		storageLog.Info("default_group_paths_migrated", slog.String("old_name", "My Sessions"), slog.String("new_path", "my-sessions"))
-	}
-
 	// Convert to instances
 	instances := make([]*Instance, len(data.Instances))
 	for i, instData := range data.Instances {
