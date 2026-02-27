@@ -177,12 +177,12 @@ func (h *Home) handleLoadSessions(msg loadSessionsMsg) tea.Cmd {
 			// Save after dedup to persist any ID changes (initial load only)
 			h.saveInstances()
 		}
-		// Trigger immediate preview fetch for initial selection (mutex-protected)
+		// Trigger immediate preview fetch for initial selection
 		h.updateDiffStat()
 		if selected := h.getSelectedSession(); selected != nil {
-			h.previewCacheMu.Lock()
+			h.previewFetchingMu.Lock()
 			h.previewFetchingID = selected.ID
-			h.previewCacheMu.Unlock()
+			h.previewFetchingMu.Unlock()
 			// Batch preview fetch with any OpenCode detection commands and diff fetch
 			allCmds := append(detectionCmds, h.fetchPreview(selected))
 			if dir := h.effectiveDir(selected); dir != "" && git.IsGitRepo(dir) {
@@ -720,25 +720,23 @@ func (h *Home) handlePreviewDebounce(msg previewDebounceMsg) tea.Cmd {
 		var cmds []tea.Cmd
 
 		// Preview fetch
-		h.previewCacheMu.Lock()
+		h.previewFetchingMu.Lock()
 		needsPreviewFetch := h.previewFetchingID != inst.ID
 		if needsPreviewFetch {
 			h.previewFetchingID = inst.ID
 		}
-		h.previewCacheMu.Unlock()
+		h.previewFetchingMu.Unlock()
 		if needsPreviewFetch {
 			cmds = append(cmds, h.fetchPreview(inst))
 		}
 
 		// Worktree dirty status check (lazy, 10s TTL)
 		if inst.IsWorktree() && inst.WorktreePath != "" {
-			h.worktreeDirtyMu.Lock()
-			cacheTs, hasCached := h.worktreeDirtyCacheTs[inst.ID]
-			needsCheck := !hasCached || time.Since(cacheTs) > 10*time.Second
+			cachedAtDirty, hasCachedDirty := h.cache.GetWorktreeDirtyCachedAt(inst.ID)
+			needsCheck := !hasCachedDirty || time.Since(cachedAtDirty) > worktreeDirtyCacheTTL
 			if needsCheck {
-				h.worktreeDirtyCacheTs[inst.ID] = time.Now() // Prevent duplicate fetches
+				h.cache.TouchWorktreeDirty(inst.ID) // Prevent duplicate fetches
 			}
-			h.worktreeDirtyMu.Unlock()
 			if needsCheck {
 				sid := inst.ID
 				wtPath := inst.WorktreePath
@@ -751,13 +749,11 @@ func (h *Home) handlePreviewDebounce(msg previewDebounceMsg) tea.Cmd {
 
 		// PR status check (lazy, 60s TTL, requires gh CLI)
 		if h.ghPath != "" && inst.IsWorktree() && inst.WorktreePath != "" {
-			h.prCacheMu.Lock()
-			cacheTs, hasCached := h.prCacheTs[inst.ID]
-			needsFetch := !hasCached || time.Since(cacheTs) > 60*time.Second
+			_, cachedAtPR, hasCachedPR := h.cache.HasPREntry(inst.ID)
+			needsFetch := !hasCachedPR || time.Since(cachedAtPR) > prCacheTTL
 			if needsFetch {
-				h.prCacheTs[inst.ID] = time.Now() // Prevent duplicate fetches
+				h.cache.TouchPR(inst.ID) // Prevent duplicate fetches
 			}
-			h.prCacheMu.Unlock()
 			if needsFetch {
 				sid := inst.ID
 				wtPath := inst.WorktreePath
@@ -770,13 +766,11 @@ func (h *Home) handlePreviewDebounce(msg previewDebounceMsg) tea.Cmd {
 
 		// Remote URL fetch (lazy, 5m TTL)
 		if inst.IsWorktree() && inst.WorktreePath != "" {
-			h.worktreeRemoteMu.Lock()
-			cacheTs, hasCached := h.worktreeRemoteCacheTs[inst.ID]
-			needsRemote := !hasCached || time.Since(cacheTs) > 5*time.Minute
+			cachedAtRemote, hasCachedRemote := h.cache.GetWorktreeRemoteCachedAt(inst.ID)
+			needsRemote := !hasCachedRemote || time.Since(cachedAtRemote) > worktreeRemoteCacheTTL
 			if needsRemote {
-				h.worktreeRemoteCacheTs[inst.ID] = time.Now() // Prevent duplicate fetches
+				h.cache.TouchWorktreeRemote(inst.ID) // Prevent duplicate fetches
 			}
-			h.worktreeRemoteMu.Unlock()
 			if needsRemote {
 				sid := inst.ID
 				wtPath := inst.WorktreePath
@@ -799,10 +793,7 @@ func (h *Home) handlePreviewDebounce(msg previewDebounceMsg) tea.Cmd {
 // any linked todo status based on the PR state.
 func (h *Home) handlePRFetched(msg prFetchedMsg) tea.Cmd {
 	// Update PR cache (nil pr means no PR found — still record so we don't re-fetch immediately)
-	h.prCacheMu.Lock()
-	h.prCache[msg.sessionID] = msg.pr
-	h.prCacheTs[msg.sessionID] = time.Now()
-	h.prCacheMu.Unlock()
+	h.cache.SetPR(msg.sessionID, msg.pr)
 
 	// If WorktreeFinishDialog is open for this session, push updated PR data
 	if h.worktreeFinishDialog.IsVisible() && h.worktreeFinishDialog.GetSessionID() == msg.sessionID {
@@ -915,15 +906,8 @@ func (h *Home) handleWorktreeFinishResult(msg worktreeFinishResultMsg) tea.Cmd {
 
 	// Invalidate caches
 	h.cachedStatusCounts.valid.Store(false)
-	h.invalidatePreviewCache(msg.sessionID)
-	h.worktreeDirtyMu.Lock()
-	delete(h.worktreeDirtyCache, msg.sessionID)
-	delete(h.worktreeDirtyCacheTs, msg.sessionID)
-	h.worktreeDirtyMu.Unlock()
-	h.prCacheMu.Lock()
-	delete(h.prCache, msg.sessionID)
-	delete(h.prCacheTs, msg.sessionID)
-	h.prCacheMu.Unlock()
+	// Invalidate all UICache entries for the deleted session
+	h.cache.InvalidateSession(msg.sessionID)
 	h.logActivityMu.Lock()
 	delete(h.lastLogActivity, msg.sessionID)
 	h.logActivityMu.Unlock()
@@ -1050,33 +1034,30 @@ func (h *Home) handleTick(msg tickMsg) tea.Cmd {
 
 	// Fetch preview for currently selected session (if stale/missing and not fetching)
 	// Cache expires after 2 seconds to show live terminal updates without excessive fetching
-	const previewCacheTTL = 2 * time.Second
 	var previewCmd tea.Cmd
 	h.instancesMu.RLock()
 	selected := h.getSelectedSession()
 	h.instancesMu.RUnlock()
 	if selected != nil {
-		h.previewCacheMu.Lock()
-		cachedTime, hasCached := h.previewCacheTime[selected.ID]
+		_, cachedTime, hasCached := h.cache.GetPreview(selected.ID)
 		cacheExpired := !hasCached || time.Since(cachedTime) > previewCacheTTL
 		// Only fetch if cache is stale/missing AND not currently fetching this session
+		h.previewFetchingMu.Lock()
 		if cacheExpired && h.previewFetchingID != selected.ID {
 			h.previewFetchingID = selected.ID
 			previewCmd = h.fetchPreview(selected)
 		}
-		h.previewCacheMu.Unlock()
+		h.previewFetchingMu.Unlock()
 	}
 	// PR fetch for currently selected worktree session (if missing or TTL expired)
 	// Handles startup case where no navigation ever fires previewDebounceMsg
 	var prCmd tea.Cmd
 	if selected != nil && h.ghPath != "" && selected.IsWorktree() && selected.WorktreePath != "" {
-		h.prCacheMu.Lock()
-		cacheTs, hasCached := h.prCacheTs[selected.ID]
-		needsFetch := !hasCached || time.Since(cacheTs) > 60*time.Second
+		_, cachedAtPR, hasCachedPR := h.cache.HasPREntry(selected.ID)
+		needsFetch := !hasCachedPR || time.Since(cachedAtPR) > prCacheTTL
 		if needsFetch {
-			h.prCacheTs[selected.ID] = time.Now() // Prevent duplicate fetches
+			h.cache.TouchPR(selected.ID) // Prevent duplicate fetches
 		}
-		h.prCacheMu.Unlock()
 		if needsFetch {
 			sid := selected.ID
 			wtPath := selected.WorktreePath

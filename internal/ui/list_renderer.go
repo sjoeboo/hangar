@@ -313,9 +313,7 @@ func (h *Home) renderSessionItem(b *strings.Builder, item session.Item, selected
 	// PR badge for sessions with an open/merged/closed pull request
 	prBadge := ""
 	if inst.IsWorktree() {
-		h.prCacheMu.Lock()
-		pr, hasPR := h.prCache[inst.ID]
-		h.prCacheMu.Unlock()
+		pr, hasPR := h.cache.GetPR(inst.ID)
 		if hasPR && pr != nil {
 			var badgeStyle lipgloss.Style
 			validState := true

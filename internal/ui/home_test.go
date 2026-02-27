@@ -1195,12 +1195,10 @@ func TestSessionRowPRBadgeStates(t *testing.T) {
 			home.groupTree = session.NewGroupTree(home.instances)
 			home.rebuildFlatItems()
 
-			home.prCacheMu.Lock()
-			home.prCache[inst.ID] = &prCacheEntry{
+			home.cache.SetPR(inst.ID, &prCacheEntry{
 				Number: tt.prNum,
 				State:  tt.state,
-			}
-			home.prCacheMu.Unlock()
+			})
 
 			view := home.View()
 
@@ -1235,9 +1233,7 @@ func TestSessionRowPRBadgeStates(t *testing.T) {
 		home.groupTree = session.NewGroupTree(home.instances)
 		home.rebuildFlatItems()
 
-		home.prCacheMu.Lock()
-		home.prCache[inst.ID] = &prCacheEntry{Number: 99, State: "OPEN"}
-		home.prCacheMu.Unlock()
+		home.cache.SetPR(inst.ID, &prCacheEntry{Number: 99, State: "OPEN"})
 
 		view := home.View()
 		if strings.Contains(view, "[#99]") {
@@ -1271,10 +1267,7 @@ func TestWorktreeFinishDialog_ShowWithCachedPR(t *testing.T) {
 	home.rebuildFlatItems()
 
 	// Pre-populate PR cache
-	home.prCacheMu.Lock()
-	home.prCache[inst.ID] = &prCacheEntry{Number: 55, State: "OPEN", Title: "My PR"}
-	home.prCacheTs[inst.ID] = time.Now()
-	home.prCacheMu.Unlock()
+	home.cache.SetPR(inst.ID, &prCacheEntry{Number: 55, State: "OPEN", Title: "My PR"})
 
 	// Trigger W key — capture the returned model
 	// flatItems[0] is the group header, flatItems[1] is the session
@@ -1508,8 +1501,8 @@ func TestPRView_Navigation(t *testing.T) {
 	home.instances = []*session.Instance{sess1, sess2}
 	home.groupTree = session.NewGroupTree(home.instances)
 	home.rebuildFlatItems()
-	home.prCache["s1"] = &prCacheEntry{Number: 1, Title: "PR 1", State: "OPEN", URL: "https://github.com/x/y/pull/1"}
-	home.prCache["s2"] = &prCacheEntry{Number: 2, Title: "PR 2", State: "DRAFT", URL: "https://github.com/x/y/pull/2"}
+	home.cache.SetPR("s1", &prCacheEntry{Number: 1, Title: "PR 1", State: "OPEN", URL: "https://github.com/x/y/pull/1"})
+	home.cache.SetPR("s2", &prCacheEntry{Number: 2, Title: "PR 2", State: "DRAFT", URL: "https://github.com/x/y/pull/2"})
 
 	// Navigate down
 	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}}
@@ -1547,7 +1540,7 @@ func TestPRView_RenderShowsPRs(t *testing.T) {
 	home.instances = []*session.Instance{sess1}
 	home.groupTree = session.NewGroupTree(home.instances)
 	home.rebuildFlatItems()
-	home.prCache["s1"] = &prCacheEntry{
+	home.cache.SetPR("s1", &prCacheEntry{
 		Number:       42,
 		Title:        "Fix auth bug",
 		State:        "OPEN",
@@ -1555,7 +1548,7 @@ func TestPRView_RenderShowsPRs(t *testing.T) {
 		HasChecks:    true,
 		ChecksPassed: 5,
 		ChecksFailed: 1,
-	}
+	})
 
 	view := home.View()
 

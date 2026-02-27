@@ -168,11 +168,11 @@ type Home struct {
 	reloadMu       sync.Mutex // Protects reloadVersion, isReloading, and lastLoadMtime for thread-safe access
 	lastLoadMtime  time.Time  // File mtime when we last loaded (for external change detection)
 
-	// Preview cache (async fetching - View() must be pure, no blocking I/O)
-	previewCache      map[string]string    // sessionID -> cached preview content
-	previewCacheTime  map[string]time.Time // sessionID -> when cached (for expiration)
-	previewCacheMu    sync.RWMutex         // Protects previewCache for thread-safety
-	previewFetchingID string               // ID currently being fetched (prevents duplicate fetches)
+	// Unified session cache (preview, worktree dirty/remote, PR info).
+	// Replaces four independent map-pairs with a single TTL-aware store.
+	cache             *UICache
+	previewFetchingID string     // ID currently being fetched (prevents duplicate fetches)
+	previewFetchingMu sync.Mutex // Protects previewFetchingID
 
 	// Preview debouncing (PERFORMANCE: prevents subprocess spawn on every keystroke)
 	// During rapid navigation, we delay preview fetch by 150ms to let navigation settle
@@ -198,21 +198,8 @@ type Home struct {
 	lastLogActivity map[string]time.Time // sessionID -> last update time
 	logActivityMu   sync.Mutex           // Protects lastLogActivity map
 
-	// Worktree dirty status cache (lazy, 10s TTL)
-	worktreeDirtyCache   map[string]bool      // sessionID -> isDirty
-	worktreeDirtyCacheTs map[string]time.Time // sessionID -> cache timestamp
-	worktreeDirtyMu      sync.Mutex           // Protects dirty cache maps
-
-	// Worktree remote URL cache (lazy, 5m TTL)
-	worktreeRemoteCache   map[string]string    // sessionID -> normalized remote URL
-	worktreeRemoteCacheTs map[string]time.Time // sessionID -> cache timestamp
-	worktreeRemoteMu      sync.Mutex
-
 	// PR status cache (lazy, 60s TTL, requires gh CLI)
-	ghPath    string                      // path to gh binary; empty if not installed
-	prCache   map[string]*prCacheEntry    // sessionID -> PR info (nil = no PR found)
-	prCacheTs map[string]time.Time        // sessionID -> when last fetched/triggered
-	prCacheMu sync.Mutex                  // Protects prCache and prCacheTs
+	ghPath string // path to gh binary; empty if not installed
 
 	// Memory management: periodic cache pruning
 	lastCachePrune time.Time
@@ -359,12 +346,10 @@ func (h *Home) getLayoutMode() string {
 // prViewSessions returns sessions that have a non-nil PR cache entry, in flatItems order.
 func (h *Home) prViewSessions() []*session.Instance {
 	items := h.flatItems // safe: called from Bubble Tea Update/View (single-threaded)
-	h.prCacheMu.Lock()
-	defer h.prCacheMu.Unlock()
 	var result []*session.Instance
 	for _, item := range items {
 		if item.Type == session.ItemTypeSession && item.Session != nil {
-			if pr, ok := h.prCache[item.Session.ID]; ok && pr != nil {
+			if pr, _, ok := h.cache.HasPREntry(item.Session.ID); ok && pr != nil {
 				result = append(result, item.Session)
 			}
 		}
@@ -630,20 +615,13 @@ func NewHomeWithProfileAndMode(profile string) *Home {
 		cancel:               cancel,
 		instances:            []*session.Instance{},
 		instanceByID:         make(map[string]*session.Instance),
-		groupTree:            session.NewGroupTree([]*session.Instance{}),
-		flatItems:            []session.Item{},
-		previewCache:         make(map[string]string),
-		previewCacheTime:     make(map[string]time.Time),
-		launchingSessions:    make(map[string]time.Time),
-		resumingSessions:     make(map[string]time.Time),
-		forkingSessions:      make(map[string]time.Time),
-		lastLogActivity:      make(map[string]time.Time),
-		worktreeDirtyCache:   make(map[string]bool),
-		worktreeDirtyCacheTs: make(map[string]time.Time),
-		worktreeRemoteCache:   make(map[string]string),
-		worktreeRemoteCacheTs: make(map[string]time.Time),
-		prCache:              make(map[string]*prCacheEntry),
-		prCacheTs:            make(map[string]time.Time),
+		groupTree:         session.NewGroupTree([]*session.Instance{}),
+		flatItems:         []session.Item{},
+		cache:             newUICache(),
+		launchingSessions: make(map[string]time.Time),
+		resumingSessions:  make(map[string]time.Time),
+		forkingSessions:   make(map[string]time.Time),
+		lastLogActivity:   make(map[string]time.Time),
 		statusTrigger:        make(chan statusUpdateRequest, 1), // Buffered to avoid blocking
 		statusWorkerDone:     make(chan struct{}),
 		logUpdateChan:        make(chan *session.Instance, 100), // Buffered to absorb bursts
@@ -1000,11 +978,9 @@ func (h *Home) sortSessionsByStatus() {
 		}
 		sess := item.Session
 		hasPR := false
-		h.prCacheMu.Lock()
-		if pr, ok := h.prCache[sess.ID]; ok && pr != nil && pr.URL != "" {
+		if pr, ok := h.cache.GetPR(sess.ID); ok && pr != nil && pr.URL != "" {
 			hasPR = true
 		}
-		h.prCacheMu.Unlock()
 		status := sess.GetStatusThreadSafe()
 		switch {
 		case hasPR && status == session.StatusRunning:
@@ -1363,13 +1339,10 @@ func (h *Home) tick() tea.Cmd {
 	})
 }
 
-// invalidatePreviewCache removes a session's preview from the cache
-// Called when session is deleted, renamed, or moved to ensure stale data is not displayed
+// invalidatePreviewCache removes a session's preview from the cache.
+// Called when session is deleted, renamed, or moved to ensure stale data is not displayed.
 func (h *Home) invalidatePreviewCache(sessionID string) {
-	h.previewCacheMu.Lock()
-	delete(h.previewCache, sessionID)
-	delete(h.previewCacheTime, sessionID)
-	h.previewCacheMu.Unlock()
+	h.cache.InvalidateSession(sessionID)
 }
 
 // pruneActivityCache removes stale entries from log activity caches.
@@ -1498,9 +1471,7 @@ func (h *Home) hasActiveAnimation(sessionID string) bool {
 
 	// CONTENT-BASED CHECK: Also check preview content for faster detection
 	// This catches cases where status hasn't updated yet but content is visible
-	h.previewCacheMu.RLock()
-	previewContent := h.previewCache[sessionID]
-	h.previewCacheMu.RUnlock()
+	previewContent, _, _ := h.cache.GetPreview(sessionID)
 
 	if animTool == "claude" || animTool == "gemini" {
 		// Claude ready indicators
@@ -2303,24 +2274,19 @@ func (h *Home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return h, h.handlePreviewDebounce(msg)
 
 	case previewFetchedMsg:
-		// Async preview content received - update cache with timestamp
-		// Protect both previewFetchingID and previewCache with the same mutex
-		h.previewCacheMu.Lock()
+		// Async preview content received - update UICache and clear the in-flight marker.
+		h.previewFetchingMu.Lock()
 		h.previewFetchingID = ""
+		h.previewFetchingMu.Unlock()
 		if msg.err == nil {
-			h.previewCache[msg.sessionID] = msg.content
-			h.previewCacheTime[msg.sessionID] = time.Now()
+			h.cache.SetPreview(msg.sessionID, msg.content)
 		}
-		h.previewCacheMu.Unlock()
 		return h, nil
 
 	case worktreeDirtyCheckMsg:
 		// Update worktree dirty status cache
 		if msg.err == nil {
-			h.worktreeDirtyMu.Lock()
-			h.worktreeDirtyCache[msg.sessionID] = msg.isDirty
-			h.worktreeDirtyCacheTs[msg.sessionID] = time.Now()
-			h.worktreeDirtyMu.Unlock()
+			h.cache.SetWorktreeDirty(msg.sessionID, msg.isDirty)
 		}
 		// Also update the finish dialog if it's open for this session
 		if h.worktreeFinishDialog.IsVisible() && h.worktreeFinishDialog.GetSessionID() == msg.sessionID && msg.err == nil {
@@ -2332,10 +2298,9 @@ func (h *Home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return h, h.handlePRFetched(msg)
 
 	case worktreeRemoteCheckMsg:
-		h.worktreeRemoteMu.Lock()
-		h.worktreeRemoteCache[msg.sessionID] = msg.remoteURL
-		h.worktreeRemoteCacheTs[msg.sessionID] = time.Now()
-		h.worktreeRemoteMu.Unlock()
+		if msg.err == nil {
+			h.cache.SetWorktreeRemote(msg.sessionID, msg.remoteURL)
+		}
 		return h, nil
 
 	case lazygitReadyMsg:
@@ -3028,13 +2993,11 @@ func (h *Home) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			var cmds []tea.Cmd
 			for _, item := range h.flatItems {
 				if item.Type == session.ItemTypeSession && item.Session != nil && item.Session.IsWorktree() && item.Session.WorktreePath != "" {
-					h.prCacheMu.Lock()
-					cacheTs, hasCached := h.prCacheTs[item.Session.ID]
-					needsFetch := !hasCached || time.Since(cacheTs) > 60*time.Second
+					_, cachedAt, hasCached := h.cache.HasPREntry(item.Session.ID)
+					needsFetch := !hasCached || time.Since(cachedAt) > prCacheTTL
 					if needsFetch {
-						h.prCacheTs[item.Session.ID] = time.Now()
+						h.cache.TouchPR(item.Session.ID)
 					}
-					h.prCacheMu.Unlock()
 					if needsFetch {
 						sid := item.Session.ID
 						wtPath := item.Session.WorktreePath
@@ -3443,9 +3406,7 @@ func (h *Home) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				h.worktreeFinishDialog.SetSize(h.width, h.height)
 				h.worktreeFinishDialog.Show(inst.ID, inst.Title, inst.WorktreeBranch, inst.WorktreeRepoRoot, inst.WorktreePath)
 				// Wire in current PR cache entry (if any)
-				h.prCacheMu.Lock()
-				cachedPR, hasPRCached := h.prCache[inst.ID]
-				h.prCacheMu.Unlock()
+				cachedPR, hasPRCached := h.cache.GetPR(inst.ID)
 				if hasPRCached {
 					h.worktreeFinishDialog.SetPR(cachedPR, true)
 				}
@@ -3641,9 +3602,7 @@ func (h *Home) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 					h.worktreeFinishDialog.SetSize(h.width, h.height)
 					h.worktreeFinishDialog.Show(inst.ID, inst.Title, inst.WorktreeBranch, inst.WorktreeRepoRoot, inst.WorktreePath)
 					// Wire in current PR cache entry (if any)
-					h.prCacheMu.Lock()
-					cachedPR, hasPRCached := h.prCache[inst.ID]
-					h.prCacheMu.Unlock()
+					cachedPR, hasPRCached := h.cache.GetPR(inst.ID)
 					if hasPRCached {
 						h.worktreeFinishDialog.SetPR(cachedPR, true)
 					}
@@ -3767,9 +3726,7 @@ func (h *Home) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if h.cursor < len(h.flatItems) {
 			item := h.flatItems[h.cursor]
 			if item.Session != nil {
-				h.prCacheMu.Lock()
-				pr, hasPR := h.prCache[item.Session.ID]
-				h.prCacheMu.Unlock()
+				pr, hasPR := h.cache.GetPR(item.Session.ID)
 				if hasPR && pr != nil && pr.URL != "" {
 					exec.Command("open", pr.URL).Start() //nolint:errcheck
 				}
@@ -3866,12 +3823,8 @@ func (h *Home) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				wtPath := item.Session.WorktreePath
 
 				// Invalidate caches so they re-fetch immediately
-				h.worktreeDirtyMu.Lock()
-				delete(h.worktreeDirtyCacheTs, sid)
-				h.worktreeDirtyMu.Unlock()
-				h.prCacheMu.Lock()
-				delete(h.prCacheTs, sid)
-				h.prCacheMu.Unlock()
+				h.cache.InvalidateWorktreeDirty(sid)
+				h.cache.InvalidatePRTimestamp(sid)
 
 				cmds = append(cmds, func() tea.Msg {
 					dirty, err := git.HasUncommittedChanges(wtPath)
@@ -3991,9 +3944,7 @@ func (h *Home) handlePRViewKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "o":
 		if h.prViewCursor < len(sessions) {
 			inst := sessions[h.prViewCursor]
-			h.prCacheMu.Lock()
-			pr, hasPR := h.prCache[inst.ID]
-			h.prCacheMu.Unlock()
+			pr, hasPR := h.cache.GetPR(inst.ID)
 			if hasPR && pr != nil && pr.URL != "" {
 				exec.Command("open", pr.URL).Start() //nolint:errcheck
 			}
@@ -4005,9 +3956,7 @@ func (h *Home) handlePRViewKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		var cmds []tea.Cmd
 		for _, inst := range sessions {
 			if inst.IsWorktree() && inst.WorktreePath != "" {
-				h.prCacheMu.Lock()
-				h.prCacheTs[inst.ID] = time.Time{} // reset TTL
-				h.prCacheMu.Unlock()
+				h.cache.InvalidatePRTimestamp(inst.ID)
 				sid := inst.ID
 				wtPath := inst.WorktreePath
 				ghPath := h.ghPath
@@ -6123,9 +6072,7 @@ func (h *Home) renderHelpBarCompact() string {
 				h.helpKeyShort("t", "Todos"),
 			)
 			if item.Session != nil {
-				h.prCacheMu.Lock()
-				pr, hasPR := h.prCache[item.Session.ID]
-				h.prCacheMu.Unlock()
+				pr, hasPR := h.cache.GetPR(item.Session.ID)
 				if hasPR && pr != nil && pr.URL != "" {
 					contextHints = append(contextHints, h.helpKeyShort("o", "PR"))
 				}
@@ -6230,9 +6177,7 @@ func (h *Home) renderHelpBarFull() string {
 			)
 			primaryHints = append(primaryHints, h.helpKey("G", "Git"))
 			if item.Session != nil {
-				h.prCacheMu.Lock()
-				pr, hasPR := h.prCache[item.Session.ID]
-				h.prCacheMu.Unlock()
+				pr, hasPR := h.cache.GetPR(item.Session.ID)
 				if hasPR && pr != nil && pr.URL != "" {
 					primaryHints = append(primaryHints, h.helpKey("o", "Open PR"))
 				}
@@ -6383,9 +6328,7 @@ func (h *Home) renderPROverview() string {
 			inst := sessions[i]
 			selected := i == h.prViewCursor
 
-			h.prCacheMu.Lock()
-			pr := h.prCache[inst.ID]
-			h.prCacheMu.Unlock()
+			pr, _ := h.cache.GetPR(inst.ID)
 
 			if pr == nil {
 				continue

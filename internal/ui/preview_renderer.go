@@ -578,12 +578,9 @@ func (h *Home) renderPreviewPane(width, height int) string {
 
 		// PR status (from gh CLI, lazy-cached with 60s TTL)
 		if h.ghPath != "" {
-			h.prCacheMu.Lock()
-			pr, hasPR := h.prCache[selected.ID]
-			_, hasTs := h.prCacheTs[selected.ID]
-			h.prCacheMu.Unlock()
+			pr, _, hasPR := h.cache.HasPREntry(selected.ID)
 
-			if !hasTs || (hasTs && !hasPR) {
+			if !hasPR {
 				b.WriteString(wtLabelStyle.Render("PR:      "))
 				b.WriteString(lipgloss.NewStyle().Foreground(ColorComment).Render("checking..."))
 				b.WriteString("\n")
@@ -650,10 +647,8 @@ func (h *Home) renderPreviewPane(width, height int) string {
 		}
 
 		// Remote URL (lazy-cached, 5m TTL)
-		h.worktreeRemoteMu.Lock()
-		remoteURL, hasRemote := h.worktreeRemoteCache[selected.ID]
-		_, hasRemoteTs := h.worktreeRemoteCacheTs[selected.ID]
-		h.worktreeRemoteMu.Unlock()
+		remoteURL, hasRemote := h.cache.HasWorktreeRemoteEntry(selected.ID)
+		_, hasRemoteTs := h.cache.GetWorktreeRemoteCachedAt(selected.ID)
 		if !hasRemoteTs {
 			b.WriteString(wtLabelStyle.Render("Remote:  "))
 			b.WriteString(lipgloss.NewStyle().Foreground(ColorComment).Render("checking..."))
@@ -674,9 +669,7 @@ func (h *Home) renderPreviewPane(width, height int) string {
 		}
 
 		// Dirty status (lazy-cached, fetched via previewDebounce handler with 10s TTL)
-		h.worktreeDirtyMu.Lock()
-		isDirty, hasCached := h.worktreeDirtyCache[selected.ID]
-		h.worktreeDirtyMu.Unlock()
+		isDirty, hasCached := h.cache.GetWorktreeDirty(selected.ID)
 
 		dirtyLabel := "checking..."
 		dirtyStyle := wtValueStyle
@@ -1162,9 +1155,7 @@ func (h *Home) renderPreviewPane(width, height int) string {
 
 			if !sessionReady {
 				// Also check content for faster detection
-				h.previewCacheMu.RLock()
-				previewContent := h.previewCache[selected.ID]
-				h.previewCacheMu.RUnlock()
+				previewContent, _, _ := h.cache.GetPreview(selected.ID)
 
 				if selected.Tool == "claude" || selected.Tool == "gemini" {
 					// Claude/Gemini ready indicators
@@ -1198,9 +1189,7 @@ func (h *Home) renderPreviewPane(width, height int) string {
 	}
 
 	// Terminal preview - use cached content (async fetching keeps View() pure)
-	h.previewCacheMu.RLock()
-	preview, hasCached := h.previewCache[selected.ID]
-	h.previewCacheMu.RUnlock()
+	preview, _, hasCached := h.cache.GetPreview(selected.ID)
 
 	// Show forking animation when fork is in progress (highest priority)
 	if showForkingAnimation {
@@ -1652,9 +1641,7 @@ func (h *Home) getGroupWorktreeInfo(group *session.Group) *groupWorktreeInfo {
 		}
 
 		// Get dirty status from cache
-		h.worktreeDirtyMu.Lock()
-		isDirty, hasCached := h.worktreeDirtyCache[sess.ID]
-		h.worktreeDirtyMu.Unlock()
+		isDirty, hasCached := h.cache.GetWorktreeDirty(sess.ID)
 
 		branches = append(branches, groupWorktreeBranch{
 			branch:       sess.WorktreeBranch,
