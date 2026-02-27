@@ -921,6 +921,12 @@ func (t *GroupTree) RemoveSession(inst *Instance) {
 	}
 
 	if group, exists := t.Groups[groupPath]; exists {
+		// Before removing the session, preserve the project path as DefaultPath if
+		// none is set. This ensures todos remain accessible even when the group has
+		// no remaining sessions (e.g. after all sessions for a project are deleted).
+		if group.DefaultPath == "" && inst.ProjectPath != "" {
+			group.DefaultPath = resolveGroupDefaultPath(inst.ProjectPath)
+		}
 		for i, s := range group.Sessions {
 			if s.ID == inst.ID {
 				group.Sessions = append(group.Sessions[:i], group.Sessions[i+1:]...)

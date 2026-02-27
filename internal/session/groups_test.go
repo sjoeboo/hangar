@@ -811,6 +811,41 @@ func TestRemoveSession(t *testing.T) {
 	}
 }
 
+func TestRemoveSession_PreservesDefaultPath(t *testing.T) {
+	instances := []*Instance{
+		{ID: "1", Title: "session-1", GroupPath: "test", ProjectPath: "/home/user/myproject"},
+	}
+
+	tree := NewGroupTree(instances)
+	tree.RemoveSession(instances[0])
+
+	if len(tree.Groups["test"].Sessions) != 0 {
+		t.Error("Session should be removed from group")
+	}
+
+	// After removing the last session the group should retain the project path
+	// as DefaultPath so todos remain accessible.
+	got := tree.DefaultPathForGroup("test")
+	if got != "/home/user/myproject" {
+		t.Errorf("DefaultPathForGroup should be /home/user/myproject after last session removed, got %q", got)
+	}
+}
+
+func TestRemoveSession_DoesNotOverrideExplicitDefaultPath(t *testing.T) {
+	instances := []*Instance{
+		{ID: "1", Title: "session-1", GroupPath: "test", ProjectPath: "/home/user/session-path"},
+	}
+
+	tree := NewGroupTree(instances)
+	tree.SetDefaultPathForGroup("test", "/home/user/explicit-path")
+	tree.RemoveSession(instances[0])
+
+	got := tree.DefaultPathForGroup("test")
+	if got != "/home/user/explicit-path" {
+		t.Errorf("Explicit DefaultPath should not be overwritten, got %q", got)
+	}
+}
+
 func TestGetGroupNames(t *testing.T) {
 	tree := NewGroupTree([]*Instance{})
 	tree.CreateGroup("Alpha")
