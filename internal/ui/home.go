@@ -4643,7 +4643,11 @@ func (h *Home) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				}
 				h.confirmDialog.ShowDeleteSession(inst.ID, inst.Title)
 			} else if item.Type == session.ItemTypeGroup {
-				h.confirmDialog.ShowDeleteGroup(item.Path, item.Group.Name)
+				if len(item.Group.Sessions) > 0 {
+					h.setError(fmt.Errorf("cannot delete project %q: move or delete its sessions first", item.Group.Name))
+				} else {
+					h.confirmDialog.ShowDeleteGroup(item.Path, item.Group.Name)
+				}
 			}
 		}
 		return h, nil
@@ -5695,7 +5699,10 @@ func (h *Home) quickCreateSession() tea.Cmd {
 			groupPath = item.Group.Path
 		}
 	}
-	// groupPath may be empty if no project is selected; new session creation will handle it
+	if groupPath == "" {
+		// No project selected — nothing to do
+		return nil
+	}
 
 	projectPath := ""
 	tool := ""
@@ -10300,6 +10307,10 @@ func (h *Home) handleTodoDialogKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		projectPath := h.todoDialog.projectPath
 		groupPath := h.todoDialog.groupPath
 		groupName := h.todoDialog.groupName
+		if groupPath == "" {
+			h.setError(fmt.Errorf("no project associated with this todo"))
+			return h, nil
+		}
 		branchName := TodoBranchName(todo.Title)
 		h.pendingTodoID = todo.ID
 		h.pendingTodoPrompt = todo.Prompt
