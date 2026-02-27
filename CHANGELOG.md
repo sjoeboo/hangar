@@ -90,4 +90,4 @@ Thanks to @mnicholson and all upstream contributors for the excellent foundation
   display in session list
 - **Help text** — removed stale MCP/Skills references; corrected key descriptions
 
-[1.0.0]: https://ghe.spotify.net/mnicholson/hangar/releases/tag/v1.0.0
+[1.0.0]: https://github.com/sjoeboo/hangar/releases/tag/v1.0.0

@@ -45,7 +45,7 @@ Press **`x`** to send a message to any session — no attach/detach needed.
 ## Quick Start
 
 ```bash
-git clone git@ghe.spotify.net:mnicholson/hangar
+git clone git@github.com:sjoeboo/hangar
 cd hangar
 ./install.sh
 

@@ -7,7 +7,7 @@ This file provides guidance to Claude Code when working with this repository.
 **Hangar** is a terminal session manager for AI coding agents, built as a TUI (Terminal User Interface) on top of tmux. It manages Claude Code (and other AI tool) sessions, providing status monitoring, worktree management, project organization, and lifecycle hooks.
 
 - **Binary**: `hangar`
-- **Module**: `ghe.spotify.net/mnicholson/hangar`
+- **Module**: `github.com/sjoeboo/hangar`
 - **Config dir**: `~/.hangar/`
 - **Tmux session prefix**: `hangar_`
 
@@ -283,4 +283,4 @@ goreleaser release                       # Actual release (requires GITHUB_TOKEN
 
 Release artifacts are named `hangar_{version}_{os}_{arch}.tar.gz`.
 
-Homebrew formula is at `mnicholson/homebrew-tap`.
+Homebrew formula is at `sjoeboo/homebrew-tap`.

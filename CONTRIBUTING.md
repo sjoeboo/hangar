@@ -12,7 +12,7 @@ Thank you for your interest in contributing to Hangar! This document provides gu
    ```
 3. **Add upstream remote**:
    ```bash
-   git remote add upstream https://ghe.spotify.net/mnicholson/hangar.git
+   git remote add upstream https://github.com/sjoeboo/hangar.git
    ```
 
 ## Development Setup
@@ -144,7 +144,7 @@ HANGAR_DEBUG=1 hangar
 
 ## Questions?
 
-- **Issues:** [Open an issue](https://ghe.spotify.net/mnicholson/hangar/issues) for bugs or feature requests
+- **Issues:** [Open an issue](https://github.com/sjoeboo/hangar/issues) for bugs or feature requests
 
 ## License
 

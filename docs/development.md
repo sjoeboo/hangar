@@ -44,4 +44,4 @@ goreleaser release                       # Full release (requires GITHUB_TOKEN)
 
 Release artifacts: `hangar_{version}_{os}_{arch}.tar.gz`
 
-Homebrew formula: [mnicholson/homebrew-tap](https://github.com/mnicholson/homebrew-tap)
+Homebrew formula: [sjoeboo/homebrew-tap](https://github.com/sjoeboo/homebrew-tap)

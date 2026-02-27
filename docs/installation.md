@@ -13,7 +13,7 @@
 ## Install from Source
 
 ```bash
-git clone git@ghe.spotify.net:mnicholson/hangar
+git clone git@github.com:sjoeboo/hangar
 cd hangar
 ./install.sh
 ```

@@ -188,9 +188,9 @@ func TestNormalizeRemoteURL(t *testing.T) {
 		want   string
 	}{
 		// Built-in github.com — always works regardless of labels map
-		{"git@github.com:mnicholson/hangar.git", nil, "github: mnicholson/hangar"},
-		{"https://github.com/mnicholson/hangar.git", nil, "github: mnicholson/hangar"},
-		{"https://github.com/mnicholson/hangar", nil, "github: mnicholson/hangar"},
+		{"git@github.com:sjoeboo/hangar.git", nil, "github: sjoeboo/hangar"},
+		{"https://github.com/sjoeboo/hangar.git", nil, "github: sjoeboo/hangar"},
+		{"https://github.com/sjoeboo/hangar", nil, "github: sjoeboo/hangar"},
 		// Custom label via config (SSH)
 		{"git@ghe.mycompany.com:squad/service.git", customLabels, "github: squad/service"},
 		// Custom label via config (HTTPS, with and without .git)
