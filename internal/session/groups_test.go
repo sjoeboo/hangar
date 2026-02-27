@@ -1671,3 +1671,68 @@ func TestNewGroupTreeFromProjects_DuplicateSlugSkipped(t *testing.T) {
 		t.Errorf("expected first project to win slug collision, got DefaultPath=%q", tree.GroupList[0].DefaultPath)
 	}
 }
+
+// TestFlatten_EmptyGroupsIncluded verifies that Flatten() emits a group header
+// row for every group in the tree, even groups that have zero sessions.
+// Expected flat list:
+//   - header for "Empty Project" (0 sessions)
+//   - header for "Active Project" (1 session)
+//   - session row for sess-1
+//
+// Total: 3 items.
+func TestFlatten_EmptyGroupsIncluded(t *testing.T) {
+	projects := []*Project{
+		{Name: "Empty Project", BaseDir: "/tmp/empty", Order: 0},
+		{Name: "Active Project", BaseDir: "/tmp/active", Order: 1},
+	}
+
+	// Only one session, belonging to "Active Project" (slug: "active-project")
+	instances := []*Instance{
+		{ID: "sess-1", Title: "my-session", GroupPath: "active-project"},
+	}
+
+	tree := NewGroupTreeFromProjects(instances, projects, nil)
+
+	items := tree.Flatten()
+
+	// We expect: 1 header (empty-project) + 1 header (active-project) + 1 session = 3
+	if len(items) != 3 {
+		t.Fatalf("Expected 3 items from Flatten(), got %d", len(items))
+	}
+
+	// First item must be the group header for "Empty Project"
+	if items[0].Type != ItemTypeGroup {
+		t.Errorf("items[0]: expected ItemTypeGroup, got %v", items[0].Type)
+	}
+	if items[0].Group == nil || items[0].Group.Name != "Empty Project" {
+		name := ""
+		if items[0].Group != nil {
+			name = items[0].Group.Name
+		}
+		t.Errorf("items[0]: expected group name 'Empty Project', got %q", name)
+	}
+
+	// Second item must be the group header for "Active Project"
+	if items[1].Type != ItemTypeGroup {
+		t.Errorf("items[1]: expected ItemTypeGroup, got %v", items[1].Type)
+	}
+	if items[1].Group == nil || items[1].Group.Name != "Active Project" {
+		name := ""
+		if items[1].Group != nil {
+			name = items[1].Group.Name
+		}
+		t.Errorf("items[1]: expected group name 'Active Project', got %q", name)
+	}
+
+	// Third item must be the session row
+	if items[2].Type != ItemTypeSession {
+		t.Errorf("items[2]: expected ItemTypeSession, got %v", items[2].Type)
+	}
+	if items[2].Session == nil || items[2].Session.ID != "sess-1" {
+		id := ""
+		if items[2].Session != nil {
+			id = items[2].Session.ID
+		}
+		t.Errorf("items[2]: expected session ID 'sess-1', got %q", id)
+	}
+}
