@@ -6,7 +6,7 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 
-	"ghe.spotify.net/mnicholson/hangar/internal/session"
+	"github.com/sjoeboo/hangar/internal/session"
 )
 
 // spinnerFrames is the Braille spinner animation used for pending worktree ghost rows.

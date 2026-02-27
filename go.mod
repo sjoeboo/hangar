@@ -1,4 +1,4 @@
-module ghe.spotify.net/mnicholson/hangar
+module github.com/sjoeboo/hangar
 
 go 1.24.0
 

@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"ghe.spotify.net/mnicholson/hangar/internal/session"
+	"github.com/sjoeboo/hangar/internal/session"
 )
 
 func TestMCPInfoForJSON_NilOrEmpty(t *testing.T) {

@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"ghe.spotify.net/mnicholson/hangar/internal/git"
+	"github.com/sjoeboo/hangar/internal/git"
 )
 
 // makeRepo creates a temporary git repo for testing

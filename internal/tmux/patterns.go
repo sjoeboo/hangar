@@ -6,7 +6,7 @@ import (
 	"regexp"
 	"strings"
 
-	"ghe.spotify.net/mnicholson/hangar/internal/logging"
+	"github.com/sjoeboo/hangar/internal/logging"
 )
 
 var patternLog = logging.ForComponent(logging.CompStatus)

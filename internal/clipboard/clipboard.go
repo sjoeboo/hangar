@@ -7,7 +7,7 @@ import (
 	"os/exec"
 	"strings"
 
-	"ghe.spotify.net/mnicholson/hangar/internal/platform"
+	"github.com/sjoeboo/hangar/internal/platform"
 )
 
 // CopyResult contains metadata about a successful clipboard copy operation.

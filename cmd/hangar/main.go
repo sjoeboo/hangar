@@ -21,12 +21,12 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/muesli/termenv"
 
-	"ghe.spotify.net/mnicholson/hangar/internal/git"
-	"ghe.spotify.net/mnicholson/hangar/internal/logging"
-	"ghe.spotify.net/mnicholson/hangar/internal/session"
-	"ghe.spotify.net/mnicholson/hangar/internal/statedb"
-	"ghe.spotify.net/mnicholson/hangar/internal/ui"
-	"ghe.spotify.net/mnicholson/hangar/internal/update"
+	"github.com/sjoeboo/hangar/internal/git"
+	"github.com/sjoeboo/hangar/internal/logging"
+	"github.com/sjoeboo/hangar/internal/session"
+	"github.com/sjoeboo/hangar/internal/statedb"
+	"github.com/sjoeboo/hangar/internal/ui"
+	"github.com/sjoeboo/hangar/internal/update"
 )
 
 var Version = "1.0.0"

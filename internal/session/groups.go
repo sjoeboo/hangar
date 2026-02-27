@@ -8,7 +8,7 @@ import (
 	"strings"
 	"unicode"
 
-	"ghe.spotify.net/mnicholson/hangar/internal/git"
+	"github.com/sjoeboo/hangar/internal/git"
 )
 
 // ItemType represents the type of item in the flattened list

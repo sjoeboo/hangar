@@ -8,7 +8,7 @@ import (
 	"os/signal"
 	"syscall"
 
-	"ghe.spotify.net/mnicholson/hangar/internal/session"
+	"github.com/sjoeboo/hangar/internal/session"
 )
 
 // handleNotifyDaemon runs the always-on transition notifier daemon.

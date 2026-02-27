@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"time"
 
-	"ghe.spotify.net/mnicholson/hangar/internal/statedb"
+	"github.com/sjoeboo/hangar/internal/statedb"
 )
 
 // TodoStatus represents the lifecycle state of a todo item.

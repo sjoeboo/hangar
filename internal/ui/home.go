@@ -20,13 +20,13 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
-	"ghe.spotify.net/mnicholson/hangar/internal/clipboard"
-	"ghe.spotify.net/mnicholson/hangar/internal/git"
-	"ghe.spotify.net/mnicholson/hangar/internal/logging"
-	"ghe.spotify.net/mnicholson/hangar/internal/session"
-	"ghe.spotify.net/mnicholson/hangar/internal/statedb"
-	"ghe.spotify.net/mnicholson/hangar/internal/tmux"
-	"ghe.spotify.net/mnicholson/hangar/internal/update"
+	"github.com/sjoeboo/hangar/internal/clipboard"
+	"github.com/sjoeboo/hangar/internal/git"
+	"github.com/sjoeboo/hangar/internal/logging"
+	"github.com/sjoeboo/hangar/internal/session"
+	"github.com/sjoeboo/hangar/internal/statedb"
+	"github.com/sjoeboo/hangar/internal/tmux"
+	"github.com/sjoeboo/hangar/internal/update"
 )
 
 // Version is set by main.go for update checking
@@ -4550,7 +4550,7 @@ func (h *Home) saveInstancesWithForce(force bool) {
 			// Without this, subsequent saves incorrectly detect the TUI's own previous
 			// save as an "external change" (currentMtime > stale lastLoadMtime) and abort.
 			// This caused session renames and other non-force saves to silently fail.
-			// See: https://ghe.spotify.net/mnicholson/hangar/issues/141
+			// See: https://github.com/sjoeboo/hangar/issues/141
 			if newMtime, err := h.storage.GetFileMtime(); err == nil && !newMtime.IsZero() {
 				h.reloadMu.Lock()
 				h.lastLoadMtime = newMtime

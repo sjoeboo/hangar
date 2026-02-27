@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
-	"ghe.spotify.net/mnicholson/hangar/internal/git"
-	"ghe.spotify.net/mnicholson/hangar/internal/session"
+	"github.com/sjoeboo/hangar/internal/git"
+	"github.com/sjoeboo/hangar/internal/session"
 )
 
 // handleLaunch combines add + start + optional send into a single command.

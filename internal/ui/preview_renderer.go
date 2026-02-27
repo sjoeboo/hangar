@@ -17,8 +17,8 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/mattn/go-runewidth"
 
-	"ghe.spotify.net/mnicholson/hangar/internal/session"
-	"ghe.spotify.net/mnicholson/hangar/internal/tmux"
+	"github.com/sjoeboo/hangar/internal/session"
+	"github.com/sjoeboo/hangar/internal/tmux"
 )
 
 // renderSectionDivider creates a modern section divider with optional centered label

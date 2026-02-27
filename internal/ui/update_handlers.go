@@ -8,9 +8,9 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"ghe.spotify.net/mnicholson/hangar/internal/git"
-	"ghe.spotify.net/mnicholson/hangar/internal/session"
-	"ghe.spotify.net/mnicholson/hangar/internal/tmux"
+	"github.com/sjoeboo/hangar/internal/git"
+	"github.com/sjoeboo/hangar/internal/session"
+	"github.com/sjoeboo/hangar/internal/tmux"
 )
 
 // handleLoadSessions processes loadSessionsMsg, updating in-memory state from

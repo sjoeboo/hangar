@@ -18,8 +18,8 @@ import (
 	"sync"
 	"time"
 
-	"ghe.spotify.net/mnicholson/hangar/internal/logging"
-	"ghe.spotify.net/mnicholson/hangar/internal/tmux"
+	"github.com/sjoeboo/hangar/internal/logging"
+	"github.com/sjoeboo/hangar/internal/tmux"
 )
 
 var sessionLog = logging.ForComponent(logging.CompSession)

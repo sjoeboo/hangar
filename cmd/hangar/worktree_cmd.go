@@ -8,8 +8,8 @@ import (
 	"os/exec"
 	"strings"
 
-	"ghe.spotify.net/mnicholson/hangar/internal/git"
-	"ghe.spotify.net/mnicholson/hangar/internal/session"
+	"github.com/sjoeboo/hangar/internal/git"
+	"github.com/sjoeboo/hangar/internal/session"
 )
 
 // handleWorktree dispatches worktree subcommands

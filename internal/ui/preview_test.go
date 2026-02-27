@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"ghe.spotify.net/mnicholson/hangar/internal/tmux"
+	"github.com/sjoeboo/hangar/internal/tmux"
 )
 
 func TestPreview_DiffStat_Shown(t *testing.T) {

@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"ghe.spotify.net/mnicholson/hangar/internal/session"
+	"github.com/sjoeboo/hangar/internal/session"
 )
 
 // List manages session list display

@@ -8,7 +8,7 @@ import (
 	"os/exec"
 	"strings"
 
-	"ghe.spotify.net/mnicholson/hangar/internal/session"
+	"github.com/sjoeboo/hangar/internal/session"
 )
 
 // normalizeArgs reorders args so flags come before positional arguments.

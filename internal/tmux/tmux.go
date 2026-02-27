@@ -18,7 +18,7 @@ import (
 	"syscall"
 	"time"
 
-	"ghe.spotify.net/mnicholson/hangar/internal/logging"
+	"github.com/sjoeboo/hangar/internal/logging"
 	"golang.org/x/sync/singleflight"
 )
 

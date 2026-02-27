@@ -7,7 +7,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"ghe.spotify.net/mnicholson/hangar/internal/logging"
+	"github.com/sjoeboo/hangar/internal/logging"
 )
 
 var migrationLog = logging.ForComponent(logging.CompSession)

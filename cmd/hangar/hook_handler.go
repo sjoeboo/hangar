@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"time"
 
-	"ghe.spotify.net/mnicholson/hangar/internal/session"
+	"github.com/sjoeboo/hangar/internal/session"
 )
 
 // hookPayload represents the JSON payload Claude Code sends to hooks via stdin.

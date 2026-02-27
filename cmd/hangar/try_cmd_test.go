@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"ghe.spotify.net/mnicholson/hangar/internal/experiments"
+	"github.com/sjoeboo/hangar/internal/experiments"
 )
 
 func TestTryCommand_CreateExperiment(t *testing.T) {

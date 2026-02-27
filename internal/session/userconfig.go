@@ -12,7 +12,7 @@ import (
 
 	dark "github.com/thiagokokada/dark-mode-go"
 
-	"ghe.spotify.net/mnicholson/hangar/internal/tmux"
+	"github.com/sjoeboo/hangar/internal/tmux"
 )
 
 // UserConfigFileName is the TOML config file for user preferences
