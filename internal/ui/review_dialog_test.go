@@ -2,6 +2,8 @@ package ui
 
 import (
 	"testing"
+
+	tea "github.com/charmbracelet/bubbletea"
 )
 
 func TestReviewDialog_InitiallyHidden(t *testing.T) {
@@ -50,7 +52,7 @@ func TestReviewDialog_InputDetectsPRNumber(t *testing.T) {
 	d.Show("hangar", "/home/user/code/hangar")
 	d.SetSize(120, 40)
 	for _, r := range "42" {
-		d.HandleKey(string(r))
+		d.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
 	}
 	if !d.IsPRInput() {
 		t.Fatal("expected '42' to be detected as a PR number")
@@ -62,7 +64,7 @@ func TestReviewDialog_InputDetectsBranchName(t *testing.T) {
 	d.Show("hangar", "/home/user/code/hangar")
 	d.SetSize(120, 40)
 	for _, r := range "feature/my-branch" {
-		d.HandleKey(string(r))
+		d.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
 	}
 	if d.IsPRInput() {
 		t.Fatal("expected 'feature/my-branch' to be detected as a branch, not a PR number")
