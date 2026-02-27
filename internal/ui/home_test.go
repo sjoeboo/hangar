@@ -1183,6 +1183,7 @@ func TestSessionRowPRBadgeStates(t *testing.T) {
 				Title:            "my-feature",
 				Tool:             "claude",
 				Status:           session.StatusIdle,
+				GroupPath:        "test-project",
 				WorktreePath:     "/repo/.git/worktrees/my-feature",
 				WorktreeBranch:   "my-feature",
 				WorktreeRepoRoot: "/repo",
@@ -1220,10 +1221,11 @@ func TestSessionRowPRBadgeStates(t *testing.T) {
 		home.initialLoading = false
 
 		inst := &session.Instance{
-			ID:     "plain-session",
-			Title:  "plain-session",
-			Tool:   "claude",
-			Status: session.StatusIdle,
+			ID:        "plain-session",
+			Title:     "plain-session",
+			Tool:      "claude",
+			Status:    session.StatusIdle,
+			GroupPath: "test-project",
 			// WorktreePath intentionally empty — IsWorktree() returns false
 		}
 		home.instancesMu.Lock()
@@ -1248,6 +1250,7 @@ func makeWorktreeInstance(id, branch string) *session.Instance {
 	return &session.Instance{
 		ID:               id,
 		Title:            "test-" + id,
+		GroupPath:        "test-project",
 		WorktreePath:     "/tmp/worktrees/" + id,
 		WorktreeRepoRoot: "/tmp/repo",
 		WorktreeBranch:   branch,
@@ -1422,7 +1425,7 @@ func TestDeleteKey_NonWorktreeSessionOpensConfirmDialog(t *testing.T) {
 	home.width = 120
 	home.height = 40
 	home.initialLoading = false
-	inst := &session.Instance{ID: "sess2", Title: "plain-session"}
+	inst := &session.Instance{ID: "sess2", Title: "plain-session", GroupPath: "test-project"}
 	home.instancesMu.Lock()
 	home.instances = []*session.Instance{inst}
 	home.instanceByID[inst.ID] = inst
@@ -1500,8 +1503,8 @@ func TestPRView_Navigation(t *testing.T) {
 	home.viewMode = "prs"
 
 	// Seed PR cache with two sessions
-	sess1 := &session.Instance{ID: "s1", Title: "Session 1", WorktreePath: "/tmp/s1"}
-	sess2 := &session.Instance{ID: "s2", Title: "Session 2", WorktreePath: "/tmp/s2"}
+	sess1 := &session.Instance{ID: "s1", Title: "Session 1", GroupPath: "test-project", WorktreePath: "/tmp/s1"}
+	sess2 := &session.Instance{ID: "s2", Title: "Session 2", GroupPath: "test-project", WorktreePath: "/tmp/s2"}
 	home.instances = []*session.Instance{sess1, sess2}
 	home.groupTree = session.NewGroupTree(home.instances)
 	home.rebuildFlatItems()
@@ -1540,7 +1543,7 @@ func TestPRView_RenderShowsPRs(t *testing.T) {
 	home.ghPath = "/usr/bin/gh"
 	home.initialLoading = false
 
-	sess1 := &session.Instance{ID: "s1", Title: "Fix auth bug", WorktreePath: "/tmp/s1"}
+	sess1 := &session.Instance{ID: "s1", Title: "Fix auth bug", GroupPath: "test-project", WorktreePath: "/tmp/s1"}
 	home.instances = []*session.Instance{sess1}
 	home.groupTree = session.NewGroupTree(home.instances)
 	home.rebuildFlatItems()
@@ -1654,7 +1657,7 @@ func TestBulkSelectMode_SpaceTogglesSelection(t *testing.T) {
 	home.height = 30
 
 	// Set up one session at cursor
-	inst := &session.Instance{ID: "test-1", Title: "test-session"}
+	inst := &session.Instance{ID: "test-1", Title: "test-session", GroupPath: "test-project"}
 	home.instances = []*session.Instance{inst}
 	home.instanceByID = map[string]*session.Instance{"test-1": inst}
 	home.groupTree = session.NewGroupTree(home.instances)
@@ -1708,7 +1711,7 @@ func TestBulkSelectMode_SpaceOutsideBulkModeIsNoop(t *testing.T) {
 	home.width = 100
 	home.height = 30
 
-	inst := &session.Instance{ID: "test-1", Title: "test-session"}
+	inst := &session.Instance{ID: "test-1", Title: "test-session", GroupPath: "test-project"}
 	home.instances = []*session.Instance{inst}
 	home.instanceByID = map[string]*session.Instance{"test-1": inst}
 	home.groupTree = session.NewGroupTree(home.instances)
@@ -1732,10 +1735,11 @@ func TestBulkSelectMode_CheckboxRendering(t *testing.T) {
 	home.initialLoading = false
 
 	inst := &session.Instance{
-		ID:     "test-1",
-		Title:  "my-session",
-		Tool:   "claude",
-		Status: session.StatusIdle,
+		ID:        "test-1",
+		Title:     "my-session",
+		Tool:      "claude",
+		Status:    session.StatusIdle,
+		GroupPath: "test-project",
 	}
 	home.instancesMu.Lock()
 	home.instances = []*session.Instance{inst}
@@ -1813,8 +1817,8 @@ func TestBulkSelectMode_DKeyShowsBulkConfirm(t *testing.T) {
 	home.height = 30
 	home.initialLoading = false
 
-	inst1 := &session.Instance{ID: "id-1", Title: "sess-1", Tool: "claude"}
-	inst2 := &session.Instance{ID: "id-2", Title: "sess-2", Tool: "claude"}
+	inst1 := &session.Instance{ID: "id-1", Title: "sess-1", Tool: "claude", GroupPath: "test-project"}
+	inst2 := &session.Instance{ID: "id-2", Title: "sess-2", Tool: "claude", GroupPath: "test-project"}
 	home.instancesMu.Lock()
 	home.instances = []*session.Instance{inst1, inst2}
 	home.instanceByID = map[string]*session.Instance{"id-1": inst1, "id-2": inst2}
@@ -1843,7 +1847,7 @@ func TestBulkSelectMode_DKeyFallsThrough_WhenNoSelections(t *testing.T) {
 	home.height = 30
 	home.initialLoading = false
 
-	inst := &session.Instance{ID: "id-1", Title: "sess-1", Tool: "claude"}
+	inst := &session.Instance{ID: "id-1", Title: "sess-1", Tool: "claude", GroupPath: "test-project"}
 	home.instancesMu.Lock()
 	home.instances = []*session.Instance{inst}
 	home.instanceByID = map[string]*session.Instance{"id-1": inst}
@@ -1881,8 +1885,8 @@ func TestBulkSelectMode_XKeyOpensSendDialog(t *testing.T) {
 	home.height = 30
 	home.initialLoading = false
 
-	inst1 := &session.Instance{ID: "id-1", Title: "sess-1", Tool: "claude"}
-	inst2 := &session.Instance{ID: "id-2", Title: "sess-2", Tool: "claude"}
+	inst1 := &session.Instance{ID: "id-1", Title: "sess-1", Tool: "claude", GroupPath: "test-project"}
+	inst2 := &session.Instance{ID: "id-2", Title: "sess-2", Tool: "claude", GroupPath: "test-project"}
 	home.instancesMu.Lock()
 	home.instances = []*session.Instance{inst1, inst2}
 	home.instanceByID = map[string]*session.Instance{"id-1": inst1, "id-2": inst2}
@@ -1914,7 +1918,7 @@ func TestBulkSelectMode_XKeyFallsThrough_WhenNoSelections(t *testing.T) {
 	home.height = 30
 	home.initialLoading = false
 
-	inst := &session.Instance{ID: "id-1", Title: "sess-1", Tool: "claude"}
+	inst := &session.Instance{ID: "id-1", Title: "sess-1", Tool: "claude", GroupPath: "test-project"}
 	home.instancesMu.Lock()
 	home.instances = []*session.Instance{inst}
 	home.instanceByID = map[string]*session.Instance{"id-1": inst}
@@ -1953,8 +1957,8 @@ func TestBulkSelectMode_RKeyShowsBulkRestartConfirm(t *testing.T) {
 	home.height = 30
 	home.initialLoading = false
 
-	inst1 := &session.Instance{ID: "id-1", Title: "sess-1", Tool: "claude"}
-	inst2 := &session.Instance{ID: "id-2", Title: "sess-2", Tool: "claude"}
+	inst1 := &session.Instance{ID: "id-1", Title: "sess-1", Tool: "claude", GroupPath: "test-project"}
+	inst2 := &session.Instance{ID: "id-2", Title: "sess-2", Tool: "claude", GroupPath: "test-project"}
 	home.instancesMu.Lock()
 	home.instances = []*session.Instance{inst1, inst2}
 	home.instanceByID = map[string]*session.Instance{"id-1": inst1, "id-2": inst2}
