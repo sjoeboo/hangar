@@ -228,6 +228,7 @@ type Home struct {
 	resumingSessions   map[string]time.Time // sessionID -> resume time (for restart/resume)
 	forkingSessions    map[string]time.Time // sessionID -> fork start time (fork in progress)
 	animationFrame     int                  // Current frame for spinner animation
+	pendingWorktrees   []pendingWorktreeItem // worktrees being created in the background
 
 	// Context for cleanup
 	ctx    context.Context
@@ -509,6 +510,14 @@ type worktreeCreatedForNewSessionMsg struct {
 	err          error
 }
 
+// pendingWorktreeItem tracks a worktree being created in the background.
+// It is used to show a ghost spinner row in the session list.
+type pendingWorktreeItem struct {
+	branchName string
+	groupPath  string
+	startedAt  time.Time
+}
+
 // reviewPRResolvedMsg is returned when the async gh pr view lookup completes.
 type reviewPRResolvedMsg struct {
 	branch string
@@ -533,12 +542,13 @@ type todoPromptSentMsg struct{}
 
 // worktreeCreatedForForkMsg is sent when async worktree creation for a fork completes
 type worktreeCreatedForForkMsg struct {
-	source      *session.Instance
-	title       string
-	groupPath   string
-	opts        *session.ClaudeOptions
+	source       *session.Instance
+	title        string
+	groupPath    string
+	opts         *session.ClaudeOptions
 	worktreePath string
-	err         error
+	branchName   string
+	err          error
 }
 
 // lazygitReadyMsg is sent when lazygit window is ready to attach
@@ -1413,6 +1423,16 @@ func launchAnimationMinDuration(tool string) time.Duration {
 		return minLaunchAnimationDurationClaude
 	}
 	return minLaunchAnimationDurationDefault
+}
+
+// removePendingWorktree removes the first pending worktree entry with the given branch name.
+func (h *Home) removePendingWorktree(branchName string) {
+	for i, pw := range h.pendingWorktrees {
+		if pw.branchName == branchName {
+			h.pendingWorktrees = append(h.pendingWorktrees[:i], h.pendingWorktrees[i+1:]...)
+			return
+		}
+	}
 }
 
 // hasActiveAnimation checks if a session has an animation currently being displayed
@@ -2315,6 +2335,7 @@ func (h *Home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return h, nil
 
 	case worktreeCreatedForNewSessionMsg:
+		h.removePendingWorktree(msg.branchName)
 		if msg.err != nil {
 			h.setError(fmt.Errorf("failed to create worktree: %w", msg.err))
 			return h, nil
@@ -2342,6 +2363,7 @@ func (h *Home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return h, nil
 
 	case worktreeCreatedForForkMsg:
+		h.removePendingWorktree(msg.branchName)
 		if msg.err != nil {
 			h.setError(fmt.Errorf("failed to create worktree: %w", msg.err))
 			return h, nil
@@ -2799,7 +2821,11 @@ func (h *Home) handleNewDialogKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			// Hide dialog and dispatch async worktree creation so the git fetch
 			// doesn't block the Bubble Tea event loop (large monorepos can take 30-60s).
 			h.newDialog.Hide()
-			h.setError(fmt.Errorf("creating worktree '%s'…", branchName))
+			h.pendingWorktrees = append(h.pendingWorktrees, pendingWorktreeItem{
+				branchName: branchName,
+				groupPath:  groupPath,
+				startedAt:  time.Now(),
+			})
 			autoUpdate := wtSettings.AutoUpdateBase
 			capturedRepoRoot := repoRoot
 			capturedWorktreePath := worktreePath
@@ -2819,7 +2845,7 @@ func (h *Home) handleNewDialogKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				uiLog.Info("async_worktree_create_start", slog.String("path", capturedWorktreePath))
 				if err := git.CreateWorktree(capturedRepoRoot, capturedWorktreePath, capturedBranch); err != nil {
 					uiLog.Error("async_worktree_create_failed", slog.String("error", err.Error()))
-					return worktreeCreatedForNewSessionMsg{err: err}
+					return worktreeCreatedForNewSessionMsg{err: err, branchName: capturedBranch}
 				}
 				uiLog.Info("async_worktree_create_done", slog.String("path", capturedWorktreePath))
 				return worktreeCreatedForNewSessionMsg{
@@ -4348,7 +4374,11 @@ func (h *Home) handleForkDialogKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 					// Hide dialog and dispatch async worktree creation so the git fetch
 					// doesn't block the Bubble Tea event loop.
 					h.forkDialog.Hide()
-					h.setError(fmt.Errorf("creating worktree '%s'\u2026", branchName))
+					h.pendingWorktrees = append(h.pendingWorktrees, pendingWorktreeItem{
+						branchName: branchName,
+						groupPath:  groupPath,
+						startedAt:  time.Now(),
+					})
 					autoUpdate := wtSettings.AutoUpdateBase
 					capturedRepoRoot := repoRoot
 					capturedWorktreePath := worktreePath
@@ -4372,7 +4402,7 @@ func (h *Home) handleForkDialogKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 						uiLog.Info("async_worktree_fork_create_start", slog.String("path", capturedWorktreePath))
 						if err := git.CreateWorktree(capturedRepoRoot, capturedWorktreePath, capturedBranch); err != nil {
 							uiLog.Error("async_worktree_fork_create_failed", slog.String("error", err.Error()))
-							return worktreeCreatedForForkMsg{err: err}
+							return worktreeCreatedForForkMsg{err: err, branchName: capturedBranch}
 						}
 						uiLog.Info("async_worktree_fork_create_done", slog.String("path", capturedWorktreePath))
 						capturedOpts.WorkDir = capturedWorktreePath
@@ -4385,6 +4415,7 @@ func (h *Home) handleForkDialogKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 							groupPath:    capturedGroupPath,
 							opts:         capturedOpts,
 							worktreePath: capturedWorktreePath,
+							branchName:   capturedBranch,
 						}
 					}
 				}

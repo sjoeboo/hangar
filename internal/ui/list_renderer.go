@@ -9,6 +9,9 @@ import (
 	"ghe.spotify.net/mnicholson/hangar/internal/session"
 )
 
+// spinnerFrames is the Braille spinner animation used for pending worktree ghost rows.
+var spinnerFrames = []string{"⣾", "⣽", "⣻", "⢿", "⡿", "⣟", "⣯", "⣷"}
+
 // Tree drawing characters for visual hierarchy
 const (
 	treeBranch = "├─" // Mid-level item (has siblings below)
@@ -23,7 +26,7 @@ const (
 func (h *Home) renderSessionList(width, height int) string {
 	var b strings.Builder
 
-	if len(h.flatItems) == 0 {
+	if len(h.flatItems) == 0 && len(h.pendingWorktrees) == 0 {
 		// Responsive empty state - adapts to available space
 		// Account for border (2 chars each side) when calculating content area
 		contentWidth := width - 4
@@ -69,8 +72,29 @@ func (h *Home) renderSessionList(width, height int) string {
 		visibleCount++
 	}
 
-	// Show "more below" indicator if there are more items
-	remaining := len(h.flatItems) - (h.viewOffset + visibleCount)
+	// Render ghost rows for pending worktree creations.
+	// These are intentionally outside flatItems so the cursor never lands on them.
+	renderedGhosts := 0
+	if len(h.pendingWorktrees) > 0 {
+		spinner := spinnerFrames[h.animationFrame%len(spinnerFrames)]
+		for _, pw := range h.pendingWorktrees {
+			if visibleCount >= maxVisible {
+				break
+			}
+			b.WriteString(DimStyle.Render(fmt.Sprintf("  %s Creating worktree: %s", spinner, pw.branchName)))
+			b.WriteString("\n")
+			visibleCount++
+			renderedGhosts++
+		}
+	}
+
+	// Show "more below" indicator if there are more items or truncated ghost rows
+	hiddenFlatItems := len(h.flatItems) - (h.viewOffset + (visibleCount - renderedGhosts))
+	if hiddenFlatItems < 0 {
+		hiddenFlatItems = 0
+	}
+	hiddenGhostRows := len(h.pendingWorktrees) - renderedGhosts
+	remaining := hiddenFlatItems + hiddenGhostRows
 	if remaining > 0 {
 		b.WriteString(DimStyle.Render(fmt.Sprintf("  ⋮ +%d below", remaining)))
 	}
