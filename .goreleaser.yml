@@ -86,17 +86,16 @@ release:
 
     **Full Changelog**: https://github.com/sjoeboo/hangar/compare/{{ .PreviousTag }}...{{ .Tag }}
 
-brews:
+homebrew_casks:
   - name: hangar
     repository:
       owner: sjoeboo
       name: homebrew-tap
       token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
-    directory: Formula
+    directory: Casks
     homepage: "https://github.com/sjoeboo/hangar"
     description: "Terminal session manager for AI coding agents"
-    license: "MIT"
     dependencies:
-      - name: tmux
-    test: |
-      system "#{bin}/hangar", "version"
+      - formula: tmux
+    zap:
+      - trash: "~/.hangar"
