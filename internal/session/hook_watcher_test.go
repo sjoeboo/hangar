@@ -201,7 +201,10 @@ func TestStatusFileWatcher_StopDuringDebounce(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Stop immediately — before the 100ms debounce fires
+	// Give fsnotify time to deliver the event and arm the debounce timer
+	time.Sleep(20 * time.Millisecond)
+
+	// Stop before the 100ms debounce fires — timer should be cancelled by defer
 	w.Stop()
 
 	// Sleep past the debounce window; without the fix, the timer callback
