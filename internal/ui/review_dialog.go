@@ -177,9 +177,6 @@ func (d *ReviewDialog) HandleKey(key string) string {
 
 	default:
 		if d.step == 0 {
-			var cmd tea.Cmd
-			d.input, cmd = d.input.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(key)})
-			_ = cmd
 			d.errorMsg = ""
 		}
 	}
