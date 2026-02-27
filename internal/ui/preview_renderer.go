@@ -402,9 +402,12 @@ func (h *Home) renderSessionInfoCard(inst *session.Instance, width, height int) 
 }
 
 // renderPreviewPane renders the right panel with live preview
+// renderPreviewPane is the public entry-point called on every Bubble Tea
+// render frame.  Fast-path special cases (empty list, no selection, group
+// preview) are handled inline; the expensive session preview is delegated to
+// renderPreviewPaneCore which is wrapped with memoization so that unchanged
+// sessions return a cached string without any lipgloss/string-building work.
 func (h *Home) renderPreviewPane(width, height int) string {
-	var b strings.Builder
-
 	if len(h.flatItems) == 0 || h.cursor >= len(h.flatItems) {
 		// Show different message when there are no sessions vs just no selection
 		if len(h.flatItems) == 0 {
@@ -433,8 +436,52 @@ func (h *Home) renderPreviewPane(width, height int) string {
 		return h.renderGroupPreview(item.Group, width, height)
 	}
 
-	// Session preview
 	selected := item.Session
+
+	// Skip memoization for sessions with time-driven animations (launching /
+	// resuming / forking) because the render changes on every frame without a
+	// session-state change.
+	_, isLaunching := h.launchingSessions[selected.ID]
+	_, isResuming := h.resumingSessions[selected.ID]
+	_, isForking := h.forkingSessions[selected.ID]
+	if !isLaunching && !isResuming && !isForking {
+		// Build a version token that encodes every input that can change the
+		// rendered output.  We include PR state, worktree dirty flag, and a
+		// len-proxy for the raw terminal content so that new tmux output busts
+		// the cache without requiring an explicit InvalidateSession call.
+		previewContent, _, _ := h.cache.GetPreview(selected.ID)
+		prEntry, _, _ := h.cache.HasPREntry(selected.ID)
+		prVersion := ""
+		if prEntry != nil {
+			prVersion = fmt.Sprintf("%d-%s", prEntry.Number, prEntry.State)
+		}
+		isDirty, hasDirty := h.cache.GetWorktreeDirty(selected.ID)
+		dirtyVersion := fmt.Sprintf("%v-%v", hasDirty, isDirty)
+		cacheKey := fmt.Sprintf("rp-%d-%d-%d-%s-%s-%s-%s-%d",
+			width, height,
+			selected.GetLastActivityTime().Unix(),
+			string(selected.Status),
+			selected.Title,
+			prVersion,
+			dirtyVersion,
+			len(previewContent),
+		)
+		if rendered, ok := h.cache.GetRenderedPane(selected.ID, cacheKey); ok {
+			return rendered
+		}
+		result := h.renderPreviewPaneCore(selected, width, height)
+		h.cache.SetRenderedPane(selected.ID, cacheKey, result)
+		return result
+	}
+
+	return h.renderPreviewPaneCore(selected, width, height)
+}
+
+// renderPreviewPaneCore builds the full session preview string.  It is called
+// by renderPreviewPane — either directly (animated sessions) or after a cache
+// miss (stable sessions).  Do NOT call this from View(); use renderPreviewPane.
+func (h *Home) renderPreviewPaneCore(selected *session.Instance, width, height int) string {
+	var b strings.Builder
 
 	// Session info header box
 	statusIcon := "○"

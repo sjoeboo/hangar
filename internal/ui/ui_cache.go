@@ -110,6 +110,38 @@ func (c *UICache) InvalidateAll() {
 }
 
 // ---------------------------------------------------------------------------
+// Typed accessors — Rendered preview pane (1s TTL, keyed by layout+version)
+// ---------------------------------------------------------------------------
+
+// renderedPaneCacheTTL matches the tmux poll interval — stale renders are
+// discarded when the terminal content or session state changes.
+const renderedPaneCacheTTL = 1 * time.Second
+
+// GetRenderedPane returns the memoized rendered preview pane string for the
+// given session, if the stored key matches cacheKey (which encodes width,
+// height, and a session-state version token) and the entry is still fresh.
+func (c *UICache) GetRenderedPane(sessionID, cacheKey string) (rendered string, ok bool) {
+	// The cache entry stores a [2]string{cacheKey, rendered} so we can
+	// validate that the key matches without an extra lookup.
+	v, exists := c.get(sessionID, "renderedPane")
+	if !exists {
+		return "", false
+	}
+	pair, _ := v.([2]string)
+	if pair[0] != cacheKey {
+		return "", false
+	}
+	return pair[1], true
+}
+
+// SetRenderedPane stores the memoized rendered preview pane for the session.
+// cacheKey encodes width, height, and a session-state version token so that
+// mismatches invalidate the entry on the next read.
+func (c *UICache) SetRenderedPane(sessionID, cacheKey, rendered string) {
+	c.set(sessionID, "renderedPane", [2]string{cacheKey, rendered}, renderedPaneCacheTTL)
+}
+
+// ---------------------------------------------------------------------------
 // Typed accessors — Preview (2s TTL)
 // ---------------------------------------------------------------------------
 

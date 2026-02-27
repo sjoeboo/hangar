@@ -2032,3 +2032,51 @@ func TestRenderPreviewPane_Smoke(t *testing.T) {
 		t.Fatal("expected non-empty preview pane")
 	}
 }
+
+func TestRenderPreviewPane_Memoization(t *testing.T) {
+	h := NewHome()
+	h.width = 80
+	h.height = 40
+
+	// Add a session and position the cursor on it.
+	inst := session.NewInstance("memo-test-session", "/tmp/project")
+	h.instancesMu.Lock()
+	h.instances = []*session.Instance{inst}
+	h.instancesMu.Unlock()
+	h.groupTree = session.NewGroupTree(h.instances)
+	h.rebuildFlatItems()
+
+	sessionIdx := -1
+	for i, item := range h.flatItems {
+		if item.Type == session.ItemTypeSession {
+			sessionIdx = i
+			break
+		}
+	}
+	if sessionIdx == -1 {
+		t.Fatal("No session found in flatItems")
+	}
+	h.cursor = sessionIdx
+
+	// First render — populates the rendered-pane cache.
+	result1 := h.renderPreviewPane(80, 40)
+	if result1 == "" {
+		t.Fatal("expected non-empty preview pane on first render")
+	}
+
+	// Second render with identical state — must return the same string
+	// (cache hit path) and must not panic.
+	result2 := h.renderPreviewPane(80, 40)
+	if result1 != result2 {
+		t.Error("expected identical renders for same state (cache hit)")
+	}
+
+	// Change width — different layout must produce a different cache key
+	// and therefore a different (or at least independently rendered) result.
+	result3 := h.renderPreviewPane(60, 40)
+	// We only verify no panic and that the result is non-empty; the actual
+	// content may or may not differ depending on wrapping.
+	if result3 == "" {
+		t.Error("expected non-empty preview pane after width change")
+	}
+}
