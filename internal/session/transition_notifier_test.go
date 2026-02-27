@@ -123,3 +123,18 @@ func TestIsCodexTerminalHookEvent(t *testing.T) {
 		t.Fatal("thread.started should not be terminal")
 	}
 }
+
+func TestDispatch_StorageIsClosed(t *testing.T) {
+	// Verify dispatch() doesn't panic when storage doesn't exist for the profile
+	// and returns a dropped/failed result cleanly.
+	n := NewTransitionNotifier()
+	event := TransitionNotificationEvent{
+		Profile:        "nonexistent-profile-for-test",
+		ChildSessionID: "nonexistent-id",
+	}
+	result := n.dispatch(event)
+	// nonexistent profile → storage fails to open → transitionDeliveryFailed
+	// or nonexistent session → transitionDeliveryDropped
+	// Either is acceptable — we just verify no panic
+	_ = result
+}
