@@ -305,7 +305,7 @@ func (h *Home) renderMcpLoadingState(inst *session.Instance, width int, startTim
 func (h *Home) renderForkingState(inst *session.Instance, width int, startTime time.Time) string {
 	var b strings.Builder
 
-	// Centered layout
+	// Centered layout (runtime width — must stay inline)
 	centerStyle := lipgloss.NewStyle().
 		Width(width - 4).
 		Align(lipgloss.Center)
@@ -495,18 +495,17 @@ func (h *Home) renderPreviewPane(width, height int) string {
 				b.WriteString("\n")
 			} else if pr != nil {
 				// PR state style is runtime-dependent — must stay inline
-				stateStyle := lipgloss.NewStyle()
 				stateLabel := strings.ToLower(pr.State)
+				stateColor := ColorComment // default / unknown
 				switch pr.State {
 				case "OPEN":
-					stateStyle = stateStyle.Foreground(ColorGreen)
-				case "DRAFT":
-					stateStyle = stateStyle.Foreground(ColorComment)
+					stateColor = ColorGreen
 				case "MERGED":
-					stateStyle = stateStyle.Foreground(ColorPurple)
+					stateColor = ColorPurple
 				case "CLOSED":
-					stateStyle = stateStyle.Foreground(ColorRed)
+					stateColor = ColorRed
 				}
+				stateStyle := lipgloss.NewStyle().Foreground(stateColor)
 				titleMax := width - 4 - 9 - 6 - len(stateLabel) - 3
 				title := pr.Title
 				if titleMax > 10 && runewidth.StringWidth(title) > titleMax {
