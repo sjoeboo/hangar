@@ -4556,8 +4556,8 @@ func (h *Home) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		h.newDialog.SetDefaultTool(session.GetDefaultTool())
 
 		// Auto-select parent group from current cursor position
-		groupPath := session.DefaultGroupPath
-		groupName := session.DefaultGroupName
+		groupPath := ""
+		groupName := ""
 		if h.cursor < len(h.flatItems) {
 			item := h.flatItems[h.cursor]
 			if item.Type == session.ItemTypeGroup {
@@ -4642,7 +4642,7 @@ func (h *Home) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 					}
 				}
 				h.confirmDialog.ShowDeleteSession(inst.ID, inst.Title)
-			} else if item.Type == session.ItemTypeGroup && item.Path != session.DefaultGroupPath {
+			} else if item.Type == session.ItemTypeGroup {
 				h.confirmDialog.ShowDeleteGroup(item.Path, item.Group.Name)
 			}
 		}
@@ -5690,9 +5690,7 @@ func (h *Home) quickCreateSession() tea.Cmd {
 			groupPath = item.Group.Path
 		}
 	}
-	if groupPath == "" {
-		groupPath = session.DefaultGroupPath
-	}
+	// groupPath may be empty if no project is selected; new session creation will handle it
 
 	projectPath := ""
 	tool := ""
@@ -10297,10 +10295,6 @@ func (h *Home) handleTodoDialogKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		projectPath := h.todoDialog.projectPath
 		groupPath := h.todoDialog.groupPath
 		groupName := h.todoDialog.groupName
-		if groupPath == "" {
-			groupPath = session.DefaultGroupPath
-			groupName = session.DefaultGroupName
-		}
 		branchName := TodoBranchName(todo.Title)
 		h.pendingTodoID = todo.ID
 		h.pendingTodoPrompt = todo.Prompt

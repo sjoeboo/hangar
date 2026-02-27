@@ -313,7 +313,7 @@ func extractGroupPath(projectPath string) string {
 			return part
 		}
 	}
-	return DefaultGroupName
+	return ""
 }
 
 // buildClaudeCommand builds the claude command with session capture
