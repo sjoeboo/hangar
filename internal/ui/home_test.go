@@ -2029,3 +2029,13 @@ func TestRenderSessionList_Smoke(t *testing.T) {
 		t.Error("renderSessionList returned empty string")
 	}
 }
+
+func TestRenderPreviewPane_Smoke(t *testing.T) {
+	h := NewHome()
+	h.width = 80
+	h.height = 40
+	result := h.renderPreviewPane(80, 40)
+	if result == "" {
+		t.Fatal("expected non-empty preview pane")
+	}
+}
