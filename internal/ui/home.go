@@ -4065,10 +4065,19 @@ func (h *Home) handleConfirmDialogKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			case ConfirmDeleteGroup:
 				groupPath := h.confirmDialog.GetTargetID()
 				h.confirmDialog.Hide()
+				// Capture group name before deletion (needed for projects.toml)
+				groupName := ""
+				if g, exists := h.groupTree.Groups[groupPath]; exists {
+					groupName = g.Name
+				}
 				if h.groupTree.DeleteGroup(groupPath) == nil {
 					// Deletion refused (group has sessions or doesn't exist)
 					h.setError(fmt.Errorf("cannot delete project: move or delete all sessions first"))
 					return h, nil
+				}
+				// Sync deletion to projects.toml
+				if groupName != "" {
+					_ = session.RemoveProject(groupName)
 				}
 				h.instancesMu.Lock()
 				h.instances = h.groupTree.GetAllInstances()
@@ -4211,8 +4220,11 @@ func (h *Home) handleGroupDialogKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				group := h.groupTree.CreateGroup(name)
 				// Register as a Project so the new-session dialog can
 				// pick it up and pre-populate the path.
-				if baseDir := h.groupDialog.GetPath(); baseDir != "" {
-					_ = session.AddProject(name, baseDir, "")
+				baseDir := h.groupDialog.GetPath()
+				if err := session.AddProject(name, baseDir, ""); err != nil {
+					h.setError(fmt.Errorf("failed to save project: %w", err))
+				}
+				if baseDir != "" {
 					// Also persist the path on the group tree so todos and
 					// the todo dialog work even before any session is created.
 					h.groupTree.SetDefaultPathForGroup(group.Path, baseDir)
@@ -4223,7 +4235,19 @@ func (h *Home) handleGroupDialogKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case GroupDialogRename:
 			name := h.groupDialog.GetValue()
 			if name != "" {
-				h.groupTree.RenameGroup(h.groupDialog.GetGroupPath(), name)
+				oldGroupPath := h.groupDialog.GetGroupPath()
+				// Capture old name before rename (needed to identify project in projects.toml)
+				oldName := ""
+				if g, exists := h.groupTree.Groups[oldGroupPath]; exists {
+					oldName = g.Name
+				}
+				h.groupTree.RenameGroup(oldGroupPath, name)
+				// Sync rename to projects.toml
+				if oldName != "" {
+					if err := session.RenameProject(oldName, name); err != nil {
+						h.setError(fmt.Errorf("failed to save project rename: %w", err))
+					}
+				}
 				h.instancesMu.Lock()
 				h.instances = h.groupTree.GetAllInstances()
 				h.instancesMu.Unlock()
