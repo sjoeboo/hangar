@@ -19,7 +19,7 @@ type NewDialog struct {
 	commandInput         textinput.Model
 	claudeOptions        *ClaudeOptionsPanel // Claude-specific options (concrete for value extraction)
 	toolOptions          OptionsPanel        // Currently active tool options panel (nil if none)
-	focusIndex           int                 // 0=project, 1=name, 2=path, 3=command, 4+=options (when project step enabled)
+	focusIndex           int                 // 0=name, 1=path, 2=command, 3+=options
 	width                int
 	height               int
 	visible              bool
@@ -37,11 +37,6 @@ type NewDialog struct {
 	// Inline validation error displayed inside the dialog
 	validationErr string
 	pathCycler    session.CompletionCycler // Path autocomplete state
-	// Project picker (step 0)
-	projectList     []string // project names + "Enter path manually" sentinel
-	projectCursor   int      // cursor in project list
-	projectSelected bool     // true once user has picked a project or manual entry
-	projectStep     bool     // true when project picker step is shown
 }
 
 // buildPresetCommands returns the list of commands for the picker,
@@ -102,7 +97,6 @@ func NewNewDialog() *NewDialog {
 		parentGroupName: "default",
 		worktreeEnabled: false,
 	}
-	dlg.refreshProjectList()
 	dlg.updateToolOptions()
 	return dlg
 }
@@ -118,19 +112,16 @@ func (d *NewDialog) ShowInGroup(groupPath, groupName, defaultPath string) {
 	d.visible = true
 	d.validationErr = ""
 	d.nameInput.SetValue("")
-	d.suggestionNavigated = false // reset on show
-	d.pathSuggestionCursor = 0    // reset cursor too
-	d.pathCycler.Reset()          // clear stale autocomplete matches from previous show
+	d.suggestionNavigated = false
+	d.pathSuggestionCursor = 0
+	d.pathCycler.Reset()
 	d.pathInput.Blur()
 	d.nameInput.Blur()
 	d.claudeOptions.Blur()
-	// Keep commandCursor at previously set default (don't reset to 0)
 	d.updateToolOptions()
-	// Reset worktree fields — default to disabled
 	d.worktreeEnabled = false
 	d.branchInput.SetValue("")
 	d.branchAutoSet = false
-	// Set path input to group's default path if provided, otherwise use current working directory
 	if defaultPath != "" {
 		d.pathInput.SetValue(defaultPath)
 	} else {
@@ -139,93 +130,23 @@ func (d *NewDialog) ShowInGroup(groupPath, groupName, defaultPath string) {
 			d.pathInput.SetValue(cwd)
 		}
 	}
-	// Initialize tool options from global config
 	if userConfig, err := session.LoadUserConfig(); err == nil && userConfig != nil {
 		d.claudeOptions.SetDefaults(userConfig)
 	}
-	// Refresh project list and show project picker if projects exist
-	d.refreshProjectList()
-	if len(d.projectList) > 1 { // more than just "Enter path manually"
-		// If defaultPath matches a known project, auto-select it and skip the picker
-		autoSelectedIdx := -1
-		if defaultPath != "" {
-			if projects, err := session.ListProjects(); err == nil {
-				for i, p := range projects {
-					if p.BaseDir == defaultPath {
-						autoSelectedIdx = i
-						break
-					}
-				}
-			}
-		}
-		if autoSelectedIdx >= 0 {
-			d.projectCursor = autoSelectedIdx
-			d.applySelectedProject()
-			d.projectStep = false
-			d.projectSelected = true
-			d.focusIndex = 0
-			d.nameInput.Focus()
-		} else {
-			d.projectStep = true
-			d.projectSelected = false
-			d.projectCursor = 0
-			d.focusIndex = 0
-		}
-	} else {
-		d.projectStep = false
-		d.projectSelected = true
-		d.focusIndex = 0
-		d.nameInput.Focus()
-	}
+	// Project is always determined by cursor context — no picker step needed.
+	d.focusIndex = 0
+	d.nameInput.Focus()
 }
 
 // ShowInGroupWithWorktree shows the dialog with worktree mode pre-enabled and a branch name pre-filled.
-// The project is locked to defaultPath — the project picker step is skipped entirely.
 // Used when creating a session from a todo item.
 func (d *NewDialog) ShowInGroupWithWorktree(groupPath, groupName, defaultPath, branchName string) {
 	d.ShowInGroup(groupPath, groupName, defaultPath)
-	// Skip project picker — project is determined by the todo's scope.
-	d.projectStep = false
-	d.projectSelected = true
 	d.nameInput.SetValue(branchName)
 	d.nameInput.Focus()
 	d.worktreeEnabled = true
 	d.branchInput.SetValue(branchName)
 	d.branchAutoSet = true
-}
-
-// refreshProjectList loads current projects and rebuilds d.projectList.
-// The last item is always "Enter path manually".
-func (d *NewDialog) refreshProjectList() {
-	projects, err := session.ListProjects()
-	if err != nil || len(projects) == 0 {
-		d.projectList = []string{"Enter path manually"}
-		return
-	}
-	names := make([]string, 0, len(projects)+1)
-	for _, p := range projects {
-		names = append(names, p.Name)
-	}
-	names = append(names, "Enter path manually")
-	d.projectList = names
-}
-
-// applySelectedProject applies the project at projectCursor to the dialog fields.
-// When "Enter path manually" is selected, no path pre-population occurs.
-func (d *NewDialog) applySelectedProject() {
-	if len(d.projectList) == 0 {
-		return
-	}
-	selected := d.projectList[d.projectCursor]
-	if selected == "Enter path manually" {
-		// No pre-population; user types path themselves
-		return
-	}
-	p, err := session.GetProject(selected)
-	if err != nil {
-		return
-	}
-	d.pathInput.SetValue(p.BaseDir)
 }
 
 // SetDefaultTool sets the pre-selected command based on tool name
@@ -328,13 +249,6 @@ func (d *NewDialog) autoBranchFromName() {
 	branch := "feature/" + name
 	d.branchInput.SetValue(branch)
 	d.branchAutoSet = true
-}
-
-// IsChoosingProject returns true when the project-picker step is active and the
-// user hasn't yet confirmed a project. In this state Enter should advance to the
-// name input rather than attempt session creation.
-func (d *NewDialog) IsChoosingProject() bool {
-	return d.projectStep && !d.projectSelected
 }
 
 // IsWorktreeEnabled returns whether worktree mode is enabled
@@ -441,11 +355,6 @@ func (d *NewDialog) updateFocus() {
 	d.branchInput.Blur()
 	d.claudeOptions.Blur()
 
-	// When in project-picker step, no text input is focused
-	if d.projectStep && !d.projectSelected {
-		return
-	}
-
 	switch d.focusIndex {
 	case 0:
 		d.nameInput.Focus()
@@ -482,34 +391,6 @@ func (d *NewDialog) getMaxFocusIndex() int {
 // Update handles key messages
 func (d *NewDialog) Update(msg tea.Msg) (*NewDialog, tea.Cmd) {
 	if !d.visible {
-		return d, nil
-	}
-
-	// Handle project picker step (before regular flow)
-	if d.projectStep && !d.projectSelected {
-		if keyMsg, ok := msg.(tea.KeyMsg); ok {
-			switch keyMsg.String() {
-			case "esc":
-				d.Hide()
-				return d, nil
-			case "up", "shift+tab":
-				d.projectCursor--
-				if d.projectCursor < 0 {
-					d.projectCursor = len(d.projectList) - 1
-				}
-				return d, nil
-			case "down", "tab":
-				d.projectCursor = (d.projectCursor + 1) % len(d.projectList)
-				return d, nil
-			case "enter", " ":
-				// Apply project selection and move to name input
-				d.applySelectedProject()
-				d.projectSelected = true
-				d.focusIndex = 0
-				d.nameInput.Focus()
-				return d, nil
-			}
-		}
 		return d, nil
 	}
 
@@ -763,43 +644,6 @@ func (d *NewDialog) View() string {
 	groupInfoStyle := lipgloss.NewStyle().Foreground(ColorPurple) // Purple for project context
 	content.WriteString(groupInfoStyle.Render("  in project: " + d.parentGroupName))
 	content.WriteString("\n\n")
-
-	// Project picker step
-	if d.projectStep && !d.projectSelected {
-		content.WriteString(activeLabelStyle.Render("▶ Project:"))
-		content.WriteString("\n")
-
-		selectedStyle := lipgloss.NewStyle().Foreground(ColorCyan).Bold(true)
-		normalStyle := lipgloss.NewStyle().Foreground(ColorText)
-		dimStyle := lipgloss.NewStyle().Foreground(ColorComment)
-
-		for i, name := range d.projectList {
-			var line string
-			if i == len(d.projectList)-1 {
-				// Last item is always "Enter path manually" - show dimmed
-				if i == d.projectCursor {
-					line = selectedStyle.Render("  ▶ " + name)
-				} else {
-					line = dimStyle.Render("    " + name)
-				}
-			} else {
-				if i == d.projectCursor {
-					line = selectedStyle.Render("  ▶ " + name)
-				} else {
-					line = normalStyle.Render("    " + name)
-				}
-			}
-			content.WriteString(line)
-			content.WriteString("\n")
-		}
-
-		content.WriteString("\n")
-		helpStyle := lipgloss.NewStyle().Foreground(ColorComment).MarginTop(1)
-		content.WriteString(helpStyle.Render("↑↓/Tab navigate │ Enter select │ Esc cancel"))
-
-		dialog := dialogStyle.Render(content.String())
-		return lipgloss.Place(d.width, d.height, lipgloss.Center, lipgloss.Center, dialog)
-	}
 
 	// Name input
 	if d.focusIndex == 0 {

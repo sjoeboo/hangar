@@ -242,9 +242,6 @@ func TestNewDialog_MalformedPathFix(t *testing.T) {
 func TestNewDialog_TabDoesNotOverwriteCustomPath(t *testing.T) {
 	d := NewNewDialog()
 	d.Show() // Dialog must be visible for Update to process keys
-	// Bypass project picker step so Tab navigates form fields
-	d.projectStep = false
-	d.projectSelected = true
 
 	// Set up suggestions (simulating previously used paths)
 	suggestions := []string{
@@ -282,9 +279,6 @@ func TestNewDialog_TabDoesNotOverwriteCustomPath(t *testing.T) {
 func TestNewDialog_TabAppliesSuggestionWhenNavigated(t *testing.T) {
 	d := NewNewDialog()
 	d.Show()
-	// Bypass project picker step so Tab navigates form fields
-	d.projectStep = false
-	d.projectSelected = true
 
 	suggestions := []string{
 		"/Users/test/project-1",
@@ -316,9 +310,6 @@ func TestNewDialog_TabAppliesSuggestionWhenNavigated(t *testing.T) {
 func TestNewDialog_TypingResetsSuggestionNavigation(t *testing.T) {
 	d := NewNewDialog()
 	d.Show()
-	// Bypass project picker step so Ctrl+N is handled by form field logic
-	d.projectStep = false
-	d.projectSelected = true
 
 	suggestions := []string{
 		"/Users/test/project-1",
@@ -536,9 +527,6 @@ func TestNewDialog_BranchInputInitialized(t *testing.T) {
 func TestNewDialog_WorktreeToggle_ViaKeyPress(t *testing.T) {
 	dialog := NewNewDialog()
 	dialog.Show()
-	// Bypass project picker step so 'w' is handled by form field logic
-	dialog.projectStep = false
-	dialog.projectSelected = true
 	dialog.focusIndex = 2 // Command field
 
 	// Press 'w' to toggle worktree
@@ -565,9 +553,6 @@ func TestNewDialog_WorktreeToggle_ViaKeyPress(t *testing.T) {
 func TestNewDialog_TabNavigationWithWorktree(t *testing.T) {
 	dialog := NewNewDialog()
 	dialog.Show()
-	// Bypass project picker step so Tab navigates form fields
-	dialog.projectStep = false
-	dialog.projectSelected = true
 	dialog.focusIndex = 0
 	dialog.worktreeEnabled = true
 	// Use shell (no toolOptions) so maxIdx == 3 and Tab wraps at branch field
@@ -599,9 +584,6 @@ func TestNewDialog_TabNavigationWithWorktree(t *testing.T) {
 func TestNewDialog_TabNavigationWithoutWorktree(t *testing.T) {
 	dialog := NewNewDialog()
 	dialog.Show()
-	// Bypass project picker step so Tab navigates form fields
-	dialog.projectStep = false
-	dialog.projectSelected = true
 	dialog.focusIndex = 0
 	dialog.worktreeEnabled = false
 	// Use shell (no toolOptions) so maxIdx == 2 and Tab wraps at command field
@@ -629,9 +611,6 @@ func TestNewDialog_View_ShowsWorktreeCheckbox(t *testing.T) {
 	dialog := NewNewDialog()
 	dialog.SetSize(80, 40)
 	dialog.Show()
-	// Bypass project picker step so View renders the main form
-	dialog.projectStep = false
-	dialog.projectSelected = true
 	dialog.focusIndex = 2 // Command field
 
 	view := dialog.View()
@@ -651,9 +630,6 @@ func TestNewDialog_View_ShowsBranchInputWhenEnabled(t *testing.T) {
 	dialog := NewNewDialog()
 	dialog.SetSize(80, 40)
 	dialog.Show()
-	// Bypass project picker step so View renders the main form
-	dialog.projectStep = false
-	dialog.projectSelected = true
 	dialog.worktreeEnabled = true
 
 	view := dialog.View()
@@ -673,9 +649,6 @@ func TestNewDialog_View_HidesBranchInputWhenDisabled(t *testing.T) {
 	dialog := NewNewDialog()
 	dialog.SetSize(80, 40)
 	dialog.Show()
-	// Bypass project picker step so View renders the main form
-	dialog.projectStep = false
-	dialog.projectSelected = true
 	dialog.worktreeEnabled = false
 
 	view := dialog.View()
@@ -736,9 +709,6 @@ func TestNewDialog_SetError_ShowsInView(t *testing.T) {
 	d := NewNewDialog()
 	d.SetSize(80, 40)
 	d.Show()
-	// Bypass project picker step so View renders the main form
-	d.projectStep = false
-	d.projectSelected = true
 
 	d.SetError("Something went wrong")
 	view := d.View()

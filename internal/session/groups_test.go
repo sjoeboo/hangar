@@ -1494,3 +1494,245 @@ func TestBranchOrderingByOrder(t *testing.T) {
 			zebraIdx, alphaIdx)
 	}
 }
+
+// --- NewGroupTreeFromProjects tests ---
+
+func TestNewGroupTreeFromProjects_EmptyProjects(t *testing.T) {
+	tree := NewGroupTreeFromProjects([]*Instance{}, nil, nil)
+
+	if tree.GroupCount() != 0 {
+		t.Errorf("Expected 0 groups for nil projects, got %d", tree.GroupCount())
+	}
+	if len(tree.GroupList) != 0 {
+		t.Errorf("Expected empty GroupList, got %d items", len(tree.GroupList))
+	}
+}
+
+func TestNewGroupTreeFromProjects_ShowsEmptyProjects(t *testing.T) {
+	projects := []*Project{
+		{Name: "Alpha", BaseDir: "/home/user/alpha", Order: 0},
+		{Name: "Beta", BaseDir: "/home/user/beta", Order: 1},
+	}
+
+	tree := NewGroupTreeFromProjects([]*Instance{}, projects, nil)
+
+	if tree.GroupCount() != 2 {
+		t.Errorf("Expected 2 groups, got %d", tree.GroupCount())
+	}
+
+	// Verify Alpha group
+	alphaSlug := projectSlug("Alpha") // "alpha"
+	alphaGroup := tree.Groups[alphaSlug]
+	if alphaGroup == nil {
+		t.Fatalf("Expected group with path %q, not found", alphaSlug)
+	}
+	if alphaGroup.Name != "Alpha" {
+		t.Errorf("Expected group name 'Alpha', got %q", alphaGroup.Name)
+	}
+	if alphaGroup.DefaultPath != "/home/user/alpha" {
+		t.Errorf("Expected DefaultPath '/home/user/alpha', got %q", alphaGroup.DefaultPath)
+	}
+
+	// Verify Beta group
+	betaSlug := projectSlug("Beta") // "beta"
+	betaGroup := tree.Groups[betaSlug]
+	if betaGroup == nil {
+		t.Fatalf("Expected group with path %q, not found", betaSlug)
+	}
+	if betaGroup.Name != "Beta" {
+		t.Errorf("Expected group name 'Beta', got %q", betaGroup.Name)
+	}
+
+	// First group in GroupList should be Alpha (Order=0)
+	if len(tree.GroupList) < 1 {
+		t.Fatal("GroupList is empty")
+	}
+	if tree.GroupList[0].Name != "Alpha" {
+		t.Errorf("Expected GroupList[0] to be 'Alpha', got %q", tree.GroupList[0].Name)
+	}
+}
+
+func TestNewGroupTreeFromProjects_AssignsSessions(t *testing.T) {
+	projects := []*Project{
+		{Name: "MyApp", BaseDir: "/home/user/myapp", Order: 0},
+	}
+	instances := []*Instance{
+		{ID: "1", Title: "session-1", GroupPath: "myapp", Order: 0},
+		{ID: "2", Title: "session-2", GroupPath: "myapp", Order: 1},
+	}
+
+	tree := NewGroupTreeFromProjects(instances, projects, nil)
+
+	if tree.GroupCount() != 1 {
+		t.Errorf("Expected 1 group, got %d", tree.GroupCount())
+	}
+	if tree.SessionCount() != 2 {
+		t.Errorf("Expected 2 sessions, got %d", tree.SessionCount())
+	}
+
+	group := tree.Groups["myapp"]
+	if group == nil {
+		t.Fatal("Expected group 'myapp', not found")
+	}
+	if len(group.Sessions) != 2 {
+		t.Errorf("Expected 2 sessions in 'myapp', got %d", len(group.Sessions))
+	}
+}
+
+func TestNewGroupTreeFromProjects_OrphansIgnored(t *testing.T) {
+	projects := []*Project{
+		{Name: "MyApp", BaseDir: "/home/user/myapp", Order: 0},
+	}
+	instances := []*Instance{
+		{ID: "1", Title: "orphan", GroupPath: "other-group", Order: 0},
+	}
+
+	tree := NewGroupTreeFromProjects(instances, projects, nil)
+
+	// Still 1 group (the project), but 0 sessions (orphan is silently skipped)
+	if tree.GroupCount() != 1 {
+		t.Errorf("Expected 1 group, got %d", tree.GroupCount())
+	}
+	if tree.SessionCount() != 0 {
+		t.Errorf("Expected 0 sessions (orphan skipped), got %d", tree.SessionCount())
+	}
+
+	group := tree.Groups["myapp"]
+	if group == nil {
+		t.Fatal("Expected group 'myapp', not found")
+	}
+	if len(group.Sessions) != 0 {
+		t.Errorf("Expected 0 sessions in 'myapp', got %d", len(group.Sessions))
+	}
+}
+
+func TestNewGroupTreeFromProjects_RestoresExpandedState(t *testing.T) {
+	projects := []*Project{
+		{Name: "Alpha", BaseDir: "/home/user/alpha", Order: 0},
+		{Name: "Beta", BaseDir: "/home/user/beta", Order: 1},
+	}
+	storedGroups := []*GroupData{
+		{Name: "Alpha", Path: "alpha", Expanded: false, Order: 0},
+	}
+
+	tree := NewGroupTreeFromProjects([]*Instance{}, projects, storedGroups)
+
+	alphaGroup := tree.Groups["alpha"]
+	if alphaGroup == nil {
+		t.Fatal("Expected group 'alpha', not found")
+	}
+	if alphaGroup.Expanded != false {
+		t.Errorf("Expected 'alpha' Expanded=false (from storedGroups), got true")
+	}
+
+	betaGroup := tree.Groups["beta"]
+	if betaGroup == nil {
+		t.Fatal("Expected group 'beta', not found")
+	}
+	// Beta has no stored state, so should default to true
+	if betaGroup.Expanded != true {
+		t.Errorf("Expected 'beta' Expanded=true (default), got false")
+	}
+}
+
+func TestNewGroupTreeFromProjects_OrderFromProjects(t *testing.T) {
+	// Zebra has lower Order value so should appear first, even though alphabetically last
+	projects := []*Project{
+		{Name: "Zebra", BaseDir: "/home/user/zebra", Order: 0},
+		{Name: "Apple", BaseDir: "/home/user/apple", Order: 1},
+	}
+
+	tree := NewGroupTreeFromProjects([]*Instance{}, projects, nil)
+
+	if len(tree.GroupList) < 2 {
+		t.Fatalf("Expected 2 groups in GroupList, got %d", len(tree.GroupList))
+	}
+	if tree.GroupList[0].Name != "Zebra" {
+		t.Errorf("Expected GroupList[0].Name='Zebra' (Order=0), got %q", tree.GroupList[0].Name)
+	}
+	if tree.GroupList[1].Name != "Apple" {
+		t.Errorf("Expected GroupList[1].Name='Apple' (Order=1), got %q", tree.GroupList[1].Name)
+	}
+}
+
+func TestNewGroupTreeFromProjects_DuplicateSlugSkipped(t *testing.T) {
+	// "My App" and "my-app" both produce slug "my-app"
+	projects := []*Project{
+		{Name: "My App", BaseDir: "/tmp/first", Order: 0},
+		{Name: "my-app", BaseDir: "/tmp/second", Order: 1},
+	}
+	tree := NewGroupTreeFromProjects(nil, projects, nil)
+	// Should have exactly 1 group (second is skipped due to slug collision)
+	if len(tree.GroupList) != 1 {
+		t.Errorf("expected 1 group after slug collision, got %d", len(tree.GroupList))
+	}
+	// First project wins — check DefaultPath since Group stores the BaseDir there
+	if tree.GroupList[0].DefaultPath != "/tmp/first" {
+		t.Errorf("expected first project to win slug collision, got DefaultPath=%q", tree.GroupList[0].DefaultPath)
+	}
+}
+
+// TestFlatten_EmptyGroupsIncluded verifies that Flatten() emits a group header
+// row for every group in the tree, even groups that have zero sessions.
+// Expected flat list:
+//   - header for "Empty Project" (0 sessions)
+//   - header for "Active Project" (1 session)
+//   - session row for sess-1
+//
+// Total: 3 items.
+func TestFlatten_EmptyGroupsIncluded(t *testing.T) {
+	projects := []*Project{
+		{Name: "Empty Project", BaseDir: "/tmp/empty", Order: 0},
+		{Name: "Active Project", BaseDir: "/tmp/active", Order: 1},
+	}
+
+	// Only one session, belonging to "Active Project" (slug: "active-project")
+	instances := []*Instance{
+		{ID: "sess-1", Title: "my-session", GroupPath: "active-project"},
+	}
+
+	tree := NewGroupTreeFromProjects(instances, projects, nil)
+
+	items := tree.Flatten()
+
+	// We expect: 1 header (empty-project) + 1 header (active-project) + 1 session = 3
+	if len(items) != 3 {
+		t.Fatalf("Expected 3 items from Flatten(), got %d", len(items))
+	}
+
+	// First item must be the group header for "Empty Project"
+	if items[0].Type != ItemTypeGroup {
+		t.Errorf("items[0]: expected ItemTypeGroup, got %v", items[0].Type)
+	}
+	if items[0].Group == nil || items[0].Group.Name != "Empty Project" {
+		name := ""
+		if items[0].Group != nil {
+			name = items[0].Group.Name
+		}
+		t.Errorf("items[0]: expected group name 'Empty Project', got %q", name)
+	}
+
+	// Second item must be the group header for "Active Project"
+	if items[1].Type != ItemTypeGroup {
+		t.Errorf("items[1]: expected ItemTypeGroup, got %v", items[1].Type)
+	}
+	if items[1].Group == nil || items[1].Group.Name != "Active Project" {
+		name := ""
+		if items[1].Group != nil {
+			name = items[1].Group.Name
+		}
+		t.Errorf("items[1]: expected group name 'Active Project', got %q", name)
+	}
+
+	// Third item must be the session row
+	if items[2].Type != ItemTypeSession {
+		t.Errorf("items[2]: expected ItemTypeSession, got %v", items[2].Type)
+	}
+	if items[2].Session == nil || items[2].Session.ID != "sess-1" {
+		id := ""
+		if items[2].Session != nil {
+			id = items[2].Session.ID
+		}
+		t.Errorf("items[2]: expected session ID 'sess-1', got %q", id)
+	}
+}

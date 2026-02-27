@@ -361,6 +361,7 @@ func (h *Home) prViewSessions() []*session.Instance {
 type loadSessionsMsg struct {
 	instances    []*session.Instance
 	groups       []*session.GroupData
+	projects     []*session.Project // loaded from projects.toml
 	err          error
 	restoreState *reloadState // Optional state to restore after reload
 	loadMtime    time.Time    // File mtime at load time (for external change detection)
@@ -1325,8 +1326,11 @@ func (h *Home) loadSessions() tea.Msg {
 	loadMtime, _ := h.storage.GetFileMtime()
 
 	instances, groups, err := h.storage.LoadWithGroups()
-	msg := loadSessionsMsg{instances: instances, groups: groups, err: err, loadMtime: loadMtime}
 
+	// Load projects for sidebar — errors are non-fatal (empty projects.toml → fallback to DB groups)
+	projects, _ := session.ListProjects()
+
+	msg := loadSessionsMsg{instances: instances, groups: groups, projects: projects, err: err, loadMtime: loadMtime}
 
 	return msg
 }
@@ -2744,14 +2748,6 @@ func (h *Home) getCurrentGroupPath() string {
 func (h *Home) handleNewDialogKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "enter":
-		// When in the project-picker step, delegate Enter to the dialog so it
-		// advances to the name input instead of trying to validate/create a session.
-		if h.newDialog.IsChoosingProject() {
-			var cmd tea.Cmd
-			h.newDialog, cmd = h.newDialog.Update(msg)
-			return h, cmd
-		}
-
 		// Validate before creating session
 		if validationErr := h.newDialog.Validate(); validationErr != "" {
 			h.newDialog.SetError(validationErr)
@@ -3807,9 +3803,11 @@ func (h *Home) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 		cmds := []tea.Cmd{func() tea.Msg {
 			instances, groups, err := h.storage.LoadWithGroups()
+			projects, _ := session.ListProjects()
 			return loadSessionsMsg{
 				instances:    instances,
 				groups:       groups,
+				projects:     projects,
 				err:          err,
 				restoreState: &state,
 			}
@@ -4059,10 +4057,19 @@ func (h *Home) handleConfirmDialogKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			case ConfirmDeleteGroup:
 				groupPath := h.confirmDialog.GetTargetID()
 				h.confirmDialog.Hide()
+				// Capture group name before deletion (needed for projects.toml)
+				groupName := ""
+				if g, exists := h.groupTree.Groups[groupPath]; exists {
+					groupName = g.Name
+				}
 				if h.groupTree.DeleteGroup(groupPath) == nil {
 					// Deletion refused (group has sessions or doesn't exist)
 					h.setError(fmt.Errorf("cannot delete project: move or delete all sessions first"))
 					return h, nil
+				}
+				// Sync deletion to projects.toml
+				if groupName != "" {
+					_ = session.RemoveProject(groupName)
 				}
 				h.instancesMu.Lock()
 				h.instances = h.groupTree.GetAllInstances()
@@ -4205,8 +4212,11 @@ func (h *Home) handleGroupDialogKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				group := h.groupTree.CreateGroup(name)
 				// Register as a Project so the new-session dialog can
 				// pick it up and pre-populate the path.
-				if baseDir := h.groupDialog.GetPath(); baseDir != "" {
-					_ = session.AddProject(name, baseDir, "")
+				baseDir := h.groupDialog.GetPath()
+				if err := session.AddProject(name, baseDir, ""); err != nil {
+					h.setError(fmt.Errorf("failed to save project: %w", err))
+				}
+				if baseDir != "" {
 					// Also persist the path on the group tree so todos and
 					// the todo dialog work even before any session is created.
 					h.groupTree.SetDefaultPathForGroup(group.Path, baseDir)
@@ -4217,7 +4227,19 @@ func (h *Home) handleGroupDialogKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case GroupDialogRename:
 			name := h.groupDialog.GetValue()
 			if name != "" {
-				h.groupTree.RenameGroup(h.groupDialog.GetGroupPath(), name)
+				oldGroupPath := h.groupDialog.GetGroupPath()
+				// Capture old name before rename (needed to identify project in projects.toml)
+				oldName := ""
+				if g, exists := h.groupTree.Groups[oldGroupPath]; exists {
+					oldName = g.Name
+				}
+				h.groupTree.RenameGroup(oldGroupPath, name)
+				// Sync rename to projects.toml
+				if oldName != "" {
+					if err := session.RenameProject(oldName, name); err != nil {
+						h.setError(fmt.Errorf("failed to save project rename: %w", err))
+					}
+				}
 				h.instancesMu.Lock()
 				h.instances = h.groupTree.GetAllInstances()
 				h.instancesMu.Unlock()
@@ -5094,7 +5116,9 @@ func (h *Home) importSessions() tea.Msg {
 	// Save both instances AND groups (critical fix: was losing groups!)
 	h.saveInstances()
 	state := h.preserveState()
-	return loadSessionsMsg{instances: instancesCopy, restoreState: &state}
+	_, groups, _ := h.storage.LoadWithGroups()
+	projects, _ := session.ListProjects()
+	return loadSessionsMsg{instances: instancesCopy, groups: groups, projects: projects, restoreState: &state}
 }
 
 // countSessionStatuses counts sessions by status for the logo display

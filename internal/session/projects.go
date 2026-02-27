@@ -164,6 +164,42 @@ func RemoveProject(name string) error {
 	return SaveProjects(filtered)
 }
 
+// RenameProject renames a project from oldName to newName, preserving all
+// other fields (BaseDir, BaseBranch, Order). Matching is case-insensitive.
+// Returns an error if the project is not found.
+func RenameProject(oldName, newName string) error {
+	if strings.TrimSpace(newName) == "" {
+		return fmt.Errorf("project name must not be empty")
+	}
+
+	projects, err := LoadProjects()
+	if err != nil {
+		return err
+	}
+
+	// Guard against colliding with a different existing project (allow case-only renames)
+	for _, p := range projects {
+		if strings.EqualFold(p.Name, newName) && !strings.EqualFold(p.Name, oldName) {
+			return fmt.Errorf("project %q already exists", newName)
+		}
+	}
+
+	found := false
+	for _, p := range projects {
+		if strings.EqualFold(p.Name, oldName) {
+			p.Name = newName
+			found = true
+			break
+		}
+	}
+
+	if !found {
+		return fmt.Errorf("project %q not found", oldName)
+	}
+
+	return SaveProjects(projects)
+}
+
 // ListProjects returns projects sorted by Order then Name.
 func ListProjects() ([]*Project, error) {
 	projects, err := LoadProjects()

@@ -1,6 +1,7 @@
 package session
 
 import (
+	"log/slog"
 	"os"
 	"path/filepath"
 	"sort"
@@ -164,6 +165,90 @@ func NewGroupTreeWithGroups(instances []*Instance, storedGroups []*GroupData) *G
 }
 
 // Note: GroupData is defined in storage.go in the same package
+
+// projectSlug converts a project name to a group path slug using the same
+// logic as CreateGroup, so that existing sessions whose GroupPath was set via
+// CreateGroup will match their project's slug.
+func projectSlug(name string) string {
+	sanitized := sanitizeGroupName(name)
+	return strings.ToLower(strings.ReplaceAll(sanitized, " ", "-"))
+}
+
+// NewGroupTreeFromProjects builds a GroupTree using projects as the authoritative
+// list of top-level groups. Sessions are assigned to groups by matching their
+// GroupPath against each project's slug. Sessions whose GroupPath matches no
+// project are silently ignored (orphans). Stored group data is used only to
+// restore the Expanded state; all structural data comes from projects.
+func NewGroupTreeFromProjects(instances []*Instance, projects []*Project, storedGroups []*GroupData) *GroupTree {
+	tree := &GroupTree{
+		Groups:   make(map[string]*Group),
+		Expanded: make(map[string]bool),
+	}
+
+	if len(projects) == 0 {
+		return tree
+	}
+
+	// Build a lookup from path -> stored expanded state
+	storedExpanded := make(map[string]bool)
+	storedHas := make(map[string]bool)
+	for _, gd := range storedGroups {
+		storedExpanded[gd.Path] = gd.Expanded
+		storedHas[gd.Path] = true
+	}
+
+	// Create one Group per project
+	for _, p := range projects {
+		slug := projectSlug(p.Name)
+		if _, exists := tree.Groups[slug]; exists {
+			slog.Warn("project slug collision, skipping duplicate", "slug", slug, "project", p.Name)
+			continue
+		}
+		expanded := true // default
+		if storedHas[slug] {
+			expanded = storedExpanded[slug]
+		}
+		group := &Group{
+			Name:        p.Name,
+			Path:        slug,
+			Expanded:    expanded,
+			Sessions:    []*Instance{},
+			Order:       p.Order,
+			DefaultPath: p.BaseDir,
+		}
+		tree.Groups[slug] = group
+		tree.Expanded[slug] = expanded
+	}
+
+	// Assign instances to their matching group; orphans are silently skipped
+	for _, inst := range instances {
+		if inst.GroupPath == "" {
+			continue
+		}
+		group, exists := tree.Groups[inst.GroupPath]
+		if !exists {
+			// Orphan: no matching project slug
+			continue
+		}
+		group.Sessions = append(group.Sessions, inst)
+	}
+
+	// Sort sessions within each group by Order (ascending, stable)
+	for _, group := range tree.Groups {
+		sort.SliceStable(group.Sessions, func(i, j int) bool {
+			return group.Sessions[i].Order < group.Sessions[j].Order
+		})
+	}
+
+	tree.rebuildGroupList()
+
+	// Update default paths for all groups (normalises ~ and relative paths in BaseDir)
+	for groupPath := range tree.Groups {
+		tree.updateGroupDefaultPath(groupPath)
+	}
+
+	return tree
+}
 
 // rebuildGroupList rebuilds the ordered group list
 func (t *GroupTree) rebuildGroupList() {
