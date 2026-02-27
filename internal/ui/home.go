@@ -9577,12 +9577,18 @@ func (h *Home) renderGroupPreview(group *session.Group, width, height int) strin
 		b.WriteString("\n")
 	}
 
-	// Todos section
+	// Todos section — always shown when project has a path
 	if projectPath := h.getDefaultPathForGroup(group.Path); projectPath != "" {
-		if todos, err := h.storage.LoadTodos(projectPath); err == nil && len(todos) > 0 {
-			b.WriteString(renderSectionDivider(fmt.Sprintf("Todos (%d)", len(todos)), width-4))
+		todos, err := h.storage.LoadTodos(projectPath)
+		if err != nil {
+			uiLog.Debug("renderGroupPreview: load todos", slog.String("path", projectPath), slog.String("err", err.Error()))
+		}
+		b.WriteString(renderSectionDivider(fmt.Sprintf("Todos (%d)", len(todos)), width-4))
+		b.WriteString("\n")
+		if len(todos) == 0 {
+			b.WriteString(DimStyle.Render("  No todos — press t to add"))
 			b.WriteString("\n")
-
+		} else {
 			maxTodos := 6
 			for i, t := range todos {
 				if i >= maxTodos {
@@ -9599,8 +9605,8 @@ func (h *Home) renderGroupPreview(group *session.Group, width, height int) strin
 				}
 				b.WriteString(fmt.Sprintf("  %s %s\n", icon, lipgloss.NewStyle().Foreground(ColorText).Render(title)))
 			}
-			b.WriteString("\n")
 		}
+		b.WriteString("\n")
 	}
 
 	// Sessions divider
@@ -9610,7 +9616,7 @@ func (h *Home) renderGroupPreview(group *session.Group, width, height int) strin
 	// Session list (compact)
 	if len(group.Sessions) == 0 {
 		emptyStyle := lipgloss.NewStyle().Foreground(ColorText).Italic(true)
-		b.WriteString(emptyStyle.Render("  No sessions in this group"))
+		b.WriteString(emptyStyle.Render("  No sessions in this project"))
 		b.WriteString("\n")
 	} else {
 		maxShow := height - 12
@@ -9646,7 +9652,7 @@ func (h *Home) renderGroupPreview(group *session.Group, width, height int) strin
 	// Keyboard hints at bottom
 	b.WriteString("\n")
 	hintStyle := lipgloss.NewStyle().Foreground(ColorComment).Italic(true)
-	b.WriteString(hintStyle.Render("Tab toggle • R rename • d delete • p project"))
+	b.WriteString(hintStyle.Render("t todos • n new session • R rename • d delete"))
 
 	// CRITICAL: Enforce width constraint on ALL lines to prevent overflow into left panel
 	maxWidth := width - 2
