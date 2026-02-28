@@ -22,8 +22,8 @@ type NotificationEntry struct {
 type NotificationManager struct {
 	entries      []*NotificationEntry // Ordered: newest first
 	maxShown     int
-	showAll      bool // Show all sessions vs only waiting
-	minimal      bool // Show compact icon+count summary only (no names, no key bindings)
+	showAll      bool           // Show all sessions vs only waiting
+	minimal      bool           // Show compact icon+count summary only (no names, no key bindings)
 	statusCounts map[Status]int // Per-status counts across all sessions (for minimal mode)
 	mu           sync.RWMutex
 }
@@ -192,13 +192,13 @@ func (nm *NotificationManager) FormatBar() string {
 // oasis_lagoon_dark status bar palette (mirrors constants in internal/tmux/tmux.go).
 // Duplicated here to avoid a cross-package import cycle.
 const (
-	notifBg      = "#22385c" // oasisSurface — notification pill background
-	notifAccent  = "#58b8fd" // oasisPrimary — ⚡ prefix and default icon color
-	notifMantle  = "#1a283f" // oasisMantle — transition color
-	notifGreen   = "#53d390" // running
-	notifYellow  = "#f0e68c" // waiting
-	notifDim     = "#8fb0d0" // idle
-	notifRed     = "#ff7979" // error
+	notifBg     = "#22385c" // oasisSurface — notification pill background
+	notifAccent = "#58b8fd" // oasisPrimary — ⚡ prefix and default icon color
+	notifMantle = "#1a283f" // oasisMantle — transition color
+	notifGreen  = "#53d390" // running
+	notifYellow = "#f0e68c" // waiting
+	notifDim    = "#8fb0d0" // idle
+	notifRed    = "#ff7979" // error
 )
 
 // statusColor returns the tmux fg color escape for a given status, using the oasis_lagoon_dark palette.

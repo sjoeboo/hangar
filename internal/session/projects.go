@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
-	"sync"
 
 	"github.com/BurntSushi/toml"
 )
@@ -24,14 +23,6 @@ type Project struct {
 type projectsFile struct {
 	Project []Project `toml:"project"`
 }
-
-// ProjectsManager manages the projects list.
-type ProjectsManager struct {
-	mu       sync.RWMutex
-	projects []*Project
-}
-
-var globalProjectsManager = &ProjectsManager{}
 
 // GetProjectsFilePath returns ~/.hangar/projects.toml
 func GetProjectsFilePath() (string, error) {

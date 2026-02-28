@@ -4,9 +4,9 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/sjoeboo/hangar/internal/session"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/sjoeboo/hangar/internal/session"
 )
 
 // SettingType identifies which setting is being edited

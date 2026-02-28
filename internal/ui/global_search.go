@@ -6,10 +6,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/sjoeboo/hangar/internal/session"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/sjoeboo/hangar/internal/session"
 )
 
 var (
@@ -38,16 +38,16 @@ var (
 
 // GlobalSearchResult wraps a search result for UI display
 type GlobalSearchResult struct {
-	SessionID   string
-	Summary     string
-	Snippet     string
-	Content     string // Full conversation content for preview
-	CWD         string
-	ModTime     time.Time // Last modified time
-	Score       int       // Fuzzy match score (higher = better match)
-	MatchCount  int       // Number of query matches in content
-	InHangar bool      // True if this session is already in Hangar
-	InstanceID  string    // Hangar instance ID if exists
+	SessionID  string
+	Summary    string
+	Snippet    string
+	Content    string // Full conversation content for preview
+	CWD        string
+	ModTime    time.Time // Last modified time
+	Score      int       // Fuzzy match score (higher = better match)
+	MatchCount int       // Number of query matches in content
+	InHangar   bool      // True if this session is already in Hangar
+	InstanceID string    // Hangar instance ID if exists
 }
 
 // globalSearchResultsMsg delivers async search results back to the UI

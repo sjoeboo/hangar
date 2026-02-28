@@ -7,10 +7,10 @@ import (
 
 // TTLs for each cache type, matching the original per-cache constants.
 const (
-	previewCacheTTL      = 2 * time.Second
-	worktreeDirtyCacheTTL = 10 * time.Second
+	previewCacheTTL        = 2 * time.Second
+	worktreeDirtyCacheTTL  = 10 * time.Second
 	worktreeRemoteCacheTTL = 5 * time.Minute
-	prCacheTTL            = 60 * time.Second
+	prCacheTTL             = 60 * time.Second
 )
 
 // cacheEntry holds a cached value with its TTL metadata.

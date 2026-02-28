@@ -43,12 +43,12 @@ func NewGroupDialog() *GroupDialog {
 	ni := textinput.New()
 	ni.Placeholder = "Project name"
 	ni.CharLimit = 50
-	ni.Width = 30
+	ni.Width = 44
 
 	pi := textinput.New()
 	pi.Placeholder = "~/path/to/repo"
 	pi.CharLimit = 256
-	pi.Width = 30
+	pi.Width = 44
 
 	return &GroupDialog{
 		nameInput:  ni,
@@ -202,10 +202,26 @@ func (g *GroupDialog) GetSelectedGroup() string {
 	return ""
 }
 
-// SetSize sets the dialog size
+// SetSize sets the dialog size and updates textinput widths to fill the dialog.
 func (g *GroupDialog) SetSize(width, height int) {
 	g.width = width
 	g.height = height
+
+	dialogWidth := 52
+	if width > 0 && width < dialogWidth+10 {
+		dialogWidth = width - 10
+		if dialogWidth < 32 {
+			dialogWidth = 32
+		}
+	}
+	// textinput Width is the field area; the "> " prompt adds 2 chars.
+	// Subtract 2 for the prompt and 2 for a right margin inside the padded dialog.
+	inputWidth := dialogWidth - 4
+	if inputWidth < 20 {
+		inputWidth = 20
+	}
+	g.nameInput.Width = inputWidth
+	g.pathInput.Width = inputWidth
 }
 
 // Update handles input
@@ -253,100 +269,123 @@ func (g *GroupDialog) View() string {
 		return ""
 	}
 
-	var title string
-	var content string
+	// Responsive dialog width (must match SetSize logic)
+	dialogWidth := 52
+	if g.width > 0 && g.width < dialogWidth+10 {
+		dialogWidth = g.width - 10
+		if dialogWidth < 32 {
+			dialogWidth = 32
+		}
+	}
+
+	dialogStyle := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(ColorPurple).
+		Background(ColorSurface).
+		Padding(1, 2).
+		Width(dialogWidth)
+
+	titleStyle := lipgloss.NewStyle().
+		Bold(true).
+		Foreground(ColorPurple).
+		Width(dialogWidth).
+		Align(lipgloss.Center)
 
 	activeLabelStyle := lipgloss.NewStyle().Foreground(ColorCyan).Bold(true)
 	labelStyle := lipgloss.NewStyle().Foreground(ColorText)
+	hintStyle := lipgloss.NewStyle().Foreground(ColorComment)
+	errStyle := lipgloss.NewStyle().Foreground(ColorRed).Bold(true)
+
+	var b strings.Builder
 
 	switch g.mode {
 	case GroupDialogCreate:
-		title = "Create New Project"
-		var b strings.Builder
+		b.WriteString(titleStyle.Render("Create New Project"))
+		b.WriteString("\n\n")
+
 		if g.focusIndex == 0 {
 			b.WriteString(activeLabelStyle.Render("▶ Name:"))
 		} else {
 			b.WriteString(labelStyle.Render("  Name:"))
 		}
-		b.WriteString("\n  ")
+		b.WriteString("\n")
 		b.WriteString(g.nameInput.View())
 		b.WriteString("\n\n")
+
 		if g.focusIndex == 1 {
 			b.WriteString(activeLabelStyle.Render("▶ Path:"))
 		} else {
 			b.WriteString(labelStyle.Render("  Path:"))
 		}
-		b.WriteString("\n  ")
+		b.WriteString("\n")
 		b.WriteString(g.pathInput.View())
-		content = b.String()
+
+		if g.validationErr != "" {
+			b.WriteString("\n\n")
+			b.WriteString(errStyle.Render("⚠ " + g.validationErr))
+		}
+
+		b.WriteString("\n\n")
+		b.WriteString(hintStyle.Render("Tab  next field  │  Enter  confirm  │  Esc  cancel"))
 
 	case GroupDialogRename:
-		title = "Rename Project"
-		content = g.nameInput.View()
+		b.WriteString(titleStyle.Render("Rename Project"))
+		b.WriteString("\n\n")
+		b.WriteString(activeLabelStyle.Render("▶ Name:"))
+		b.WriteString("\n")
+		b.WriteString(g.nameInput.View())
+
+		if g.validationErr != "" {
+			b.WriteString("\n\n")
+			b.WriteString(errStyle.Render("⚠ " + g.validationErr))
+		}
+
+		b.WriteString("\n\n")
+		b.WriteString(hintStyle.Render("Enter  confirm  │  Esc  cancel"))
 
 	case GroupDialogMove:
-		title = "Move to Project"
-		var items []string
+		b.WriteString(titleStyle.Render("Move to Project"))
+		b.WriteString("\n\n")
+
 		for i, name := range g.groupNames {
+			if i > 0 {
+				b.WriteString("\n")
+			}
 			if i == g.selected {
-				items = append(items, lipgloss.NewStyle().
+				b.WriteString(lipgloss.NewStyle().
 					Foreground(ColorBg).
 					Background(ColorAccent).
 					Bold(true).
 					Padding(0, 1).
 					Render(name))
 			} else {
-				items = append(items, lipgloss.NewStyle().
+				b.WriteString(lipgloss.NewStyle().
 					Foreground(ColorText).
 					Padding(0, 1).
 					Render(name))
 			}
 		}
-		content = strings.Join(items, "\n")
+
+		b.WriteString("\n\n")
+		b.WriteString(hintStyle.Render("↑/↓  navigate  │  Enter  confirm  │  Esc  cancel"))
 
 	case GroupDialogRenameSession:
-		title = "Rename Session"
-		content = g.nameInput.View()
-	}
+		b.WriteString(titleStyle.Render("Rename Session"))
+		b.WriteString("\n\n")
+		b.WriteString(activeLabelStyle.Render("▶ Name:"))
+		b.WriteString("\n")
+		b.WriteString(g.nameInput.View())
 
-	// Responsive dialog width
-	dialogWidth := 50
-	if g.width > 0 && g.width < dialogWidth+10 {
-		dialogWidth = g.width - 10
-		if dialogWidth < 30 {
-			dialogWidth = 30
+		if g.validationErr != "" {
+			b.WriteString("\n\n")
+			b.WriteString(errStyle.Render("⚠ " + g.validationErr))
 		}
-	}
-	titleWidth := dialogWidth - 4
 
-	titleStyle := DialogTitleStyle.Width(titleWidth)
-	hintStyle := lipgloss.NewStyle().Foreground(ColorComment)
-	var hint string
-	if g.mode == GroupDialogCreate {
-		hint = hintStyle.Render("Tab next field │ Enter confirm │ Esc cancel")
-	} else {
-		hint = hintStyle.Render("Enter confirm │ Esc cancel")
+		b.WriteString("\n\n")
+		b.WriteString(hintStyle.Render("Enter  confirm  │  Esc  cancel"))
 	}
 
-	errContent := ""
-	if g.validationErr != "" {
-		errStyle := lipgloss.NewStyle().Foreground(ColorRed).Bold(true)
-		errContent = errStyle.Render("⚠ " + g.validationErr)
-	}
-
-	dialogContent := lipgloss.JoinVertical(
-		lipgloss.Center,
-		titleStyle.Render(title),
-		"",
-		content,
-		errContent,
-		"",
-		hint,
-	)
-
-	dialog := DialogBoxStyle.
-		Width(dialogWidth).
-		Render(dialogContent)
+	dialog := dialogStyle.Render(b.String())
 
 	return lipgloss.Place(
 		g.width,

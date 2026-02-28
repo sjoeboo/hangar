@@ -72,7 +72,6 @@ type UserConfig struct {
 	// Logs defines session log management settings
 	Logs LogSettings `toml:"logs"`
 
-
 	// Updates defines auto-update settings
 	Updates UpdateSettings `toml:"updates"`
 
@@ -1511,7 +1510,6 @@ auto_cleanup = true
 # "ghe.mycompany.com" = "github"
 # "gitlab.mycompany.com" = "gitlab"
 `
-
 
 	// Ensure directory exists
 	dir := filepath.Dir(configPath)

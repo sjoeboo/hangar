@@ -4,11 +4,11 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/sjoeboo/hangar/internal/git"
-	"github.com/sjoeboo/hangar/internal/session"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/sjoeboo/hangar/internal/git"
+	"github.com/sjoeboo/hangar/internal/session"
 )
 
 // kanbanColumn is a derived view structure grouping todos by status for kanban rendering.
@@ -85,8 +85,8 @@ type TodoDialog struct {
 	titleInput    textinput.Model
 	descInput     textinput.Model
 	promptInput   textinput.Model
-	formFocus     int               // 0=title, 1=desc, 2=prompt
-	editingID     string            // non-empty when editing
+	formFocus     int                // 0=title, 1=desc, 2=prompt
+	editingID     string             // non-empty when editing
 	newTodoStatus session.TodoStatus // status pre-selected from focused column when pressing n
 
 	// status picker
@@ -338,7 +338,6 @@ func (d *TodoDialog) HandleKey(msg tea.KeyMsg) TodoAction {
 	return TodoActionNone
 }
 
-
 func (d *TodoDialog) handleFormKey(msg tea.KeyMsg) TodoAction {
 	key := msg.String()
 	switch key {
@@ -494,7 +493,6 @@ func (d *TodoDialog) View() string {
 	}
 }
 
-
 func (d *TodoDialog) viewForm() string {
 	title := "New Todo"
 	if d.mode == todoModeEdit {
@@ -509,10 +507,10 @@ func (d *TodoDialog) viewForm() string {
 
 	header := lipgloss.NewStyle().Bold(true).Render(title)
 
-	dimStyle    := lipgloss.NewStyle().Foreground(lipgloss.Color("#5a6a7a"))
+	dimStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#5a6a7a"))
 	activeStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#5fd7ff"))
-	titleLabel  := dimStyle.Render("Title:")
-	descLabel   := dimStyle.Render("Description:")
+	titleLabel := dimStyle.Render("Title:")
+	descLabel := dimStyle.Render("Description:")
 	promptLabel := dimStyle.Render("Prompt (optional):")
 	switch d.formFocus {
 	case 0:
