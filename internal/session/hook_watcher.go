@@ -34,8 +34,9 @@ type StatusFileWatcher struct {
 	mu       sync.RWMutex
 	statuses map[string]*HookStatus // instance_id -> latest hook status
 
-	ctx    context.Context
-	cancel context.CancelFunc
+	ctx      context.Context
+	cancel   context.CancelFunc
+	stopOnce sync.Once // ensures hookChangedCh is closed exactly once
 
 	// hookChangedCh is sent to (non-blocking) when a hook status file is processed.
 	hookChangedCh chan struct{}
@@ -75,7 +76,8 @@ func NewStatusFileWatcher() (*StatusFileWatcher, error) {
 // rather than assuming a 1:1 mapping to file changes.
 //
 // Notifications are NOT sent when a file cannot be read or parsed; such errors
-// are silently dropped. The channel is never closed.
+// are silently dropped. The channel is closed when Stop() is called; consumers
+// must use the two-value receive form and return on ok==false.
 func (w *StatusFileWatcher) NotifyChannel() <-chan struct{} {
 	return w.hookChangedCh
 }
@@ -149,10 +151,13 @@ func (w *StatusFileWatcher) Start() {
 	}
 }
 
-// Stop shuts down the watcher.
+// Stop shuts down the watcher. Safe to call multiple times.
 func (w *StatusFileWatcher) Stop() {
 	w.cancel()
 	_ = w.watcher.Close()
+	w.stopOnce.Do(func() {
+		close(w.hookChangedCh) // unblock any goroutine blocked on NotifyChannel()
+	})
 }
 
 // TriggerForTest sends a notification to the channel for testing purposes.
@@ -224,6 +229,16 @@ func (w *StatusFileWatcher) processFile(filePath string) {
 		slog.String("event", status.Event),
 	)
 
+	// Guard against sending on a closed channel after Stop() is called.
+	// The debounce timer goroutine may fire after context cancellation.
+	// ctx is nil only in unit tests that construct StatusFileWatcher directly.
+	if w.ctx != nil {
+		select {
+		case <-w.ctx.Done():
+			return
+		default:
+		}
+	}
 	select {
 	case w.hookChangedCh <- struct{}{}:
 	default: // already pending, coalesce

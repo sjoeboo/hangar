@@ -652,9 +652,11 @@ func (h *Home) handleHookStatusChanged() tea.Cmd {
 	if h.hookWatcher != nil {
 		h.instancesMu.RLock()
 		for _, inst := range h.instances {
-			if inst.Tool == "claude" || inst.Tool == "codex" {
+			tool := inst.GetToolThreadSafe()
+			if tool == "claude" || tool == "codex" {
 				if hs := h.hookWatcher.GetHookStatus(inst.ID); hs != nil {
 					inst.UpdateHookStatus(hs)
+					h.invalidatePreviewCache(inst.ID)
 				}
 			}
 		}

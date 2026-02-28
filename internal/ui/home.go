@@ -1317,7 +1317,10 @@ func listenForHookChanges(w *session.StatusFileWatcher) tea.Cmd {
 		if w == nil {
 			return nil
 		}
-		<-w.NotifyChannel()
+		_, ok := <-w.NotifyChannel()
+		if !ok {
+			return nil // channel closed — watcher stopped, TUI is shutting down
+		}
 		return hookStatusChangedMsg{}
 	}
 }
