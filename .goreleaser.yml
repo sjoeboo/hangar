@@ -98,4 +98,5 @@ homebrew_casks:
     dependencies:
       - formula: tmux
     zap:
-      - trash: "~/.hangar"
+      trash:
+        - "~/.hangar"
