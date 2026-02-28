@@ -8,7 +8,6 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
-	"time"
 
 	"github.com/sjoeboo/hangar/internal/hookserver"
 	"github.com/sjoeboo/hangar/internal/session"
@@ -48,7 +47,6 @@ func TestHookServer_ValidPayload(t *testing.T) {
 		t.Errorf("status = %d, want 200", rr.Code)
 	}
 
-	time.Sleep(10 * time.Millisecond)
 	hs := watcher.GetHookStatus("inst-test-001")
 	if hs == nil {
 		t.Fatal("Expected hook status to be set")

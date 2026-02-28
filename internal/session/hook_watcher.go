@@ -301,8 +301,10 @@ func (w *StatusFileWatcher) Notify(instanceID, status, sessionID, event string) 
 	w.statuses[instanceID] = hookStatus
 	w.mu.Unlock()
 
-	// Write the status file so file-based consumers (e.g. restart after crash)
-	// and the existing fsnotify watcher stay consistent.
+	// Write status file for startup catchup (crash recovery path reads files on TUI relaunch).
+	// Note: this write will trigger a secondary fsnotify-driven processFile call ~100ms later,
+	// producing a second hookChangedCh signal. The capacity-1 buffered channel coalesces it
+	// harmlessly — the second signal is either absorbed or dropped via the default branch.
 	writeHookStatusFile(instanceID, status, sessionID, event, w.hooksDir)
 
 	hookLog.Debug("hook_status_notify",
