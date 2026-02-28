@@ -69,12 +69,20 @@ func NewStatusFileWatcher() (*StatusFileWatcher, error) {
 }
 
 // NotifyChannel returns a receive-only channel that fires when a hook status
-// file is processed. Buffered 1 — drain it to re-arm.
+// file is successfully parsed and the in-memory status map is updated.
+// The channel has capacity 1 — rapid successive file changes coalesce into a
+// single signal. Consumers should do a full status reload on each signal
+// rather than assuming a 1:1 mapping to file changes.
+//
+// Notifications are NOT sent when a file cannot be read or parsed; such errors
+// are silently dropped. The channel is never closed.
 func (w *StatusFileWatcher) NotifyChannel() <-chan struct{} {
 	return w.hookChangedCh
 }
 
 // Start begins watching the hooks directory. Must be called in a goroutine.
+// On startup, loadExisting() processes all pre-existing files; these may
+// coalesce into a single channel notification if multiple files are present.
 func (w *StatusFileWatcher) Start() {
 	if err := w.watcher.Add(w.hooksDir); err != nil {
 		hookLog.Warn("hook_watcher_add_failed", slog.String("dir", w.hooksDir), slog.String("error", err.Error()))

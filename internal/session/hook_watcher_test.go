@@ -222,7 +222,45 @@ func TestStatusFileWatcher_NotifyChannelNotBlockedOnSecondFire(t *testing.T) {
 	// Fire twice without draining — second must not block
 	w.processFile(filePath)
 	w.processFile(filePath)
-	// reaching here without deadlock = pass
+
+	// After two fires without draining, channel must have exactly one item
+	select {
+	case <-w.NotifyChannel():
+		// correct — exactly one coalesced notification
+	default:
+		t.Fatal("expected exactly one notification after two processFile calls")
+	}
+	// Channel must now be empty
+	select {
+	case <-w.NotifyChannel():
+		t.Fatal("expected channel to be empty after draining the one notification")
+	default:
+		// correct
+	}
+}
+
+func TestStatusFileWatcher_NoNotifyOnInvalidFile(t *testing.T) {
+	tmpDir := t.TempDir()
+	hooksDir := filepath.Join(tmpDir, "hooks")
+	_ = os.MkdirAll(hooksDir, 0755)
+
+	w := &StatusFileWatcher{
+		hooksDir:      hooksDir,
+		statuses:      make(map[string]*HookStatus),
+		hookChangedCh: make(chan struct{}, 1),
+	}
+
+	filePath := filepath.Join(hooksDir, "bad.json")
+	_ = os.WriteFile(filePath, []byte("not valid json"), 0644)
+
+	w.processFile(filePath)
+
+	select {
+	case <-w.NotifyChannel():
+		t.Fatal("expected no notification for invalid JSON file")
+	default:
+		// correct — no notification sent on parse error
+	}
 }
 
 func TestStatusFileWatcher_StopDuringDebounce(t *testing.T) {
