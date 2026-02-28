@@ -19,6 +19,9 @@ const hangarHookCommand = "hangar hook-handler"
 // hangarHTTPHookURL is the URL template for the embedded HTTP hook server.
 const hangarHTTPHookURL = "http://127.0.0.1:%d/hooks"
 
+// hangarHTTPHookRE matches URLs of the form http://127.0.0.1:PORT/hooks (exact path, no subpaths).
+var hangarHTTPHookRE = regexp.MustCompile(`^http://127\.0\.0\.1:\d{1,5}/hooks$`)
+
 // claudeHookEntry represents a single hook entry in Claude Code settings.
 type claudeHookEntry struct {
 	Type           string            `json:"type"`
@@ -59,10 +62,7 @@ func hangarHTTPHook(port int) claudeHookEntry {
 // isHangarHook reports whether h is a hangar-managed hook entry (either command or HTTP type).
 func isHangarHook(h claudeHookEntry) bool {
 	if h.Type == "http" {
-		// Match "http://127.0.0.1:{port}/hooks" exactly — HasPrefix+HasSuffix avoids
-		// false-positives like "http://127.0.0.1:8080/api/hooks/webhook"
-		return strings.HasPrefix(h.URL, "http://127.0.0.1:") &&
-			strings.HasSuffix(h.URL, "/hooks")
+		return hangarHTTPHookRE.MatchString(h.URL)
 	}
 	return strings.Contains(h.Command, hangarHookCommand)
 }
@@ -391,7 +391,7 @@ func eventHasHTTPHook(raw json.RawMessage) bool {
 	}
 	for _, m := range matchers {
 		for _, h := range m.Hooks {
-			if h.Type == "http" && strings.HasPrefix(h.URL, "http://127.0.0.1:") && strings.HasSuffix(h.URL, "/hooks") {
+			if h.Type == "http" && hangarHTTPHookRE.MatchString(h.URL) {
 				return true
 			}
 		}

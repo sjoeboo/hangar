@@ -4276,6 +4276,14 @@ func (h *Home) performFinalShutdown(_ bool) tea.Cmd {
 			pm.Close()
 			tmux.SetPipeManager(nil)
 		}
+		// Wait for the HTTP hook server to finish draining in-flight requests.
+		if h.hookServer != nil {
+			select {
+			case <-h.hookServer.WaitDone():
+			case <-time.After(3 * time.Second):
+				// best-effort drain; don't block shutdown indefinitely
+			}
+		}
 		// Close hook watcher (Claude Code lifecycle hooks)
 		if h.hookWatcher != nil {
 			h.hookWatcher.Stop()

@@ -19,6 +19,7 @@ type HookServer struct {
 	port    int
 	watcher *session.StatusFileWatcher
 	server  *http.Server
+	done    chan struct{}
 }
 
 // New creates a new HookServer. port=0 is valid for tests (use ServeHTTP directly).
@@ -26,6 +27,7 @@ func New(port int, watcher *session.StatusFileWatcher) *HookServer {
 	s := &HookServer{
 		port:    port,
 		watcher: watcher,
+		done:    make(chan struct{}),
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/hooks", s.handleHook)
@@ -63,10 +65,17 @@ func (s *HookServer) Start(ctx context.Context) error {
 		shutCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
 		_ = s.server.Shutdown(shutCtx)
-		return nil
 	case err := <-errCh:
+		close(s.done)
 		return err
 	}
+	close(s.done)
+	return nil
+}
+
+// WaitDone returns a channel that is closed when Start() has returned (server fully stopped).
+func (s *HookServer) WaitDone() <-chan struct{} {
+	return s.done
 }
 
 // hookPayload is the JSON body Claude Code sends for HTTP hook events.
