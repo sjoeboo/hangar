@@ -2,6 +2,8 @@
 
 **A terminal session manager for Claude Code — built for engineers who live in git worktrees.**
 
+> **Hangar is a highly opinionated personal fork of [agent-deck](https://ghe.spotify.net/mnicholson/agent-deck).** It strips away multi-agent orchestration, web UI, Telegram/Slack bridges, and non-Claude tool support to focus on a single use case: one engineer, Claude Code, and a lot of git worktrees. If you need the full feature set, check out agent-deck instead.
+
 ---
 
 ## Features
@@ -44,11 +46,18 @@ Press **`x`** to send a message to any session — no attach/detach needed.
 
 ## Quick Start
 
+**Homebrew (recommended):**
 ```bash
-git clone git@github.com:sjoeboo/hangar
-cd hangar
-./install.sh
+brew install sjoeboo/tap/hangar
+```
 
+**curl installer:**
+```bash
+curl -fsSL https://github.com/sjoeboo/hangar/raw/master/install.sh | bash
+```
+
+Then get started:
+```bash
 # Register a project
 hangar project add myrepo ~/code/myrepo
 
@@ -59,7 +68,9 @@ hangar hooks install
 hangar
 ```
 
-**Requirements:** Go 1.24+, tmux, git. `gh` CLI optional (PR status, diff view). lazygit optional (`G` key).
+**Requirements:** tmux, git. `gh` CLI optional (PR status, diff view). lazygit optional (`G` key).
+
+> Building from source? See [Installation](docs/installation.md).
 
 ---
 
