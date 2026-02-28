@@ -59,7 +59,10 @@ func hangarHTTPHook(port int) claudeHookEntry {
 // isHangarHook reports whether h is a hangar-managed hook entry (either command or HTTP type).
 func isHangarHook(h claudeHookEntry) bool {
 	if h.Type == "http" {
-		return strings.Contains(h.URL, "127.0.0.1") && strings.Contains(h.URL, "/hooks")
+		// Match "http://127.0.0.1:{port}/hooks" exactly — HasPrefix+HasSuffix avoids
+		// false-positives like "http://127.0.0.1:8080/api/hooks/webhook"
+		return strings.HasPrefix(h.URL, "http://127.0.0.1:") &&
+			strings.HasSuffix(h.URL, "/hooks")
 	}
 	return strings.Contains(h.Command, hangarHookCommand)
 }
@@ -130,7 +133,7 @@ func InjectClaudeHooks(configDir string, port int) (bool, error) {
 		}
 	} else {
 		// Command mode: check if command hooks already installed (idempotent)
-		if hooksAlreadyInstalled(existingHooks) {
+		if commandHooksAlreadyInstalled(existingHooks) {
 			return false, nil
 		}
 	}
@@ -276,7 +279,7 @@ func CheckClaudeHooksInstalled(configDir string) bool {
 	return hooksAlreadyInstalled(existingHooks)
 }
 
-// hooksAlreadyInstalled checks if all required hangar command hooks are present.
+// hooksAlreadyInstalled checks if all required hangar hooks (any type) are present.
 func hooksAlreadyInstalled(hooks map[string]json.RawMessage) bool {
 	for _, cfg := range hookEventConfigs {
 		raw, ok := hooks[cfg.Event]
@@ -288,6 +291,37 @@ func hooksAlreadyInstalled(hooks map[string]json.RawMessage) bool {
 		}
 	}
 	return true
+}
+
+// commandHooksAlreadyInstalled checks if all required hangar command hooks are present.
+// Unlike hooksAlreadyInstalled, this only matches command-type entries.
+func commandHooksAlreadyInstalled(hooks map[string]json.RawMessage) bool {
+	for _, cfg := range hookEventConfigs {
+		raw, ok := hooks[cfg.Event]
+		if !ok {
+			return false
+		}
+		if !eventHasCommandHook(raw) {
+			return false
+		}
+	}
+	return true
+}
+
+// eventHasCommandHook checks if an event has a hangar command hook entry specifically.
+func eventHasCommandHook(raw json.RawMessage) bool {
+	var matchers []claudeHookMatcher
+	if err := json.Unmarshal(raw, &matchers); err != nil {
+		return false
+	}
+	for _, m := range matchers {
+		for _, h := range m.Hooks {
+			if strings.Contains(h.Command, hangarHookCommand) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // httpHooksAlreadyInstalled checks if all events have HTTP hook entries.
@@ -469,10 +503,9 @@ func removeHangarFromEvent(raw json.RawMessage) (json.RawMessage, bool) {
 		if len(hooks) > 0 {
 			m.Hooks = hooks
 			cleaned = append(cleaned, m)
-		} else if m.Matcher != "" && len(m.Hooks) == 0 {
-			// Matcher had only our hooks; drop it entirely
-			removed = true
 		}
+		// If len(hooks) == 0, the matcher had only hangar hooks — drop it entirely.
+		// (removed is already true from the inner loop above)
 	}
 
 	if !removed {

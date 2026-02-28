@@ -436,6 +436,16 @@ func TestInjectClaudeHooks_HTTPType_WhenPortNonZero(t *testing.T) {
 				if h.URL != wantURL {
 					t.Errorf("HTTP hook URL = %q, want %q", h.URL, wantURL)
 				}
+				if h.Headers["X-Hangar-Instance-Id"] != "$HANGAR_INSTANCE_ID" {
+					t.Errorf("Headers[X-Hangar-Instance-Id] = %q, want %q",
+						h.Headers["X-Hangar-Instance-Id"], "$HANGAR_INSTANCE_ID")
+				}
+				if len(h.AllowedEnvVars) != 1 || h.AllowedEnvVars[0] != "HANGAR_INSTANCE_ID" {
+					t.Errorf("AllowedEnvVars = %v, want [HANGAR_INSTANCE_ID]", h.AllowedEnvVars)
+				}
+				if h.Timeout != 5 {
+					t.Errorf("Timeout = %d, want 5", h.Timeout)
+				}
 			}
 		}
 	}

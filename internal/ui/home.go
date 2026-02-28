@@ -788,6 +788,8 @@ func NewHomeWithProfileAndMode(profile string) *Home {
 					prompted = true
 					if val == "accepted" {
 						// User previously accepted but hooks got removed: re-install silently
+						// port=0: inject command hooks; the HTTP server port is not known here.
+						// HTTP hook wiring happens in Init() when the server is started.
 						if _, err := session.InjectClaudeHooks(configDir, 0); err != nil {
 							uiLog.Warn("hook_reinstall_failed", slog.String("error", err.Error()))
 						} else {
@@ -4072,6 +4074,8 @@ func (h *Home) handleConfirmDialogKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			h.confirmDialog.Hide()
 			h.pendingHooksPrompt = false
 			configDir := session.GetClaudeConfigDir()
+			// port=0: inject command hooks; the HTTP server port is not known here.
+			// HTTP hook wiring happens in Init() when the server is started.
 			if _, err := session.InjectClaudeHooks(configDir, 0); err != nil {
 				uiLog.Warn("hook_install_failed", slog.String("error", err.Error()))
 			} else {
