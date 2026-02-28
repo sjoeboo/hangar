@@ -200,6 +200,11 @@ func handleHooksStatus() {
 	if installed {
 		fmt.Println("Status: INSTALLED")
 		fmt.Printf("Config: %s/settings.json\n", configDir)
+		if session.CheckClaudeHTTPHooksInstalled(configDir) {
+			fmt.Println("Type:   HTTP (Claude >= 2.1.63)")
+		} else {
+			fmt.Println("Type:   command (hangar hook-handler)")
+		}
 	} else {
 		fmt.Println("Status: NOT INSTALLED")
 		fmt.Println("Run 'hangar hooks install' to install.")

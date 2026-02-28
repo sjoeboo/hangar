@@ -279,6 +279,32 @@ func CheckClaudeHooksInstalled(configDir string) bool {
 	return hooksAlreadyInstalled(existingHooks)
 }
 
+// CheckClaudeHTTPHooksInstalled returns true if HTTP hooks (not command hooks) are installed.
+func CheckClaudeHTTPHooksInstalled(configDir string) bool {
+	settingsPath := filepath.Join(configDir, "settings.json")
+	data, err := os.ReadFile(settingsPath)
+	if err != nil {
+		return false
+	}
+
+	var rawSettings map[string]json.RawMessage
+	if err := json.Unmarshal(data, &rawSettings); err != nil {
+		return false
+	}
+
+	hooksRaw, ok := rawSettings["hooks"]
+	if !ok {
+		return false
+	}
+
+	var existingHooks map[string]json.RawMessage
+	if err := json.Unmarshal(hooksRaw, &existingHooks); err != nil {
+		return false
+	}
+
+	return httpHooksAlreadyInstalled(existingHooks)
+}
+
 // hooksAlreadyInstalled checks if all required hangar hooks (any type) are present.
 func hooksAlreadyInstalled(hooks map[string]json.RawMessage) bool {
 	for _, cfg := range hookEventConfigs {

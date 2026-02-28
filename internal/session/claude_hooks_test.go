@@ -500,6 +500,31 @@ func TestInjectClaudeHooks_UpgradeCommandToHTTP(t *testing.T) {
 	}
 }
 
+func TestCheckClaudeHTTPHooksInstalled(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Not installed initially
+	if CheckClaudeHTTPHooksInstalled(tmpDir) {
+		t.Error("Should not be installed initially")
+	}
+
+	// Install command hooks — should NOT count as HTTP
+	if _, err := InjectClaudeHooks(tmpDir, 0); err != nil {
+		t.Fatalf("command install: %v", err)
+	}
+	if CheckClaudeHTTPHooksInstalled(tmpDir) {
+		t.Error("Command hooks should not be reported as HTTP hooks")
+	}
+
+	// Upgrade to HTTP hooks
+	if _, err := InjectClaudeHooks(tmpDir, 2437); err != nil {
+		t.Fatalf("http upgrade: %v", err)
+	}
+	if !CheckClaudeHTTPHooksInstalled(tmpDir) {
+		t.Error("HTTP hooks should be reported as HTTP after upgrade")
+	}
+}
+
 func TestNotificationMatcher(t *testing.T) {
 	tmpDir := t.TempDir()
 
