@@ -281,6 +281,86 @@ func (w *StatusFileWatcher) processFile(filePath string) {
 	}
 }
 
+// Notify updates the in-memory status for instanceID, writes the status file
+// atomically, and notifies the hookChangedCh channel. This is the HTTP hook
+// path — the equivalent of processFile but driven by an incoming HTTP request
+// rather than a filesystem event.
+func (w *StatusFileWatcher) Notify(instanceID, status, sessionID, event string) {
+	if instanceID == "" || status == "" {
+		return
+	}
+
+	hookStatus := &HookStatus{
+		Status:    status,
+		SessionID: sessionID,
+		Event:     event,
+		UpdatedAt: time.Now(),
+	}
+
+	w.mu.Lock()
+	w.statuses[instanceID] = hookStatus
+	w.mu.Unlock()
+
+	// Write the status file so file-based consumers (e.g. restart after crash)
+	// and the existing fsnotify watcher stay consistent.
+	writeHookStatusFile(instanceID, status, sessionID, event, w.hooksDir)
+
+	hookLog.Debug("hook_status_notify",
+		slog.String("instance", instanceID),
+		slog.String("status", status),
+		slog.String("event", event),
+	)
+
+	// Serialise against Stop() which closes hookChangedCh under sendMu.
+	if w.hookChangedCh != nil {
+		w.sendMu.Lock()
+		cancelled := w.ctx != nil && w.ctx.Err() != nil
+		if !cancelled {
+			select {
+			case w.hookChangedCh <- struct{}{}:
+			default: // already pending, coalesce
+			}
+		}
+		w.sendMu.Unlock()
+	}
+}
+
+// writeHookStatusFile writes a hook status JSON file atomically to hooksDir.
+// The file is named {instanceID}.json and uses a tmp+rename pattern.
+func writeHookStatusFile(instanceID, status, sessionID, event, hooksDir string) {
+	if instanceID == "" || status == "" || hooksDir == "" {
+		return
+	}
+
+	if err := os.MkdirAll(hooksDir, 0755); err != nil {
+		return
+	}
+
+	type statusFile struct {
+		Status    string `json:"status"`
+		SessionID string `json:"session_id,omitempty"`
+		Event     string `json:"event"`
+		Timestamp int64  `json:"ts"`
+	}
+
+	data, err := json.Marshal(statusFile{
+		Status:    status,
+		SessionID: sessionID,
+		Event:     event,
+		Timestamp: time.Now().Unix(),
+	})
+	if err != nil {
+		return
+	}
+
+	filePath := filepath.Join(hooksDir, instanceID+".json")
+	tmpPath := filePath + ".tmp"
+	if err := os.WriteFile(tmpPath, data, 0644); err != nil {
+		return
+	}
+	_ = os.Rename(tmpPath, filePath)
+}
+
 // GetHooksDir returns the path to the hooks status directory.
 func GetHooksDir() string {
 	home, err := os.UserHomeDir()
