@@ -170,10 +170,18 @@ func (w *StatusFileWatcher) Stop() {
 // TriggerForTest sends a notification to the channel for testing purposes.
 // Do not call from production code.
 func (w *StatusFileWatcher) TriggerForTest() {
-	select {
-	case w.hookChangedCh <- struct{}{}:
-	default:
+	if w.hookChangedCh == nil {
+		return
 	}
+	w.sendMu.Lock()
+	cancelled := w.ctx != nil && w.ctx.Err() != nil
+	if !cancelled {
+		select {
+		case w.hookChangedCh <- struct{}{}:
+		default:
+		}
+	}
+	w.sendMu.Unlock()
 }
 
 // GetHookStatus returns the hook status for an instance, or nil if not available.
