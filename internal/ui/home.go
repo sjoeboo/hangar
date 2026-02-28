@@ -22,6 +22,7 @@ import (
 
 	"github.com/sjoeboo/hangar/internal/clipboard"
 	"github.com/sjoeboo/hangar/internal/git"
+	"github.com/sjoeboo/hangar/internal/hookserver"
 	"github.com/sjoeboo/hangar/internal/logging"
 	"github.com/sjoeboo/hangar/internal/session"
 	"github.com/sjoeboo/hangar/internal/statedb"
@@ -205,7 +206,9 @@ type Home struct {
 
 	// Hook-based status detection (Claude Code lifecycle hooks)
 	hookWatcher        *session.StatusFileWatcher
-	pendingHooksPrompt bool // True if user should be prompted to install hooks
+	hookServer         *hookserver.HookServer // Embedded HTTP hook server (nil if disabled)
+	hookServerPort     int                    // Port the HTTP server is listening on (0 = command hooks)
+	pendingHooksPrompt bool                   // True if user should be prompted to install hooks
 
 	// File watcher for external changes (auto-reload)
 	storageWatcher *StorageWatcher
@@ -788,9 +791,9 @@ func NewHomeWithProfileAndMode(profile string) *Home {
 					prompted = true
 					if val == "accepted" {
 						// User previously accepted but hooks got removed: re-install silently
-						// port=0: inject command hooks; the HTTP server port is not known here.
-						// HTTP hook wiring happens in Init() when the server is started.
-						if _, err := session.InjectClaudeHooks(configDir, 0); err != nil {
+						// h.hookServerPort is 0 here (HTTP server not yet started); use command hooks.
+						// The HTTP server startup block below will upgrade to HTTP hooks after starting.
+						if _, err := session.InjectClaudeHooks(configDir, h.hookServerPort); err != nil {
 							uiLog.Warn("hook_reinstall_failed", slog.String("error", err.Error()))
 						} else {
 							uiLog.Info("claude_hooks_reinstalled", slog.String("config_dir", configDir))
@@ -809,6 +812,31 @@ func NewHomeWithProfileAndMode(profile string) *Home {
 			if !prompted {
 				h.pendingHooksPrompt = true
 			}
+		}
+	}
+
+	// Start embedded HTTP hook server if configured
+	{
+		port := 0
+		if userConfig != nil {
+			port = userConfig.Claude.GetHookServerPort()
+		}
+		if hooksEnabled && port > 0 && h.hookWatcher != nil {
+			srv := hookserver.New(port, h.hookWatcher)
+			h.hookServer = srv
+			h.hookServerPort = port
+			go func() {
+				if err := srv.Start(h.ctx); err != nil {
+					uiLog.Warn("hookserver_failed", slog.String("error", err.Error()))
+				}
+			}()
+			// Silently upgrade command hooks → HTTP hooks now that the server is running
+			go func() {
+				configDir := session.GetClaudeConfigDir()
+				if _, err := session.InjectClaudeHooks(configDir, port); err != nil {
+					uiLog.Warn("hook_upgrade_failed", slog.String("error", err.Error()))
+				}
+			}()
 		}
 	}
 
@@ -4074,9 +4102,8 @@ func (h *Home) handleConfirmDialogKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			h.confirmDialog.Hide()
 			h.pendingHooksPrompt = false
 			configDir := session.GetClaudeConfigDir()
-			// port=0: inject command hooks; the HTTP server port is not known here.
-			// HTTP hook wiring happens in Init() when the server is started.
-			if _, err := session.InjectClaudeHooks(configDir, 0); err != nil {
+			// Use h.hookServerPort: 0 = command hooks (server not started), >0 = HTTP hooks.
+			if _, err := session.InjectClaudeHooks(configDir, h.hookServerPort); err != nil {
 				uiLog.Warn("hook_install_failed", slog.String("error", err.Error()))
 			} else {
 				uiLog.Info("claude_hooks_installed", slog.String("config_dir", configDir))
@@ -4088,6 +4115,29 @@ func (h *Home) handleConfirmDialogKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			} else {
 				h.hookWatcher = hookWatcher
 				go hookWatcher.Start()
+				// Start HTTP hook server if configured and not already running
+				if h.hookServer == nil {
+					port := 0
+					if uc, _ := session.LoadUserConfig(); uc != nil {
+						port = uc.Claude.GetHookServerPort()
+					}
+					if port > 0 {
+						srv := hookserver.New(port, h.hookWatcher)
+						h.hookServer = srv
+						h.hookServerPort = port
+						go func() {
+							if err := srv.Start(h.ctx); err != nil {
+								uiLog.Warn("hookserver_failed", slog.String("error", err.Error()))
+							}
+						}()
+						// Upgrade the just-installed hooks to HTTP hooks
+						go func() {
+							if _, err := session.InjectClaudeHooks(configDir, port); err != nil {
+								uiLog.Warn("hook_upgrade_failed", slog.String("error", err.Error()))
+							}
+						}()
+					}
+				}
 			}
 			// Remember user's choice
 			if db := statedb.GetGlobal(); db != nil {
