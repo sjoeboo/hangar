@@ -384,7 +384,7 @@ func eventHasHTTPHook(raw json.RawMessage) bool {
 	}
 	for _, m := range matchers {
 		for _, h := range m.Hooks {
-			if h.Type == "http" && strings.Contains(h.URL, "127.0.0.1") && strings.Contains(h.URL, "/hooks") {
+			if h.Type == "http" && strings.HasPrefix(h.URL, "http://127.0.0.1:") && strings.HasSuffix(h.URL, "/hooks") {
 				return true
 			}
 		}
