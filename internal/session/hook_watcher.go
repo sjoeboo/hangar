@@ -155,6 +155,15 @@ func (w *StatusFileWatcher) Stop() {
 	_ = w.watcher.Close()
 }
 
+// TriggerForTest sends a notification to the channel for testing purposes.
+// Do not call from production code.
+func (w *StatusFileWatcher) TriggerForTest() {
+	select {
+	case w.hookChangedCh <- struct{}{}:
+	default:
+	}
+}
+
 // GetHookStatus returns the hook status for an instance, or nil if not available.
 func (w *StatusFileWatcher) GetHookStatus(instanceID string) *HookStatus {
 	w.mu.RLock()

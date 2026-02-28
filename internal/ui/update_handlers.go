@@ -646,6 +646,25 @@ func (h *Home) handleStorageChanged(msg storageChangedMsg) tea.Cmd {
 	return tea.Batch(cmd, listenForReloads(h.storageWatcher))
 }
 
+// handleHookStatusChanged applies fresh hook statuses to visible instances
+// and re-arms the hook change listener for the next event.
+func (h *Home) handleHookStatusChanged() tea.Cmd {
+	if h.hookWatcher != nil {
+		h.instancesMu.RLock()
+		for _, inst := range h.instances {
+			if inst.Tool == "claude" || inst.Tool == "codex" {
+				if hs := h.hookWatcher.GetHookStatus(inst.ID); hs != nil {
+					inst.UpdateHookStatus(hs)
+				}
+			}
+		}
+		h.instancesMu.RUnlock()
+		h.cachedStatusCounts.valid.Store(false)
+	}
+	// Re-arm: must be re-issued every time, like listenForReloads
+	return listenForHookChanges(h.hookWatcher)
+}
+
 // handleStatusUpdate processes statusUpdateMsg, clearing the attaching flag,
 // triggering a status refresh, and syncing cursor to any notification-switched session.
 func (h *Home) handleStatusUpdate(msg statusUpdateMsg) tea.Cmd {

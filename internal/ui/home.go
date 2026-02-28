@@ -388,6 +388,10 @@ type statusUpdateMsg struct{} // Triggers immediate status update without reload
 // storageChangedMsg signals that state.db was modified externally
 type storageChangedMsg struct{}
 
+// hookStatusChangedMsg signals that a hook status file was processed.
+// Triggers an immediate status refresh without waiting for the next tick.
+type hookStatusChangedMsg struct{}
+
 // openCodeDetectionCompleteMsg signals that OpenCode session detection finished
 // Used to trigger a save after async detection completes
 type openCodeDetectionCompleteMsg struct {
@@ -1274,6 +1278,11 @@ func (h *Home) Init() tea.Cmd {
 		cmds = append(cmds, listenForReloads(h.storageWatcher))
 	}
 
+	// Start listening for hook status changes (immediate TUI refresh on hook events)
+	if h.hookWatcher != nil {
+		cmds = append(cmds, listenForHookChanges(h.hookWatcher))
+	}
+
 	// Start listening for OS theme changes
 	if h.themeWatcher != nil {
 		cmds = append(cmds, listenForThemeChange(h.themeWatcher))
@@ -1298,6 +1307,18 @@ func listenForReloads(sw *StorageWatcher) tea.Cmd {
 		}
 		<-sw.ReloadChannel()
 		return storageChangedMsg{}
+	}
+}
+
+// listenForHookChanges waits for a hook status change notification.
+// MUST be re-issued in the Update handler to keep listening.
+func listenForHookChanges(w *session.StatusFileWatcher) tea.Cmd {
+	return func() tea.Msg {
+		if w == nil {
+			return nil
+		}
+		<-w.NotifyChannel()
+		return hookStatusChangedMsg{}
 	}
 }
 
@@ -2296,6 +2317,9 @@ func (h *Home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case storageChangedMsg:
 		return h, h.handleStorageChanged(msg)
+
+	case hookStatusChangedMsg:
+		return h, h.handleHookStatusChanged()
 
 	case statusUpdateMsg:
 		return h, h.handleStatusUpdate(msg)
