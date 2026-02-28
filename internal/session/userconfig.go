@@ -399,6 +399,12 @@ type ClaudeSettings struct {
 	// for instant, deterministic status updates instead of polling tmux content.
 	// Default: true (nil = use default true, set false to disable)
 	HooksEnabled *bool `toml:"hooks_enabled"`
+
+	// HookServerPort is the TCP port for the embedded HTTP hook server.
+	// Claude Code 2.1.63+ can POST hook events directly to this server
+	// instead of spawning a subprocess for each event.
+	// Default: 2437. Set to 0 to disable HTTP hooks.
+	HookServerPort *int `toml:"hook_server_port"`
 }
 
 // GetProfileClaudeConfigDir returns the profile-specific Claude config directory, if configured.
@@ -428,6 +434,15 @@ func (c *ClaudeSettings) GetHooksEnabled() bool {
 		return true
 	}
 	return *c.HooksEnabled
+}
+
+// GetHookServerPort returns the HTTP hook server port, defaulting to 2437.
+// Returns 0 if HTTP hooks are disabled via hook_server_port = 0.
+func (c *ClaudeSettings) GetHookServerPort() int {
+	if c.HookServerPort == nil {
+		return 2437
+	}
+	return *c.HookServerPort
 }
 
 // GeminiSettings defines Gemini CLI configuration
