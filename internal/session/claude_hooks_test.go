@@ -308,6 +308,77 @@ func TestCheckClaudeHooksInstalled(t *testing.T) {
 	}
 }
 
+func TestParseClaudeVersion(t *testing.T) {
+	tests := []struct {
+		output  string
+		wantVer string
+		wantErr bool
+	}{
+		{"claude 2.1.63 (Claude Code)", "2.1.63", false},
+		{"claude 1.0.0 (Claude Code)", "1.0.0", false},
+		{"2.1.63", "2.1.63", false},
+		{"Claude Code v2.1.63", "2.1.63", false},
+		{"no version here", "", true},
+		{"", "", true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.output, func(t *testing.T) {
+			got, err := parseClaudeVersion(tt.output)
+			if tt.wantErr {
+				if err == nil {
+					t.Errorf("parseClaudeVersion(%q): expected error, got %q", tt.output, got)
+				}
+				return
+			}
+			if err != nil {
+				t.Errorf("parseClaudeVersion(%q): unexpected error: %v", tt.output, err)
+			}
+			if got != tt.wantVer {
+				t.Errorf("parseClaudeVersion(%q) = %q, want %q", tt.output, got, tt.wantVer)
+			}
+		})
+	}
+}
+
+func TestVersionAtLeast(t *testing.T) {
+	tests := []struct {
+		version string
+		major   int
+		minor   int
+		patch   int
+		want    bool
+	}{
+		{"2.1.63", 2, 1, 63, true},
+		{"2.1.64", 2, 1, 63, true},
+		{"2.2.0", 2, 1, 63, true},
+		{"3.0.0", 2, 1, 63, true},
+		{"2.1.62", 2, 1, 63, false},
+		{"2.0.99", 2, 1, 63, false},
+		{"1.9.99", 2, 1, 63, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.version, func(t *testing.T) {
+			got := versionAtLeast(tt.version, tt.major, tt.minor, tt.patch)
+			if got != tt.want {
+				t.Errorf("versionAtLeast(%q, %d, %d, %d) = %v, want %v",
+					tt.version, tt.major, tt.minor, tt.patch, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestClaudeSupportsHTTPHooks(t *testing.T) {
+	if claudeSupportsHTTPHooks("2.1.63") != true {
+		t.Error("2.1.63 should support HTTP hooks")
+	}
+	if claudeSupportsHTTPHooks("2.1.62") != false {
+		t.Error("2.1.62 should not support HTTP hooks")
+	}
+	if claudeSupportsHTTPHooks("") != false {
+		t.Error("empty version should not support HTTP hooks")
+	}
+}
+
 func TestNotificationMatcher(t *testing.T) {
 	tmpDir := t.TempDir()
 

@@ -5,7 +5,10 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"regexp"
+	"strconv"
 	"strings"
 )
 
@@ -285,6 +288,51 @@ func mergeHookEvent(existing json.RawMessage, matcher string) json.RawMessage {
 	matchers = append(matchers, newMatcher)
 	result, _ := json.Marshal(matchers)
 	return result
+}
+
+var versionRegexp = regexp.MustCompile(`(?:^|[^\d])v?(\d+)\.(\d+)\.(\d+)\b`)
+
+// parseClaudeVersion extracts the semver string from `claude --version` output.
+func parseClaudeVersion(output string) (string, error) {
+	m := versionRegexp.FindStringSubmatch(strings.TrimSpace(output))
+	if m == nil {
+		return "", fmt.Errorf("no semver found in %q", output)
+	}
+	return m[1] + "." + m[2] + "." + m[3], nil
+}
+
+// versionAtLeast reports whether version string (e.g. "2.1.63") is >= major.minor.patch.
+func versionAtLeast(version string, major, minor, patch int) bool {
+	m := versionRegexp.FindStringSubmatch(version)
+	if m == nil {
+		return false
+	}
+	maj, _ := strconv.Atoi(m[1])
+	min, _ := strconv.Atoi(m[2])
+	pat, _ := strconv.Atoi(m[3])
+	if maj != major {
+		return maj > major
+	}
+	if min != minor {
+		return min > minor
+	}
+	return pat >= patch
+}
+
+// claudeSupportsHTTPHooks reports whether the given version supports type:"http" hooks.
+// HTTP hooks were introduced in Claude Code 2.1.63.
+func claudeSupportsHTTPHooks(version string) bool {
+	return versionAtLeast(version, 2, 1, 63)
+}
+
+// DetectClaudeVersion runs `claude --version` and returns the parsed semver string.
+// Returns empty string and an error if the version cannot be determined.
+func DetectClaudeVersion() (string, error) {
+	out, err := exec.Command("claude", "--version").Output()
+	if err != nil {
+		return "", fmt.Errorf("claude --version: %w", err)
+	}
+	return parseClaudeVersion(string(out))
 }
 
 // removeHangarFromEvent removes hangar hook entries from an event's matcher array.
