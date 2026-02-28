@@ -1,10 +1,10 @@
 package ui
 
 import (
-	"github.com/sjoeboo/hangar/internal/session"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/sjoeboo/hangar/internal/session"
 )
 
 // ClaudeOptionsPanel is a UI panel for Claude-specific launch options

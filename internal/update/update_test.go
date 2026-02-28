@@ -163,7 +163,6 @@ func TestUpdateBridgePy_NoConductorDir(t *testing.T) {
 	assert.True(t, os.IsNotExist(statErr), "conductor dir should not be created when not installed")
 }
 
-
 func TestHomebrewUpgradeHint(t *testing.T) {
 	tests := []struct {
 		name     string

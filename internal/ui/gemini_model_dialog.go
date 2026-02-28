@@ -3,9 +3,9 @@ package ui
 import (
 	"strings"
 
-	"github.com/sjoeboo/hangar/internal/session"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/sjoeboo/hangar/internal/session"
 )
 
 // modelsFetchedMsg is sent when async model list fetch completes

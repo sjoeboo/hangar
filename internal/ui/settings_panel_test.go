@@ -3,8 +3,8 @@ package ui
 import (
 	"testing"
 
-	"github.com/sjoeboo/hangar/internal/session"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/sjoeboo/hangar/internal/session"
 )
 
 func TestSettingsPanel_InitialState(t *testing.T) {
@@ -124,7 +124,7 @@ func TestSettingsPanel_LoadConfig_DefaultTool(t *testing.T) {
 	}{
 		{"claude", "claude", 0},
 		{"shell", "shell", 1},
-		{"empty", "", 2},       // None
+		{"empty", "", 2}, // None
 		{"unknown", "unknown-tool", 2},
 	}
 

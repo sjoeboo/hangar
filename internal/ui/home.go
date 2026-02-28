@@ -65,7 +65,6 @@ const (
 	// logMaintenanceInterval - how often to do full log maintenance (orphan cleanup, etc)
 	// Prevents runaway log growth that can crash the system
 	logMaintenanceInterval = 5 * time.Minute
-
 )
 
 // UI spacing constants (2-char grid system)
@@ -151,11 +150,11 @@ type Home struct {
 	sendTextTargetIDs    []string              // Session IDs for bulk send-text
 
 	// State
-	cursor         int            // Selected item index in flatItems
-	viewOffset     int            // First visible item index (for scrolling)
-	isAttaching    atomic.Bool    // Prevents View() output during attach (fixes Bubble Tea Issue #431) - atomic for thread safety
-	statusFilter   session.Status // Filter sessions by status ("" = all, or specific status)
-	sortMode       string         // "" = default, "status" = running→waiting→idle
+	cursor       int            // Selected item index in flatItems
+	viewOffset   int            // First visible item index (for scrolling)
+	isAttaching  atomic.Bool    // Prevents View() output during attach (fixes Bubble Tea Issue #431) - atomic for thread safety
+	statusFilter session.Status // Filter sessions by status ("" = all, or specific status)
+	sortMode     string         // "" = default, "status" = running→waiting→idle
 	// PR overview view
 	viewMode       string // "" or "sessions" = normal, "prs" = PR overview full-screen
 	prViewCursor   int    // cursor position within PR overview list
@@ -224,11 +223,11 @@ type Home struct {
 	updateInfo *update.UpdateInfo
 
 	// Launching animation state (for newly created sessions)
-	launchingSessions  map[string]time.Time // sessionID -> creation time
-	resumingSessions   map[string]time.Time // sessionID -> resume time (for restart/resume)
-	forkingSessions    map[string]time.Time // sessionID -> fork start time (fork in progress)
-	animationFrame     int                  // Current frame for spinner animation
-	pendingWorktrees   []pendingWorktreeItem // worktrees being created in the background
+	launchingSessions map[string]time.Time  // sessionID -> creation time
+	resumingSessions  map[string]time.Time  // sessionID -> resume time (for restart/resume)
+	forkingSessions   map[string]time.Time  // sessionID -> fork start time (fork in progress)
+	animationFrame    int                   // Current frame for spinner animation
+	pendingWorktrees  []pendingWorktreeItem // worktrees being created in the background
 
 	// Context for cleanup
 	ctx    context.Context
@@ -629,13 +628,13 @@ func NewHomeWithProfileAndMode(profile string) *Home {
 		cancel:               cancel,
 		instances:            []*session.Instance{},
 		instanceByID:         make(map[string]*session.Instance),
-		groupTree:         session.NewGroupTree([]*session.Instance{}),
-		flatItems:         []session.Item{},
-		cache:             newUICache(),
-		launchingSessions: make(map[string]time.Time),
-		resumingSessions:  make(map[string]time.Time),
-		forkingSessions:   make(map[string]time.Time),
-		lastLogActivity:   make(map[string]time.Time),
+		groupTree:            session.NewGroupTree([]*session.Instance{}),
+		flatItems:            []session.Item{},
+		cache:                newUICache(),
+		launchingSessions:    make(map[string]time.Time),
+		resumingSessions:     make(map[string]time.Time),
+		forkingSessions:      make(map[string]time.Time),
+		lastLogActivity:      make(map[string]time.Time),
 		statusTrigger:        make(chan statusUpdateRequest, 1), // Buffered to avoid blocking
 		statusWorkerDone:     make(chan struct{}),
 		logUpdateChan:        make(chan *session.Instance, 100), // Buffered to absorb bursts
@@ -6569,6 +6568,7 @@ func (h *Home) listItemAt(x, y int) int {
 	}
 	return idx
 }
+
 // fetchPRInfo runs "gh pr view" in the given worktree directory and returns PR
 // metadata for the branch currently checked out there. Returns a nil pr if no
 // PR exists, if gh is not installed, or if the command fails for any reason.
@@ -6578,11 +6578,11 @@ func fetchPRInfo(sessionID, worktreePath, ghPath string) prFetchedMsg {
 		Conclusion string `json:"conclusion"` // SUCCESS, FAILURE, CANCELLED, SKIPPED, TIMED_OUT, etc.
 	}
 	type ghPR struct {
-		Number             int       `json:"number"`
-		Title              string    `json:"title"`
-		State              string    `json:"state"`
-		URL                string    `json:"url"`
-		StatusCheckRollup  []ghCheck `json:"statusCheckRollup"`
+		Number            int       `json:"number"`
+		Title             string    `json:"title"`
+		State             string    `json:"state"`
+		URL               string    `json:"url"`
+		StatusCheckRollup []ghCheck `json:"statusCheckRollup"`
 	}
 	cmd := exec.Command(ghPath, "pr", "view", "--json", "number,title,state,url,statusCheckRollup")
 	cmd.Dir = worktreePath

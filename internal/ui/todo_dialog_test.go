@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sjoeboo/hangar/internal/session"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/sjoeboo/hangar/internal/session"
 )
 
 func makeTodo(id string, status session.TodoStatus) *session.Todo {

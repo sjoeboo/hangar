@@ -28,7 +28,7 @@ type WorktreeFinishDialog struct {
 
 	// PR data (set from Home's cache via SetPR)
 	prEntry  *prCacheEntry // nil = no PR found
-	prLoaded bool         // false = still fetching
+	prLoaded bool          // false = still fetching
 
 	// Options (step 0)
 	keepBranch bool

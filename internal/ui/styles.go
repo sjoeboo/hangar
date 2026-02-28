@@ -287,11 +287,11 @@ var (
 	stylePreviewBoldName lipgloss.Style // Bold(true).Foreground(ColorAccent) — session name header
 
 	// Connection status styles
-	stylePreviewConnected  lipgloss.Style // Foreground(ColorGreen).Bold(true) — "● Connected"
-	stylePreviewDetecting  lipgloss.Style // Foreground(ColorYellow) — "◐ Detecting..." / pending MCPs
-	stylePreviewNotFound   lipgloss.Style // Foreground(ColorText) — "○ Not connected" / "○ No session found"
-	stylePreviewComment    lipgloss.Style // Foreground(ColorComment) — URLs, "checking..."
-	stylePreviewPRNum      lipgloss.Style // Foreground(ColorAccent).Bold(true).Underline(true) — PR number
+	stylePreviewConnected   lipgloss.Style // Foreground(ColorGreen).Bold(true) — "● Connected"
+	stylePreviewDetecting   lipgloss.Style // Foreground(ColorYellow) — "◐ Detecting..." / pending MCPs
+	stylePreviewNotFound    lipgloss.Style // Foreground(ColorText) — "○ Not connected" / "○ No session found"
+	stylePreviewComment     lipgloss.Style // Foreground(ColorComment) — URLs, "checking..."
+	stylePreviewPRNum       lipgloss.Style // Foreground(ColorAccent).Bold(true).Underline(true) — PR number
 	stylePreviewTimeElapsed lipgloss.Style // Foreground(ColorYellow).Italic(true) — "Loading... Xs"
 
 	// PR check badge styles
@@ -571,7 +571,7 @@ func initStyles() {
 	SessionStatusError = lipgloss.NewStyle().Foreground(ColorRed)
 	SessionStatusSelStyle = lipgloss.NewStyle().Foreground(ColorBg).Background(ColorAccent)
 
-	PRBadgeOpen   = lipgloss.NewStyle().Foreground(ColorGreen)
+	PRBadgeOpen = lipgloss.NewStyle().Foreground(ColorGreen)
 	PRBadgeMerged = lipgloss.NewStyle().Foreground(ColorPurple)
 	PRBadgeClosed = lipgloss.NewStyle().Foreground(ColorRed)
 
@@ -582,8 +582,8 @@ func initStyles() {
 	SessionTitleSelStyle = lipgloss.NewStyle().Bold(true).Foreground(ColorBg).Background(ColorAccent)
 
 	// Selection indicator
-	SessionSelectionPrefix    = lipgloss.NewStyle().Foreground(ColorAccent).Bold(true)
-	SessionCheckboxUnchecked  = lipgloss.NewStyle().Foreground(ColorTextDim)
+	SessionSelectionPrefix = lipgloss.NewStyle().Foreground(ColorAccent).Bold(true)
+	SessionCheckboxUnchecked = lipgloss.NewStyle().Foreground(ColorTextDim)
 
 	// Group item styles
 	GroupExpandStyle = lipgloss.NewStyle().Foreground(ColorText)
@@ -692,18 +692,18 @@ func initStyles() {
 
 	// Group preview styles
 	styleGroupPreviewHeader = lipgloss.NewStyle().Foreground(ColorCyan).Bold(true)
-	styleGroupPreviewCount  = lipgloss.NewStyle().Foreground(ColorText).Bold(true)
-	styleGroupRepoBranch    = lipgloss.NewStyle().Foreground(ColorCyan).Bold(true)
+	styleGroupPreviewCount = lipgloss.NewStyle().Foreground(ColorText).Bold(true)
+	styleGroupRepoBranch = lipgloss.NewStyle().Foreground(ColorCyan).Bold(true)
 
 	// Group preview session status summary
 	styleGroupStatusRunning = lipgloss.NewStyle().Foreground(ColorGreen)
 	styleGroupStatusWaiting = lipgloss.NewStyle().Foreground(ColorYellow)
-	styleGroupStatusIdle    = lipgloss.NewStyle().Foreground(ColorText)
-	styleGroupStatusError   = lipgloss.NewStyle().Foreground(ColorRed)
+	styleGroupStatusIdle = lipgloss.NewStyle().Foreground(ColorText)
+	styleGroupStatusError = lipgloss.NewStyle().Foreground(ColorRed)
 
 	// Group preview session list and hints
 	styleGroupSessionTool = lipgloss.NewStyle().Foreground(ColorPurple).Faint(true)
-	styleGroupHint        = lipgloss.NewStyle().Foreground(ColorComment).Italic(true)
+	styleGroupHint = lipgloss.NewStyle().Foreground(ColorComment).Italic(true)
 }
 
 // Helper Functions

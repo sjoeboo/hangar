@@ -828,7 +828,7 @@ func (h *Home) handlePRFetched(msg prFetchedMsg) tea.Cmd {
 				if todo.Status != session.TodoStatusDone {
 					newStatus = session.TodoStatusDone
 				}
-			// "CLOSED" (PR closed without merging): intentionally no transition — todo stays in its current state
+				// "CLOSED" (PR closed without merging): intentionally no transition — todo stays in its current state
 			}
 			if newStatus != "" {
 				if err := h.storage.UpdateTodoStatus(todo.ID, newStatus, msg.sessionID); err != nil {

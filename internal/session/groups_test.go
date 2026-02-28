@@ -559,7 +559,6 @@ func TestDeleteGroupWithSubgroups(t *testing.T) {
 	})
 }
 
-
 func TestMoveSessionToGroup(t *testing.T) {
 	instances := []*Instance{
 		{ID: "1", Title: "session-1", GroupPath: "source"},
