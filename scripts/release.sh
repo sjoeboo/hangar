@@ -38,9 +38,9 @@ if [[ "$CURRENT_BRANCH" != "master" ]]; then
     exit 1
 fi
 
-# Must have clean working tree
-if ! git diff --quiet || ! git diff --cached --quiet; then
-    echo -e "${RED}Error: working tree has uncommitted changes. Commit or stash first.${NC}"
+# Must have clean working tree (checks modified, staged, and untracked files)
+if [[ -n "$(git status --porcelain)" ]]; then
+    echo -e "${RED}Error: working tree is not clean. Commit, stash, or remove untracked files first.${NC}"
     git status --short
     exit 1
 fi
