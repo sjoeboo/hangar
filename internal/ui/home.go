@@ -6121,17 +6121,15 @@ func (h *Home) renderHelpBarCompact() string {
 				h.helpKeyShort("R", "Restart"),
 			}
 			if item.Session != nil && item.Session.CanFork() {
-				contextHints = append(contextHints, h.helpKeyShort("f", "Fork"))
+				contextHints = append(contextHints, h.helpKeyShort("f/F", "Fork"))
 			}
 			if item.Session != nil && item.Session.IsWorktree() {
 				contextHints = append(contextHints, h.helpKeyShort("W", "Finish"))
+				contextHints = append(contextHints, h.helpKeyShort("v", "Review"))
 			}
 			contextHints = append(contextHints,
-				h.helpKeyShort("c", "Copy"),
 				h.helpKeyShort("x", "Send"),
 				h.helpKeyShort("D", "Diff"),
-				h.helpKeyShort("G", "Git"),
-				h.helpKeyShort("t", "Todos"),
 			)
 			if item.Session != nil {
 				pr, hasPR := h.cache.GetPR(item.Session.ID)
@@ -6221,7 +6219,6 @@ func (h *Home) renderHelpBarFull() string {
 			primaryHints = []string{
 				h.helpKey("Enter", "Attach"),
 				h.helpKey("n/N", "New/Quick"),
-				h.helpKey("p", "Project"),
 				h.helpKey("R", "Restart"),
 			}
 			// Only show fork hints if session has a valid Claude session ID
@@ -6230,14 +6227,12 @@ func (h *Home) renderHelpBarFull() string {
 			}
 			if item.Session != nil && item.Session.IsWorktree() {
 				primaryHints = append(primaryHints, h.helpKey("W", "Finish"))
+				primaryHints = append(primaryHints, h.helpKey("v", "Review"))
 			}
 			primaryHints = append(primaryHints,
-				h.helpKey("c", "Copy"),
 				h.helpKey("x", "Send"),
 				h.helpKey("D", "Diff"),
-				h.helpKey("t", "Todos"),
 			)
-			primaryHints = append(primaryHints, h.helpKey("G", "Git"))
 			if item.Session != nil {
 				pr, hasPR := h.cache.GetPR(item.Session.ID)
 				if hasPR && pr != nil && pr.URL != "" {
