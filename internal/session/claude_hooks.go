@@ -2,6 +2,7 @@ package session
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -330,6 +331,10 @@ func claudeSupportsHTTPHooks(version string) bool {
 func DetectClaudeVersion() (string, error) {
 	out, err := exec.Command("claude", "--version").Output()
 	if err != nil {
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) && len(exitErr.Stderr) > 0 {
+			return "", fmt.Errorf("claude --version: %w: %s", err, strings.TrimSpace(string(exitErr.Stderr)))
+		}
 		return "", fmt.Errorf("claude --version: %w", err)
 	}
 	return parseClaudeVersion(string(out))

@@ -318,6 +318,7 @@ func TestParseClaudeVersion(t *testing.T) {
 		{"claude 1.0.0 (Claude Code)", "1.0.0", false},
 		{"2.1.63", "2.1.63", false},
 		{"Claude Code v2.1.63", "2.1.63", false},
+		{"claude 2.1.63 (Claude Code)\nUpdate available: 2.2.0", "2.1.63", false},
 		{"no version here", "", true},
 		{"", "", true},
 	}
