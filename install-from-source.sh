@@ -53,7 +53,7 @@ while [[ $# -gt 0 ]]; do
         -h|--help)
             echo "Hangar Installer"
             echo ""
-            echo "Usage: ./install.sh [options]"
+            echo "Usage: ./install-from-source.sh [options]"
             echo ""
             echo "Options:"
             echo "  --dir <path>          Installation directory (default: ~/.local/bin)"
@@ -79,7 +79,7 @@ echo ""
 if [[ ! -f "go.mod" ]] || ! grep -q 'github.com/sjoeboo/hangar' go.mod 2>/dev/null; then
     echo -e "${RED}Error: run this script from the root of the hangar repo.${NC}"
     echo "  git clone git@github.com:sjoeboo/hangar"
-    echo "  cd hangar && ./install.sh"
+    echo "  cd hangar && ./install-from-source.sh"
     exit 1
 fi
 
