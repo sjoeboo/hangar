@@ -163,7 +163,7 @@ func handleHooks(args []string) {
 
 func handleHooksInstall() {
 	configDir := getClaudeConfigDirForHooks()
-	installed, err := session.InjectClaudeHooks(configDir)
+	installed, err := session.InjectClaudeHooks(configDir, 0)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error installing hooks: %v\n", err)
 		os.Exit(1)

@@ -788,7 +788,7 @@ func NewHomeWithProfileAndMode(profile string) *Home {
 					prompted = true
 					if val == "accepted" {
 						// User previously accepted but hooks got removed: re-install silently
-						if _, err := session.InjectClaudeHooks(configDir); err != nil {
+						if _, err := session.InjectClaudeHooks(configDir, 0); err != nil {
 							uiLog.Warn("hook_reinstall_failed", slog.String("error", err.Error()))
 						} else {
 							uiLog.Info("claude_hooks_reinstalled", slog.String("config_dir", configDir))
@@ -4072,7 +4072,7 @@ func (h *Home) handleConfirmDialogKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			h.confirmDialog.Hide()
 			h.pendingHooksPrompt = false
 			configDir := session.GetClaudeConfigDir()
-			if _, err := session.InjectClaudeHooks(configDir); err != nil {
+			if _, err := session.InjectClaudeHooks(configDir, 0); err != nil {
 				uiLog.Warn("hook_install_failed", slog.String("error", err.Error()))
 			} else {
 				uiLog.Info("claude_hooks_installed", slog.String("config_dir", configDir))
