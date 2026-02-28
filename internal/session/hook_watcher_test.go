@@ -175,6 +175,56 @@ func TestStatusFileWatcher_UpdatesExisting(t *testing.T) {
 	}
 }
 
+func TestStatusFileWatcher_NotifiesOnProcessFile(t *testing.T) {
+	tmpDir := t.TempDir()
+	hooksDir := filepath.Join(tmpDir, "hooks")
+	_ = os.MkdirAll(hooksDir, 0755)
+
+	w := &StatusFileWatcher{
+		hooksDir:      hooksDir,
+		statuses:      make(map[string]*HookStatus),
+		hookChangedCh: make(chan struct{}, 1),
+	}
+
+	filePath := filepath.Join(hooksDir, "inst-notify.json")
+	data, _ := json.Marshal(map[string]any{
+		"status": "running", "session_id": "s1", "event": "UserPromptSubmit", "ts": time.Now().Unix(),
+	})
+	_ = os.WriteFile(filePath, data, 0644)
+
+	w.processFile(filePath)
+
+	select {
+	case <-w.NotifyChannel():
+		// success
+	default:
+		t.Fatal("Expected notification on hookChangedCh after processFile")
+	}
+}
+
+func TestStatusFileWatcher_NotifyChannelNotBlockedOnSecondFire(t *testing.T) {
+	tmpDir := t.TempDir()
+	hooksDir := filepath.Join(tmpDir, "hooks")
+	_ = os.MkdirAll(hooksDir, 0755)
+
+	w := &StatusFileWatcher{
+		hooksDir:      hooksDir,
+		statuses:      make(map[string]*HookStatus),
+		hookChangedCh: make(chan struct{}, 1),
+	}
+
+	filePath := filepath.Join(hooksDir, "inst-x.json")
+	data, _ := json.Marshal(map[string]any{
+		"status": "running", "session_id": "s1", "event": "UserPromptSubmit", "ts": time.Now().Unix(),
+	})
+	_ = os.WriteFile(filePath, data, 0644)
+
+	// Fire twice without draining — second must not block
+	w.processFile(filePath)
+	w.processFile(filePath)
+	// reaching here without deadlock = pass
+}
+
 func TestStatusFileWatcher_StopDuringDebounce(t *testing.T) {
 	hooksDir := t.TempDir()
 
@@ -184,12 +234,12 @@ func TestStatusFileWatcher_StopDuringDebounce(t *testing.T) {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	w := &StatusFileWatcher{
-		hooksDir: hooksDir,
-		watcher:  fswatcher,
-		statuses: make(map[string]*HookStatus),
-		ctx:      ctx,
-		cancel:   cancel,
-		onChange: func() {},
+		hooksDir:      hooksDir,
+		watcher:       fswatcher,
+		statuses:      make(map[string]*HookStatus),
+		ctx:           ctx,
+		cancel:        cancel,
+		hookChangedCh: make(chan struct{}, 1),
 	}
 
 	go w.Start()

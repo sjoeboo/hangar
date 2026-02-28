@@ -37,13 +37,13 @@ type StatusFileWatcher struct {
 	ctx    context.Context
 	cancel context.CancelFunc
 
-	// onChange is called when a hook status changes (for TUI refresh)
-	onChange func()
+	// hookChangedCh is sent to (non-blocking) when a hook status file is processed.
+	hookChangedCh chan struct{}
 }
 
 // NewStatusFileWatcher creates a new watcher for the hooks directory.
 // Call Start() to begin watching.
-func NewStatusFileWatcher(onChange func()) (*StatusFileWatcher, error) {
+func NewStatusFileWatcher() (*StatusFileWatcher, error) {
 	hooksDir := GetHooksDir()
 
 	// Ensure directory exists
@@ -59,13 +59,19 @@ func NewStatusFileWatcher(onChange func()) (*StatusFileWatcher, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	return &StatusFileWatcher{
-		hooksDir: hooksDir,
-		watcher:  watcher,
-		statuses: make(map[string]*HookStatus),
-		ctx:      ctx,
-		cancel:   cancel,
-		onChange: onChange,
+		hooksDir:      hooksDir,
+		watcher:       watcher,
+		statuses:      make(map[string]*HookStatus),
+		ctx:           ctx,
+		cancel:        cancel,
+		hookChangedCh: make(chan struct{}, 1),
 	}, nil
+}
+
+// NotifyChannel returns a receive-only channel that fires when a hook status
+// file is processed. Buffered 1 — drain it to re-arm.
+func (w *StatusFileWatcher) NotifyChannel() <-chan struct{} {
+	return w.hookChangedCh
 }
 
 // Start begins watching the hooks directory. Must be called in a goroutine.
@@ -201,8 +207,9 @@ func (w *StatusFileWatcher) processFile(filePath string) {
 		slog.String("event", status.Event),
 	)
 
-	if w.onChange != nil {
-		w.onChange()
+	select {
+	case w.hookChangedCh <- struct{}{}:
+	default: // already pending, coalesce
 	}
 }
 

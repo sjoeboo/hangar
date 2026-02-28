@@ -769,7 +769,7 @@ func NewHomeWithProfileAndMode(profile string) *Home {
 
 		if alreadyInstalled {
 			// Hooks already present: start watcher, no prompt needed
-			hookWatcher, err := session.NewStatusFileWatcher(nil)
+			hookWatcher, err := session.NewStatusFileWatcher()
 			if err != nil {
 				uiLog.Warn("hook_watcher_init_failed", slog.String("error", err.Error()))
 			} else {
@@ -789,7 +789,7 @@ func NewHomeWithProfileAndMode(profile string) *Home {
 						} else {
 							uiLog.Info("claude_hooks_reinstalled", slog.String("config_dir", configDir))
 						}
-						hookWatcher, err := session.NewStatusFileWatcher(nil)
+						hookWatcher, err := session.NewStatusFileWatcher()
 						if err != nil {
 							uiLog.Warn("hook_watcher_init_failed", slog.String("error", err.Error()))
 						} else {
@@ -4051,7 +4051,7 @@ func (h *Home) handleConfirmDialogKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				uiLog.Info("claude_hooks_installed", slog.String("config_dir", configDir))
 			}
 			// Start the status file watcher
-			hookWatcher, err := session.NewStatusFileWatcher(nil)
+			hookWatcher, err := session.NewStatusFileWatcher()
 			if err != nil {
 				uiLog.Warn("hook_watcher_init_failed", slog.String("error", err.Error()))
 			} else {

@@ -201,7 +201,7 @@ func (d *TransitionDaemon) ensureHookWatcher() {
 	if d.hookWatcher != nil {
 		return
 	}
-	watcher, err := NewStatusFileWatcher(nil)
+	watcher, err := NewStatusFileWatcher()
 	if err != nil {
 		return
 	}
