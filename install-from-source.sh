@@ -1,16 +1,14 @@
 #!/usr/bin/env bash
 #
-# Hangar Installer — downloads a pre-built binary from GitHub releases
+# Hangar Installer (source build)
 #
 # Usage:
-#   curl -fsSL https://github.com/sjoeboo/hangar/raw/master/install.sh | bash
-#
-#   Or download and run directly:
-#   bash install.sh [options]
+#   git clone git@github.com:sjoeboo/hangar
+#   cd hangar
+#   ./install-from-source.sh
 #
 # Options:
 #   --dir <path>          Installation directory (default: ~/.local/bin)
-#   --version <version>   Install a specific version (e.g. 1.0.2); default: latest
 #   --skip-tmux-config    Skip tmux configuration prompt
 #   --skip-hooks          Skip Claude Code hooks installation prompt
 #   --non-interactive     Skip all prompts (for CI/automated installs)
@@ -27,21 +25,15 @@ NC='\033[0m'
 
 # Defaults
 INSTALL_DIR="${HOME}/.local/bin"
-INSTALL_VERSION=""
 SKIP_TMUX_CONFIG=false
 SKIP_HOOKS=false
 NON_INTERACTIVE=false
-REPO="sjoeboo/hangar"
 
 # Parse arguments
 while [[ $# -gt 0 ]]; do
     case $1 in
         --dir)
             INSTALL_DIR="$2"
-            shift 2
-            ;;
-        --version)
-            INSTALL_VERSION="$2"
             shift 2
             ;;
         --skip-tmux-config)
@@ -61,12 +53,10 @@ while [[ $# -gt 0 ]]; do
         -h|--help)
             echo "Hangar Installer"
             echo ""
-            echo "Usage: bash install.sh [options]"
-            echo "   or: curl -fsSL https://github.com/sjoeboo/hangar/raw/master/install.sh | bash"
+            echo "Usage: ./install-from-source.sh [options]"
             echo ""
             echo "Options:"
             echo "  --dir <path>          Installation directory (default: ~/.local/bin)"
-            echo "  --version <version>   Specific version to install (default: latest)"
             echo "  --skip-tmux-config    Skip tmux configuration prompt"
             echo "  --skip-hooks          Skip Claude Code hooks installation prompt"
             echo "  --non-interactive     Skip all prompts"
@@ -85,31 +75,28 @@ echo -e "${BLUE}║         Hangar Installer               ║${NC}"
 echo -e "${BLUE}╚════════════════════════════════════════╝${NC}"
 echo ""
 
-# ── Detect platform ───────────────────────────────────────────────────────────
-OS=$(uname -s | tr '[:upper:]' '[:lower:]')
-ARCH=$(uname -m)
+# ── Verify we're in the repo root ────────────────────────────────────────────
+if [[ ! -f "go.mod" ]] || ! grep -q 'github.com/sjoeboo/hangar' go.mod 2>/dev/null; then
+    echo -e "${RED}Error: run this script from the root of the hangar repo.${NC}"
+    echo "  git clone git@github.com:sjoeboo/hangar"
+    echo "  cd hangar && ./install-from-source.sh"
+    exit 1
+fi
 
-case "$ARCH" in
-    x86_64)  ARCH="amd64" ;;
-    aarch64) ARCH="arm64" ;;
-    arm64)   ARCH="arm64" ;;
-    *)
-        echo -e "${RED}Error: unsupported architecture: $ARCH${NC}"
-        exit 1
-        ;;
-esac
+# ── Check for Go ──────────────────────────────────────────────────────────────
+if ! command -v go &>/dev/null; then
+    echo -e "${RED}Error: Go is not installed or not in PATH.${NC}"
+    echo ""
+    echo "Install Go:"
+    echo "  brew install go            # macOS Homebrew"
+    echo "  mise install go            # mise version manager"
+    echo "  asdf install golang latest # asdf version manager"
+    echo "  https://go.dev/dl/         # official installer"
+    exit 1
+fi
 
-case "$OS" in
-    linux|darwin) ;;
-    *)
-        echo -e "${RED}Error: unsupported OS: $OS${NC}"
-        echo "Supported: linux, darwin"
-        echo "For other platforms, build from source: https://github.com/${REPO}"
-        exit 1
-        ;;
-esac
-
-echo -e "Platform: ${GREEN}${OS}/${ARCH}${NC}"
+GO_VERSION=$(go version | awk '{print $3}')
+echo -e "Go:       ${GREEN}${GO_VERSION}${NC}"
 
 # ── Check for tmux ────────────────────────────────────────────────────────────
 if ! command -v tmux &>/dev/null; then
@@ -122,65 +109,30 @@ if ! command -v tmux &>/dev/null; then
     echo "  sudo pacman -S tmux        # Arch"
     exit 1
 fi
+
 echo -e "tmux:     ${GREEN}$(tmux -V 2>/dev/null | head -1)${NC}"
 echo ""
 
-# ── Resolve version ───────────────────────────────────────────────────────────
-if [[ -z "$INSTALL_VERSION" ]]; then
-    echo "Fetching latest release..."
-    RELEASE_JSON=$(curl -fsSL "https://api.github.com/repos/${REPO}/releases/latest")
-    INSTALL_VERSION=$(echo "$RELEASE_JSON" | grep '"tag_name"' | sed 's/.*"tag_name": *"v\{0,1\}\([^"]*\)".*/\1/')
-    if [[ -z "$INSTALL_VERSION" ]]; then
-        echo -e "${RED}Error: could not determine latest version from GitHub API.${NC}"
-        exit 1
-    fi
+# ── Build ─────────────────────────────────────────────────────────────────────
+echo -e "${BLUE}Building hangar from source...${NC}"
+
+VERSION=$(git describe --tags --always --dirty 2>/dev/null | sed 's/^v//' || echo "1.0.0")
+BUILD_DIR="./build"
+mkdir -p "$BUILD_DIR"
+
+if go build -ldflags "-X main.Version=${VERSION}" -o "${BUILD_DIR}/hangar" ./cmd/hangar; then
+    echo -e "${GREEN}✓${NC} Build successful (version: ${VERSION})"
+else
+    echo -e "${RED}Error: build failed.${NC}"
+    exit 1
 fi
-
-# Strip leading 'v' if present
-INSTALL_VERSION="${INSTALL_VERSION#v}"
-echo -e "Version:  ${GREEN}v${INSTALL_VERSION}${NC}"
-
-# ── Build download URL ────────────────────────────────────────────────────────
-ASSET_NAME="hangar_${INSTALL_VERSION}_${OS}_${ARCH}.tar.gz"
-DOWNLOAD_URL="https://github.com/${REPO}/releases/download/v${INSTALL_VERSION}/${ASSET_NAME}"
-
-echo -e "Asset:    ${ASSET_NAME}"
 echo ""
 
-# ── Download ──────────────────────────────────────────────────────────────────
-echo -e "${BLUE}Downloading...${NC}"
-TMP_DIR=""
-trap '[[ -n "$TMP_DIR" ]] && rm -rf "$TMP_DIR"' EXIT
-TMP_DIR=$(mktemp -d)
-
-if ! curl -fsSL --progress-bar "$DOWNLOAD_URL" -o "${TMP_DIR}/${ASSET_NAME}"; then
-    echo -e "${RED}Error: download failed.${NC}"
-    echo "URL: $DOWNLOAD_URL"
-    echo ""
-    echo "Check that v${INSTALL_VERSION} exists at:"
-    echo "  https://github.com/${REPO}/releases"
-    exit 1
-fi
-
-# ── Extract ───────────────────────────────────────────────────────────────────
-echo -e "${BLUE}Extracting...${NC}"
-tar -xzf "${TMP_DIR}/${ASSET_NAME}" -C "$TMP_DIR"
-
-if [[ ! -f "${TMP_DIR}/hangar" ]]; then
-    echo -e "${RED}Error: hangar binary not found in archive.${NC}"
-    exit 1
-fi
-
-# ── Install ───────────────────────────────────────────────────────────────────
+# ── Install binary ────────────────────────────────────────────────────────────
 mkdir -p "$INSTALL_DIR"
-install -m 755 "${TMP_DIR}/hangar" "${INSTALL_DIR}/hangar"
+cp "${BUILD_DIR}/hangar" "$INSTALL_DIR/hangar"
+chmod +x "$INSTALL_DIR/hangar"
 echo -e "${GREEN}✓${NC} Installed to ${INSTALL_DIR}/hangar"
-
-# Verify
-INSTALLED_VERSION=$("${INSTALL_DIR}/hangar" version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || echo "unknown")
-if [[ "$INSTALLED_VERSION" != "unknown" ]]; then
-    echo -e "${GREEN}✓${NC} Verified: hangar v${INSTALLED_VERSION}"
-fi
 
 # Check PATH
 if [[ ":$PATH:" != *":$INSTALL_DIR:"* ]]; then
@@ -230,7 +182,7 @@ configure_tmux() {
     fi
 
     if [[ "$NON_INTERACTIVE" != "true" ]]; then
-        read -p "Configure tmux? [Y/n] " -n 1 -r < /dev/tty
+        read -p "Configure tmux? [Y/n] " -n 1 -r
         echo
         if [[ $REPLY =~ ^[Nn]$ ]]; then
             echo "Skipping. Add the config manually later if needed."
@@ -238,15 +190,16 @@ configure_tmux() {
         fi
     fi
 
-    local OS_LOWER
-    OS_LOWER=$(uname -s | tr '[:upper:]' '[:lower:]')
+    # Detect OS + clipboard
+    local OS
+    OS=$(uname -s | tr '[:upper:]' '[:lower:]')
     local IS_WSL=false
     if grep -qi microsoft /proc/version 2>/dev/null || [[ -n "$WSL_DISTRO_NAME" ]]; then
         IS_WSL=true
     fi
 
     local CLIPBOARD_CMD
-    if [[ "$OS_LOWER" == "darwin" ]]; then
+    if [[ "$OS" == "darwin" ]]; then
         CLIPBOARD_CMD="pbcopy"
     elif [[ "$IS_WSL" == "true" ]]; then
         CLIPBOARD_CMD="clip.exe"
@@ -261,7 +214,7 @@ configure_tmux() {
         CLIPBOARD_CMD="xclip -in -selection clipboard"
     fi
 
-    cat >> "$TMUX_CONF" <<TMUXEOF
+    cat >> "$TMUX_CONF" <<EOF
 
 $MARKER
 $VERSION_MARKER $CURRENT_VERSION
@@ -282,7 +235,7 @@ bind-key -T copy-mode    WheelDownPane send-keys -X scroll-down
 bind-key -T copy-mode-vi MouseDragEnd1Pane send-keys -X copy-pipe-and-cancel "${CLIPBOARD_CMD}"
 bind-key -T copy-mode    MouseDragEnd1Pane send-keys -X copy-pipe-and-cancel "${CLIPBOARD_CMD}"
 # End hangar configuration
-TMUXEOF
+EOF
 
     echo -e "${GREEN}✓${NC} tmux configured"
 
@@ -312,7 +265,7 @@ install_hooks() {
     echo ""
 
     if [[ "$NON_INTERACTIVE" != "true" ]]; then
-        read -p "Install Claude Code hooks? [Y/n] " -n 1 -r < /dev/tty
+        read -p "Install Claude Code hooks? [Y/n] " -n 1 -r
         echo
         if [[ $REPLY =~ ^[Nn]$ ]]; then
             echo "Skipping. Install later with: hangar hooks install"
@@ -321,7 +274,7 @@ install_hooks() {
         fi
     fi
 
-    if "${INSTALL_DIR}/hangar" hooks install 2>/dev/null; then
+    if "$INSTALL_DIR/hangar" hooks install 2>/dev/null; then
         echo -e "${GREEN}✓${NC} Claude Code hooks installed"
     else
         echo -e "${YELLOW}Could not install hooks — run 'hangar hooks install' manually.${NC}"
@@ -336,12 +289,12 @@ echo -e "${GREEN}╔════════════════════
 echo -e "${GREEN}║     Installation complete!             ║${NC}"
 echo -e "${GREEN}╚════════════════════════════════════════╝${NC}"
 echo ""
-echo -e "Binary:  ${GREEN}${INSTALL_DIR}/hangar${NC}  (v${INSTALL_VERSION})"
+echo -e "Binary:  ${GREEN}${INSTALL_DIR}/hangar${NC}  (${VERSION})"
 echo ""
 echo "Get started:"
 echo "  hangar               # Launch the TUI"
 echo "  hangar hooks status  # Check hook status"
 echo "  hangar --help        # Show all commands"
 echo ""
-echo "To update:"
-echo "  hangar update        # Self-update to latest release"
+echo "To update later:"
+echo "  cd /path/to/hangar && git pull && ./install-from-source.sh"
