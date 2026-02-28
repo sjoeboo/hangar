@@ -149,8 +149,9 @@ echo ""
 
 # ── Download ──────────────────────────────────────────────────────────────────
 echo -e "${BLUE}Downloading...${NC}"
+TMP_DIR=""
+trap '[[ -n "$TMP_DIR" ]] && rm -rf "$TMP_DIR"' EXIT
 TMP_DIR=$(mktemp -d)
-trap 'rm -rf "$TMP_DIR"' EXIT
 
 if ! curl -fsSL --progress-bar "$DOWNLOAD_URL" -o "${TMP_DIR}/${ASSET_NAME}"; then
     echo -e "${RED}Error: download failed.${NC}"
@@ -229,7 +230,7 @@ configure_tmux() {
     fi
 
     if [[ "$NON_INTERACTIVE" != "true" ]]; then
-        read -p "Configure tmux? [Y/n] " -n 1 -r
+        read -p "Configure tmux? [Y/n] " -n 1 -r < /dev/tty
         echo
         if [[ $REPLY =~ ^[Nn]$ ]]; then
             echo "Skipping. Add the config manually later if needed."
@@ -311,7 +312,7 @@ install_hooks() {
     echo ""
 
     if [[ "$NON_INTERACTIVE" != "true" ]]; then
-        read -p "Install Claude Code hooks? [Y/n] " -n 1 -r
+        read -p "Install Claude Code hooks? [Y/n] " -n 1 -r < /dev/tty
         echo
         if [[ $REPLY =~ ^[Nn]$ ]]; then
             echo "Skipping. Install later with: hangar hooks install"
