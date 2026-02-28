@@ -38,6 +38,10 @@ type StatusFileWatcher struct {
 	cancel   context.CancelFunc
 	stopOnce sync.Once // ensures hookChangedCh is closed exactly once
 
+	// sendMu serialises channel sends (processFile) against the channel close
+	// (Stop) to prevent a concurrent send-on-closed-channel panic/race.
+	sendMu sync.Mutex
+
 	// hookChangedCh is sent to (non-blocking) when a hook status file is processed.
 	hookChangedCh chan struct{}
 }
@@ -156,7 +160,10 @@ func (w *StatusFileWatcher) Stop() {
 	w.cancel()
 	_ = w.watcher.Close()
 	w.stopOnce.Do(func() {
+		// Hold sendMu while closing so processFile cannot send concurrently.
+		w.sendMu.Lock()
 		close(w.hookChangedCh) // unblock any goroutine blocked on NotifyChannel()
+		w.sendMu.Unlock()
 	})
 }
 
@@ -229,19 +236,21 @@ func (w *StatusFileWatcher) processFile(filePath string) {
 		slog.String("event", status.Event),
 	)
 
-	// Guard against sending on a closed channel after Stop() is called.
-	// The debounce timer goroutine may fire after context cancellation.
-	// ctx is nil only in unit tests that construct StatusFileWatcher directly.
-	if w.ctx != nil {
-		select {
-		case <-w.ctx.Done():
-			return
-		default:
+	// Serialise against Stop() which closes hookChangedCh under sendMu.
+	// Holding sendMu here prevents a concurrent send-on-closed-channel panic/race.
+	if w.hookChangedCh != nil {
+		w.sendMu.Lock()
+		// Re-check context inside the lock: Stop() calls cancel() before closing
+		// the channel, so ctx.Done() being set means the channel may already be
+		// closed (or about to be closed).
+		cancelled := w.ctx != nil && w.ctx.Err() != nil
+		if !cancelled {
+			select {
+			case w.hookChangedCh <- struct{}{}:
+			default: // already pending, coalesce
+			}
 		}
-	}
-	select {
-	case w.hookChangedCh <- struct{}{}:
-	default: // already pending, coalesce
+		w.sendMu.Unlock()
 	}
 }
 
