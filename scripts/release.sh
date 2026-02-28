@@ -112,7 +112,7 @@ if [[ ! -f "CHANGELOG.md" ]]; then
     exit 1
 fi
 
-if ! grep -qE "^## \[${NEW_VERSION}\]" CHANGELOG.md; then
+if ! grep -qF "## [${NEW_VERSION}]" CHANGELOG.md; then
     echo -e "${RED}Error: CHANGELOG.md has no entry for ${NEW_VERSION}.${NC}"
     echo ""
     echo "Add a section like:"
@@ -124,16 +124,21 @@ fi
 
 echo -e "${GREEN}✓${NC} CHANGELOG.md has entry for ${NEW_VERSION}"
 
+# ── Pull latest to avoid divergence ──────────────────────────────────────────
+echo "Pulling latest from origin/master..."
+if ! git pull --ff-only origin master; then
+    echo -e "${RED}Error: could not fast-forward to origin/master.${NC}"
+    echo "Resolve divergence manually (e.g. git rebase origin/master) then try again."
+    exit 1
+fi
+echo ""
+
 # Show the changelog entry
 echo ""
 echo -e "${BLUE}── Changelog entry ──────────────────────${NC}"
-awk "/^## \[${NEW_VERSION}\]/,/^## \[/" CHANGELOG.md | grep -v "^## \[${NEW_VERSION}\]" | sed '/^## \[/d'
+ESCAPED_VERSION="${NEW_VERSION//./\\.}"
+awk "/^## \[${ESCAPED_VERSION}\]/,/^## \[/" CHANGELOG.md | grep -v "^## \[${ESCAPED_VERSION}\]" | sed '/^## \[/d'
 echo -e "${BLUE}─────────────────────────────────────────${NC}"
-echo ""
-
-# ── Pull latest to avoid divergence ──────────────────────────────────────────
-echo "Pulling latest from origin/master..."
-git pull --ff-only origin master
 echo ""
 
 # ── Confirm ───────────────────────────────────────────────────────────────────
