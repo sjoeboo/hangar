@@ -5,7 +5,7 @@
 # Usage:
 #   git clone git@github.com:sjoeboo/hangar
 #   cd hangar
-#   ./install.sh
+#   ./install-from-source.sh
 #
 # Options:
 #   --dir <path>          Installation directory (default: ~/.local/bin)
@@ -297,4 +297,4 @@ echo "  hangar hooks status  # Check hook status"
 echo "  hangar --help        # Show all commands"
 echo ""
 echo "To update later:"
-echo "  cd /path/to/hangar && git pull && ./install.sh"
+echo "  cd /path/to/hangar && git pull && ./install-from-source.sh"
