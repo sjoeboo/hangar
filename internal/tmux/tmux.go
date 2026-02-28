@@ -1061,12 +1061,6 @@ func (s *Session) ConfigureStatusBar() {
 		return
 	}
 
-	// Get short folder name from WorkDir
-	folderName := filepath.Base(s.WorkDir)
-	if folderName == "" || folderName == "." {
-		folderName = "~"
-	}
-
 	// oasis_lagoon_dark powerline status-right:
 	//   [session-name pill] [folder pill] [clock pill]
 	//
