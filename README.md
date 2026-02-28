@@ -2,7 +2,7 @@
 
 **A terminal session manager for Claude Code — built for engineers who live in git worktrees.**
 
-> **Hangar is a highly opinionated personal fork of [agent-deck](https://ghe.spotify.net/mnicholson/agent-deck).** It strips away multi-agent orchestration, web UI, Telegram/Slack bridges, and non-Claude tool support to focus on a single use case: one engineer, Claude Code, and a lot of git worktrees. If you need the full feature set, check out agent-deck instead.
+> **Hangar is a highly opinionated personal fork of [agent-deck](https://github.com/asheshgoplani/agent-deck).** It strips away multi-agent orchestration, web UI, Telegram/Slack bridges, and non-Claude tool support to focus on a single use case: one engineer, Claude Code, and a lot of git worktrees. If you need the full feature set, check out agent-deck instead.
 
 ---
 
@@ -47,16 +47,19 @@ Press **`x`** to send a message to any session — no attach/detach needed.
 ## Quick Start
 
 **Homebrew (recommended):**
+
 ```bash
 brew install sjoeboo/tap/hangar
 ```
 
 **curl installer:**
+
 ```bash
 curl -fsSL https://github.com/sjoeboo/hangar/raw/master/install.sh | bash
 ```
 
 Then get started:
+
 ```bash
 # Register a project
 hangar project add myrepo ~/code/myrepo
@@ -76,29 +79,47 @@ hangar
 
 ## Key Bindings
 
-| Key | Action |
-|-----|--------|
-| `Enter` | Attach to session |
-| `n` / `N` | New session / Quick session |
-| `p` | New project |
-| `x` | Send text to session |
-| `o` | Open PR in browser |
-| `G` | Open lazygit |
-| `W` | Worktree finish dialog |
-| `D` | Inline diff view |
-| `P` | PR overview |
-| `t` | Todo kanban board |
-| `r` | Rename project or session |
-| `M` | Move session to project |
-| `S` | Settings |
-| `/` | Search |
-| `~` | Toggle status sort |
-| `Ctrl+R` | Force-refresh git/PR status |
-| `d` | Delete |
-| `Ctrl+Z` | Undo delete |
-| `?` | Full help |
-| `Ctrl+Q` | Detach from session |
-| `q` | Quit |
+### Sessions
+
+| Key         | Action                          |
+| ----------- | ------------------------------- |
+| `Enter`     | Attach to session               |
+| `n` / `N`   | New session / Quick session     |
+| `R`         | Restart session                 |
+| `f` / `F`   | Fork session (Claude only)      |
+| `x`         | Send text to session            |
+| `c`         | Copy output to clipboard        |
+| `r`         | Rename session or project       |
+| `M`         | Move session to project         |
+| `K` / `J`   | Reorder up / down               |
+| `d`         | Delete                          |
+| `Ctrl+Z`    | Undo delete                     |
+
+### Worktrees & PRs
+
+| Key      | Action                              |
+| -------- | ----------------------------------- |
+| `W`      | Finish worktree (archive branch)    |
+| `v`      | Review PR (open a review session)   |
+| `D`      | Inline diff view overlay            |
+| `o`      | Open PR in browser                  |
+| `P`      | Full-screen PR overview             |
+
+### Navigation & Projects
+
+| Key       | Action                      |
+| --------- | --------------------------- |
+| `p`       | New project                 |
+| `t`       | Todo kanban board           |
+| `G`       | Open lazygit                |
+| `1`–`9`   | Jump to project by number   |
+| `/`       | Search                      |
+| `~`       | Toggle status sort          |
+| `S`       | Settings                    |
+| `Ctrl+R`  | Force-refresh git/PR status |
+| `Ctrl+Q`  | Detach from session         |
+| `?`       | Full help overlay           |
+| `q`       | Quit                        |
 
 ---
 
