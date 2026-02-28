@@ -208,6 +208,7 @@ type Home struct {
 	hookWatcher        *session.StatusFileWatcher
 	hookServer         *hookserver.HookServer // Embedded HTTP hook server (nil if disabled)
 	hookServerPort     int                    // Port the HTTP server is listening on (0 = command hooks)
+	configuredHookPort int                    // Port from config, set at Init time (0 if unconfigured)
 	pendingHooksPrompt bool                   // True if user should be prompted to install hooks
 
 	// File watcher for external changes (auto-reload)
@@ -821,6 +822,7 @@ func NewHomeWithProfileAndMode(profile string) *Home {
 		if userConfig != nil {
 			port = userConfig.Claude.GetHookServerPort()
 		}
+		h.configuredHookPort = port
 		if hooksEnabled && port > 0 && h.hookWatcher != nil {
 			srv := hookserver.New(port, h.hookWatcher)
 			h.hookServer = srv
@@ -4117,10 +4119,7 @@ func (h *Home) handleConfirmDialogKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				go hookWatcher.Start()
 				// Start HTTP hook server if configured and not already running
 				if h.hookServer == nil {
-					port := 0
-					if uc, _ := session.LoadUserConfig(); uc != nil {
-						port = uc.Claude.GetHookServerPort()
-					}
+					port := h.configuredHookPort
 					if port > 0 {
 						srv := hookserver.New(port, h.hookWatcher)
 						h.hookServer = srv
@@ -4143,7 +4142,7 @@ func (h *Home) handleConfirmDialogKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			if db := statedb.GetGlobal(); db != nil {
 				_ = db.SetMeta("hooks_prompted", "accepted")
 			}
-			return h, nil
+			return h, listenForHookChanges(h.hookWatcher)
 		case "n", "N", "esc":
 			h.confirmDialog.Hide()
 			h.pendingHooksPrompt = false
