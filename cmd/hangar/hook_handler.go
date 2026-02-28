@@ -195,12 +195,15 @@ func handleHooksStatus() {
 	cleanStaleHookFiles()
 
 	configDir := getClaudeConfigDirForHooks()
-	installed := session.CheckClaudeHooksInstalled(configDir)
+
+	httpInstalled := session.CheckClaudeHTTPHooksInstalled(configDir)
+	commandInstalled := !httpInstalled && session.CheckClaudeHooksInstalled(configDir)
+	installed := httpInstalled || commandInstalled
 
 	if installed {
 		fmt.Println("Status: INSTALLED")
 		fmt.Printf("Config: %s/settings.json\n", configDir)
-		if session.CheckClaudeHTTPHooksInstalled(configDir) {
+		if httpInstalled {
 			fmt.Println("Type:   HTTP (Claude >= 2.1.63)")
 		} else {
 			fmt.Println("Type:   command (hangar hook-handler)")

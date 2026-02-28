@@ -523,6 +523,18 @@ func TestCheckClaudeHTTPHooksInstalled(t *testing.T) {
 	if !CheckClaudeHTTPHooksInstalled(tmpDir) {
 		t.Error("HTTP hooks should be reported as HTTP after upgrade")
 	}
+
+	// Removal round-trip: hooks should be gone after RemoveClaudeHooks
+	removed, err := RemoveClaudeHooks(tmpDir)
+	if err != nil {
+		t.Fatalf("RemoveClaudeHooks: %v", err)
+	}
+	if !removed {
+		t.Fatal("Expected RemoveClaudeHooks to return true")
+	}
+	if CheckClaudeHTTPHooksInstalled(tmpDir) {
+		t.Error("Expected CheckClaudeHTTPHooksInstalled to return false after removal")
+	}
 }
 
 func TestNotificationMatcher(t *testing.T) {

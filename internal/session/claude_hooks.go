@@ -253,56 +253,37 @@ func RemoveClaudeHooks(configDir string) (bool, error) {
 	return true, nil
 }
 
-// CheckClaudeHooksInstalled checks if hangar hooks are present in settings.json.
-func CheckClaudeHooksInstalled(configDir string) bool {
+// loadHooksMap reads settings.json from configDir and returns the parsed hooks map,
+// or nil if the file does not exist, cannot be read, or has no "hooks" key.
+func loadHooksMap(configDir string) map[string]json.RawMessage {
 	settingsPath := filepath.Join(configDir, "settings.json")
 	data, err := os.ReadFile(settingsPath)
 	if err != nil {
-		return false
+		return nil
 	}
-
 	var rawSettings map[string]json.RawMessage
 	if err := json.Unmarshal(data, &rawSettings); err != nil {
-		return false
+		return nil
 	}
-
 	hooksRaw, ok := rawSettings["hooks"]
 	if !ok {
-		return false
+		return nil
 	}
-
-	var existingHooks map[string]json.RawMessage
-	if err := json.Unmarshal(hooksRaw, &existingHooks); err != nil {
-		return false
+	var hooks map[string]json.RawMessage
+	if err := json.Unmarshal(hooksRaw, &hooks); err != nil {
+		return nil
 	}
+	return hooks
+}
 
-	return hooksAlreadyInstalled(existingHooks)
+// CheckClaudeHooksInstalled checks if hangar hooks are present in settings.json.
+func CheckClaudeHooksInstalled(configDir string) bool {
+	return hooksAlreadyInstalled(loadHooksMap(configDir))
 }
 
 // CheckClaudeHTTPHooksInstalled returns true if HTTP hooks (not command hooks) are installed.
 func CheckClaudeHTTPHooksInstalled(configDir string) bool {
-	settingsPath := filepath.Join(configDir, "settings.json")
-	data, err := os.ReadFile(settingsPath)
-	if err != nil {
-		return false
-	}
-
-	var rawSettings map[string]json.RawMessage
-	if err := json.Unmarshal(data, &rawSettings); err != nil {
-		return false
-	}
-
-	hooksRaw, ok := rawSettings["hooks"]
-	if !ok {
-		return false
-	}
-
-	var existingHooks map[string]json.RawMessage
-	if err := json.Unmarshal(hooksRaw, &existingHooks); err != nil {
-		return false
-	}
-
-	return httpHooksAlreadyInstalled(existingHooks)
+	return httpHooksAlreadyInstalled(loadHooksMap(configDir))
 }
 
 // hooksAlreadyInstalled checks if all required hangar hooks (any type) are present.
