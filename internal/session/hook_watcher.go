@@ -25,6 +25,25 @@ type HookStatus struct {
 	UpdatedAt time.Time // When this status was received
 }
 
+// MapEventToStatus maps a Claude Code hook event name to a hangar status string.
+// Returns empty string for events that don't change status (e.g. Notification, unknown events).
+func MapEventToStatus(event string) string {
+	switch event {
+	case "SessionStart":
+		return "waiting" // Claude at initial prompt, waiting for user input
+	case "UserPromptSubmit":
+		return "running" // User sent prompt, Claude is processing
+	case "Stop":
+		return "waiting" // Claude finished, back at prompt waiting for user
+	case "PermissionRequest":
+		return "waiting" // Claude needs permission approval
+	case "SessionEnd":
+		return "dead"
+	default:
+		return ""
+	}
+}
+
 // StatusFileWatcher watches ~/.hangar/hooks/ for status file changes
 // and updates instance hook status in real time.
 type StatusFileWatcher struct {

@@ -263,6 +263,29 @@ func TestStatusFileWatcher_NoNotifyOnInvalidFile(t *testing.T) {
 	}
 }
 
+func TestMapEventToStatus(t *testing.T) {
+	tests := []struct {
+		event string
+		want  string
+	}{
+		{"SessionStart", "waiting"},
+		{"UserPromptSubmit", "running"},
+		{"Stop", "waiting"},
+		{"PermissionRequest", "waiting"},
+		{"SessionEnd", "dead"},
+		{"Notification", ""},
+		{"UnknownEvent", ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.event, func(t *testing.T) {
+			got := MapEventToStatus(tt.event)
+			if got != tt.want {
+				t.Errorf("MapEventToStatus(%q) = %q, want %q", tt.event, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestStatusFileWatcher_StopDuringDebounce(t *testing.T) {
 	hooksDir := t.TempDir()
 
