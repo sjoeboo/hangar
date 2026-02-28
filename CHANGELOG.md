@@ -5,6 +5,24 @@ All notable changes to Hangar will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.4] - 2026-02-27
+
+### Changed
+
+- **Bottom help bar** — trimmed session hints to reduce noise; removed `c`, `p`,
+  `t`, `G` from primary hints (all still accessible via `?`); compact bar also
+  drops `R` and `f` for narrower terminals
+- **`v` key in help bar** — "Review" hint now appears alongside `W` ("Finish")
+  whenever a worktree session is selected, making the PR review workflow
+  discoverable without opening `?`
+
+### Added
+
+- **README key bindings** — reorganised into three grouped tables (Sessions,
+  Worktrees & PRs, Navigation & Projects); added previously undocumented keys:
+  `v` (review PR), `R` (restart), `f`/`F` (fork), `c` (copy), `K`/`J`
+  (reorder), `1`–`9` (jump to project), `P` (PR overview)
+
 ## [1.0.3] - 2026-02-27
 
 Fix up CI/release tooling
