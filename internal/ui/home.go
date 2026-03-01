@@ -22,6 +22,7 @@ import (
 
 	"github.com/sjoeboo/hangar/internal/clipboard"
 	"github.com/sjoeboo/hangar/internal/git"
+	"github.com/sjoeboo/hangar/internal/hookserver"
 	"github.com/sjoeboo/hangar/internal/logging"
 	"github.com/sjoeboo/hangar/internal/session"
 	"github.com/sjoeboo/hangar/internal/statedb"
@@ -205,7 +206,10 @@ type Home struct {
 
 	// Hook-based status detection (Claude Code lifecycle hooks)
 	hookWatcher        *session.StatusFileWatcher
-	pendingHooksPrompt bool // True if user should be prompted to install hooks
+	hookServer         *hookserver.HookServer // Embedded HTTP hook server (nil if disabled)
+	hookServerPort     int                    // Port the HTTP server is listening on (0 = command hooks)
+	configuredHookPort int                    // Port from config, set at Init time (0 if unconfigured)
+	pendingHooksPrompt bool                   // True if user should be prompted to install hooks
 
 	// File watcher for external changes (auto-reload)
 	storageWatcher *StorageWatcher
@@ -387,6 +391,10 @@ type statusUpdateMsg struct{} // Triggers immediate status update without reload
 
 // storageChangedMsg signals that state.db was modified externally
 type storageChangedMsg struct{}
+
+// hookStatusChangedMsg signals that a hook status file was processed.
+// Triggers an immediate status refresh without waiting for the next tick.
+type hookStatusChangedMsg struct{}
 
 // openCodeDetectionCompleteMsg signals that OpenCode session detection finished
 // Used to trigger a save after async detection completes
@@ -769,7 +777,7 @@ func NewHomeWithProfileAndMode(profile string) *Home {
 
 		if alreadyInstalled {
 			// Hooks already present: start watcher, no prompt needed
-			hookWatcher, err := session.NewStatusFileWatcher(nil)
+			hookWatcher, err := session.NewStatusFileWatcher()
 			if err != nil {
 				uiLog.Warn("hook_watcher_init_failed", slog.String("error", err.Error()))
 			} else {
@@ -784,12 +792,14 @@ func NewHomeWithProfileAndMode(profile string) *Home {
 					prompted = true
 					if val == "accepted" {
 						// User previously accepted but hooks got removed: re-install silently
-						if _, err := session.InjectClaudeHooks(configDir); err != nil {
+						// h.hookServerPort is 0 here (HTTP server not yet started); use command hooks.
+						// The HTTP server startup block below will upgrade to HTTP hooks after starting.
+						if _, err := session.InjectClaudeHooks(configDir, h.hookServerPort); err != nil {
 							uiLog.Warn("hook_reinstall_failed", slog.String("error", err.Error()))
 						} else {
 							uiLog.Info("claude_hooks_reinstalled", slog.String("config_dir", configDir))
 						}
-						hookWatcher, err := session.NewStatusFileWatcher(nil)
+						hookWatcher, err := session.NewStatusFileWatcher()
 						if err != nil {
 							uiLog.Warn("hook_watcher_init_failed", slog.String("error", err.Error()))
 						} else {
@@ -803,6 +813,32 @@ func NewHomeWithProfileAndMode(profile string) *Home {
 			if !prompted {
 				h.pendingHooksPrompt = true
 			}
+		}
+	}
+
+	// Start embedded HTTP hook server if configured
+	{
+		port := 0
+		if userConfig != nil {
+			port = userConfig.Claude.GetHookServerPort()
+		}
+		h.configuredHookPort = port
+		if hooksEnabled && port > 0 && h.hookWatcher != nil {
+			srv := hookserver.New(port, h.hookWatcher)
+			h.hookServer = srv
+			h.hookServerPort = port
+			go func() {
+				if err := srv.Start(h.ctx); err != nil {
+					uiLog.Warn("hookserver_failed", slog.String("error", err.Error()))
+				}
+			}()
+			// Silently upgrade command hooks → HTTP hooks now that the server is running
+			go func() {
+				configDir := session.GetClaudeConfigDir()
+				if _, err := session.InjectClaudeHooks(configDir, port); err != nil {
+					uiLog.Warn("hook_upgrade_failed", slog.String("error", err.Error()))
+				}
+			}()
 		}
 	}
 
@@ -1274,6 +1310,11 @@ func (h *Home) Init() tea.Cmd {
 		cmds = append(cmds, listenForReloads(h.storageWatcher))
 	}
 
+	// Start listening for hook status changes (immediate TUI refresh on hook events)
+	if h.hookWatcher != nil {
+		cmds = append(cmds, listenForHookChanges(h.hookWatcher))
+	}
+
 	// Start listening for OS theme changes
 	if h.themeWatcher != nil {
 		cmds = append(cmds, listenForThemeChange(h.themeWatcher))
@@ -1298,6 +1339,21 @@ func listenForReloads(sw *StorageWatcher) tea.Cmd {
 		}
 		<-sw.ReloadChannel()
 		return storageChangedMsg{}
+	}
+}
+
+// listenForHookChanges waits for a hook status change notification.
+// MUST be re-issued in the Update handler to keep listening.
+func listenForHookChanges(w *session.StatusFileWatcher) tea.Cmd {
+	return func() tea.Msg {
+		if w == nil {
+			return nil
+		}
+		_, ok := <-w.NotifyChannel()
+		if !ok {
+			return nil // channel closed — watcher stopped, TUI is shutting down
+		}
+		return hookStatusChangedMsg{}
 	}
 }
 
@@ -2296,6 +2352,9 @@ func (h *Home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case storageChangedMsg:
 		return h, h.handleStorageChanged(msg)
+
+	case hookStatusChangedMsg:
+		return h, h.handleHookStatusChanged()
 
 	case statusUpdateMsg:
 		return h, h.handleStatusUpdate(msg)
@@ -4045,24 +4104,45 @@ func (h *Home) handleConfirmDialogKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			h.confirmDialog.Hide()
 			h.pendingHooksPrompt = false
 			configDir := session.GetClaudeConfigDir()
-			if _, err := session.InjectClaudeHooks(configDir); err != nil {
+			// Use h.hookServerPort: 0 = command hooks (server not started), >0 = HTTP hooks.
+			if _, err := session.InjectClaudeHooks(configDir, h.hookServerPort); err != nil {
 				uiLog.Warn("hook_install_failed", slog.String("error", err.Error()))
 			} else {
 				uiLog.Info("claude_hooks_installed", slog.String("config_dir", configDir))
 			}
 			// Start the status file watcher
-			hookWatcher, err := session.NewStatusFileWatcher(nil)
+			hookWatcher, err := session.NewStatusFileWatcher()
 			if err != nil {
 				uiLog.Warn("hook_watcher_init_failed", slog.String("error", err.Error()))
 			} else {
 				h.hookWatcher = hookWatcher
 				go hookWatcher.Start()
+				// Start HTTP hook server if configured and not already running
+				if h.hookServer == nil {
+					port := h.configuredHookPort
+					if port > 0 {
+						srv := hookserver.New(port, h.hookWatcher)
+						h.hookServer = srv
+						h.hookServerPort = port
+						go func() {
+							if err := srv.Start(h.ctx); err != nil {
+								uiLog.Warn("hookserver_failed", slog.String("error", err.Error()))
+							}
+						}()
+						// Upgrade the just-installed hooks to HTTP hooks
+						go func() {
+							if _, err := session.InjectClaudeHooks(configDir, port); err != nil {
+								uiLog.Warn("hook_upgrade_failed", slog.String("error", err.Error()))
+							}
+						}()
+					}
+				}
 			}
 			// Remember user's choice
 			if db := statedb.GetGlobal(); db != nil {
 				_ = db.SetMeta("hooks_prompted", "accepted")
 			}
-			return h, nil
+			return h, listenForHookChanges(h.hookWatcher)
 		case "n", "N", "esc":
 			h.confirmDialog.Hide()
 			h.pendingHooksPrompt = false
@@ -4195,6 +4275,14 @@ func (h *Home) performFinalShutdown(_ bool) tea.Cmd {
 		if pm := tmux.GetPipeManager(); pm != nil {
 			pm.Close()
 			tmux.SetPipeManager(nil)
+		}
+		// Wait for the HTTP hook server to finish draining in-flight requests.
+		if h.hookServer != nil {
+			select {
+			case <-h.hookServer.WaitDone():
+			case <-time.After(3 * time.Second):
+				// best-effort drain; don't block shutdown indefinitely
+			}
 		}
 		// Close hook watcher (Claude Code lifecycle hooks)
 		if h.hookWatcher != nil {

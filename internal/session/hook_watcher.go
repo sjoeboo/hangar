@@ -25,6 +25,25 @@ type HookStatus struct {
 	UpdatedAt time.Time // When this status was received
 }
 
+// MapEventToStatus maps a Claude Code hook event name to a hangar status string.
+// Returns empty string for events that don't change status (e.g. Notification, unknown events).
+func MapEventToStatus(event string) string {
+	switch event {
+	case "SessionStart":
+		return "waiting" // Claude at initial prompt, waiting for user input
+	case "UserPromptSubmit":
+		return "running" // User sent prompt, Claude is processing
+	case "Stop":
+		return "waiting" // Claude finished, back at prompt waiting for user
+	case "PermissionRequest":
+		return "waiting" // Claude needs permission approval
+	case "SessionEnd":
+		return "dead"
+	default:
+		return ""
+	}
+}
+
 // StatusFileWatcher watches ~/.hangar/hooks/ for status file changes
 // and updates instance hook status in real time.
 type StatusFileWatcher struct {
@@ -34,16 +53,21 @@ type StatusFileWatcher struct {
 	mu       sync.RWMutex
 	statuses map[string]*HookStatus // instance_id -> latest hook status
 
-	ctx    context.Context
-	cancel context.CancelFunc
+	ctx      context.Context
+	cancel   context.CancelFunc
+	stopOnce sync.Once // ensures hookChangedCh is closed exactly once
 
-	// onChange is called when a hook status changes (for TUI refresh)
-	onChange func()
+	// sendMu serialises channel sends (processFile) against the channel close
+	// (Stop) to prevent a concurrent send-on-closed-channel panic/race.
+	sendMu sync.Mutex
+
+	// hookChangedCh is sent to (non-blocking) when a hook status file is processed.
+	hookChangedCh chan struct{}
 }
 
 // NewStatusFileWatcher creates a new watcher for the hooks directory.
 // Call Start() to begin watching.
-func NewStatusFileWatcher(onChange func()) (*StatusFileWatcher, error) {
+func NewStatusFileWatcher() (*StatusFileWatcher, error) {
 	hooksDir := GetHooksDir()
 
 	// Ensure directory exists
@@ -59,16 +83,31 @@ func NewStatusFileWatcher(onChange func()) (*StatusFileWatcher, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	return &StatusFileWatcher{
-		hooksDir: hooksDir,
-		watcher:  watcher,
-		statuses: make(map[string]*HookStatus),
-		ctx:      ctx,
-		cancel:   cancel,
-		onChange: onChange,
+		hooksDir:      hooksDir,
+		watcher:       watcher,
+		statuses:      make(map[string]*HookStatus),
+		ctx:           ctx,
+		cancel:        cancel,
+		hookChangedCh: make(chan struct{}, 1),
 	}, nil
 }
 
+// NotifyChannel returns a receive-only channel that fires when a hook status
+// file is successfully parsed and the in-memory status map is updated.
+// The channel has capacity 1 — rapid successive file changes coalesce into a
+// single signal. Consumers should do a full status reload on each signal
+// rather than assuming a 1:1 mapping to file changes.
+//
+// Notifications are NOT sent when a file cannot be read or parsed; such errors
+// are silently dropped. The channel is closed when Stop() is called; consumers
+// must use the two-value receive form and return on ok==false.
+func (w *StatusFileWatcher) NotifyChannel() <-chan struct{} {
+	return w.hookChangedCh
+}
+
 // Start begins watching the hooks directory. Must be called in a goroutine.
+// On startup, loadExisting() processes all pre-existing files; these may
+// coalesce into a single channel notification if multiple files are present.
 func (w *StatusFileWatcher) Start() {
 	if err := w.watcher.Add(w.hooksDir); err != nil {
 		hookLog.Warn("hook_watcher_add_failed", slog.String("dir", w.hooksDir), slog.String("error", err.Error()))
@@ -135,10 +174,33 @@ func (w *StatusFileWatcher) Start() {
 	}
 }
 
-// Stop shuts down the watcher.
+// Stop shuts down the watcher. Safe to call multiple times.
 func (w *StatusFileWatcher) Stop() {
 	w.cancel()
 	_ = w.watcher.Close()
+	w.stopOnce.Do(func() {
+		// Hold sendMu while closing so processFile cannot send concurrently.
+		w.sendMu.Lock()
+		close(w.hookChangedCh) // unblock any goroutine blocked on NotifyChannel()
+		w.sendMu.Unlock()
+	})
+}
+
+// TriggerForTest sends a notification to the channel for testing purposes.
+// Do not call from production code.
+func (w *StatusFileWatcher) TriggerForTest() {
+	if w.hookChangedCh == nil {
+		return
+	}
+	w.sendMu.Lock()
+	cancelled := w.ctx != nil && w.ctx.Err() != nil
+	if !cancelled {
+		select {
+		case w.hookChangedCh <- struct{}{}:
+		default:
+		}
+	}
+	w.sendMu.Unlock()
 }
 
 // GetHookStatus returns the hook status for an instance, or nil if not available.
@@ -201,9 +263,104 @@ func (w *StatusFileWatcher) processFile(filePath string) {
 		slog.String("event", status.Event),
 	)
 
-	if w.onChange != nil {
-		w.onChange()
+	// Serialise against Stop() which closes hookChangedCh under sendMu.
+	// Holding sendMu here prevents a concurrent send-on-closed-channel panic/race.
+	if w.hookChangedCh != nil {
+		w.sendMu.Lock()
+		// Re-check context inside the lock: Stop() calls cancel() before closing
+		// the channel, so ctx.Done() being set means the channel may already be
+		// closed (or about to be closed).
+		cancelled := w.ctx != nil && w.ctx.Err() != nil
+		if !cancelled {
+			select {
+			case w.hookChangedCh <- struct{}{}:
+			default: // already pending, coalesce
+			}
+		}
+		w.sendMu.Unlock()
 	}
+}
+
+// Notify updates the in-memory status for instanceID, writes the status file
+// atomically, and notifies the hookChangedCh channel. This is the HTTP hook
+// path — the equivalent of processFile but driven by an incoming HTTP request
+// rather than a filesystem event.
+func (w *StatusFileWatcher) Notify(instanceID, status, sessionID, event string) {
+	if instanceID == "" || status == "" {
+		return
+	}
+
+	hookStatus := &HookStatus{
+		Status:    status,
+		SessionID: sessionID,
+		Event:     event,
+		UpdatedAt: time.Now(),
+	}
+
+	w.mu.Lock()
+	w.statuses[instanceID] = hookStatus
+	w.mu.Unlock()
+
+	// Write status file for startup catchup (crash recovery path reads files on TUI relaunch).
+	// Note: this write will trigger a secondary fsnotify-driven processFile call ~100ms later,
+	// producing a second hookChangedCh signal. The capacity-1 buffered channel coalesces it
+	// harmlessly — the second signal is either absorbed or dropped via the default branch.
+	writeHookStatusFile(instanceID, status, sessionID, event, w.hooksDir)
+
+	hookLog.Debug("hook_status_notify",
+		slog.String("instance", instanceID),
+		slog.String("status", status),
+		slog.String("event", event),
+	)
+
+	// Serialise against Stop() which closes hookChangedCh under sendMu.
+	if w.hookChangedCh != nil {
+		w.sendMu.Lock()
+		cancelled := w.ctx != nil && w.ctx.Err() != nil
+		if !cancelled {
+			select {
+			case w.hookChangedCh <- struct{}{}:
+			default: // already pending, coalesce
+			}
+		}
+		w.sendMu.Unlock()
+	}
+}
+
+// writeHookStatusFile writes a hook status JSON file atomically to hooksDir.
+// The file is named {instanceID}.json and uses a tmp+rename pattern.
+func writeHookStatusFile(instanceID, status, sessionID, event, hooksDir string) {
+	if instanceID == "" || status == "" || hooksDir == "" {
+		return
+	}
+
+	if err := os.MkdirAll(hooksDir, 0755); err != nil {
+		return
+	}
+
+	type statusFile struct {
+		Status    string `json:"status"`
+		SessionID string `json:"session_id,omitempty"`
+		Event     string `json:"event"`
+		Timestamp int64  `json:"ts"`
+	}
+
+	data, err := json.Marshal(statusFile{
+		Status:    status,
+		SessionID: sessionID,
+		Event:     event,
+		Timestamp: time.Now().Unix(),
+	})
+	if err != nil {
+		return
+	}
+
+	filePath := filepath.Join(hooksDir, instanceID+".json")
+	tmpPath := filePath + ".tmp"
+	if err := os.WriteFile(tmpPath, data, 0644); err != nil {
+		return
+	}
+	_ = os.Rename(tmpPath, filePath)
 }
 
 // GetHooksDir returns the path to the hooks status directory.

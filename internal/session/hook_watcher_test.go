@@ -175,6 +175,117 @@ func TestStatusFileWatcher_UpdatesExisting(t *testing.T) {
 	}
 }
 
+func TestStatusFileWatcher_NotifiesOnProcessFile(t *testing.T) {
+	tmpDir := t.TempDir()
+	hooksDir := filepath.Join(tmpDir, "hooks")
+	_ = os.MkdirAll(hooksDir, 0755)
+
+	w := &StatusFileWatcher{
+		hooksDir:      hooksDir,
+		statuses:      make(map[string]*HookStatus),
+		hookChangedCh: make(chan struct{}, 1),
+	}
+
+	filePath := filepath.Join(hooksDir, "inst-notify.json")
+	data, _ := json.Marshal(map[string]any{
+		"status": "running", "session_id": "s1", "event": "UserPromptSubmit", "ts": time.Now().Unix(),
+	})
+	_ = os.WriteFile(filePath, data, 0644)
+
+	w.processFile(filePath)
+
+	select {
+	case <-w.NotifyChannel():
+		// success
+	default:
+		t.Fatal("Expected notification on hookChangedCh after processFile")
+	}
+}
+
+func TestStatusFileWatcher_NotifyChannelNotBlockedOnSecondFire(t *testing.T) {
+	tmpDir := t.TempDir()
+	hooksDir := filepath.Join(tmpDir, "hooks")
+	_ = os.MkdirAll(hooksDir, 0755)
+
+	w := &StatusFileWatcher{
+		hooksDir:      hooksDir,
+		statuses:      make(map[string]*HookStatus),
+		hookChangedCh: make(chan struct{}, 1),
+	}
+
+	filePath := filepath.Join(hooksDir, "inst-x.json")
+	data, _ := json.Marshal(map[string]any{
+		"status": "running", "session_id": "s1", "event": "UserPromptSubmit", "ts": time.Now().Unix(),
+	})
+	_ = os.WriteFile(filePath, data, 0644)
+
+	// Fire twice without draining — second must not block
+	w.processFile(filePath)
+	w.processFile(filePath)
+
+	// After two fires without draining, channel must have exactly one item
+	select {
+	case <-w.NotifyChannel():
+		// correct — exactly one coalesced notification
+	default:
+		t.Fatal("expected exactly one notification after two processFile calls")
+	}
+	// Channel must now be empty
+	select {
+	case <-w.NotifyChannel():
+		t.Fatal("expected channel to be empty after draining the one notification")
+	default:
+		// correct
+	}
+}
+
+func TestStatusFileWatcher_NoNotifyOnInvalidFile(t *testing.T) {
+	tmpDir := t.TempDir()
+	hooksDir := filepath.Join(tmpDir, "hooks")
+	_ = os.MkdirAll(hooksDir, 0755)
+
+	w := &StatusFileWatcher{
+		hooksDir:      hooksDir,
+		statuses:      make(map[string]*HookStatus),
+		hookChangedCh: make(chan struct{}, 1),
+	}
+
+	filePath := filepath.Join(hooksDir, "bad.json")
+	_ = os.WriteFile(filePath, []byte("not valid json"), 0644)
+
+	w.processFile(filePath)
+
+	select {
+	case <-w.NotifyChannel():
+		t.Fatal("expected no notification for invalid JSON file")
+	default:
+		// correct — no notification sent on parse error
+	}
+}
+
+func TestMapEventToStatus(t *testing.T) {
+	tests := []struct {
+		event string
+		want  string
+	}{
+		{"SessionStart", "waiting"},
+		{"UserPromptSubmit", "running"},
+		{"Stop", "waiting"},
+		{"PermissionRequest", "waiting"},
+		{"SessionEnd", "dead"},
+		{"Notification", ""},
+		{"UnknownEvent", ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.event, func(t *testing.T) {
+			got := MapEventToStatus(tt.event)
+			if got != tt.want {
+				t.Errorf("MapEventToStatus(%q) = %q, want %q", tt.event, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestStatusFileWatcher_StopDuringDebounce(t *testing.T) {
 	hooksDir := t.TempDir()
 
@@ -184,12 +295,12 @@ func TestStatusFileWatcher_StopDuringDebounce(t *testing.T) {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	w := &StatusFileWatcher{
-		hooksDir: hooksDir,
-		watcher:  fswatcher,
-		statuses: make(map[string]*HookStatus),
-		ctx:      ctx,
-		cancel:   cancel,
-		onChange: func() {},
+		hooksDir:      hooksDir,
+		watcher:       fswatcher,
+		statuses:      make(map[string]*HookStatus),
+		ctx:           ctx,
+		cancel:        cancel,
+		hookChangedCh: make(chan struct{}, 1),
 	}
 
 	go w.Start()

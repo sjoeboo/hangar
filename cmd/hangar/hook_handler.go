@@ -28,31 +28,9 @@ type hookStatusFile struct {
 	Timestamp int64  `json:"ts"`
 }
 
-// mapEventToStatus maps a Claude Code hook event to an hangar status string.
-// Status semantics in hangar:
-//   - "running" = Claude is actively processing (green)
-//   - "waiting" = Claude is at the prompt, waiting for user input (orange)
-//   - "dead"    = Session ended
+// mapEventToStatus delegates to the session package for the canonical mapping.
 func mapEventToStatus(event string) string {
-	switch event {
-	case "SessionStart":
-		return "waiting" // Claude at initial prompt, waiting for user input
-	case "UserPromptSubmit":
-		return "running" // User sent prompt, Claude is processing
-	case "Stop":
-		return "waiting" // Claude finished, back at prompt waiting for user
-	case "PermissionRequest":
-		return "waiting" // Claude needs permission approval
-	case "Notification":
-		// Notification events with permission_prompt|elicitation_dialog matcher
-		// are mapped to "waiting" by the caller after checking the matcher.
-		// Default notification is informational, treat as no status change.
-		return ""
-	case "SessionEnd":
-		return "dead"
-	default:
-		return ""
-	}
+	return session.MapEventToStatus(event)
 }
 
 // handleHookHandler processes a Claude Code hook event.
@@ -185,7 +163,7 @@ func handleHooks(args []string) {
 
 func handleHooksInstall() {
 	configDir := getClaudeConfigDirForHooks()
-	installed, err := session.InjectClaudeHooks(configDir)
+	installed, err := session.InjectClaudeHooks(configDir, 0)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error installing hooks: %v\n", err)
 		os.Exit(1)
@@ -217,11 +195,19 @@ func handleHooksStatus() {
 	cleanStaleHookFiles()
 
 	configDir := getClaudeConfigDirForHooks()
-	installed := session.CheckClaudeHooksInstalled(configDir)
+
+	httpInstalled := session.CheckClaudeHTTPHooksInstalled(configDir)
+	commandInstalled := !httpInstalled && session.CheckClaudeHooksInstalled(configDir)
+	installed := httpInstalled || commandInstalled
 
 	if installed {
 		fmt.Println("Status: INSTALLED")
 		fmt.Printf("Config: %s/settings.json\n", configDir)
+		if httpInstalled {
+			fmt.Println("Type:   HTTP (Claude >= 2.1.63)")
+		} else {
+			fmt.Println("Type:   command (hangar hook-handler)")
+		}
 	} else {
 		fmt.Println("Status: NOT INSTALLED")
 		fmt.Println("Run 'hangar hooks install' to install.")

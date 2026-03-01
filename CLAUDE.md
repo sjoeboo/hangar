@@ -176,6 +176,9 @@ To check status: `hangar hooks status`
 
 Hook handler writes atomic JSON status files (`tmpfile + rename`). Hook files are stored at `~/.hangar/hooks/{id}.json` and are world-readable (0644) — they contain only status info, no secrets.
 
+HTTP hooks (Claude >= 2.1.63) are enabled by default on port 2437. To disable HTTP hooks
+and use the command hook fallback only, set `hookServerPort: 0` in `~/.hangar/config.yaml`.
+
 ## Style / Conventions
 
 - **Theme**: oasis_lagoon_dark (defined in `internal/ui/styles.go`)
