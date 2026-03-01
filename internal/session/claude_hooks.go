@@ -67,6 +67,12 @@ func isHangarHook(h claudeHookEntry) bool {
 	return strings.Contains(h.Command, hangarHookCommand)
 }
 
+// isOrphanedHTTPHook reports whether h is an invalid http hook with no URL,
+// written by older buggy versions of hangar.
+func isOrphanedHTTPHook(h claudeHookEntry) bool {
+	return h.Type == "http" && h.URL == ""
+}
+
 // hookEventConfigs defines which Claude Code events we subscribe to and their matcher patterns.
 var hookEventConfigs = []struct {
 	Event   string
@@ -116,6 +122,41 @@ func InjectClaudeHooks(configDir string, port int) (bool, error) {
 	if port > 0 {
 		// HTTP mode: check if HTTP hooks already installed (idempotent)
 		if httpHooksAlreadyInstalled(existingHooks) {
+			// Still clean up any orphaned entries that may have been left by older versions.
+			if orphanedHTTPHooksPresent(existingHooks) {
+				for _, cfg := range hookEventConfigs {
+					if raw, ok := existingHooks[cfg.Event]; ok {
+						if cleaned, removed := removeOrphanedFromEvent(raw); removed {
+							if cleaned == nil {
+								delete(existingHooks, cfg.Event)
+							} else {
+								existingHooks[cfg.Event] = cleaned
+							}
+						}
+					}
+				}
+				// Write the cleaned-up settings back even though no new hooks are needed.
+				hooksRaw, err := json.Marshal(existingHooks)
+				if err != nil {
+					return false, fmt.Errorf("marshal hooks: %w", err)
+				}
+				rawSettings["hooks"] = hooksRaw
+				finalData, err := json.MarshalIndent(rawSettings, "", "  ")
+				if err != nil {
+					return false, fmt.Errorf("marshal settings: %w", err)
+				}
+				if err := os.MkdirAll(configDir, 0755); err != nil {
+					return false, fmt.Errorf("create config dir: %w", err)
+				}
+				tmpPath := settingsPath + ".tmp"
+				if err := os.WriteFile(tmpPath, finalData, 0644); err != nil {
+					return false, fmt.Errorf("write settings.json.tmp: %w", err)
+				}
+				if err := os.Rename(tmpPath, settingsPath); err != nil {
+					os.Remove(tmpPath)
+					return false, fmt.Errorf("rename settings.json: %w", err)
+				}
+			}
 			return false, nil
 		}
 		// Remove any existing command hooks (upgrade path)
@@ -127,6 +168,20 @@ func InjectClaudeHooks(configDir string, port int) (bool, error) {
 						delete(existingHooks, cfg.Event)
 					} else {
 						existingHooks[cfg.Event] = cleaned
+					}
+				}
+			}
+		}
+		// Remove any orphaned http entries from older buggy versions.
+		if orphanedHTTPHooksPresent(existingHooks) {
+			for _, cfg := range hookEventConfigs {
+				if raw, ok := existingHooks[cfg.Event]; ok {
+					if cleaned, removed := removeOrphanedFromEvent(raw); removed {
+						if cleaned == nil {
+							delete(existingHooks, cfg.Event)
+						} else {
+							existingHooks[cfg.Event] = cleaned
+						}
 					}
 				}
 			}
@@ -343,6 +398,61 @@ func httpHooksAlreadyInstalled(hooks map[string]json.RawMessage) bool {
 		}
 	}
 	return true
+}
+
+// orphanedHTTPHooksPresent reports whether any event has an orphaned http hook (no URL).
+func orphanedHTTPHooksPresent(hooks map[string]json.RawMessage) bool {
+	for _, cfg := range hookEventConfigs {
+		raw, ok := hooks[cfg.Event]
+		if !ok {
+			continue
+		}
+		var matchers []claudeHookMatcher
+		if err := json.Unmarshal(raw, &matchers); err != nil {
+			continue
+		}
+		for _, m := range matchers {
+			for _, h := range m.Hooks {
+				if isOrphanedHTTPHook(h) {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
+// removeOrphanedFromEvent removes any orphaned http hook entries (no URL) from a single event.
+func removeOrphanedFromEvent(raw json.RawMessage) (json.RawMessage, bool) {
+	var matchers []claudeHookMatcher
+	if err := json.Unmarshal(raw, &matchers); err != nil {
+		return raw, false
+	}
+
+	removed := false
+	var cleaned []claudeHookMatcher
+	for _, m := range matchers {
+		var hooks []claudeHookEntry
+		for _, h := range m.Hooks {
+			if isOrphanedHTTPHook(h) {
+				removed = true
+				continue
+			}
+			hooks = append(hooks, h)
+		}
+		if len(hooks) > 0 {
+			m.Hooks = hooks
+			cleaned = append(cleaned, m)
+		}
+	}
+	if !removed {
+		return raw, false
+	}
+	if len(cleaned) == 0 {
+		return nil, true
+	}
+	result, _ := json.Marshal(cleaned)
+	return result, true
 }
 
 // commandHooksPresent reports whether any event has a hangar command hook.

@@ -28,6 +28,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Orphaned HTTP hook entries** — hangar now detects and removes `{"type":"http"}` hook
+  entries with no `url` that were written to `~/.claude/settings.json` by a buggy intermediate
+  version. These stale entries caused Claude Code to reject `settings.json` entirely on startup
+  with `url: Expected string, but received undefined`. The cleanup runs automatically on the
+  next `hangar hooks install` or TUI startup.
+
 - **Create New Project dialog** — rewrote `View()` to eliminate the dark rectangle
   artifact that appeared next to labels; input fields now resize dynamically with the
   terminal; added inline validation errors and keyboard hints to all four dialog modes
