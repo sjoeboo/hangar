@@ -5,6 +5,38 @@ All notable changes to Hangar will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.0] - 2026-02-28
+
+### Added
+
+- **HTTP hooks (Claude Code ≥ 2.1.63)** — hangar now embeds a lightweight HTTP server
+  (`127.0.0.1:2437` by default) that receives Claude Code lifecycle events via `POST /hooks`
+  instead of spawning a `hangar hook-handler` subprocess for every event. This eliminates
+  per-event subprocess overhead and enables near-instant TUI status updates.
+- **Instant TUI status refresh** — hook-driven status changes (running → waiting → idle)
+  now appear in ~100 ms via a `hookChangedCh` channel wired into the Bubble Tea event loop,
+  replacing the previous up-to-4-second polling delay.
+- **Version-aware hook injection** — `hangar hooks install` auto-detects the installed
+  Claude Code version and injects `type: "http"` hooks for ≥ 2.1.63, falling back to the
+  existing `type: "command"` hook for older versions. On TUI startup, command hooks are
+  silently upgraded to HTTP hooks when the version threshold is newly met.
+- **`hangar hooks status` hook type reporting** — the status command now shows
+  `Type: HTTP (Claude >= 2.1.63)` or `Type: command (hangar hook-handler)` to make the
+  active hook mechanism visible.
+- **`hookServerPort` config option** — set `hookServerPort: 0` in `~/.hangar/config.yaml`
+  to disable HTTP hooks and use the command hook fallback only.
+
+### Fixed
+
+- **Create New Project dialog** — rewrote `View()` to eliminate the dark rectangle
+  artifact that appeared next to labels; input fields now resize dynamically with the
+  terminal; added inline validation errors and keyboard hints to all four dialog modes
+  (Create, Rename, Move, RenameSession).
+
+### Changed
+
+- Added `golangci-lint` configuration (`.golangci.yml`) to the repository.
+
 ## [1.0.4] - 2026-02-27
 
 ### Changed
