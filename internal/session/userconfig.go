@@ -403,7 +403,7 @@ type ClaudeSettings struct {
 	// HookServerPort is the TCP port for the embedded HTTP hook server.
 	// Claude Code 2.1.63+ can POST hook events directly to this server
 	// instead of spawning a subprocess for each event.
-	// Default: 2437. Set to 0 to disable HTTP hooks.
+	// Default: 47437. Set to 0 to disable HTTP hooks.
 	HookServerPort *int `toml:"hook_server_port"`
 }
 
@@ -436,11 +436,11 @@ func (c *ClaudeSettings) GetHooksEnabled() bool {
 	return *c.HooksEnabled
 }
 
-// GetHookServerPort returns the HTTP hook server port, defaulting to 2437.
+// GetHookServerPort returns the HTTP hook server port, defaulting to 47437.
 // Returns 0 if HTTP hooks are disabled via hook_server_port = 0.
 func (c *ClaudeSettings) GetHookServerPort() int {
 	if c.HookServerPort == nil {
-		return 2437
+		return 47437
 	}
 	return *c.HookServerPort
 }

@@ -5,6 +5,17 @@ All notable changes to Hangar will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.4] - 2026-03-02
+
+### Changed
+
+- **HTTP hook server default port raised to 47437** — the previous default (`2437`) sat in
+  the low registered-port range and could conflict with other local services. Port `47437`
+  is well below the macOS ephemeral range (49152+) while being high enough to avoid common
+  developer tooling. Existing installs that relied on the old default will need to
+  re-run `hangar hooks install` to update the injected hook URL, or set
+  `hookServerPort: 47437` explicitly in `~/.hangar/config.yaml`.
+
 ## [1.1.3] - 2026-03-02
 
 ### Fixed

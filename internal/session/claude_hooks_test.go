@@ -411,7 +411,7 @@ func TestInjectClaudeHooks_CommandType_WhenPortZero(t *testing.T) {
 func TestInjectClaudeHooks_HTTPType_WhenPortNonZero(t *testing.T) {
 	tmpDir := t.TempDir()
 
-	installed, err := InjectClaudeHooks(tmpDir, 2437)
+	installed, err := InjectClaudeHooks(tmpDir, 47437)
 	if err != nil {
 		t.Fatalf("InjectClaudeHooks: %v", err)
 	}
@@ -432,7 +432,7 @@ func TestInjectClaudeHooks_HTTPType_WhenPortNonZero(t *testing.T) {
 		for _, h := range m.Hooks {
 			if h.Type == "http" {
 				foundHTTP = true
-				wantURL := "http://127.0.0.1:2437/hooks"
+				wantURL := "http://127.0.0.1:47437/hooks"
 				if h.URL != wantURL {
 					t.Errorf("HTTP hook URL = %q, want %q", h.URL, wantURL)
 				}
@@ -450,7 +450,7 @@ func TestInjectClaudeHooks_HTTPType_WhenPortNonZero(t *testing.T) {
 		}
 	}
 	if !foundHTTP {
-		t.Error("Expected HTTP hook entry when port=2437")
+		t.Error("Expected HTTP hook entry when port=47437")
 	}
 }
 
@@ -463,7 +463,7 @@ func TestInjectClaudeHooks_UpgradeCommandToHTTP(t *testing.T) {
 	}
 
 	// Now: upgrade to HTTP hooks
-	upgraded, err := InjectClaudeHooks(tmpDir, 2437)
+	upgraded, err := InjectClaudeHooks(tmpDir, 47437)
 	if err != nil {
 		t.Fatalf("http upgrade: %v", err)
 	}
@@ -517,7 +517,7 @@ func TestCheckClaudeHTTPHooksInstalled(t *testing.T) {
 	}
 
 	// Upgrade to HTTP hooks
-	if _, err := InjectClaudeHooks(tmpDir, 2437); err != nil {
+	if _, err := InjectClaudeHooks(tmpDir, 47437); err != nil {
 		t.Fatalf("http upgrade: %v", err)
 	}
 	if !CheckClaudeHTTPHooksInstalled(tmpDir) {
