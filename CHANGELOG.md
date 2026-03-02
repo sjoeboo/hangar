@@ -5,6 +5,15 @@ All notable changes to Hangar will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.6] - 2026-03-02
+
+### Added
+
+- **CI check counts in the session sidebar** — worktree sessions with an open PR now show
+  inline CI status badges (`✕N` failed, `◐N` pending, `✓N` passed) directly in the session
+  list alongside the PR number badge. Counts are coloured red/yellow/green in normal mode and
+  match the selection highlight when the row is focused, keeping the list readable at a glance.
+
 ## [1.1.5] - 2026-03-02
 
 ### Fixed

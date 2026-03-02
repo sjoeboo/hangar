@@ -331,8 +331,9 @@ func (h *Home) renderSessionItem(b *strings.Builder, item session.Item, selected
 		yoloBadge = yoloStyle.Render(" [YOLO]")
 	}
 
-	// PR badge for sessions with an open/merged/closed pull request
+	// PR badge and CI check counts for worktree sessions
 	prBadge := ""
+	checksBadge := ""
 	if inst.IsWorktree() {
 		pr, hasPR := h.cache.GetPR(inst.ID)
 		if hasPR && pr != nil {
@@ -354,13 +355,37 @@ func (h *Home) renderSessionItem(b *strings.Builder, item session.Item, selected
 				}
 				prBadge = badgeStyle.Render(fmt.Sprintf(" [#%d]", pr.Number))
 			}
+			// CI check counts (shown whenever checks exist, even for DRAFT PRs)
+			if pr.HasChecks {
+				failStyle := stylePreviewChecksFailed
+				pendStyle := stylePreviewChecksPending
+				passStyle := stylePreviewChecksPassed
+				if selected {
+					failStyle = SessionStatusSelStyle
+					pendStyle = SessionStatusSelStyle
+					passStyle = SessionStatusSelStyle
+				}
+				var parts []string
+				if pr.ChecksFailed > 0 {
+					parts = append(parts, failStyle.Render(fmt.Sprintf("✕%d", pr.ChecksFailed)))
+				}
+				if pr.ChecksPending > 0 {
+					parts = append(parts, pendStyle.Render(fmt.Sprintf("◐%d", pr.ChecksPending)))
+				}
+				if pr.ChecksPassed > 0 {
+					parts = append(parts, passStyle.Render(fmt.Sprintf("✓%d", pr.ChecksPassed)))
+				}
+				if len(parts) > 0 {
+					checksBadge = " " + strings.Join(parts, " ")
+				}
+			}
 		}
 	}
 
-	// Build row: [baseIndent][selection][tree][status] [title] [tool] [yolo] [pr]
+	// Build row: [baseIndent][selection][tree][status] [title] [tool] [yolo] [pr] [checks]
 	// Format: " ├─ ● session-name" or "▶└─ ● session-name"
 	// Sub-sessions get extra indent: "   ├─◐ sub-session"
-	row := fmt.Sprintf("%s%s%s %s %s%s%s%s", baseIndent, selectionPrefix, treeStyle.Render(treeConnector), status, title, tool, yoloBadge, prBadge)
+	row := fmt.Sprintf("%s%s%s %s %s%s%s%s%s", baseIndent, selectionPrefix, treeStyle.Render(treeConnector), status, title, tool, yoloBadge, prBadge, checksBadge)
 	b.WriteString(row)
 	b.WriteString("\n")
 }
