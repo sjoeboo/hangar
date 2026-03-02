@@ -163,7 +163,11 @@ func handleHooks(args []string) {
 
 func handleHooksInstall() {
 	configDir := getClaudeConfigDirForHooks()
-	installed, err := session.InjectClaudeHooks(configDir, 0)
+	port := 0
+	if userConfig, err := session.LoadUserConfig(); err == nil && userConfig != nil {
+		port = userConfig.Claude.GetHookServerPort()
+	}
+	installed, err := session.InjectClaudeHooks(configDir, port)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error installing hooks: %v\n", err)
 		os.Exit(1)

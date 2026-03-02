@@ -5,6 +5,17 @@ All notable changes to Hangar will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.5] - 2026-03-02
+
+### Fixed
+
+- **`hangar hooks install` now installs HTTP hooks** — the CLI command was hardcoding port `0`,
+  which caused it to always install command-type hooks regardless of the configured
+  `hookServerPort`. It now reads the port from `~/.hangar/config.yaml` (defaulting to `47437`),
+  matching the behaviour of the TUI's auto-install path. Users who ran `hooks uninstall` then
+  `hooks install` and got command hooks instead of HTTP hooks should re-run `hangar hooks install`
+  after updating.
+
 ## [1.1.4] - 2026-03-02
 
 ### Changed
