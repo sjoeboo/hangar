@@ -5,6 +5,21 @@ All notable changes to Hangar will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.2] - 2026-03-02
+
+### Fixed
+
+- **Review session: ghost row during worktree creation** — pressing Enter on the confirm step now
+  shows a "Creating worktree" spinner row in the session list while the async fetch + worktree
+  creation runs, matching the behaviour of the regular new-session worktree flow.
+- **Review session: session starts as shell instead of claude** — the review session was created
+  with `inst.Command` unset (`""`), causing `buildClaudeCommandWithMessage` to fall through to an
+  empty command and open a bare shell instead of starting Claude. The command is now set
+  explicitly to `"claude"` before `Start()` is called.
+- **Review session: auto-sent `/pr-review` command removed** — the dialog no longer automatically
+  sends `/pr-review <pr>` after session creation. Not every user has this slash command; the
+  session now starts at a plain Claude prompt so users can run whatever review workflow they prefer.
+
 ## [1.1.1] - 2026-02-28
 
 ### Fixed
