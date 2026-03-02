@@ -1086,23 +1086,28 @@ func (h *Home) handleTick(msg tickMsg) tea.Cmd {
 		}
 		h.previewFetchingMu.Unlock()
 	}
-	// PR fetch for currently selected worktree session (if missing or TTL expired)
-	// Handles startup case where no navigation ever fires previewDebounceMsg
-	var prCmd tea.Cmd
-	if selected != nil && h.ghPath != "" && selected.IsWorktree() && selected.WorktreePath != "" {
-		_, cachedAtPR, hasCachedPR := h.cache.HasPREntry(selected.ID)
-		needsFetch := !hasCachedPR || time.Since(cachedAtPR) > prCacheTTL
-		if needsFetch {
-			h.cache.TouchPR(selected.ID) // Prevent duplicate fetches
-		}
-		if needsFetch {
-			sid := selected.ID
-			wtPath := selected.WorktreePath
-			ghPath := h.ghPath
-			prCmd = func() tea.Msg {
-				return fetchPRInfo(sid, wtPath, ghPath)
+	// PR fetch for ALL worktree sessions whose cache is missing or expired.
+	// Handles startup population and keeps all PR statuses fresh in the background.
+	var prCmds []tea.Cmd
+	if h.ghPath != "" {
+		ghPath := h.ghPath
+		h.instancesMu.RLock()
+		for _, inst := range h.instances {
+			if !inst.IsWorktree() || inst.WorktreePath == "" {
+				continue
 			}
+			_, cachedAtPR, hasCachedPR := h.cache.HasPREntry(inst.ID)
+			if hasCachedPR && time.Since(cachedAtPR) <= prCacheTTL {
+				continue
+			}
+			h.cache.TouchPR(inst.ID) // Prevent duplicate fetches before goroutine lands
+			sid := inst.ID
+			wtPath := inst.WorktreePath
+			prCmds = append(prCmds, func() tea.Msg {
+				return fetchPRInfo(sid, wtPath, ghPath)
+			})
 		}
+		h.instancesMu.RUnlock()
 	}
-	return tea.Batch(h.tick(), previewCmd, prCmd)
+	return tea.Batch(append([]tea.Cmd{h.tick(), previewCmd}, prCmds...)...)
 }

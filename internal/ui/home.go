@@ -3895,7 +3895,7 @@ func (h *Home) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 
 	case "ctrl+r":
-		// Manual refresh: reload session list + force-refresh git/PR status for selected session
+		// Manual refresh: reload session list + force-refresh git/PR status for ALL worktree sessions
 		state := h.preserveState()
 
 		cmds := []tea.Cmd{func() tea.Msg {
@@ -3910,27 +3910,24 @@ func (h *Home) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 		}}
 
-		// Force-refresh git dirty status and PR status for the currently selected session
-		if h.cursor < len(h.flatItems) {
-			item := h.flatItems[h.cursor]
-			if item.Session != nil && item.Session.IsWorktree() && item.Session.WorktreePath != "" {
-				sid := item.Session.ID
-				wtPath := item.Session.WorktreePath
-
-				// Invalidate caches so they re-fetch immediately
-				h.cache.InvalidateWorktreeDirty(sid)
-				h.cache.InvalidatePRTimestamp(sid)
-
+		// Force-refresh git dirty status and PR status for ALL worktree sessions
+		for _, inst := range h.instances {
+			if !inst.IsWorktree() || inst.WorktreePath == "" {
+				continue
+			}
+			sid := inst.ID
+			wtPath := inst.WorktreePath
+			h.cache.InvalidateWorktreeDirty(sid)
+			h.cache.InvalidatePRTimestamp(sid)
+			cmds = append(cmds, func() tea.Msg {
+				dirty, err := git.HasUncommittedChanges(wtPath)
+				return worktreeDirtyCheckMsg{sessionID: sid, isDirty: dirty, err: err}
+			})
+			if h.ghPath != "" {
+				ghPath := h.ghPath
 				cmds = append(cmds, func() tea.Msg {
-					dirty, err := git.HasUncommittedChanges(wtPath)
-					return worktreeDirtyCheckMsg{sessionID: sid, isDirty: dirty, err: err}
+					return fetchPRInfo(sid, wtPath, ghPath)
 				})
-				if h.ghPath != "" {
-					ghPath := h.ghPath
-					cmds = append(cmds, func() tea.Msg {
-						return fetchPRInfo(sid, wtPath, ghPath)
-					})
-				}
 			}
 		}
 

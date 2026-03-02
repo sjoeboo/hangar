@@ -5,6 +5,17 @@ All notable changes to Hangar will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.3] - 2026-03-02
+
+### Fixed
+
+- **Ctrl+R now refreshes PR status for all worktree sessions** — previously only the currently
+  selected session had its PR cache invalidated and re-fetched. Now every worktree session gets
+  a fresh `gh pr view` call so the PR overview (`P`) and preview pane show up-to-date data.
+- **Background PR refresh covers all sessions** — the periodic tick-based PR poller previously
+  only checked the selected session against the 60-second TTL. It now iterates all worktree
+  sessions, keeping every PR status current in the background without manual intervention.
+
 ## [1.1.2] - 2026-03-02
 
 ### Fixed
