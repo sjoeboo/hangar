@@ -541,6 +541,7 @@ type reviewPRResolvedMsg struct {
 type reviewSessionCreatedMsg struct {
 	instance      *session.Instance
 	initialPrompt string
+	sessionName   string // for removing the ghost pending row on completion
 	err           error
 }
 
@@ -2637,6 +2638,11 @@ func (h *Home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				repoDir := h.reviewDialog.GetRepoDir()
 				groupPath := h.reviewDialog.groupPath
 				h.reviewDialog.Hide()
+				h.pendingWorktrees = append(h.pendingWorktrees, pendingWorktreeItem{
+					branchName: sessionName,
+					groupPath:  groupPath,
+					startedAt:  time.Now(),
+				})
 				return h, h.createReviewSession(repoDir, branch, sessionName, groupPath, initialPrompt)
 			}
 			if cmd := h.reviewDialog.Update(msg); cmd != nil {
@@ -7040,7 +7046,7 @@ func (h *Home) createReviewSession(
 ) tea.Cmd {
 	return func() tea.Msg {
 		if err := git.FetchBranch(repoDir, branch); err != nil {
-			return reviewSessionCreatedMsg{err: fmt.Errorf("fetch branch: %w", err)}
+			return reviewSessionCreatedMsg{sessionName: sessionName, err: fmt.Errorf("fetch branch: %w", err)}
 		}
 
 		wtSettings := session.GetWorktreeSettings()
@@ -7053,29 +7059,31 @@ func (h *Home) createReviewSession(
 		})
 
 		if err := os.MkdirAll(filepath.Dir(worktreePath), 0755); err != nil {
-			return reviewSessionCreatedMsg{err: fmt.Errorf("create worktree parent dir: %w", err)}
+			return reviewSessionCreatedMsg{sessionName: sessionName, err: fmt.Errorf("create worktree parent dir: %w", err)}
 		}
 
 		if err := git.CreateWorktree(repoDir, worktreePath, branch); err != nil {
-			return reviewSessionCreatedMsg{err: fmt.Errorf("create worktree: %w", err)}
+			return reviewSessionCreatedMsg{sessionName: sessionName, err: fmt.Errorf("create worktree: %w", err)}
 		}
 
 		if err := tmux.IsTmuxAvailable(); err != nil {
-			return reviewSessionCreatedMsg{err: fmt.Errorf("tmux not available: %w", err)}
+			return reviewSessionCreatedMsg{sessionName: sessionName, err: fmt.Errorf("tmux not available: %w", err)}
 		}
 
 		inst := session.NewInstanceWithGroupAndTool(sessionName, worktreePath, groupPath, "claude")
+		inst.Command = "claude"
 		inst.WorktreePath = worktreePath
 		inst.WorktreeRepoRoot = repoDir
 		inst.WorktreeBranch = branch
 
 		if err := inst.Start(); err != nil {
-			return reviewSessionCreatedMsg{err: fmt.Errorf("start session: %w", err)}
+			return reviewSessionCreatedMsg{sessionName: sessionName, err: fmt.Errorf("start session: %w", err)}
 		}
 
 		return reviewSessionCreatedMsg{
 			instance:      inst,
 			initialPrompt: initialPrompt,
+			sessionName:   sessionName,
 		}
 	}
 }

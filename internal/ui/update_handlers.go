@@ -864,6 +864,7 @@ func (h *Home) handlePRFetched(msg prFetchedMsg) tea.Cmd {
 // handleReviewSessionCreated processes reviewSessionCreatedMsg, adding the review
 // session to in-memory state, navigating to it, and optionally sending an initial prompt.
 func (h *Home) handleReviewSessionCreated(msg reviewSessionCreatedMsg) tea.Cmd {
+	h.removePendingWorktree(msg.sessionName)
 	if msg.err != nil {
 		h.setError(msg.err)
 		return nil
