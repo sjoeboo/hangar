@@ -122,8 +122,8 @@ func TestReviewDialog_GetReviewValues(t *testing.T) {
 	if sessionName != "review/pr-42" {
 		t.Errorf("sessionName: want %q got %q", "review/pr-42", sessionName)
 	}
-	if initialPrompt != "/pr-review 42" {
-		t.Errorf("initialPrompt: want %q got %q", "/pr-review 42", initialPrompt)
+	if initialPrompt != "" {
+		t.Errorf("initialPrompt: want empty got %q", initialPrompt)
 	}
 }
 
@@ -143,7 +143,7 @@ func TestReviewDialog_GetReviewValuesForBranch(t *testing.T) {
 	if sessionName != "review/feature/my-branch" {
 		t.Errorf("sessionName: want %q got %q", "review/feature/my-branch", sessionName)
 	}
-	if initialPrompt != "/pr-review feature/my-branch" {
-		t.Errorf("initialPrompt: want %q got %q", "/pr-review feature/my-branch", initialPrompt)
+	if initialPrompt != "" {
+		t.Errorf("initialPrompt: want empty got %q", initialPrompt)
 	}
 }

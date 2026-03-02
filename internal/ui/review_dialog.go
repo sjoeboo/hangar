@@ -129,15 +129,14 @@ func (d *ReviewDialog) GetRepoDir() string {
 
 // GetReviewValues returns confirmed review parameters after SetResolved has been called.
 // Returns (branch, prNumber, sessionName, initialPrompt).
+// initialPrompt is always empty — callers should not auto-send commands on behalf of the user.
 func (d *ReviewDialog) GetReviewValues() (branch, prNum, sessionName, initialPrompt string) {
 	branch = d.resolvedBranch
 	prNum = d.prNumber
 	if d.isPR {
 		sessionName = "review/pr-" + d.prNumber
-		initialPrompt = "/pr-review " + d.prNumber
 	} else {
 		sessionName = "review/" + d.resolvedBranch
-		initialPrompt = "/pr-review " + d.resolvedBranch
 	}
 	return
 }
