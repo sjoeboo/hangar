@@ -449,13 +449,22 @@ func (c *ClaudeSettings) GetHookServerPort() int {
 }
 
 // APISettings defines settings for the embedded HTTP/WebSocket API server.
+// The server is started automatically when the TUI runs. It can also be
+// run standalone (without the TUI) via: hangar web start
+//
+// Example config:
+//
+//	[api]
+//	port = 47437
+//	bind_address = "127.0.0.1"   # localhost only (default: "0.0.0.0" = all interfaces)
 type APISettings struct {
 	// Port is the TCP port for the API server. Default: 47437.
 	// If unset, falls back to Claude.HookServerPort for backward compat.
 	Port *int `toml:"port"`
 
-	// BindAddress is the IP address to bind to. Default: "0.0.0.0".
-	// Use "127.0.0.1" to restrict to localhost only.
+	// BindAddress is the IP address to bind to. Default: "0.0.0.0" (all interfaces).
+	// Use "127.0.0.1" to restrict to localhost only (more secure on multi-user hosts).
+	// Use "0.0.0.0" to allow access from other devices on the network (e.g. Tailscale).
 	BindAddress *string `toml:"bind_address"`
 }
 

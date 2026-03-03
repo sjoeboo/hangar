@@ -29,7 +29,7 @@ import (
 	"github.com/sjoeboo/hangar/internal/update"
 )
 
-var Version = "1.0.0"
+var Version = "2.0.0"
 
 // Table column widths for list command output
 const (
@@ -236,6 +236,9 @@ func main() {
 			return
 		case "uninstall":
 			handleUninstall(args[1:])
+			return
+		case "web":
+			handleWeb(profile, args[1:])
 			return
 		case "hook-handler":
 			handleHookHandler()
@@ -1958,6 +1961,7 @@ func printHelp() {
 	fmt.Println("  project          Manage projects (git repo pointers)")
 	fmt.Println("  worktree, wt     Manage git worktrees")
 	fmt.Println("  hooks            Manage Claude Code lifecycle hooks")
+	fmt.Println("  web              Manage the embedded web UI server")
 	fmt.Println("  profile          Manage profiles")
 	fmt.Println("  update           Check for and install updates")
 	fmt.Println("  uninstall        Uninstall Hangar")
@@ -1988,6 +1992,12 @@ func printHelp() {
 	fmt.Println("  hooks install     Install Claude Code lifecycle hooks")
 	fmt.Println("  hooks uninstall   Remove Claude Code lifecycle hooks")
 	fmt.Println("  hooks status      Show hook installation status")
+	fmt.Println()
+	fmt.Println("Web UI Commands:")
+	fmt.Println("  web               Show web server status (same as 'web status')")
+	fmt.Println("  web start         Start standalone web server (foreground)")
+	fmt.Println("  web stop          Stop standalone web server")
+	fmt.Println("  web status        Show web server status and URL")
 	fmt.Println()
 	fmt.Println("Profile Commands:")
 	fmt.Println("  profile list              List all profiles")

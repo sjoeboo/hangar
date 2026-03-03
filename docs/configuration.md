@@ -20,6 +20,10 @@ allow_dangerous_mode = false        # --allow-dangerously-skip-permissions
 [tmux]
 mouse_mode = true
 inject_status_line = true           # set false to keep your own status bar
+
+[api]
+port = 47437                        # HTTP port for API + web UI
+bind_address = "0.0.0.0"           # "127.0.0.1" for localhost-only, "0.0.0.0" for all interfaces (Tailscale)
 ```
 
 ## Key Settings
@@ -46,6 +50,15 @@ inject_status_line = true           # set false to keep your own status bar
 | `inject_status_line` | `true` | Apply oasis_lagoon_dark status bar theme |
 
 Set `inject_status_line = false` to keep your own tmux status bar configuration.
+
+### `[api]`
+
+| Key | Default | Description |
+|-----|---------|-------------|
+| `port` | `47437` | HTTP port for the REST API and embedded web UI |
+| `bind_address` | `"0.0.0.0"` | Network interface to bind. Use `"127.0.0.1"` for localhost-only access, `"0.0.0.0"` to allow connections from other devices (e.g., over Tailscale) |
+
+The API server starts automatically with the TUI and can also be run standalone with `hangar web start`. The web UI is served at `/ui/` on the same port.
 
 ### `[notifications]`
 

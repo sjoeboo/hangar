@@ -150,3 +150,59 @@ Hangar configures tmux with the oasis_lagoon_dark theme automatically:
 ## Colored Session Preview
 
 Session previews preserve ANSI escape sequences from the Claude Code TUI, including box-drawing borders and syntax highlighting.
+
+## Web UI
+
+Hangar includes an embedded browser-based dashboard. It starts automatically with the TUI and is also available as a standalone server.
+
+### Starting the Web Server
+
+```bash
+# Run in foreground (Ctrl+C to stop):
+hangar web start
+
+# Run in background:
+hangar web start &
+
+# Check status:
+hangar web status
+
+# Stop:
+hangar web stop
+```
+
+### Accessing the Web UI
+
+Open `http://localhost:47437/ui/` in your browser. To access from other devices on your Tailscale network, set `bind_address = "0.0.0.0"` in `~/.hangar/config.toml` and use your Tailscale IP or hostname.
+
+### Web UI Features
+
+- **Session list** — live status badges updated via WebSocket; click a session to open it
+- **Terminal view** — full xterm.js terminal with PTY streaming; sessions render in the browser as they would in your terminal
+- **Project sidebar** — all projects shown, including empty ones; click to view project details and todos
+- **Project detail** — base directory, base branch, session stats, and an inline todo kanban board
+- **Todo board** — add, edit, move, and delete todos; synced with the TUI
+- **New session dialog** — create sessions with worktree + branch name and optional `--dangerously-skip-permissions`
+- **Dark / light / system theme** — toggle in the top bar; preference persisted across page loads
+- **Resizable sidebar** — drag the handle between sidebar and content; width persisted
+
+### REST API
+
+The web UI is built on the same REST API used by the TUI. You can call it directly from scripts or other tools:
+
+```bash
+# List sessions
+curl http://localhost:47437/api/v1/sessions
+
+# Send a message to a session
+curl -X POST http://localhost:47437/api/v1/sessions/<id>/send \
+  -H 'Content-Type: application/json' \
+  -d '{"message": "hello"}'
+
+# Create a session
+curl -X POST http://localhost:47437/api/v1/sessions \
+  -H 'Content-Type: application/json' \
+  -d '{"title": "my-task", "project_path": "~/code/myrepo", "worktree": true}'
+```
+
+WebSocket events are pushed on `ws://localhost:47437/api/v1/ws` for real-time session updates.

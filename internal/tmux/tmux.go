@@ -1524,6 +1524,39 @@ func (s *Session) CapturePane() (string, error) {
 	return v.(string), nil
 }
 
+// CapturePaneWithWidth captures pane content at a specific terminal width.
+// This bypasses the cache since different widths produce different content.
+// Tries control mode pipe first, falls back to subprocess with resize.
+func (s *Session) CapturePaneWithWidth(width int) (string, error) {
+	// Try control mode pipe first (zero subprocess)
+	if pm := GetPipeManager(); pm != nil {
+		if content, pipeErr := pm.CapturePaneWithWidth(s.Name, width); pipeErr == nil {
+			return content, nil
+		}
+		statusLog.Debug("capture_pane_width_subprocess_fallback", slog.String("session", s.Name), slog.Int("width", width))
+	}
+
+	// Subprocess fallback: resize, capture, let tmux restore
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	// Resize pane to target width
+	resizeCmd := exec.CommandContext(ctx, "tmux", "resize-pane", "-t", s.Name, "-x", strconv.Itoa(width))
+	if err := resizeCmd.Run(); err != nil {
+		return "", fmt.Errorf("resize-pane failed: %w", err)
+	}
+
+	cmd := exec.CommandContext(ctx, "tmux", "capture-pane", "-t", s.Name, "-p", "-e")
+	output, err := cmd.Output()
+	if err != nil {
+		if ctx.Err() == context.DeadlineExceeded {
+			return "", ErrCaptureTimeout
+		}
+		return "", fmt.Errorf("failed to capture pane: %w", err)
+	}
+	return string(output), nil
+}
+
 // CapturePaneFresh captures pane content via a direct tmux subprocess call.
 // Unlike CapturePane(), this bypasses the control-mode pipe and short-lived
 // cache to provide a fresh snapshot. Use this for send verification where

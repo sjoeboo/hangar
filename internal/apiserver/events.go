@@ -12,7 +12,7 @@ import (
 const (
 	wsWriteWait  = 10 * time.Second
 	wsPingPeriod = 30 * time.Second
-	wsMaxMsgSize = 4096
+	wsMaxMsgSize = 65536
 )
 
 var wsUpgrader = websocket.Upgrader{
@@ -69,6 +69,14 @@ func (h *Hub) run() {
 				}
 			}
 		}
+	}
+}
+
+// BroadcastOutput sends a session_output event to all connected WS clients.
+func (h *Hub) BroadcastOutput(sessionID, content string) {
+	h.broadcast <- WsMessage{
+		Type: "session_output",
+		Data: SessionOutputData{SessionID: sessionID, Output: content},
 	}
 }
 

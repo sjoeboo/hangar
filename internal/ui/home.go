@@ -854,7 +854,12 @@ func NewHomeWithProfileAndMode(profile string) *Home {
 					HasChecks:     pr.HasChecks,
 				}
 			}
-			srv := apiserver.New(cfg, h.hookWatcher, getInstances, getPRInfo, h.profile, Version)
+			triggerReload := func() {
+				if h.storageWatcher != nil {
+					h.storageWatcher.TriggerReload()
+				}
+			}
+			srv := apiserver.New(cfg, h.hookWatcher, getInstances, getPRInfo, triggerReload, h.profile, Version)
 			h.hookServer = srv
 			h.hookServerPort = port
 			go func() {
@@ -4183,7 +4188,12 @@ func (h *Home) handleConfirmDialogKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 								HasChecks:     pr.HasChecks,
 							}
 						}
-						srv := apiserver.New(cfg2, h.hookWatcher, getInstances2, getPRInfo2, h.profile, Version)
+						triggerReload2 := func() {
+							if h.storageWatcher != nil {
+								h.storageWatcher.TriggerReload()
+							}
+						}
+						srv := apiserver.New(cfg2, h.hookWatcher, getInstances2, getPRInfo2, triggerReload2, h.profile, Version)
 						h.hookServer = srv
 						h.hookServerPort = port
 						go func() {

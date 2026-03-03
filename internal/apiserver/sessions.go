@@ -4,9 +4,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
+	"strconv"
 	"strings"
+	"time"
 
+	"github.com/sjoeboo/hangar/internal/git"
 	"github.com/sjoeboo/hangar/internal/session"
 )
 
@@ -164,8 +168,14 @@ func (s *APIServer) handleSessionSend(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusConflict, "session has no tmux session")
 		return
 	}
-	if err := ts.SendKeysAndEnter(req.Message); err != nil {
-		writeError(w, http.StatusInternalServerError, fmt.Sprintf("send failed: %v", err))
+	var sendErr error
+	if req.Raw {
+		sendErr = ts.SendKeys(req.Message)
+	} else {
+		sendErr = ts.SendKeysAndEnter(req.Message)
+	}
+	if sendErr != nil {
+		writeError(w, http.StatusInternalServerError, fmt.Sprintf("send failed: %v", sendErr))
 		return
 	}
 	// Broadcast update over WS
@@ -184,9 +194,49 @@ func (s *APIServer) handleSessionOutput(w http.ResponseWriter, r *http.Request) 
 		writeError(w, http.StatusNotFound, "session not found")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]string{
-		"session_id":    inst.ID,
-		"latest_prompt": inst.LatestPrompt,
+	ts := inst.GetTmuxSession()
+	if ts == nil {
+		writeJSON(w, http.StatusOK, SessionOutputResponse{
+			SessionID: inst.ID,
+			Output:    "",
+			Lines:     0,
+		})
+		return
+	}
+	// Support ?width= to capture at a specific terminal width (for web UI).
+	var content string
+	if widthStr := r.URL.Query().Get("width"); widthStr != "" {
+		if w, err := strconv.Atoi(widthStr); err == nil && w > 0 && w <= 500 {
+			content, _ = ts.CapturePaneWithWidth(w)
+		}
+	}
+	if content == "" {
+		var err error
+		content, err = ts.CapturePane()
+		if err != nil {
+			// Fall back to latest prompt if capture fails
+			writeJSON(w, http.StatusOK, SessionOutputResponse{
+				SessionID: inst.ID,
+				Output:    inst.LatestPrompt,
+				Lines:     1,
+			})
+			return
+		}
+	}
+	// Post-process: trim trailing spaces per line (removes tmux's pane-width
+	// padding, e.g. 220-col padding on a wide server terminal), then join with
+	// \r\n so xterm.js (convertEol:false) renders lines correctly.
+	rawLines := strings.Split(content, "\n")
+	for i, line := range rawLines {
+		rawLines[i] = strings.TrimRight(line, " ")
+	}
+	content = strings.Join(rawLines, "\r\n")
+
+	lines := strings.Count(content, "\r\n")
+	writeJSON(w, http.StatusOK, SessionOutputResponse{
+		SessionID: inst.ID,
+		Output:    content,
+		Lines:     lines,
 	})
 }
 
@@ -233,11 +283,60 @@ func (s *APIServer) createSession(w http.ResponseWriter, r *http.Request) {
 	}
 
 	inst := session.NewInstanceWithTool(req.Title, req.Path, tool)
+	// Command must be set so buildClaudeCommand (and siblings) know which
+	// binary to run. For built-in tools the command name equals the tool name.
+	inst.Command = tool
 	if req.Group != "" {
 		inst.GroupPath = req.Group
 	}
 	if req.ParentID != "" {
 		inst.ParentSessionID = req.ParentID
+	}
+
+	// Handle worktree creation
+	if req.Worktree {
+		if req.Path == "" {
+			writeError(w, http.StatusBadRequest, "path required for worktree sessions")
+			return
+		}
+		branchName := req.Branch
+		if branchName == "" {
+			branchName = sanitizeBranchName(req.Title)
+		}
+		worktreePath := git.GenerateWorktreePath(req.Path, branchName, "subdirectory")
+
+		// Pull latest base branch (non-fatal on failure)
+		defaultBranch, err := git.GetDefaultBranch(req.Path)
+		if err != nil {
+			slog.Warn("failed to get default branch", "err", err)
+		} else {
+			if err := git.UpdateBaseBranch(req.Path, defaultBranch); err != nil {
+				slog.Warn("failed to update base branch", "err", err)
+			}
+		}
+
+		// Create worktree
+		if err := git.CreateWorktree(req.Path, worktreePath, branchName); err != nil {
+			writeError(w, http.StatusInternalServerError, fmt.Sprintf("failed to create worktree: %v", err))
+			return
+		}
+
+		inst.WorktreePath = worktreePath
+		inst.WorktreeBranch = branchName
+		inst.WorktreeRepoRoot = req.Path
+		inst.ProjectPath = worktreePath
+	}
+
+	// Handle skip-permissions
+	if req.SkipPermissions {
+		opts := inst.GetClaudeOptions()
+		if opts == nil {
+			opts = &session.ClaudeOptions{}
+		}
+		opts.SkipPermissions = true
+		if err := inst.SetClaudeOptions(opts); err != nil {
+			slog.Warn("failed to set skip_permissions", "err", err)
+		}
 	}
 
 	// Persist to storage before starting so the TUI picks it up
@@ -272,8 +371,18 @@ func (s *APIServer) createSession(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Broadcast session_created event
+	// Broadcast session_created event immediately so the frontend can show feedback.
 	s.hub.broadcast <- WsMessage{Type: "session_created", Data: sessionToResponse(inst, s.getPRInfo)}
+
+	// Trigger an immediate TUI reload so getInstances() returns the new session
+	// without waiting for the 2-second StorageWatcher poll interval.
+	if s.triggerReload != nil {
+		s.triggerReload()
+	}
+	go func() {
+		time.Sleep(200 * time.Millisecond)
+		s.hub.broadcast <- WsMessage{Type: "sessions_changed"}
+	}()
 
 	writeJSON(w, http.StatusCreated, sessionToResponse(inst, s.getPRInfo))
 }
@@ -356,6 +465,16 @@ func (s *APIServer) deleteSession(w http.ResponseWriter, r *http.Request, id str
 	}
 
 	s.hub.broadcast <- WsMessage{Type: "session_deleted", Data: WsSessionDeletedData{ID: id}}
+
+	// Trigger an immediate TUI reload so getInstances() reflects the deletion
+	// without waiting for the 2-second StorageWatcher poll interval.
+	if s.triggerReload != nil {
+		s.triggerReload()
+	}
+	go func() {
+		time.Sleep(200 * time.Millisecond)
+		s.hub.broadcast <- WsMessage{Type: "sessions_changed"}
+	}()
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -402,4 +521,21 @@ func (s *APIServer) wsHandleStopSession(c *Client, msg WsMessage) {
 		_ = ts.Kill()
 		s.hub.broadcast <- WsMessage{Type: "session_updated", Data: sessionToResponse(inst, s.getPRInfo)}
 	}
+}
+
+// sanitizeBranchName converts a session title into a valid git branch name.
+func sanitizeBranchName(title string) string {
+	s := strings.ToLower(title)
+	s = strings.ReplaceAll(s, " ", "-")
+	result := make([]byte, 0, len(s))
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-' {
+			result = append(result, c)
+		}
+	}
+	if len(result) == 0 {
+		return "session"
+	}
+	return string(result)
 }
