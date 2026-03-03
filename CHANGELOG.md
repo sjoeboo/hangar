@@ -5,6 +5,20 @@ All notable changes to Hangar will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.2] - 2026-03-03
+
+### Fixed
+
+- **Shift+Enter now inserts a newline** in the "Send to Session" dialog (`x` key) instead of
+  being ignored. The input has been upgraded from a single-line `textinput` to a multi-line
+  `textarea`; bare Enter submits, Shift+Enter inserts a newline. The hint text in the dialog
+  reflects this.
+
+- **Shift+Enter works in attached sessions** — hangar now sets `extended-keys on` on each
+  tmux session at startup. Without this, tmux stripped the Kitty keyboard protocol modifier
+  from Shift+Enter before the bytes reached Claude Code, making it indistinguishable from
+  plain Enter. Requires tmux 3.2+; silently ignored on older versions.
+
 ## [1.2.1] - 2026-03-03
 
 ### Fixed

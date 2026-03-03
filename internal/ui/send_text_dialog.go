@@ -3,7 +3,8 @@ package ui
 import (
 	"strings"
 
-	"github.com/charmbracelet/bubbles/textinput"
+	"github.com/charmbracelet/bubbles/key"
+	"github.com/charmbracelet/bubbles/textarea"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
@@ -14,16 +15,20 @@ type SendTextDialog struct {
 	width        int
 	height       int
 	sessionTitle string
-	input        textinput.Model
+	input        textarea.Model
 }
 
 // NewSendTextDialog creates a new send-text dialog
 func NewSendTextDialog() *SendTextDialog {
-	ti := textinput.New()
-	ti.Placeholder = "command or text to send..."
-	ti.CharLimit = 500
-	ti.Width = 44
-	return &SendTextDialog{input: ti}
+	ta := textarea.New()
+	ta.Placeholder = "command or text to send..."
+	ta.CharLimit = 2000
+	ta.SetWidth(44)
+	ta.SetHeight(3)
+	ta.ShowLineNumbers = false
+	// Enter submits; Shift+Enter inserts a newline.
+	ta.KeyMap.InsertNewline = key.NewBinding(key.WithKeys("shift+enter"))
+	return &SendTextDialog{input: ta}
 }
 
 // Show displays the dialog for the given session
@@ -50,8 +55,8 @@ func (d *SendTextDialog) SetSize(w, h int) { d.width = w; d.height = h }
 func (d *SendTextDialog) GetText() string { return strings.TrimSpace(d.input.Value()) }
 
 // HandleKey returns "confirm", "close", or "" to pass through to the text input.
-func (d *SendTextDialog) HandleKey(key string) string {
-	switch key {
+func (d *SendTextDialog) HandleKey(k string) string {
+	switch k {
 	case "enter":
 		return "confirm"
 	case "esc":
@@ -85,6 +90,8 @@ func (d *SendTextDialog) View() string {
 		}
 	}
 
+	d.input.SetWidth(dialogWidth - 8)
+
 	boxStyle := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(ColorCyan).
@@ -97,10 +104,9 @@ func (d *SendTextDialog) View() string {
 	b.WriteString(labelStyle.Render("  Session: "))
 	b.WriteString(valueStyle.Render(d.sessionTitle))
 	b.WriteString("\n\n")
-	b.WriteString(labelStyle.Render("  > "))
 	b.WriteString(d.input.View())
 	b.WriteString("\n\n")
-	b.WriteString(dimStyle.Render("Enter send • Esc cancel"))
+	b.WriteString(dimStyle.Render("Enter send  •  Shift+Enter new line  •  Esc cancel"))
 
 	return lipgloss.Place(d.width, d.height, lipgloss.Center, lipgloss.Center, boxStyle.Render(b.String()))
 }
