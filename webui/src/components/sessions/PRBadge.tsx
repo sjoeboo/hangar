@@ -7,10 +7,10 @@ interface PRBadgeProps {
 }
 
 const STATE_CLASS: Record<string, string> = {
-  OPEN:   'text-green-400',
+  OPEN:   'text-(--oasis-green)',
   DRAFT:  'text-muted-foreground',
-  MERGED: 'text-purple-400',
-  CLOSED: 'text-red-400',
+  MERGED: 'text-(--oasis-purple)',
+  CLOSED: 'text-(--oasis-red)',
 }
 
 export function PRBadge({ pr, className }: PRBadgeProps) {
@@ -31,11 +31,11 @@ export function PRBadge({ pr, className }: PRBadgeProps) {
       {pr.has_checks && (
         <span className="ml-1">
           {pr.checks_failed ? (
-            <span className="text-red-400">{pr.checks_failed}</span>
+            <span className="text-(--oasis-red)">{pr.checks_failed}</span>
           ) : pr.checks_pending ? (
-            <span className="text-yellow-400">{pr.checks_pending}</span>
+            <span className="text-(--oasis-yellow)">{pr.checks_pending}</span>
           ) : (
-            <span className="text-green-400"></span>
+            <span className="text-(--oasis-green)"></span>
           )}
         </span>
       )}

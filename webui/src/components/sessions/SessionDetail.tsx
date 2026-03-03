@@ -85,7 +85,9 @@ export function SessionDetail() {
           </button>
           {confirmDelete ? (
             <div className="flex items-center gap-1">
-              <span className="text-xs text-red-400">Delete?</span>
+              <span className="text-xs text-red-400">
+                {session.worktree_branch ? 'Delete session + worktree?' : 'Delete?'}
+              </span>
               <button
                 onClick={() => deleteMutation.mutate()}
                 disabled={deleteMutation.isPending}

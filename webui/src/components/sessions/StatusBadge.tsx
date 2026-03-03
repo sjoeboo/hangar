@@ -1,11 +1,11 @@
 import { cn } from '@/lib/utils'
 
 const STATUS_CONFIG: Record<string, { label: string; className: string }> = {
-  running:  { label: 'Running',  className: 'bg-green-500/20 text-green-400 border-green-500/30' },
-  waiting:  { label: 'Waiting',  className: 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30' },
+  running:  { label: 'Running',  className: 'bg-(--status-running-bg)  text-(--status-running-fg)  border-(--status-running-border)'  },
+  waiting:  { label: 'Waiting',  className: 'bg-(--status-waiting-bg)  text-(--status-waiting-fg)  border-(--status-waiting-border)'  },
+  starting: { label: 'Starting', className: 'bg-(--status-starting-bg) text-(--status-starting-fg) border-(--status-starting-border)' },
+  stopped:  { label: 'Stopped',  className: 'bg-(--status-stopped-bg)  text-(--status-stopped-fg)  border-(--status-stopped-border)'  },
   idle:     { label: 'Idle',     className: 'bg-muted text-muted-foreground border-border' },
-  starting: { label: 'Starting', className: 'bg-blue-500/20 text-blue-400 border-blue-500/30' },
-  stopped:  { label: 'Stopped',  className: 'bg-red-500/20 text-red-400 border-red-500/30' },
   unknown:  { label: 'Unknown',  className: 'bg-muted text-muted-foreground border-border' },
 }
 
