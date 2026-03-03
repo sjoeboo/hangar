@@ -1,9 +1,18 @@
-.PHONY: build run install clean dev release-local test fmt lint ci
+.PHONY: build run install clean dev release-local test fmt lint ci build-ui dev-ui build-all
 
 BINARY_NAME=hangar
 BUILD_DIR=./build
 VERSION=$(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
 LDFLAGS=-ldflags "-X main.Version=$(VERSION)"
+
+# Web UI build targets
+build-ui:
+	cd webui && npm ci && npm run build
+
+dev-ui:
+	cd webui && npm run dev
+
+build-all: build-ui build
 
 # Build the binary
 build:
@@ -68,13 +77,13 @@ ci:
 # Local release using GoReleaser
 # Prerequisites: brew install goreleaser
 # Required env: GITHUB_TOKEN, HOMEBREW_TAP_GITHUB_TOKEN
-release-local:
+release-local: build-ui
 	@echo "=== Pre-flight checks ==="
 	@which goreleaser > /dev/null || (echo "ERROR: goreleaser not found. Run: brew install goreleaser" && exit 1)
 	@test -n "$$GITHUB_TOKEN" || (echo "ERROR: GITHUB_TOKEN not set" && exit 1)
 	@test -n "$$HOMEBREW_TAP_GITHUB_TOKEN" || (echo "ERROR: HOMEBREW_TAP_GITHUB_TOKEN not set" && exit 1)
 	@TAG=$$(git describe --tags --exact-match 2>/dev/null) || (echo "ERROR: HEAD is not tagged. Run: git tag vX.Y.Z" && exit 1); \
-	CODE_VERSION=$$(grep 'const Version' cmd/hangar/main.go | sed 's/.*"\(.*\)".*/\1/'); \
+	CODE_VERSION=$$(grep 'var Version' cmd/hangar/main.go | sed 's/.*"\(.*\)".*/\1/'); \
 	TAG_VERSION=$${TAG#v}; \
 	if [ "$$TAG_VERSION" != "$$CODE_VERSION" ]; then \
 		echo "ERROR: Tag $$TAG ($$TAG_VERSION) != code Version $$CODE_VERSION"; \
