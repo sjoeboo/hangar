@@ -948,6 +948,9 @@ func (s *Session) Start(command string) error {
 	// - set-clipboard on: Clipboard integration (Warp, iTerm2, kitty, etc.)
 	// - history-limit 10000: Large scrollback for AI agent output
 	// - escape-time 10: Fast Vim/editor responsiveness (default 500ms is too slow)
+	// - extended-keys on: Forward Kitty keyboard protocol sequences (Shift+Enter, etc.)
+	//   to inner panes (tmux 3.2+, -q for older). Without this, modifiers on keys like
+	//   Shift+Enter are stripped and the inner app sees plain Enter.
 	// - terminal-features hyperlinks: Track hyperlinks like colors (tmux 3.4+, server-wide)
 	_ = exec.Command("tmux",
 		"set-option", "-t", s.Name, "window-style", "default", ";",
@@ -957,6 +960,7 @@ func (s *Session) Start(command string) error {
 		"set-option", "-t", s.Name, "set-clipboard", "on", ";",
 		"set-option", "-t", s.Name, "history-limit", "10000", ";",
 		"set-option", "-t", s.Name, "escape-time", "10", ";",
+		"set-option", "-t", s.Name, "-q", "extended-keys", "on", ";",
 		"set", "-asq", "terminal-features", ",*:hyperlinks").Run()
 
 	// Apply user-specified tmux option overrides from config (after defaults).
