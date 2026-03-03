@@ -48,3 +48,6 @@ Thumbs.db
 
 .worktrees
 hangar-test
+
+# Web UI build output (generated at build time via npm run build)
+internal/webui/assets/dist/
