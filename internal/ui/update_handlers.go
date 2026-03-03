@@ -803,22 +803,8 @@ func (h *Home) handlePreviewDebounce(msg previewDebounceMsg) tea.Cmd {
 			}
 		}
 
-		// PR status check (lazy, 60s TTL, requires gh CLI)
-		if h.ghPath != "" && inst.IsWorktree() && inst.WorktreePath != "" {
-			_, cachedAtPR, hasCachedPR := h.cache.HasPREntry(inst.ID)
-			needsFetch := !hasCachedPR || time.Since(cachedAtPR) > prCacheTTL
-			if needsFetch {
-				h.cache.TouchPR(inst.ID) // Prevent duplicate fetches
-			}
-			if needsFetch {
-				sid := inst.ID
-				wtPath := inst.WorktreePath
-				ghPath := h.ghPath
-				cmds = append(cmds, func() tea.Msg {
-					return fetchPRInfo(sid, wtPath, ghPath)
-				})
-			}
-		}
+		// Note: PR status is refreshed by the background tick (handleTick), not here.
+		// Fetching on navigation caused the badge to flicker away during re-fetch.
 
 		// Remote URL fetch (lazy, 5m TTL)
 		if inst.IsWorktree() && inst.WorktreePath != "" {
