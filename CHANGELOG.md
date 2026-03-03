@@ -5,6 +5,18 @@ All notable changes to Hangar will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.1] - 2026-03-03
+
+### Fixed
+
+- **Web UI: worktree sessions now start on the correct branch** — when creating a session via
+  the web UI with "Create in worktree" enabled, the tmux session was starting in the base
+  repository directory (on `master`/`main`) instead of the newly created worktree directory.
+  The instance was being constructed with the base path before the worktree was created; the
+  worktree path was patched onto the instance afterward but the internal tmux `WorkDir` was
+  never updated. Fixed by resolving the effective working directory first and passing it to
+  the instance constructor, matching the approach used by the CLI `hangar add` command.
+
 ## [2.0.0] - 2026-03-03
 
 ### Added

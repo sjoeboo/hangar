@@ -282,30 +282,19 @@ func (s *APIServer) createSession(w http.ResponseWriter, r *http.Request) {
 		tool = "claude"
 	}
 
-	inst := session.NewInstanceWithTool(req.Title, req.Path, tool)
-	// Command must be set so buildClaudeCommand (and siblings) know which
-	// binary to run. For built-in tools the command name equals the tool name.
-	inst.Command = tool
-	if req.Group != "" {
-		inst.GroupPath = req.Group
-	}
-	if req.ParentID != "" {
-		inst.ParentSessionID = req.ParentID
-	}
-
-	// Handle worktree creation
+	// Resolve the effective working directory before creating the instance.
+	// For worktree sessions we must know the final path up front so the tmux
+	// session is created with the correct WorkDir from the start.
+	effectivePath := req.Path
+	var worktreePath, worktreeBranch string
 	if req.Worktree {
-		if req.Path == "" {
-			writeError(w, http.StatusBadRequest, "path required for worktree sessions")
-			return
+		worktreeBranch = req.Branch
+		if worktreeBranch == "" {
+			worktreeBranch = sanitizeBranchName(req.Title)
 		}
-		branchName := req.Branch
-		if branchName == "" {
-			branchName = sanitizeBranchName(req.Title)
-		}
-		worktreePath := git.GenerateWorktreePath(req.Path, branchName, "subdirectory")
+		worktreePath = git.GenerateWorktreePath(req.Path, worktreeBranch, "subdirectory")
 
-		// Pull latest base branch (non-fatal on failure)
+		// Pull latest base branch before branching (non-fatal on failure).
 		defaultBranch, err := git.GetDefaultBranch(req.Path)
 		if err != nil {
 			slog.Warn("failed to get default branch", "err", err)
@@ -315,16 +304,30 @@ func (s *APIServer) createSession(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
-		// Create worktree
-		if err := git.CreateWorktree(req.Path, worktreePath, branchName); err != nil {
+		if err := git.CreateWorktree(req.Path, worktreePath, worktreeBranch); err != nil {
 			writeError(w, http.StatusInternalServerError, fmt.Sprintf("failed to create worktree: %v", err))
 			return
 		}
 
+		effectivePath = worktreePath
+	}
+
+	// Create the instance with the final working directory so the embedded
+	// tmux session is initialised with the correct WorkDir from the start.
+	inst := session.NewInstanceWithTool(req.Title, effectivePath, tool)
+	// Command must be set so buildClaudeCommand (and siblings) know which
+	// binary to run. For built-in tools the command name equals the tool name.
+	inst.Command = tool
+	if req.Group != "" {
+		inst.GroupPath = req.Group
+	}
+	if req.ParentID != "" {
+		inst.ParentSessionID = req.ParentID
+	}
+	if req.Worktree {
 		inst.WorktreePath = worktreePath
-		inst.WorktreeBranch = branchName
+		inst.WorktreeBranch = worktreeBranch
 		inst.WorktreeRepoRoot = req.Path
-		inst.ProjectPath = worktreePath
 	}
 
 	// Handle skip-permissions
