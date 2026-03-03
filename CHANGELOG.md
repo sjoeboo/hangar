@@ -17,6 +17,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   never updated. Fixed by resolving the effective working directory first and passing it to
   the instance constructor, matching the approach used by the CLI `hangar add` command.
 
+- **Web UI: deleting a worktree session now removes the worktree** — deleting a session via
+  the web UI was only killing the tmux process and removing the DB record; it did not call
+  `git worktree remove` or `git worktree prune`. Added the same `RemoveWorktree` +
+  `PruneWorktrees` calls the TUI's `deleteSession` already performs.
+
 ## [2.0.0] - 2026-03-03
 
 ### Added

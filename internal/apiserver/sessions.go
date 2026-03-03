@@ -448,10 +448,14 @@ func (s *APIServer) updateSession(w http.ResponseWriter, r *http.Request, id str
 
 // deleteSession handles DELETE /api/v1/sessions/{id}.
 func (s *APIServer) deleteSession(w http.ResponseWriter, r *http.Request, id string) {
-	// Kill tmux session if it's live
+	// Kill tmux session and clean up worktree if applicable — mirrors the TUI's deleteSession.
 	if inst := s.findInstance(id); inst != nil {
 		if ts := inst.GetTmuxSession(); ts != nil {
 			_ = ts.Kill()
+		}
+		if inst.IsWorktree() {
+			_ = git.RemoveWorktree(inst.WorktreeRepoRoot, inst.WorktreePath, false)
+			_ = git.PruneWorktrees(inst.WorktreeRepoRoot)
 		}
 	}
 
