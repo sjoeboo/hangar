@@ -191,20 +191,41 @@ func (h *Home) handleLoadSessions(msg loadSessionsMsg) tea.Cmd {
 		}
 		// Trigger immediate preview fetch for initial selection
 		h.updateDiffStat()
+		// Eager PR fetch for worktree sessions with no cached PR data
+		var prCmds []tea.Cmd
+		if h.ghPath != "" {
+			for _, item := range h.flatItems {
+				if item.Type == session.ItemTypeSession && item.Session != nil &&
+					item.Session.IsWorktree() && item.Session.WorktreePath != "" {
+					_, _, hasCached := h.cache.HasPREntry(item.Session.ID)
+					if !hasCached {
+						h.cache.TouchPR(item.Session.ID)
+						sid := item.Session.ID
+						wtPath := item.Session.WorktreePath
+						ghPath := h.ghPath
+						prCmds = append(prCmds, func() tea.Msg {
+							return fetchPRInfo(sid, wtPath, ghPath)
+						})
+					}
+				}
+			}
+		}
 		if selected := h.getSelectedSession(); selected != nil {
 			h.previewFetchingMu.Lock()
 			h.previewFetchingID = selected.ID
 			h.previewFetchingMu.Unlock()
-			// Batch preview fetch with any OpenCode detection commands and diff fetch
+			// Batch preview fetch with any OpenCode detection commands, diff fetch, and PR fetches
 			allCmds := append(detectionCmds, h.fetchPreview(selected))
 			if dir := h.effectiveDir(selected); dir != "" && git.IsGitRepo(dir) {
 				allCmds = append(allCmds, fetchDiffCmd(dir, selected.ID))
 			}
+			allCmds = append(allCmds, prCmds...)
 			return tea.Batch(allCmds...)
 		}
-		// No selection, but still run detection commands if any
-		if len(detectionCmds) > 0 {
-			return tea.Batch(detectionCmds...)
+		// No selection, but still run detection and PR fetch commands if any
+		allCmds := append(detectionCmds, prCmds...)
+		if len(allCmds) > 0 {
+			return tea.Batch(allCmds...)
 		}
 	}
 	return nil

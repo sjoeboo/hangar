@@ -163,6 +163,20 @@ func (s *Storage) DeleteTodosForSession(sessionID string) error {
 	return s.db.DeleteTodo(row.ID)
 }
 
+// LoadTodoByID returns a single todo by its ID, or nil if not found.
+func (s *Storage) LoadTodoByID(id string) (*Todo, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.db == nil {
+		return nil, fmt.Errorf("storage database not initialized")
+	}
+	row, err := s.db.FindTodoByID(id)
+	if err != nil || row == nil {
+		return nil, err
+	}
+	return todoFromRow(row), nil
+}
+
 // FindTodoBySessionID returns the todo linked to the given session, or nil.
 func (s *Storage) FindTodoBySessionID(sessionID string) (*Todo, error) {
 	s.mu.Lock()

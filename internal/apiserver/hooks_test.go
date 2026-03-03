@@ -1,4 +1,4 @@
-package hookserver_test
+package apiserver_test
 
 import (
 	"bytes"
@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/sjoeboo/hangar/internal/hookserver"
+	"github.com/sjoeboo/hangar/internal/apiserver"
 	"github.com/sjoeboo/hangar/internal/session"
 )
 
@@ -26,9 +26,17 @@ func newTestWatcher(t *testing.T) *session.StatusFileWatcher {
 	return w
 }
 
+func newTestServer(t *testing.T) *apiserver.APIServer {
+	t.Helper()
+	watcher := newTestWatcher(t)
+	cfg := apiserver.APIConfig{Port: 0, BindAddress: "127.0.0.1"}
+	return apiserver.New(cfg, watcher, nil, nil, "", "test")
+}
+
 func TestHookServer_ValidPayload(t *testing.T) {
 	watcher := newTestWatcher(t)
-	srv := hookserver.New(0, watcher)
+	cfg := apiserver.APIConfig{Port: 0, BindAddress: "127.0.0.1"}
+	srv := apiserver.New(cfg, watcher, nil, nil, "", "test")
 
 	payload := map[string]any{
 		"hook_event_name": "UserPromptSubmit",
@@ -57,8 +65,7 @@ func TestHookServer_ValidPayload(t *testing.T) {
 }
 
 func TestHookServer_MissingInstanceID(t *testing.T) {
-	watcher := newTestWatcher(t)
-	srv := hookserver.New(0, watcher)
+	srv := newTestServer(t)
 
 	payload := map[string]any{
 		"hook_event_name": "Stop",
@@ -78,8 +85,7 @@ func TestHookServer_MissingInstanceID(t *testing.T) {
 }
 
 func TestHookServer_WrongMethod(t *testing.T) {
-	watcher := newTestWatcher(t)
-	srv := hookserver.New(0, watcher)
+	srv := newTestServer(t)
 
 	req := httptest.NewRequest(http.MethodGet, "/hooks", nil)
 	rr := httptest.NewRecorder()
@@ -93,7 +99,8 @@ func TestHookServer_WrongMethod(t *testing.T) {
 
 func TestHookServer_UnknownEvent(t *testing.T) {
 	watcher := newTestWatcher(t)
-	srv := hookserver.New(0, watcher)
+	cfg := apiserver.APIConfig{Port: 0, BindAddress: "127.0.0.1"}
+	srv := apiserver.New(cfg, watcher, nil, nil, "", "test")
 
 	payload := map[string]any{
 		"hook_event_name": "SomeUnknownEvent",
@@ -117,7 +124,8 @@ func TestHookServer_UnknownEvent(t *testing.T) {
 
 func TestHookServer_NotifiesWatcher(t *testing.T) {
 	watcher := newTestWatcher(t)
-	srv := hookserver.New(0, watcher)
+	cfg := apiserver.APIConfig{Port: 0, BindAddress: "127.0.0.1"}
+	srv := apiserver.New(cfg, watcher, nil, nil, "", "test")
 
 	payload := map[string]any{
 		"hook_event_name": "Stop",
@@ -136,5 +144,75 @@ func TestHookServer_NotifiesWatcher(t *testing.T) {
 		// correct
 	default:
 		t.Fatal("Expected notification on watcher channel after hook POST")
+	}
+}
+
+func TestAPIServer_Status(t *testing.T) {
+	srv := newTestServer(t)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/status", nil)
+	rr := httptest.NewRecorder()
+
+	srv.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Errorf("status = %d, want 200", rr.Code)
+	}
+	var resp map[string]any
+	if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if _, ok := resp["version"]; !ok {
+		t.Error("response missing 'version' field")
+	}
+}
+
+func TestAPIServer_SessionsList_Empty(t *testing.T) {
+	srv := newTestServer(t)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/sessions", nil)
+	rr := httptest.NewRecorder()
+
+	srv.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Errorf("status = %d, want 200", rr.Code)
+	}
+	var sessions []any
+	if err := json.NewDecoder(rr.Body).Decode(&sessions); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(sessions) != 0 {
+		t.Errorf("expected 0 sessions, got %d", len(sessions))
+	}
+}
+
+func TestAPIServer_UIPlaceholder(t *testing.T) {
+	srv := newTestServer(t)
+
+	req := httptest.NewRequest(http.MethodGet, "/ui/", nil)
+	rr := httptest.NewRecorder()
+
+	srv.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusNotImplemented {
+		t.Errorf("status = %d, want 501", rr.Code)
+	}
+}
+
+func TestAPIServer_CORS(t *testing.T) {
+	srv := newTestServer(t)
+
+	req := httptest.NewRequest(http.MethodOptions, "/api/v1/sessions", nil)
+	req.Header.Set("Origin", "http://example.com")
+	rr := httptest.NewRecorder()
+
+	srv.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusNoContent {
+		t.Errorf("OPTIONS status = %d, want 204", rr.Code)
+	}
+	if rr.Header().Get("Access-Control-Allow-Origin") != "*" {
+		t.Error("CORS header missing")
 	}
 }
