@@ -5,6 +5,25 @@ All notable changes to Hangar will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.1] - 2026-03-03
+
+### Fixed
+
+- **PR badge no longer flickers during background refresh** — the sidebar list was using
+  the TTL-aware `GetPR` cache accessor, so the `[#NNN]` badge and CI check counts would
+  silently disappear for ~1–3 s every 60 s while `gh pr view` re-ran in the background.
+  Switched to `HasPREntry` (returns last-known data regardless of TTL) so the badge stays
+  visible until the refresh result arrives.
+
+- **CI check counts easier to read** — counts in the session list sidebar were formatted
+  as `✕3 ◐2 ✓15` (icon butted against number, parts separated by a single space). Now
+  rendered as `✕ 3  ◐ 2  ✓ 15` (space between icon and count, two spaces between groups).
+
+- **Removed redundant PR re-fetch on navigation** — navigating between sessions was
+  triggering a `gh pr view` call whenever the 60 s TTL had expired, in addition to the
+  background tick that already does this every 2 s. The navigation-triggered fetch has been
+  removed; the background tick is the sole refresh path.
+
 ## [1.2.0] - 2026-03-03
 
 ### Added
