@@ -335,7 +335,9 @@ func (h *Home) renderSessionItem(b *strings.Builder, item session.Item, selected
 	prBadge := ""
 	checksBadge := ""
 	if inst.IsWorktree() {
-		pr, hasPR := h.cache.GetPR(inst.ID)
+		// Use HasPREntry (bypasses TTL) so the badge stays visible while a
+		// background re-fetch is in flight rather than flickering away.
+		pr, _, hasPR := h.cache.HasPREntry(inst.ID)
 		if hasPR && pr != nil {
 			var badgeStyle lipgloss.Style
 			validState := true
@@ -367,16 +369,16 @@ func (h *Home) renderSessionItem(b *strings.Builder, item session.Item, selected
 				}
 				var parts []string
 				if pr.ChecksFailed > 0 {
-					parts = append(parts, failStyle.Render(fmt.Sprintf("✕%d", pr.ChecksFailed)))
+					parts = append(parts, failStyle.Render(fmt.Sprintf("✕ %d", pr.ChecksFailed)))
 				}
 				if pr.ChecksPending > 0 {
-					parts = append(parts, pendStyle.Render(fmt.Sprintf("◐%d", pr.ChecksPending)))
+					parts = append(parts, pendStyle.Render(fmt.Sprintf("◐ %d", pr.ChecksPending)))
 				}
 				if pr.ChecksPassed > 0 {
-					parts = append(parts, passStyle.Render(fmt.Sprintf("✓%d", pr.ChecksPassed)))
+					parts = append(parts, passStyle.Render(fmt.Sprintf("✓ %d", pr.ChecksPassed)))
 				}
 				if len(parts) > 0 {
-					checksBadge = " " + strings.Join(parts, " ")
+					checksBadge = "  " + strings.Join(parts, "  ")
 				}
 			}
 		}
