@@ -5,6 +5,29 @@ All notable changes to Hangar will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.2] - 2026-03-03
+
+### Changed
+
+- **Web UI: Oasis Lagoon Dark / Oasis Dawn theme** — the web UI now uses the same colour
+  palette as the TUI. Dark mode uses the full Oasis Lagoon Dark palette (navy `#101825`
+  background, `#58B8FD` accent, `#53D390` green, etc.). Light mode uses Oasis Dawn (lagoon
+  blue surfaces, dark navy text). All status and PR badge colours now reference theme-aware
+  CSS custom properties rather than fixed Tailwind colour names, so they remain legible in
+  both modes.
+
+### Fixed
+
+- **Web UI: active/waiting badges now visible in light mode** — status badges previously used
+  `text-green-400` / `text-yellow-400` which are too light against pale backgrounds. Badges
+  now use high-contrast foreground colours (`#1b491d` green, `#6b2e00` amber) on pastel
+  backgrounds in light mode, and the Oasis palette colours on translucent navy surfaces in
+  dark mode. PR state and CI check colours in `PRBadge` are also updated.
+
+- **Web UI: delete confirmation mentions worktree side-effect** — for sessions that own a git
+  worktree, the delete confirmation prompt now reads "Delete session + worktree?" instead of
+  the generic "Delete?" so users understand the filesystem consequence before confirming.
+
 ## [2.0.1] - 2026-03-03
 
 ### Fixed

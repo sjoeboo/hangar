@@ -51,75 +51,161 @@
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-ring: var(--sidebar-ring);
+  /* Oasis semantic colors exposed as Tailwind utilities */
+  --color-oasis-accent: var(--oasis-accent);
+  --color-oasis-green: var(--oasis-green);
+  --color-oasis-yellow: var(--oasis-yellow);
+  --color-oasis-red: var(--oasis-red);
+  --color-oasis-purple: var(--oasis-purple);
+  --color-oasis-cyan: var(--oasis-cyan);
+  --color-oasis-comment: var(--oasis-comment);
 }
 
+/* ── Oasis Dawn (light) ─────────────────────────────────────────────────── */
+/* Palette from oasis.nvim: lagoon scale + light_terminal colors              */
 :root {
-  --radius: 0.625rem;
-  --background: oklch(0.99 0 0);
-  --foreground: oklch(0.15 0 0);
-  --card: oklch(0.95 0 0);
-  --card-foreground: oklch(0.15 0 0);
-  --popover: oklch(0.95 0 0);
-  --popover-foreground: oklch(0.15 0 0);
-  --primary: oklch(0.205 0 0);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.93 0 0);
-  --muted-foreground: oklch(0.45 0 0);
-  --accent: oklch(0.93 0 0);
-  --accent-foreground: oklch(0.15 0 0);
-  --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.88 0 0);
-  --input: oklch(0.88 0 0);
-  --ring: oklch(0.7 0 0);
-  --chart-1: oklch(0.646 0.222 41.116);
-  --chart-2: oklch(0.6 0.118 184.704);
-  --chart-3: oklch(0.398 0.07 227.392);
-  --chart-4: oklch(0.828 0.189 84.429);
-  --chart-5: oklch(0.769 0.188 70.08);
-  --sidebar: oklch(0.95 0 0);
-  --sidebar-foreground: oklch(0.15 0 0);
-  --sidebar-primary: oklch(0.205 0 0);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.93 0 0);
-  --sidebar-accent-foreground: oklch(0.15 0 0);
-  --sidebar-border: oklch(0.88 0 0);
-  --sidebar-ring: oklch(0.7 0 0);
+  --radius: 0.5rem;
+
+  /* Raw oasis dawn palette tokens */
+  --oasis-bg:       #EEF4FF; /* lagoon[50]  */
+  --oasis-surface:  #D0E8FE; /* lagoon[100] */
+  --oasis-border:   #B2DCFE; /* lagoon[200] */
+  --oasis-text:     #10426d; /* dark navy   */
+  --oasis-dim:      #1f3f71; /* navy dim    */
+  --oasis-accent:   #1670AD; /* lagoon[800] */
+  --oasis-purple:   #46259f;
+  --oasis-cyan:     #064658;
+  --oasis-green:    #1b491d;
+  --oasis-yellow:   #6b2e00;
+  --oasis-orange:   #533c00;
+  --oasis-red:      #663021;
+  --oasis-comment:  #0D4266; /* lagoon[900] */
+
+  /* Shadcn semantic variables → oasis dawn */
+  --background:            var(--oasis-bg);
+  --foreground:            var(--oasis-text);
+  --card:                  var(--oasis-surface);
+  --card-foreground:       var(--oasis-text);
+  --popover:               var(--oasis-surface);
+  --popover-foreground:    var(--oasis-text);
+  --primary:               var(--oasis-accent);
+  --primary-foreground:    var(--oasis-bg);
+  --secondary:             var(--oasis-border);
+  --secondary-foreground:  var(--oasis-text);
+  --muted:                 var(--oasis-surface);
+  --muted-foreground:      var(--oasis-dim);
+  --accent:                var(--oasis-surface);
+  --accent-foreground:     var(--oasis-text);
+  --destructive:           var(--oasis-red);
+  --border:                var(--oasis-border);
+  --input:                 var(--oasis-border);
+  --ring:                  var(--oasis-accent);
+
+  /* Sidebar */
+  --sidebar:                       #e0ecff;
+  --sidebar-foreground:            var(--oasis-text);
+  --sidebar-primary:               var(--oasis-accent);
+  --sidebar-primary-foreground:    var(--oasis-bg);
+  --sidebar-accent:                var(--oasis-surface);
+  --sidebar-accent-foreground:     var(--oasis-text);
+  --sidebar-border:                var(--oasis-border);
+  --sidebar-ring:                  var(--oasis-accent);
+
+  /* Charts */
+  --chart-1: var(--oasis-accent);
+  --chart-2: var(--oasis-cyan);
+  --chart-3: var(--oasis-purple);
+  --chart-4: var(--oasis-yellow);
+  --chart-5: var(--oasis-orange);
+
+  /* Status badge tokens — high contrast for light backgrounds */
+  --status-running-bg:     #dcfce7;
+  --status-running-fg:     var(--oasis-green);
+  --status-running-border: #86efac;
+
+  --status-waiting-bg:     #fef9c3;
+  --status-waiting-fg:     var(--oasis-yellow);
+  --status-waiting-border: #fde047;
+
+  --status-starting-bg:    #dbeafe;
+  --status-starting-fg:    var(--oasis-accent);
+  --status-starting-border:#93c5fd;
+
+  --status-stopped-bg:     #fee2e2;
+  --status-stopped-fg:     var(--oasis-red);
+  --status-stopped-border: #fca5a5;
 }
 
+/* ── Oasis Lagoon Dark ──────────────────────────────────────────────────── */
 .dark {
-  --background: oklch(0.12 0 0);
-  --foreground: oklch(0.93 0 0);
-  --card: oklch(0.15 0 0);
-  --card-foreground: oklch(0.9 0 0);
-  --popover: oklch(0.15 0 0);
-  --popover-foreground: oklch(0.9 0 0);
-  --primary: oklch(0.922 0 0);
-  --primary-foreground: oklch(0.205 0 0);
-  --secondary: oklch(0.269 0 0);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.2 0 0);
-  --muted-foreground: oklch(0.55 0 0);
-  --accent: oklch(0.2 0 0);
-  --accent-foreground: oklch(0.9 0 0);
-  --destructive: oklch(0.704 0.191 22.216);
-  --border: oklch(0.22 0 0);
-  --input: oklch(0.22 0 0);
-  --ring: oklch(0.45 0 0);
-  --chart-1: oklch(0.488 0.243 264.376);
-  --chart-2: oklch(0.696 0.17 162.48);
-  --chart-3: oklch(0.769 0.188 70.08);
-  --chart-4: oklch(0.627 0.265 303.9);
-  --chart-5: oklch(0.645 0.246 16.439);
-  --sidebar: oklch(0.15 0 0);
-  --sidebar-foreground: oklch(0.93 0 0);
-  --sidebar-primary: oklch(0.488 0.243 264.376);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.2 0 0);
-  --sidebar-accent-foreground: oklch(0.9 0 0);
-  --sidebar-border: oklch(0.22 0 0);
-  --sidebar-ring: oklch(0.45 0 0);
+  /* Raw oasis lagoon dark palette tokens */
+  --oasis-bg:       #101825;
+  --oasis-surface:  #22385C;
+  --oasis-border:   #264870;
+  --oasis-text:     #D9E6FA;
+  --oasis-dim:      #8FB0D0;
+  --oasis-accent:   #58B8FD;
+  --oasis-purple:   #C695FF;
+  --oasis-cyan:     #68C0B6;
+  --oasis-green:    #53D390;
+  --oasis-yellow:   #F0E68C;
+  --oasis-orange:   #F8B471;
+  --oasis-red:      #FF7979;
+  --oasis-comment:  #4D88A7;
+
+  /* Shadcn semantic variables → oasis lagoon dark */
+  --background:            var(--oasis-bg);
+  --foreground:            var(--oasis-text);
+  --card:                  #1a2d47;
+  --card-foreground:       var(--oasis-text);
+  --popover:               #1a2d47;
+  --popover-foreground:    var(--oasis-text);
+  --primary:               var(--oasis-accent);
+  --primary-foreground:    var(--oasis-bg);
+  --secondary:             var(--oasis-border);
+  --secondary-foreground:  var(--oasis-text);
+  --muted:                 var(--oasis-surface);
+  --muted-foreground:      var(--oasis-dim);
+  --accent:                var(--oasis-surface);
+  --accent-foreground:     var(--oasis-text);
+  --destructive:           var(--oasis-red);
+  --border:                var(--oasis-border);
+  --input:                 var(--oasis-border);
+  --ring:                  var(--oasis-accent);
+
+  /* Sidebar */
+  --sidebar:                       #0d1620;
+  --sidebar-foreground:            var(--oasis-text);
+  --sidebar-primary:               var(--oasis-accent);
+  --sidebar-primary-foreground:    var(--oasis-bg);
+  --sidebar-accent:                var(--oasis-surface);
+  --sidebar-accent-foreground:     var(--oasis-text);
+  --sidebar-border:                var(--oasis-border);
+  --sidebar-ring:                  var(--oasis-accent);
+
+  /* Charts */
+  --chart-1: var(--oasis-accent);
+  --chart-2: var(--oasis-cyan);
+  --chart-3: var(--oasis-purple);
+  --chart-4: var(--oasis-yellow);
+  --chart-5: var(--oasis-orange);
+
+  /* Status badge tokens — oasis colors on dark navy surfaces */
+  --status-running-bg:     color-mix(in srgb, #53D390 12%, #22385C);
+  --status-running-fg:     var(--oasis-green);
+  --status-running-border: color-mix(in srgb, #53D390 28%, #22385C);
+
+  --status-waiting-bg:     color-mix(in srgb, #F0E68C 12%, #22385C);
+  --status-waiting-fg:     var(--oasis-yellow);
+  --status-waiting-border: color-mix(in srgb, #F0E68C 28%, #22385C);
+
+  --status-starting-bg:    color-mix(in srgb, #58B8FD 12%, #22385C);
+  --status-starting-fg:    var(--oasis-accent);
+  --status-starting-border:color-mix(in srgb, #58B8FD 28%, #22385C);
+
+  --status-stopped-bg:     color-mix(in srgb, #FF7979 12%, #22385C);
+  --status-stopped-fg:     var(--oasis-red);
+  --status-stopped-border: color-mix(in srgb, #FF7979 28%, #22385C);
 }
 
 @layer base {
