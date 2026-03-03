@@ -13,9 +13,11 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/sjoeboo/hangar/internal/session"
+	"github.com/sjoeboo/hangar/internal/webui"
 )
 
 // APIConfig holds the resolved configuration for the API server.
@@ -27,16 +29,17 @@ type APIConfig struct {
 // APIServer is the embedded HTTP/WebSocket server.
 // It serves the REST API, WebSocket endpoint, and the legacy /hooks endpoint.
 type APIServer struct {
-	cfg          APIConfig
-	watcher      *session.StatusFileWatcher
-	getInstances func() []*session.Instance // callback from TUI; caller holds instancesMu
-	getPRInfo    func(sessionID string) *PRInfo // callback from TUI PR cache; may be nil
-	profile      string
-	hub          *Hub
-	server       *http.Server
-	startedAt    time.Time
-	version      string
-	done         chan struct{}
+	cfg           APIConfig
+	watcher       *session.StatusFileWatcher
+	getInstances  func() []*session.Instance // callback from TUI; caller holds instancesMu
+	getPRInfo     func(sessionID string) *PRInfo // callback from TUI PR cache; may be nil
+	triggerReload func()                      // callback to immediately trigger TUI DB reload
+	profile       string
+	hub           *Hub
+	server        *http.Server
+	startedAt     time.Time
+	version       string
+	done          chan struct{}
 }
 
 // New creates a new APIServer.
@@ -48,15 +51,20 @@ type APIServer struct {
 //
 // getPRInfo is an optional callback that returns cached PR info for a session.
 // Pass nil to omit PR data from session responses.
-func New(cfg APIConfig, watcher *session.StatusFileWatcher, getInstances func() []*session.Instance, getPRInfo func(string) *PRInfo, profile string, version string) *APIServer {
+//
+// triggerReload is an optional callback that immediately triggers the TUI to
+// reload sessions from the DB (bypasses the 2-second poll interval). Pass nil
+// if no TUI is running (e.g. tests).
+func New(cfg APIConfig, watcher *session.StatusFileWatcher, getInstances func() []*session.Instance, getPRInfo func(string) *PRInfo, triggerReload func(), profile string, version string) *APIServer {
 	hub := newHub()
 
 	s := &APIServer{
 		cfg:          cfg,
 		watcher:      watcher,
-		getInstances: getInstances,
-		getPRInfo:    getPRInfo,
-		profile:      profile,
+		getInstances:  getInstances,
+		getPRInfo:     getPRInfo,
+		triggerReload: triggerReload,
+		profile:       profile,
 		hub:          hub,
 		startedAt:    time.Now(),
 		version:      version,
@@ -77,6 +85,7 @@ func New(cfg APIConfig, watcher *session.StatusFileWatcher, getInstances func() 
 	mux.HandleFunc("/api/v1/sessions/{id}/restart", s.handleSessionRestart)
 	mux.HandleFunc("/api/v1/sessions/{id}/send", s.handleSessionSend)
 	mux.HandleFunc("/api/v1/sessions/{id}/output", s.handleSessionOutput)
+	mux.HandleFunc("/api/v1/sessions/{id}/stream", s.handleSessionStream)
 	mux.HandleFunc("/api/v1/projects", s.handleProjects)
 	mux.HandleFunc("/api/v1/projects/{id}", s.handleProject)
 	mux.HandleFunc("/api/v1/todos", s.handleTodos)
@@ -85,8 +94,27 @@ func New(cfg APIConfig, watcher *session.StatusFileWatcher, getInstances func() 
 	// WebSocket
 	mux.HandleFunc("/api/v1/ws", s.handleWS)
 
-	// Future static assets placeholder
-	mux.HandleFunc("/ui/", s.handleUI)
+	// Serve embedded web UI assets; fall back to index.html for SPA routing
+	uiFS := webui.Assets()
+	uiHandler := http.FileServer(uiFS)
+	mux.HandleFunc("/ui/", func(w http.ResponseWriter, r *http.Request) {
+		// Strip /ui prefix so the file server sees paths relative to dist/
+		path := strings.TrimPrefix(r.URL.Path, "/ui")
+		if path == "" {
+			path = "/"
+		}
+		// Check if the file exists in the embedded FS; serve index.html for unknown paths (SPA routing)
+		f, err := uiFS.Open(path)
+		if err != nil {
+			// SPA fallback: serve index.html for client-side routes
+			r2 := r.Clone(r.Context())
+			r2.URL.Path = "/ui/index.html"
+			http.StripPrefix("/ui", uiHandler).ServeHTTP(w, r2)
+			return
+		}
+		f.Close()
+		http.StripPrefix("/ui", uiHandler).ServeHTTP(w, r)
+	})
 
 	s.server = &http.Server{
 		Handler:      corsMiddleware(mux),
@@ -158,6 +186,9 @@ func (s *APIServer) bridgeWatcherToHub(ctx context.Context) {
 			// Broadcast the full session list refresh signal; clients can re-fetch
 			// or we can send individual session updates. For now send a lightweight ping.
 			s.hub.broadcast <- WsMessage{Type: "sessions_changed"}
+			// TODO: broadcast session_output events here when per-session change
+			// notifications are available. Clients use GET /api/v1/sessions/:id/output
+			// for the initial terminal snapshot.
 		}
 	}
 }
@@ -196,11 +227,6 @@ func (s *APIServer) handleStatus(w http.ResponseWriter, r *http.Request) {
 		ByStatus: byStatus,
 	}
 	writeJSON(w, http.StatusOK, resp)
-}
-
-// handleUI serves GET /ui/* — 501 placeholder for future static assets.
-func (s *APIServer) handleUI(w http.ResponseWriter, r *http.Request) {
-	http.Error(w, "not implemented — web UI coming soon", http.StatusNotImplemented)
 }
 
 // instances returns a snapshot of the current session list.

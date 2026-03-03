@@ -254,6 +254,19 @@ func (cp *ControlPipe) CapturePaneVia() (string, error) {
 	return cp.SendCommand(fmt.Sprintf("capture-pane -t %s -p -e", cp.sessionName))
 }
 
+// CapturePaneViaWithWidth sends capture-pane with a specific width through
+// the control mode pipe. The width parameter controls line wrapping so output
+// renders correctly at the requested terminal width.
+func (cp *ControlPipe) CapturePaneViaWithWidth(width int) (string, error) {
+	// Resize pane to target width, capture, then let tmux restore on next refresh.
+	// tmux's capture-pane doesn't have a -w flag, so we resize first.
+	_, err := cp.SendCommand(fmt.Sprintf("resize-pane -t %s -x %d", cp.sessionName, width))
+	if err != nil {
+		return "", fmt.Errorf("resize-pane failed: %w", err)
+	}
+	return cp.SendCommand(fmt.Sprintf("capture-pane -t %s -p -e", cp.sessionName))
+}
+
 // OutputEvents returns a channel that fires when the session produces output.
 // Multiple rapid outputs may be coalesced into fewer channel sends.
 func (cp *ControlPipe) OutputEvents() <-chan struct{} {

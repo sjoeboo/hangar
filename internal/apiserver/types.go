@@ -20,12 +20,15 @@ type SessionResponse struct {
 
 // CreateSessionRequest is the JSON body for POST /api/v1/sessions.
 type CreateSessionRequest struct {
-	Title    string `json:"title"`
-	Path     string `json:"path"`
-	Tool     string `json:"tool,omitempty"`     // default: "claude"
-	Group    string `json:"group,omitempty"`    // group path (e.g., "projects/myproject")
-	ParentID string `json:"parent_id,omitempty"`
-	Message  string `json:"message,omitempty"` // sent to session on start
+	Title           string `json:"title"`
+	Path            string `json:"path"`
+	Tool            string `json:"tool,omitempty"`             // default: "claude"
+	Group           string `json:"group,omitempty"`            // group path (e.g., "projects/myproject")
+	ParentID        string `json:"parent_id,omitempty"`
+	Message         string `json:"message,omitempty"`          // sent to session on start
+	Worktree        bool   `json:"worktree,omitempty"`         // create git worktree for this session
+	Branch          string `json:"branch,omitempty"`           // worktree branch name (auto-gen from title if empty)
+	SkipPermissions bool   `json:"skip_permissions,omitempty"` // --dangerously-skip-permissions
 }
 
 // UpdateSessionRequest is the JSON body for PATCH /api/v1/sessions/{id}.
@@ -38,6 +41,7 @@ type UpdateSessionRequest struct {
 // SendMessageRequest is the JSON body for POST /api/v1/sessions/{id}/send.
 type SendMessageRequest struct {
 	Message string `json:"message"`
+	Raw     bool   `json:"raw,omitempty"` // if true, send literal keys without appending Enter
 }
 
 // StartSessionRequest is the optional JSON body for POST /api/v1/sessions/{id}/start.
@@ -119,6 +123,19 @@ type WsSessionDeletedData struct {
 type WsHelloData struct {
 	Version  string `json:"version"`
 	Sessions int    `json:"sessions"`
+}
+
+// SessionOutputResponse is returned by GET /api/v1/sessions/{id}/output.
+type SessionOutputResponse struct {
+	SessionID string `json:"session_id"`
+	Output    string `json:"output"`
+	Lines     int    `json:"lines"`
+}
+
+// SessionOutputData is the WS event payload for session_output events.
+type SessionOutputData struct {
+	SessionID string `json:"session_id"`
+	Output    string `json:"output"`
 }
 
 // PRInfo holds pull-request metadata for a session, sourced from the TUI's

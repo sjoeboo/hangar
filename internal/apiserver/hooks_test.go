@@ -30,13 +30,13 @@ func newTestServer(t *testing.T) *apiserver.APIServer {
 	t.Helper()
 	watcher := newTestWatcher(t)
 	cfg := apiserver.APIConfig{Port: 0, BindAddress: "127.0.0.1"}
-	return apiserver.New(cfg, watcher, nil, nil, "", "test")
+	return apiserver.New(cfg, watcher, nil, nil, nil, "", "test")
 }
 
 func TestHookServer_ValidPayload(t *testing.T) {
 	watcher := newTestWatcher(t)
 	cfg := apiserver.APIConfig{Port: 0, BindAddress: "127.0.0.1"}
-	srv := apiserver.New(cfg, watcher, nil, nil, "", "test")
+	srv := apiserver.New(cfg, watcher, nil, nil, nil, "", "test")
 
 	payload := map[string]any{
 		"hook_event_name": "UserPromptSubmit",
@@ -100,7 +100,7 @@ func TestHookServer_WrongMethod(t *testing.T) {
 func TestHookServer_UnknownEvent(t *testing.T) {
 	watcher := newTestWatcher(t)
 	cfg := apiserver.APIConfig{Port: 0, BindAddress: "127.0.0.1"}
-	srv := apiserver.New(cfg, watcher, nil, nil, "", "test")
+	srv := apiserver.New(cfg, watcher, nil, nil, nil, "", "test")
 
 	payload := map[string]any{
 		"hook_event_name": "SomeUnknownEvent",
@@ -125,7 +125,7 @@ func TestHookServer_UnknownEvent(t *testing.T) {
 func TestHookServer_NotifiesWatcher(t *testing.T) {
 	watcher := newTestWatcher(t)
 	cfg := apiserver.APIConfig{Port: 0, BindAddress: "127.0.0.1"}
-	srv := apiserver.New(cfg, watcher, nil, nil, "", "test")
+	srv := apiserver.New(cfg, watcher, nil, nil, nil, "", "test")
 
 	payload := map[string]any{
 		"hook_event_name": "Stop",
@@ -187,7 +187,7 @@ func TestAPIServer_SessionsList_Empty(t *testing.T) {
 	}
 }
 
-func TestAPIServer_UIPlaceholder(t *testing.T) {
+func TestAPIServer_UIServesAssets(t *testing.T) {
 	srv := newTestServer(t)
 
 	req := httptest.NewRequest(http.MethodGet, "/ui/", nil)
@@ -195,8 +195,11 @@ func TestAPIServer_UIPlaceholder(t *testing.T) {
 
 	srv.ServeHTTP(rr, req)
 
-	if rr.Code != http.StatusNotImplemented {
-		t.Errorf("status = %d, want 501", rr.Code)
+	// The embedded assets directory exists (contains .gitkeep), so the file
+	// server returns a 200 directory listing. Once the frontend build adds
+	// index.html this will serve the SPA entry point instead.
+	if rr.Code != http.StatusOK {
+		t.Errorf("status = %d, want 200", rr.Code)
 	}
 }
 

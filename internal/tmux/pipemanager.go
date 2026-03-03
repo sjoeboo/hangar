@@ -138,6 +138,20 @@ func (pm *PipeManager) CapturePane(sessionName string) (string, error) {
 	return pipe.CapturePaneVia()
 }
 
+// CapturePaneWithWidth routes a width-aware capture-pane through the control
+// mode pipe. The pane is resized to the given width before capture.
+func (pm *PipeManager) CapturePaneWithWidth(sessionName string, width int) (string, error) {
+	pm.mu.RLock()
+	pipe := pm.pipes[sessionName]
+	pm.mu.RUnlock()
+
+	if pipe == nil || !pipe.IsAlive() {
+		return "", fmt.Errorf("no pipe for session %s", sessionName)
+	}
+
+	return pipe.CapturePaneViaWithWidth(width)
+}
+
 // GetWindowActivity sends a display-message command through the pipe to get
 // the window_activity timestamp. Falls back to error if pipe unavailable.
 func (pm *PipeManager) GetWindowActivity(sessionName string) (int64, error) {
