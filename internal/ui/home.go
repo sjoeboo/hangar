@@ -22,7 +22,7 @@ import (
 
 	"github.com/sjoeboo/hangar/internal/clipboard"
 	"github.com/sjoeboo/hangar/internal/git"
-	"github.com/sjoeboo/hangar/internal/hookserver"
+	"github.com/sjoeboo/hangar/internal/apiserver"
 	"github.com/sjoeboo/hangar/internal/logging"
 	"github.com/sjoeboo/hangar/internal/session"
 	"github.com/sjoeboo/hangar/internal/statedb"
@@ -206,7 +206,7 @@ type Home struct {
 
 	// Hook-based status detection (Claude Code lifecycle hooks)
 	hookWatcher        *session.StatusFileWatcher
-	hookServer         *hookserver.HookServer // Embedded HTTP hook server (nil if disabled)
+	hookServer         *apiserver.APIServer // Embedded HTTP/WS API server (nil if disabled)
 	hookServerPort     int                    // Port the HTTP server is listening on (0 = command hooks)
 	configuredHookPort int                    // Port from config, set at Init time (0 if unconfigured)
 	pendingHooksPrompt bool                   // True if user should be prompted to install hooks
@@ -817,20 +817,49 @@ func NewHomeWithProfileAndMode(profile string) *Home {
 		}
 	}
 
-	// Start embedded HTTP hook server if configured
+	// Start embedded HTTP/WS API server if configured
 	{
 		port := 0
 		if userConfig != nil {
-			port = userConfig.Claude.GetHookServerPort()
+			port = userConfig.API.GetPort(&userConfig.Claude)
 		}
 		h.configuredHookPort = port
 		if hooksEnabled && port > 0 && h.hookWatcher != nil {
-			srv := hookserver.New(port, h.hookWatcher)
+			bindAddr := "0.0.0.0"
+			if userConfig != nil {
+				bindAddr = userConfig.API.GetBindAddress()
+			}
+			cfg := apiserver.APIConfig{Port: port, BindAddress: bindAddr}
+			getInstances := func() []*session.Instance {
+				h.instancesMu.RLock()
+				snap := make([]*session.Instance, len(h.instances))
+				copy(snap, h.instances)
+				h.instancesMu.RUnlock()
+				return snap
+			}
+
+			getPRInfo := func(sessionID string) *apiserver.PRInfo {
+				pr, ok := h.cache.GetPR(sessionID)
+				if !ok || pr == nil {
+					return nil
+				}
+				return &apiserver.PRInfo{
+					Number:        pr.Number,
+					Title:         pr.Title,
+					State:         pr.State,
+					URL:           pr.URL,
+					ChecksPassed:  pr.ChecksPassed,
+					ChecksFailed:  pr.ChecksFailed,
+					ChecksPending: pr.ChecksPending,
+					HasChecks:     pr.HasChecks,
+				}
+			}
+			srv := apiserver.New(cfg, h.hookWatcher, getInstances, getPRInfo, h.profile, Version)
 			h.hookServer = srv
 			h.hookServerPort = port
 			go func() {
 				if err := srv.Start(h.ctx); err != nil {
-					uiLog.Warn("hookserver_failed", slog.String("error", err.Error()))
+					uiLog.Warn("apiserver_failed", slog.String("error", err.Error()))
 				}
 			}()
 			// Silently upgrade command hooks → HTTP hooks now that the server is running
@@ -4120,16 +4149,46 @@ func (h *Home) handleConfirmDialogKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			} else {
 				h.hookWatcher = hookWatcher
 				go hookWatcher.Start()
-				// Start HTTP hook server if configured and not already running
+				// Start API server if configured and not already running
 				if h.hookServer == nil {
 					port := h.configuredHookPort
 					if port > 0 {
-						srv := hookserver.New(port, h.hookWatcher)
+						userCfg, _ := session.LoadUserConfig()
+						bindAddr := "0.0.0.0"
+						if userCfg != nil {
+							bindAddr = userCfg.API.GetBindAddress()
+						}
+						cfg2 := apiserver.APIConfig{Port: port, BindAddress: bindAddr}
+						getInstances2 := func() []*session.Instance {
+							h.instancesMu.RLock()
+							snap := make([]*session.Instance, len(h.instances))
+							copy(snap, h.instances)
+							h.instancesMu.RUnlock()
+							return snap
+						}
+
+						getPRInfo2 := func(sessionID string) *apiserver.PRInfo {
+							pr, ok := h.cache.GetPR(sessionID)
+							if !ok || pr == nil {
+								return nil
+							}
+							return &apiserver.PRInfo{
+								Number:        pr.Number,
+								Title:         pr.Title,
+								State:         pr.State,
+								URL:           pr.URL,
+								ChecksPassed:  pr.ChecksPassed,
+								ChecksFailed:  pr.ChecksFailed,
+								ChecksPending: pr.ChecksPending,
+								HasChecks:     pr.HasChecks,
+							}
+						}
+						srv := apiserver.New(cfg2, h.hookWatcher, getInstances2, getPRInfo2, h.profile, Version)
 						h.hookServer = srv
 						h.hookServerPort = port
 						go func() {
 							if err := srv.Start(h.ctx); err != nil {
-								uiLog.Warn("hookserver_failed", slog.String("error", err.Error()))
+								uiLog.Warn("apiserver_failed", slog.String("error", err.Error()))
 							}
 						}()
 						// Upgrade the just-installed hooks to HTTP hooks

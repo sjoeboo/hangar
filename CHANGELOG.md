@@ -5,6 +5,58 @@ All notable changes to Hangar will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.0] - 2026-03-03
+
+### Added
+
+- **Full REST + WebSocket API** — the minimal `POST /hooks` webhook receiver has been replaced
+  with a complete HTTP API server (`internal/apiserver`). All endpoints share the same port
+  (default `47437`) alongside the backward-compatible `/hooks` route. No authentication —
+  designed for Tailscale network trust.
+
+  | Method | Path | Description |
+  |--------|------|-------------|
+  | `GET` | `/api/v1/status` | Server uptime, version, session counts by status |
+  | `GET` | `/api/v1/sessions` | List all sessions with live status |
+  | `POST` | `/api/v1/sessions` | Create and start a new session |
+  | `GET/PATCH/DELETE` | `/api/v1/sessions/{id}` | Get, update title/group/parent, or delete |
+  | `POST` | `/api/v1/sessions/{id}/start` | Start session (optional initial message) |
+  | `POST` | `/api/v1/sessions/{id}/stop` | Kill tmux session |
+  | `POST` | `/api/v1/sessions/{id}/restart` | Restart session |
+  | `POST` | `/api/v1/sessions/{id}/send` | Send a message to a running session |
+  | `GET` | `/api/v1/sessions/{id}/output` | Get latest captured prompt/output |
+  | `GET/POST` | `/api/v1/projects` | List or create projects |
+  | `GET/PATCH/DELETE` | `/api/v1/projects/{id}` | Get, update, or delete a project |
+  | `GET/POST` | `/api/v1/todos` | List (by project path) or create todos |
+  | `GET/PATCH/DELETE` | `/api/v1/todos/{id}` | Get, update, or delete a todo |
+  | `GET` | `/api/v1/ws` | WebSocket — real-time push events + command channel |
+  | `GET` | `/ui/*` | 501 placeholder for future embedded web UI |
+
+- **WebSocket real-time events** — connected clients receive `session_created`,
+  `session_updated`, `session_deleted`, and `sessions_changed` push events whenever
+  hook status changes or storage is modified. Clients can also send `send_message`,
+  `stop_session`, and `ping` commands over the same connection.
+
+- **PR info in session API responses** — `SessionResponse` now includes a `pr` object with
+  PR number, title, state, URL, and CI check counts (`checks_passed`, `checks_failed`,
+  `checks_pending`) sourced from the TUI's live PR cache.
+
+- **Startup eager PR fetch** — the TUI now fires `gh pr view` for all worktree sessions with
+  no cached PR data on initial load, so the API serves complete PR info immediately rather
+  than waiting for a manual `P` key press or the first background poll tick.
+
+- **Configurable bind address** — new `[api]` section in `~/.hangar/config.yaml`:
+  ```yaml
+  api:
+    port: 47437         # default; backward-compat: also reads [claude] hook_server_port
+    bind_address: "0.0.0.0"  # default; was hardcoded to 127.0.0.1
+  ```
+  Setting `bind_address: "0.0.0.0"` (the new default) makes the API reachable over Tailscale.
+
+- **CORS middleware** — all API endpoints include permissive CORS headers
+  (`Access-Control-Allow-Origin: *`), appropriate for the Tailscale trust model, enabling
+  web frontends and mobile apps to call the API without proxy configuration.
+
 ## [1.1.6] - 2026-03-02
 
 ### Added

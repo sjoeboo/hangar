@@ -106,6 +106,9 @@ type UserConfig struct {
 
 	// Tmux defines tmux option overrides applied to every session
 	Tmux TmuxSettings `toml:"tmux"`
+
+	// API defines settings for the embedded HTTP/WebSocket API server.
+	API APISettings `toml:"api"`
 }
 
 // ProfileSettings defines per-profile configuration overrides.
@@ -443,6 +446,37 @@ func (c *ClaudeSettings) GetHookServerPort() int {
 		return 47437
 	}
 	return *c.HookServerPort
+}
+
+// APISettings defines settings for the embedded HTTP/WebSocket API server.
+type APISettings struct {
+	// Port is the TCP port for the API server. Default: 47437.
+	// If unset, falls back to Claude.HookServerPort for backward compat.
+	Port *int `toml:"port"`
+
+	// BindAddress is the IP address to bind to. Default: "0.0.0.0".
+	// Use "127.0.0.1" to restrict to localhost only.
+	BindAddress *string `toml:"bind_address"`
+}
+
+// GetPort returns the API server port. Prefers [api] port, falls back to
+// [claude] hook_server_port for backward compatibility, then defaults to 47437.
+func (a *APISettings) GetPort(claude *ClaudeSettings) int {
+	if a.Port != nil {
+		return *a.Port
+	}
+	if claude != nil && claude.HookServerPort != nil {
+		return *claude.HookServerPort
+	}
+	return 47437
+}
+
+// GetBindAddress returns the bind address, defaulting to "0.0.0.0".
+func (a *APISettings) GetBindAddress() string {
+	if a.BindAddress == nil {
+		return "0.0.0.0"
+	}
+	return *a.BindAddress
 }
 
 // GeminiSettings defines Gemini CLI configuration

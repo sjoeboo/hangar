@@ -745,6 +745,32 @@ func (s *StateDB) UpdateTodoStatus(id, status, sessionID string) error {
 	return nil
 }
 
+// FindTodoByID returns the todo with the given ID, or nil if not found.
+func (s *StateDB) FindTodoByID(id string) (*TodoRow, error) {
+	if id == "" {
+		return nil, nil
+	}
+	r := &TodoRow{}
+	var createdUnix, updatedUnix int64
+	err := s.db.QueryRow(`
+		SELECT id, project_path, title, description, prompt, status, session_id, sort_order, created_at, updated_at
+		FROM todos WHERE id = ? LIMIT 1
+	`, id).Scan(
+		&r.ID, &r.ProjectPath, &r.Title, &r.Description, &r.Prompt,
+		&r.Status, &r.SessionID, &r.Order,
+		&createdUnix, &updatedUnix,
+	)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	r.CreatedAt = time.Unix(createdUnix, 0)
+	r.UpdatedAt = time.Unix(updatedUnix, 0)
+	return r, nil
+}
+
 // FindTodoBySessionID returns the todo linked to the given session ID, or nil if none.
 func (s *StateDB) FindTodoBySessionID(sessionID string) (*TodoRow, error) {
 	if sessionID == "" {
