@@ -5,6 +5,53 @@ All notable changes to Hangar will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.0] - 2026-03-03
+
+### Added
+
+- **Embedded Web UI** — a full React + Vite browser dashboard is now compiled into the Go
+  binary via `go:embed`. Access it at `http://localhost:47437/ui/` (or over Tailscale when
+  `bind_address = "0.0.0.0"`). No separate server process required — starts with the TUI and
+  stays running in the background.
+
+  Key features of the web dashboard:
+  - **Session list with live status** — running `●`, waiting `◐`, idle `○` updated in
+    real time via WebSocket push events
+  - **Project sidebar** — all projects shown, including those with no active sessions;
+    click to navigate to the project detail page
+  - **Session detail** — full xterm.js terminal view with PTY streaming, info bar showing
+    project/path/branch/age metadata
+  - **Project detail** — base directory, base branch, session count, and an inline
+    todo kanban board (todo / in progress / done columns)
+  - **Todo board** — add, update status, and delete todos; synced with the TUI's kanban
+  - **Light / dark / system theme** — toggle in the top bar; follows OS `prefers-color-scheme`
+    in system mode; preference persisted in localStorage
+  - **Resizable sidebar** — drag handle for custom sidebar width, also persisted across page
+    loads
+  - **New session dialog** — create sessions with optional worktree + branch name and
+    `--dangerously-skip-permissions` flag
+
+- **`hangar web` subcommand** — lifecycle management for the standalone web server:
+  ```
+  hangar web start    # run in foreground (background with &); writes ~/.hangar/web.pid
+  hangar web stop     # send SIGTERM to the running server via PID file
+  hangar web status   # probe /api/v1/status and print URL, uptime, session counts
+  ```
+  The TUI also starts the API server automatically; `hangar web status` works regardless of
+  how the server was started.
+
+- **Sidebar reload on create/delete** — creating or deleting a session via the API now
+  immediately triggers a TUI storage reload (bypasses the 2-second poll interval) so the
+  sidebar updates without delay.
+
+- **Delete project from web UI** — projects can be removed from the sidebar via a confirm
+  button (hover to reveal).
+
+### Changed
+
+- The `/ui/*` routes now return a fully functional web application instead of a 501
+  placeholder.
+
 ## [1.2.2] - 2026-03-03
 
 ### Fixed

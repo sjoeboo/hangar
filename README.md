@@ -1,8 +1,12 @@
 # Hangar
 
+<p align="center">
+  <img src="assets/hangar.png" alt="Hangar — tmux based Claude Code session & project manager" width="600">
+</p>
+
 **A terminal session manager for Claude Code — built for engineers who live in git worktrees.**
 
-> **Hangar is a highly opinionated personal fork of [agent-deck](https://github.com/asheshgoplani/agent-deck).** It strips away multi-agent orchestration, web UI, Telegram/Slack bridges, and non-Claude tool support to focus on a single use case: one engineer, Claude Code, and a lot of git worktrees. If you need the full feature set, check out agent-deck instead.
+> **Hangar is a highly opinionated personal fork of [agent-deck](https://github.com/asheshgoplani/agent-deck).** It focuses on a single use case: one engineer, Claude Code, and a lot of git worktrees. Includes both a full TUI and an embedded web UI accessible from any browser on your Tailscale network. If you need multi-agent orchestration or Telegram/Slack bridges, check out agent-deck instead.
 
 ---
 
@@ -37,6 +41,18 @@ Press **`t`** to open a per-project kanban board with todo → in progress → i
 Every new session automatically creates a git worktree from the latest base branch. Press **`W`** to merge, clean up, and close in one step.
 
 ![Worktree finish dialog](assets/screenshots/worktree-finish.png)
+
+### Web UI
+
+Access your sessions from any browser — no tmux required. The embedded web server serves a React-based dashboard alongside the API.
+
+```bash
+hangar web start   # start the web server (background it with &)
+hangar web status  # check status + URL
+hangar web stop    # stop the server
+```
+
+The web UI is also started automatically when you launch the TUI. It's accessible at `http://localhost:47437/ui/` by default, or from any device on your network when `bind_address = "0.0.0.0"` is set.
 
 ### Send Text Without Attaching
 
@@ -81,45 +97,45 @@ hangar
 
 ### Sessions
 
-| Key         | Action                          |
-| ----------- | ------------------------------- |
-| `Enter`     | Attach to session               |
-| `n` / `N`   | New session / Quick session     |
-| `R`         | Restart session                 |
-| `f` / `F`   | Fork session (Claude only)      |
-| `x`         | Send text to session            |
-| `c`         | Copy output to clipboard        |
-| `r`         | Rename session or project       |
-| `M`         | Move session to project         |
-| `K` / `J`   | Reorder up / down               |
-| `d`         | Delete                          |
-| `Ctrl+Z`    | Undo delete                     |
+| Key       | Action                      |
+| --------- | --------------------------- |
+| `Enter`   | Attach to session           |
+| `n` / `N` | New session / Quick session |
+| `R`       | Restart session             |
+| `f` / `F` | Fork session (Claude only)  |
+| `x`       | Send text to session        |
+| `c`       | Copy output to clipboard    |
+| `r`       | Rename session or project   |
+| `M`       | Move session to project     |
+| `K` / `J` | Reorder up / down           |
+| `d`       | Delete                      |
+| `Ctrl+Z`  | Undo delete                 |
 
 ### Worktrees & PRs
 
-| Key      | Action                              |
-| -------- | ----------------------------------- |
-| `W`      | Finish worktree (archive branch)    |
-| `v`      | Review PR (open a review session)   |
-| `D`      | Inline diff view overlay            |
-| `o`      | Open PR in browser                  |
-| `P`      | Full-screen PR overview             |
+| Key | Action                            |
+| --- | --------------------------------- |
+| `W` | Finish worktree (archive branch)  |
+| `v` | Review PR (open a review session) |
+| `D` | Inline diff view overlay          |
+| `o` | Open PR in browser                |
+| `P` | Full-screen PR overview           |
 
 ### Navigation & Projects
 
-| Key       | Action                      |
-| --------- | --------------------------- |
-| `p`       | New project                 |
-| `t`       | Todo kanban board           |
-| `G`       | Open lazygit                |
-| `1`–`9`   | Jump to project by number   |
-| `/`       | Search                      |
-| `~`       | Toggle status sort          |
-| `S`       | Settings                    |
-| `Ctrl+R`  | Force-refresh git/PR status |
-| `Ctrl+Q`  | Detach from session         |
-| `?`       | Full help overlay           |
-| `q`       | Quit                        |
+| Key      | Action                      |
+| -------- | --------------------------- |
+| `p`      | New project                 |
+| `t`      | Todo kanban board           |
+| `G`      | Open lazygit                |
+| `1`–`9`  | Jump to project by number   |
+| `/`      | Search                      |
+| `~`      | Toggle status sort          |
+| `S`      | Settings                    |
+| `Ctrl+R` | Force-refresh git/PR status |
+| `Ctrl+Q` | Detach from session         |
+| `?`      | Full help overlay           |
+| `q`      | Quit                        |
 
 ---
 
