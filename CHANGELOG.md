@@ -5,6 +5,28 @@ All notable changes to Hangar will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.1.2] - 2026-03-04
+
+### Added
+
+- **Web UI: PR Overview page** (`/prs`) — a dedicated view listing all sessions that have a
+  pull request, sorted by state (OPEN → DRAFT → MERGED → CLOSED). Accessible via the new
+  `⎇ PRs` nav link in the sidebar, which shows a live count badge of open/draft PRs.
+
+- **Web UI: PR status auto-refresh** — the API server now runs a background PR refresh loop
+  that calls `gh pr view` for every worktree session every 60 seconds and broadcasts a
+  `sessions_changed` event so connected browsers pick up fresh CI check counts without manual
+  reload. This also fixes PR data being entirely absent when running `hangar web start` in
+  standalone mode (previously `getPRInfo` was `nil` in that code path).
+
+### Fixed
+
+- **Web UI: PR check counts show all statuses simultaneously** — the PR badge previously
+  used a ternary that displayed only the "worst" status (failures, then pending, then a bare
+  checkmark). It now renders all three independently — `✗N` (red failures), `●N` (yellow
+  pending), `✓N` (green passed) — matching the TUI's behaviour. The fix applies everywhere
+  the badge is used: session list sidebar, PR overview, and session detail header.
+
 ## [2.1.1] - 2026-03-04
 
 ### Fixed

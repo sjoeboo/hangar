@@ -15,5 +15,6 @@ export function useSession(id: string) {
     queryKey: ['sessions', id],
     queryFn: () => api.getSession(id),
     staleTime: 10_000,
+    refetchInterval: 30_000, // keep PR status fresh in detail view
   })
 }

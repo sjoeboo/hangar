@@ -29,13 +29,15 @@ export function PRBadge({ pr, className }: PRBadgeProps) {
     >
       PR #{pr.number}
       {pr.has_checks && (
-        <span className="ml-1">
-          {pr.checks_failed ? (
-            <span className="text-(--oasis-red)">{pr.checks_failed}</span>
-          ) : pr.checks_pending ? (
-            <span className="text-(--oasis-yellow)">{pr.checks_pending}</span>
-          ) : (
-            <span className="text-(--oasis-green)"></span>
+        <span className="flex items-center gap-0.5 ml-0.5">
+          {(pr.checks_failed ?? 0) > 0 && (
+            <span className="text-(--oasis-red)">✗{pr.checks_failed}</span>
+          )}
+          {(pr.checks_pending ?? 0) > 0 && (
+            <span className="text-(--oasis-yellow)">●{pr.checks_pending}</span>
+          )}
+          {(pr.checks_passed ?? 0) > 0 && (
+            <span className="text-(--oasis-green)">✓{pr.checks_passed}</span>
           )}
         </span>
       )}

@@ -31,11 +31,12 @@ type APIConfig struct {
 type APIServer struct {
 	cfg           APIConfig
 	watcher       *session.StatusFileWatcher
-	getInstances  func() []*session.Instance // callback from TUI; caller holds instancesMu
+	getInstances  func() []*session.Instance   // callback from TUI; caller holds instancesMu
 	getPRInfo     func(sessionID string) *PRInfo // callback from TUI PR cache; may be nil
-	triggerReload func()                      // callback to immediately trigger TUI DB reload
+	triggerReload func()                        // callback to immediately trigger TUI DB reload
 	profile       string
 	hub           *Hub
+	internalPR    *internalPRCache // standalone PR cache; used when getPRInfo is nil or returns nil
 	server        *http.Server
 	startedAt     time.Time
 	version       string
@@ -59,16 +60,17 @@ func New(cfg APIConfig, watcher *session.StatusFileWatcher, getInstances func() 
 	hub := newHub()
 
 	s := &APIServer{
-		cfg:          cfg,
-		watcher:      watcher,
+		cfg:           cfg,
+		watcher:       watcher,
 		getInstances:  getInstances,
 		getPRInfo:     getPRInfo,
 		triggerReload: triggerReload,
 		profile:       profile,
-		hub:          hub,
-		startedAt:    time.Now(),
-		version:      version,
-		done:         make(chan struct{}),
+		hub:           hub,
+		internalPR:    newInternalPRCache(),
+		startedAt:     time.Now(),
+		version:       version,
+		done:          make(chan struct{}),
 	}
 
 	mux := http.NewServeMux()
@@ -149,6 +151,10 @@ func (s *APIServer) Start(ctx context.Context) error {
 	if s.watcher != nil {
 		go s.bridgeWatcherToHub(ctx)
 	}
+
+	// Background PR refresh loop — populates internalPR cache for worktree sessions.
+	// Works in both standalone and TUI-embedded modes.
+	go s.runPRRefreshLoop(ctx)
 
 	errCh := make(chan error, 1)
 	go func() {

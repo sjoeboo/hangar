@@ -17,6 +17,9 @@ const TodoBoard = lazy(() =>
 const ProjectDetail = lazy(() =>
   import('../projects/ProjectDetail').then((m) => ({ default: m.ProjectDetail }))
 )
+const PROverview = lazy(() =>
+  import('../sessions/PROverview').then((m) => ({ default: m.PROverview }))
+)
 
 const THEME_CYCLE = { dark: 'light', light: 'system', system: 'dark' } as const
 const THEME_ICON = { dark: '🌙', light: '☀️', system: '💻' } as const
@@ -31,6 +34,7 @@ export function AppShell() {
   // new session dialog can pre-populate the project field
   const selectedSession = sessions.find((s) => s.id === selectedSessionId)
   const defaultGroup = selectedSession?.group_path || undefined
+  const prCount = sessions.filter((s) => s.pr && (s.pr.state === 'OPEN' || s.pr.state === 'DRAFT')).length
 
   const startResize = useCallback((e: React.MouseEvent) => {
     e.preventDefault()
@@ -65,7 +69,25 @@ export function AppShell() {
         </div>
 
         {/* Nav links */}
-        <div className="px-2 pt-2 pb-1 shrink-0">
+        <div className="px-2 pt-2 pb-1 shrink-0 space-y-0.5">
+          <NavLink
+            to="/prs"
+            className={({ isActive }) =>
+              cn(
+                'flex items-center gap-2 px-2 py-1.5 rounded-md text-xs font-medium transition-colors',
+                isActive
+                  ? 'bg-muted text-foreground'
+                  : 'text-muted-foreground hover:text-card-foreground hover:bg-accent'
+              )
+            }
+          >
+            <span>⎇ PRs</span>
+            {prCount > 0 && (
+              <span className="ml-auto text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-accent text-foreground">
+                {prCount}
+              </span>
+            )}
+          </NavLink>
           <NavLink
             to="/todos"
             className={({ isActive }) =>
@@ -153,6 +175,7 @@ export function AppShell() {
                 }
               />
               <Route path="/sessions/:id" element={<SessionDetail />} />
+              <Route path="/prs" element={<PROverview />} />
               <Route path="/todos" element={<TodoBoard />} />
               <Route path="/todos/:project" element={<TodoBoard />} />
               <Route path="/projects/:name" element={<ProjectDetail />} />
