@@ -94,7 +94,7 @@ export function PROverview() {
   const [selectedPR, setSelectedPR] = useState<PRFullInfo | null>(null)
   const [hideDrafts, setHideDrafts] = useState(false)
 
-  const { data: dashboard, isLoading } = usePRDashboard()
+  const { data: dashboard, isLoading, isFetching, refetch } = usePRDashboard()
 
   // Build the sessions tab PRs from session data + enrich with dashboard sessions map
   const sessionPRs: PRFullInfo[] = sessions
@@ -166,9 +166,17 @@ export function PROverview() {
         </h1>
         <div className="flex items-center gap-0 -mb-px">
           <button
+            onClick={() => refetch()}
+            disabled={isFetching}
+            className="ml-auto mb-1 px-2.5 py-1 rounded text-sm font-medium border bg-muted text-muted-foreground border-border hover:bg-accent transition-colors disabled:opacity-50"
+            title="Refresh PRs"
+          >
+            <span className={isFetching ? 'inline-block animate-spin' : 'inline-block'}>⟳</span>
+          </button>
+          <button
             onClick={() => setHideDrafts((v) => !v)}
             className={cn(
-              'ml-auto mb-1 px-2 py-1 rounded text-xs font-medium border transition-colors',
+              'ml-1 mb-1 px-2 py-1 rounded text-xs font-medium border transition-colors',
               hideDrafts
                 ? 'bg-(--oasis-accent)/20 text-(--oasis-accent) border-(--oasis-accent)/30'
                 : 'bg-muted text-muted-foreground border-border hover:bg-accent'

@@ -6,7 +6,8 @@ export function usePRDashboard() {
   return useQuery<PRDashboard>({
     queryKey: ['prs'],
     queryFn: api.getPRDashboard,
-    staleTime: 30_000,
-    refetchInterval: 60_000,
+    staleTime: 0,
+    refetchInterval: 15_000,
+    refetchOnWindowFocus: true,
   })
 }
