@@ -54,6 +54,18 @@ hangar web stop    # stop the server
 
 The web UI is also started automatically when you launch the TUI. It's accessible at `http://localhost:47437/ui/` by default, or from any device on your network when `bind_address = "0.0.0.0"` is set.
 
+### Tower — Control Agent
+
+**Tower** is a special Claude Code session (`~/.hangar/tower/`) that can monitor and control all your other sessions through natural language. Ask it "how are the agents?", "what is X working on?", or "send a message to session Y" — it uses a built-in MCP server to call Hangar's REST API directly.
+
+```bash
+hangar tower           # start Tower in the background (accessible via TUI or web UI)
+hangar tower --attach  # start and attach terminal to Tower
+hangar tower --happy   # wrap with happy for remote browser access
+```
+
+Tower is pinned to the top of both the TUI sidebar and the web UI sidebar with a `◈` badge. Its working directory, MCP config, system prompt (`CLAUDE.md`), and permission settings are all scaffolded automatically on first run.
+
 ### Send Text Without Attaching
 
 Press **`x`** to send a message to any session — no attach/detach needed.
