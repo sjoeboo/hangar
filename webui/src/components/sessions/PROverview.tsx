@@ -13,6 +13,25 @@ type Tab = 'all' | 'mine' | 'review_requested' | 'sessions'
 
 const STATE_ORDER: Record<string, number> = { OPEN: 0, DRAFT: 1, MERGED: 2, CLOSED: 3 }
 
+// Strip GHE host prefix: "ghe.example.com/owner/repo" → "owner/repo"
+function stripRepoHost(repo: string): string {
+  const parts = repo.split('/')
+  return parts.length === 3 ? `${parts[1]}/${parts[2]}` : repo
+}
+
+// Compact age string matching TUI format
+function prAgeStr(iso: string): string {
+  const ms = Date.now() - new Date(iso).getTime()
+  const days = Math.floor(ms / 86_400_000)
+  if (days < 1) return '<1d'
+  if (days < 14) return `${days}d`
+  const weeks = Math.floor(days / 7)
+  if (weeks < 8) return `${weeks}w`
+  const months = Math.floor(days / 30)
+  if (months < 24) return `${months}mo`
+  return `${Math.floor(months / 12)}y`
+}
+
 const REVIEW_DECISION_CONFIG: Record<string, { label: string; className: string }> = {
   APPROVED:           { label: '✓ Approved',  className: 'text-(--oasis-green)' },
   CHANGES_REQUESTED:  { label: '△ Changes',   className: 'text-(--oasis-yellow)' },
@@ -75,6 +94,7 @@ export function PROverview() {
   const navigate = useNavigate()
   const [activeTab, setActiveTab] = useState<Tab>('all')
   const [selectedPR, setSelectedPR] = useState<PRFullInfo | null>(null)
+  const [hideDrafts, setHideDrafts] = useState(false)
 
   const { data: dashboard, isLoading } = useQuery({
     queryKey: ['prs'],
@@ -124,7 +144,10 @@ export function PROverview() {
     { key: 'sessions',         label: 'Sessions',        count: sessionPRs.length },
   ]
 
-  const activePRs = tabData[activeTab]
+  const rawActivePRs = tabData[activeTab]
+  const activePRs = hideDrafts
+    ? rawActivePRs.filter((p) => !p.is_draft && p.state !== 'DRAFT')
+    : rawActivePRs
   const showRepo = activeTab !== 'sessions'
   const showAuthor = activeTab !== 'mine'
 
@@ -149,6 +172,17 @@ export function PROverview() {
           Pull Requests
         </h1>
         <div className="flex items-center gap-0 -mb-px">
+          <button
+            onClick={() => setHideDrafts((v) => !v)}
+            className={cn(
+              'ml-auto mb-1 px-2 py-1 rounded text-xs font-medium border transition-colors',
+              hideDrafts
+                ? 'bg-(--oasis-accent)/20 text-(--oasis-accent) border-(--oasis-accent)/30'
+                : 'bg-muted text-muted-foreground border-border hover:bg-accent'
+            )}
+          >
+            {hideDrafts ? 'Show drafts' : 'Hide drafts'}
+          </button>
           {tabs.map((tab) => (
             <button
               key={tab.key}
@@ -200,7 +234,10 @@ export function PROverview() {
                 <button
                   key={`${pr.repo ?? 'local'}-${pr.number}`}
                   onClick={() => setSelectedPR(pr)}
-                  className="w-full text-left p-3 rounded-lg border border-border bg-card hover:bg-accent/50 transition-colors"
+                  className={cn(
+                    'w-full text-left p-3 rounded-lg border border-border bg-card hover:bg-accent/50 transition-colors',
+                    (pr.is_draft || pr.state === 'DRAFT') && 'opacity-60'
+                  )}
                 >
                   <div className="flex items-center gap-2 min-w-0">
                     <a
@@ -212,7 +249,10 @@ export function PROverview() {
                     >
                       <PRBadge pr={pr} />
                     </a>
-                    <span className="font-medium text-sm truncate text-foreground">
+                    <span className={cn(
+                      'font-medium text-sm truncate text-foreground',
+                      (pr.is_draft || pr.state === 'DRAFT') && 'italic'
+                    )}>
                       {pr.title}
                     </span>
                     <div className="ml-auto shrink-0 flex items-center gap-2">
@@ -223,8 +263,9 @@ export function PROverview() {
                   </div>
                   <div className="mt-1 flex items-center gap-3 text-xs text-muted-foreground flex-wrap">
                     {showRepo && pr.repo && (
-                      <span className="font-mono">{pr.repo}</span>
+                      <span className="font-mono">{stripRepoHost(pr.repo)}</span>
                     )}
+                    <span className="shrink-0">{prAgeStr(pr.created_at)}</span>
                     {showAuthor && pr.author && (
                       <span>by {pr.author}</span>
                     )}
