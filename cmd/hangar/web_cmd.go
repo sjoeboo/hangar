@@ -3,11 +3,14 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"flag"
 	"fmt"
 	"net/http"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"syscall"
@@ -21,12 +24,17 @@ import (
 // With no arguments, it prints status (same as "web status").
 func handleWeb(profile string, args []string) {
 	sub := "status"
+	rest := args
 	if len(args) > 0 {
 		sub = args[0]
+		rest = args[1:]
 	}
 	switch sub {
 	case "start":
-		handleWebStart(profile)
+		fs := flag.NewFlagSet("web start", flag.ExitOnError)
+		noOpen := fs.Bool("no-open", false, "Do not open browser after start")
+		_ = fs.Parse(normalizeArgs(fs, rest))
+		handleWebStart(profile, *noOpen)
 	case "stop":
 		handleWebStop()
 	case "status":
@@ -41,13 +49,19 @@ func handleWeb(profile string, args []string) {
 // handleWebStart runs the API + web UI server in the foreground.
 // The caller can background it with: hangar web start &
 // A PID file at ~/.hangar/web.pid lets "hangar web stop" find the process.
-func handleWebStart(profile string) {
+// Pass noOpen=true (via --no-open flag) to suppress auto-opening the browser.
+func handleWebStart(profile string, noOpen bool) {
 	pidFile := webPIDFile()
 
 	// If a PID file exists and the process is alive, don't start a second one.
 	if pid := readWebPID(pidFile); pid > 0 && webProcessRunning(pid) {
 		fmt.Printf("Web server already running (PID %d).\n", pid)
-		webPrintURL()
+		port, bindAddr := webLoadConfig()
+		uiURL := fmt.Sprintf("http://%s:%d/ui/", webDisplayAddr(bindAddr), port)
+		fmt.Printf("  URL:  %s\n", uiURL)
+		if !noOpen {
+			openBrowser(uiURL)
+		}
 		return
 	}
 	// Remove any stale PID file.
@@ -88,11 +102,31 @@ func handleWebStart(profile string) {
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
 
+	uiURL := fmt.Sprintf("http://%s:%d/ui/", webDisplayAddr(bindAddr), port)
 	fmt.Printf("Hangar web server started.\n")
-	fmt.Printf("  URL:  http://%s:%d/ui/\n", webDisplayAddr(bindAddr), port)
+	fmt.Printf("  URL:  %s\n", uiURL)
 	fmt.Printf("  API:  http://%s:%d/api/v1/status\n", webDisplayAddr(bindAddr), port)
 	fmt.Printf("  PID:  %d\n", os.Getpid())
 	fmt.Printf("  Stop: hangar web stop\n")
+
+	if !noOpen {
+		// Poll the status endpoint before opening the browser so the tab doesn't
+		// hit a "connection refused" while the server is still binding its socket.
+		statusURL := fmt.Sprintf("http://127.0.0.1:%d/api/v1/status", port)
+		go func() {
+			client := &http.Client{Timeout: time.Second}
+			deadline := time.Now().Add(5 * time.Second)
+			for time.Now().Before(deadline) {
+				resp, err := client.Get(statusURL)
+				if err == nil {
+					resp.Body.Close()
+					openBrowser(uiURL)
+					return
+				}
+				time.Sleep(100 * time.Millisecond)
+			}
+		}()
+	}
 
 	if err := srv.Start(ctx); err != nil {
 		fmt.Fprintf(os.Stderr, "Server error: %v\n", err)
@@ -225,6 +259,21 @@ func webDisplayAddr(bind string) string {
 		return "localhost"
 	}
 	return bind
+}
+
+// openBrowser opens url in the user's default browser. Errors are silently
+// ignored — the URL is printed to stdout so the user can open it manually.
+func openBrowser(url string) {
+	var cmd *exec.Cmd
+	switch runtime.GOOS {
+	case "darwin":
+		cmd = exec.Command("open", url)
+	case "windows":
+		cmd = exec.Command("rundll32", "url.dll,FileProtocolHandler", url)
+	default:
+		cmd = exec.Command("xdg-open", url)
+	}
+	cmd.Start() //nolint:errcheck // best-effort; URL already printed to stdout
 }
 
 // webPrintURL prints the configured web UI URL.
