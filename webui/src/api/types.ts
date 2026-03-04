@@ -9,6 +9,67 @@ export interface PRInfo {
   has_checks?: boolean
 }
 
+export interface PRFullInfo {
+  number: number
+  title: string
+  state: string
+  is_draft?: boolean
+  url: string
+  repo?: string
+  head_branch?: string
+  base_branch?: string
+  author?: string
+  review_decision?: string
+  comment_count?: number
+  checks_passed?: number
+  checks_failed?: number
+  checks_pending?: number
+  has_checks?: boolean
+  created_at: string
+  updated_at: string
+  source?: string
+  session_id?: string
+}
+
+export interface PRDashboard {
+  all: PRFullInfo[]
+  mine: PRFullInfo[]
+  review_requested: PRFullInfo[]
+  sessions: Record<string, PRFullInfo>
+}
+
+export interface PRComment {
+  id: number
+  author: string
+  body: string
+  created_at: string
+  path?: string
+  line?: number
+}
+
+export interface PRReview {
+  author: string
+  state: string
+  body: string
+  created_at: string
+  comments: PRComment[]
+}
+
+export interface PRFileChange {
+  path: string
+  additions: number
+  deletions: number
+  status: string
+}
+
+export interface PRDetail extends PRFullInfo {
+  mergeability?: string
+  comments: PRComment[]
+  reviews: PRReview[]
+  files: PRFileChange[]
+  diff_content?: string
+}
+
 export interface Session {
   id: string
   title: string

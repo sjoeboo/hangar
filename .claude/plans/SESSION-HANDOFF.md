@@ -1,55 +1,50 @@
-# Session Handoff - 2026-02-14
+# Session Handoff — PR Management Overhaul
 
 ## What Was Accomplished
 
-- Diagnosed skill scoping issue (project-local vs global `~/.claude/skills/`)
-- Copied 3 agentic-ai skills globally and pushed to skeleton repo on `feature/agentic-ai-skills` branch
-- Ran full multi-perspective brainstorm (4 parallel agents) for Vagrant mode feature
-- Wrote comprehensive design document (621 lines) at `docs/plans/2026-02-14-vagrant-mode-design.md`
-- Design covers: UI checkbox, VM lifecycle, command wrapping, Vagrantfile generation, static skill
-- Added MCP compatibility section: URL rewrite, STDIO provisioning, global config propagation
-- Added crash recovery section: VM health check, restart flow, agent-deck crash recovery, contextual error messages
-- Copied `restart.md` and `catchup.md` commands to `.claude/commands/`
+- **Phase 1** (`internal/pr/`): New unified PR package with `Manager`, `PR`, `PRDetail`, `Comment`, `Review`, `FileChange` types; `FetchMyPRs`, `FetchReviewRequestedPRs`, `FetchSessionPR`, `FetchDetail`; `Approve`, `RequestChanges`, `AddComment`, `Close`, `Reopen`, `ConvertToReady/Draft` actions
+- **Phase 2** (home.go): `prManager *prpkg.Manager` field + `prViewTab int`; `prViewPRs()` with UICache fallback; `handlePRViewKey` updated with Tab/a/c/C/o/r actions; `prActionResultMsg`/`errMsg` types; `pendingPRComment` field; manager bridged to apiserver.New()
+- **Phase 4** (apiserver): `internalPRCache` removed, `pr.Manager` dependency, `pr_handlers.go` with 5 endpoints, `PRFullInfo`/`PRDashboardResponse`/`ReviewActionRequest`/`CommentRequest`/`StateActionRequest` types
+- **Phase 5** (webui): `PRFullInfo`, `PRDashboard`, `PRDetail`, `PRComment`, `PRReview`, `PRFileChange` TS types; `getPRDashboard/getPRDetail/submitPRReview/addPRComment/changePRState` API functions; PROverview filter tabs; `PRDetail.tsx`, `PRDiff.tsx`, `PRConversation.tsx` components
 
 ## Current State
 
-- Branch: `feature/teammate-mode`
-- Feature: Vagrant Mode ("Just Do It") -- design phase complete
-- Status: Design document finalized, ready for implementation planning
+- Branch: `pr-mgmt` (worktree at `.worktrees/pr-mgmt`)
+- Tests: `go test ./internal/pr/ ./internal/apiserver/ ./internal/ui/` — all pass
+- Build: `go build ./internal/pr/ ./internal/apiserver/ ./internal/ui/` — clean
+- Pre-existing failure: `internal/webui` needs `npm run build` first (not our problem)
 
-## Open Issues
+## Two Remaining Gaps Before Phase 2 is Visually Complete
 
-- Skeleton repo PR not yet created (branch pushed, PR URL needs `gh pr create`)
-- Design doc not yet committed to git
+1. **renderPROverview() tab bar** — `prViewTab` state exists but `renderPROverview()` still shows old header without tab bar. Add tab bar rows (line ~6570 in home.go): `[All (N)] [Mine (N)] [Review Requests (N)] [Sessions (N)]`
+2. **sendTextDialog PR comment flow** — `pendingPRComment *prpkg.PR` field is set when `c` pressed, but `sendTextDialog` submit handler doesn't check it. Find the `sendTextResultMsg` handler (~line 2563 home.go) or wherever sendTextDialog submission dispatches the text, and add: if `h.pendingPRComment != nil`, fire `prpkg.AddComment(...)` and clear field.
 
-## Next Steps (in order)
+## Open Issues / Next Steps (in order)
 
-1. Run `/catchup` to restore context in new session
-2. Read the design document: `docs/plans/2026-02-14-vagrant-mode-design.md`
-3. Create implementation plan using `agentic-ai-plan` skill (enriches design with agent orchestration)
-4. Set up a git worktree for isolated implementation
-5. Execute plan with `agentic-ai-implement` (parallel agent team)
-6. Create PR for skeleton repo's `feature/agentic-ai-skills` branch
+1. **Fix renderPROverview tab bar** — visual only, ~10 lines
+2. **Fix sendTextDialog PR comment** — wire `pendingPRComment` in the submit path
+3. **Phase 3: Create `internal/ui/pr_detail.go`**
+   - `PRDetailOverlay` struct with `visible bool`, `pr *prpkg.PR`, `detail *prpkg.PRDetail`, `tab int` (0=Overview,1=Diff,2=Conversation), `scrollOffset int`, `loading bool`
+   - Follow `DiffView` pattern (`internal/ui/diff_view.go`) for struct layout
+   - Wire into home.go in 7 places: struct field, init, key routing (Enter in PR view opens it), mouse guard, trigger, SetSize, View check
+   - New message types: `prDetailLoadingMsg{prKey string}`, `prDetailLoadedMsg{detail *prpkg.PRDetail}`
+4. **Phase 6: `internal/git/git.go`** — add `NormalizeRepoURL(url string) string`
+   - Strips `git@`, `https://`, `.git`; lowercases → returns `host/owner/repo`
+5. **Phase 6: `s` key in handlePRViewKey** — scan `h.projects` for match, call handleAdd with branch=pr.HeadBranch, after `worktreeCreatedForNewSessionMsg` auto-send review prompt
 
 ## Important Context
 
-- Design doc is the source of truth: `docs/plans/2026-02-14-vagrant-mode-design.md`
-- Decisions recorded in `.claude/plans/DECISIONS.md`
-- The feature adds 3 new files: `internal/vagrant/manager.go`, `internal/vagrant/skill.go`, `internal/vagrant/mcp.go`
-- The feature modifies 4 files: `claudeoptions.go`, `tooloptions.go`, `instance.go`, `userconfig.go`
-- Agent-deck is a Go 1.24 TUI app using Bubble Tea, sessions are tmux-based
-- MCP tools use three scopes: LOCAL (.mcp.json), GLOBAL (~/.claude/.claude.json), USER (~/.claude.json)
-- Pool sockets always bypassed for vagrant sessions (STDIO fallback instead)
-- VirtualBox NAT host gateway is `10.0.2.2` (configurable via `[vagrant] host_gateway_ip`)
-- Claude conversations survive VM destruction (session ID stored server-side, `--resume` flag)
+- Import alias for pr package in home.go and update_handlers.go: `prpkg "github.com/sjoeboo/hangar/internal/pr"`
+- `prCacheEntry` (home.go ~line 487) is KEPT for backward compat with UICache and worktreeFinishDialog.SetPR()
+- `apiserver.New()` signature is now: `New(cfg, watcher, getInstances, getPRInfo, triggerReload, prManager, profile, version)`
+- `prpkg.NumberStr(n int) string` helper exists in types.go
+- `sendTextDialog.Show(sessionTitle string)` — only takes a title, no callback
+- `setStatusMessage` does NOT exist — use `h.setError(fmt.Errorf(...))` for transient status
 
 ## Commands to Run First
 
 ```bash
-# Check branch status
-git status
-git log --oneline -5
-
-# Read the design doc
-cat docs/plans/2026-02-14-vagrant-mode-design.md
+cd /Users/mnicholson/code/github/hangar/.worktrees/pr-mgmt
+go build ./internal/pr/ ./internal/apiserver/ ./internal/ui/  # verify clean
+go test ./internal/pr/ ./internal/apiserver/ ./internal/ui/   # verify tests pass
 ```

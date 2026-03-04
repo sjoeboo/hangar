@@ -30,13 +30,13 @@ func newTestServer(t *testing.T) *apiserver.APIServer {
 	t.Helper()
 	watcher := newTestWatcher(t)
 	cfg := apiserver.APIConfig{Port: 0, BindAddress: "127.0.0.1"}
-	return apiserver.New(cfg, watcher, nil, nil, nil, "", "test")
+	return apiserver.New(cfg, watcher, nil, nil, nil, nil, "", "test")
 }
 
 func TestHookServer_ValidPayload(t *testing.T) {
 	watcher := newTestWatcher(t)
 	cfg := apiserver.APIConfig{Port: 0, BindAddress: "127.0.0.1"}
-	srv := apiserver.New(cfg, watcher, nil, nil, nil, "", "test")
+	srv := apiserver.New(cfg, watcher, nil, nil, nil, nil, "", "test")
 
 	payload := map[string]any{
 		"hook_event_name": "UserPromptSubmit",
@@ -100,7 +100,7 @@ func TestHookServer_WrongMethod(t *testing.T) {
 func TestHookServer_UnknownEvent(t *testing.T) {
 	watcher := newTestWatcher(t)
 	cfg := apiserver.APIConfig{Port: 0, BindAddress: "127.0.0.1"}
-	srv := apiserver.New(cfg, watcher, nil, nil, nil, "", "test")
+	srv := apiserver.New(cfg, watcher, nil, nil, nil, nil, "", "test")
 
 	payload := map[string]any{
 		"hook_event_name": "SomeUnknownEvent",
@@ -125,7 +125,7 @@ func TestHookServer_UnknownEvent(t *testing.T) {
 func TestHookServer_NotifiesWatcher(t *testing.T) {
 	watcher := newTestWatcher(t)
 	cfg := apiserver.APIConfig{Port: 0, BindAddress: "127.0.0.1"}
-	srv := apiserver.New(cfg, watcher, nil, nil, nil, "", "test")
+	srv := apiserver.New(cfg, watcher, nil, nil, nil, nil, "", "test")
 
 	payload := map[string]any{
 		"hook_event_name": "Stop",

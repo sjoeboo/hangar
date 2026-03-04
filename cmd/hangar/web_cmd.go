@@ -97,7 +97,7 @@ func handleWebStart(profile string, noOpen bool) {
 	}
 
 	cfg := apiserver.APIConfig{Port: port, BindAddress: bindAddr}
-	srv := apiserver.New(cfg, watcher, getInstances, nil, nil, profile, Version)
+	srv := apiserver.New(cfg, watcher, getInstances, nil, nil, nil, profile, Version)
 
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()

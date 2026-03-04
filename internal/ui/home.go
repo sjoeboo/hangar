@@ -20,10 +20,11 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
+	"github.com/sjoeboo/hangar/internal/apiserver"
 	"github.com/sjoeboo/hangar/internal/clipboard"
 	"github.com/sjoeboo/hangar/internal/git"
-	"github.com/sjoeboo/hangar/internal/apiserver"
 	"github.com/sjoeboo/hangar/internal/logging"
+	prpkg "github.com/sjoeboo/hangar/internal/pr"
 	"github.com/sjoeboo/hangar/internal/session"
 	"github.com/sjoeboo/hangar/internal/statedb"
 	"github.com/sjoeboo/hangar/internal/tmux"
@@ -157,8 +158,16 @@ type Home struct {
 	statusFilter session.Status // Filter sessions by status ("" = all, or specific status)
 	sortMode     string         // "" = default, "status" = running→waiting→idle
 	// PR overview view
-	viewMode       string // "" or "sessions" = normal, "prs" = PR overview full-screen
-	prViewCursor   int    // cursor position within PR overview list
+	viewMode     string // "" or "sessions" = normal, "prs" = PR overview full-screen
+	prViewCursor int    // cursor position within PR overview list
+	// prViewTab selects the active PR filter tab in the PR overview:
+	//   0 = All, 1 = Mine, 2 = Review Requested, 3 = Sessions
+	prViewTab int
+	// prManager is the unified PR data layer (global lists + per-session cache).
+	prManager *prpkg.Manager
+	// pendingPRComment holds the PR the user wants to comment on; populated when
+	// the "c" key is pressed in PR view to open sendTextDialog.
+	pendingPRComment *prpkg.PR
 	err            error
 	errTime        time.Time  // When error occurred (for auto-dismiss)
 	isReloading    bool       // Visual feedback during auto-reload
@@ -351,6 +360,7 @@ func (h *Home) getLayoutMode() string {
 }
 
 // prViewSessions returns sessions that have a non-nil PR cache entry, in flatItems order.
+// Kept for backward-compatibility with preview rendering; prViewPRs is used by the dashboard.
 func (h *Home) prViewSessions() []*session.Instance {
 	items := h.flatItems // safe: called from Bubble Tea Update/View (single-threaded)
 	var result []*session.Instance
@@ -362,6 +372,71 @@ func (h *Home) prViewSessions() []*session.Instance {
 		}
 	}
 	return result
+}
+
+// prViewPRs returns the PR list for the currently active dashboard tab.
+// prViewTab: 0=All, 1=Mine, 2=ReviewRequested, 3=Sessions
+//
+// For tabs 0 and 3 (All / Sessions), the manager data is augmented with any
+// session PRs found in UICache that aren't in the manager yet (e.g. in tests
+// or before the manager's first refresh completes).
+func (h *Home) prViewPRs() []*prpkg.PR {
+	switch h.prViewTab {
+	case 1:
+		if h.prManager != nil {
+			return h.prManager.GetMine()
+		}
+		return nil
+	case 2:
+		if h.prManager != nil {
+			return h.prManager.GetReviewRequested()
+		}
+		return nil
+	default: // 0 = All, 3 = Sessions
+		var result []*prpkg.PR
+		if h.prManager != nil {
+			all := h.prManager.GetAll()
+			if h.prViewTab == 3 {
+				for _, p := range all {
+					if p.SessionID != "" {
+						result = append(result, p)
+					}
+				}
+			} else {
+				result = append(result, all...)
+			}
+		}
+		// Supplement with UICache session PRs not already present in result
+		seen := make(map[string]bool, len(result))
+		for _, p := range result {
+			seen[p.URL] = true
+		}
+		for _, item := range h.flatItems {
+			if item.Type != session.ItemTypeSession || item.Session == nil {
+				continue
+			}
+			pr, ok := h.cache.GetPR(item.Session.ID)
+			if !ok || pr == nil {
+				continue
+			}
+			if seen[pr.URL] {
+				continue
+			}
+			result = append(result, &prpkg.PR{
+				Number:        pr.Number,
+				Title:         pr.Title,
+				State:         pr.State,
+				URL:           pr.URL,
+				ChecksPassed:  pr.ChecksPassed,
+				ChecksFailed:  pr.ChecksFailed,
+				ChecksPending: pr.ChecksPending,
+				HasChecks:     pr.HasChecks,
+				Source:        prpkg.SourceSession,
+				SessionID:     item.Session.ID,
+			})
+		}
+		return result
+	}
 }
 
 // Messages
@@ -565,6 +640,16 @@ type worktreeCreatedForForkMsg struct {
 // lazygitReadyMsg is sent when lazygit window is ready to attach
 type lazygitReadyMsg struct{ session *session.Instance }
 
+// prActionResultMsg is sent when a PR action (approve, comment, state change) completes.
+type prActionResultMsg struct {
+	action string // "approve", "comment", "state"
+	repo   string
+	number int
+}
+
+// errMsg carries a generic error for display in the status bar.
+type errMsg struct{ err error }
+
 // statusUpdateRequest is sent to the background worker with current viewport info
 type statusUpdateRequest struct {
 	viewOffset    int      // Current scroll position
@@ -656,6 +741,31 @@ func NewHomeWithProfileAndMode(profile string) *Home {
 
 	// Detect gh CLI once at startup for PR status display in the preview pane.
 	h.ghPath, _ = exec.LookPath("gh")
+
+	// Start the unified PR manager. It detects the gh user and begins background
+	// refresh loops for "my PRs" and "review requested" lists.
+	h.prManager = prpkg.New()
+	h.prManager.RegisterOnChange(func() {
+		// Sync manager session PRs into UICache so existing rendering code
+		// (preview pane, sidebar badges) continues to work unchanged.
+		for sid, p := range h.prManager.GetSessionPRs() {
+			if p != nil {
+				h.cache.SetPR(sid, &prCacheEntry{
+					Number:        p.Number,
+					Title:         p.Title,
+					State:         p.State,
+					URL:           p.URL,
+					ChecksPassed:  p.ChecksPassed,
+					ChecksFailed:  p.ChecksFailed,
+					ChecksPending: p.ChecksPending,
+					HasChecks:     p.HasChecks,
+				})
+			} else {
+				h.cache.SetPR(sid, nil)
+			}
+		}
+	})
+	h.prManager.Start()
 
 	// Keep settings panel profile-aware so profile overrides (e.g., Claude config dir)
 	// are displayed and edited in the correct scope.
@@ -859,7 +969,7 @@ func NewHomeWithProfileAndMode(profile string) *Home {
 					h.storageWatcher.TriggerReload()
 				}
 			}
-			srv := apiserver.New(cfg, h.hookWatcher, getInstances, getPRInfo, triggerReload, h.profile, Version)
+			srv := apiserver.New(cfg, h.hookWatcher, getInstances, getPRInfo, triggerReload, h.prManager, h.profile, Version)
 			h.hookServer = srv
 			h.hookServerPort = port
 			go func() {
@@ -2497,6 +2607,17 @@ func (h *Home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return h, nil
 
+	case prActionResultMsg:
+		h.setError(fmt.Errorf("PR #%d: %s done", msg.number, msg.action))
+		if h.prManager != nil {
+			h.prManager.InvalidateDetail(msg.repo, msg.number)
+		}
+		return h, nil
+
+	case errMsg:
+		h.setError(msg.err)
+		return h, nil
+
 	case diffFetchedMsg:
 		selected := h.getSelectedSession()
 		if selected == nil || selected.ID != msg.sessionID {
@@ -4034,7 +4155,7 @@ func (h *Home) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 // handlePRViewKey handles keys when the PR overview view is active.
 func (h *Home) handlePRViewKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	sessions := h.prViewSessions()
+	prs := h.prViewPRs()
 
 	switch msg.String() {
 	case "q", "ctrl+c":
@@ -4045,6 +4166,16 @@ func (h *Home) handlePRViewKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		h.viewMode = ""
 		return h, nil
 
+	case "tab":
+		h.prViewTab = (h.prViewTab + 1) % 4
+		h.prViewCursor = 0
+		return h, nil
+
+	case "shift+tab":
+		h.prViewTab = (h.prViewTab + 3) % 4
+		h.prViewCursor = 0
+		return h, nil
+
 	case "up", "k":
 		if h.prViewCursor > 0 {
 			h.prViewCursor--
@@ -4052,27 +4183,85 @@ func (h *Home) handlePRViewKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return h, nil
 
 	case "down", "j":
-		if h.prViewCursor < len(sessions)-1 {
+		if h.prViewCursor < len(prs)-1 {
 			h.prViewCursor++
 		}
 		return h, nil
 
 	case "enter":
-		if h.prViewCursor < len(sessions) {
-			inst := sessions[h.prViewCursor]
-			if inst.Exists() {
-				h.isAttaching.Store(true)
-				return h, h.attachSession(inst)
+		// If the selected PR is linked to a session, attach to it
+		if h.prViewCursor < len(prs) {
+			p := prs[h.prViewCursor]
+			if p.SessionID != "" {
+				if inst, ok := h.instanceByID[p.SessionID]; ok && inst.Exists() {
+					h.isAttaching.Store(true)
+					return h, h.attachSession(inst)
+				}
+			}
+			// Otherwise open in browser
+			if p.URL != "" {
+				exec.Command("open", p.URL).Start() //nolint:errcheck
 			}
 		}
 		return h, nil
 
 	case "o":
-		if h.prViewCursor < len(sessions) {
-			inst := sessions[h.prViewCursor]
-			pr, hasPR := h.cache.GetPR(inst.ID)
-			if hasPR && pr != nil && pr.URL != "" {
-				exec.Command("open", pr.URL).Start() //nolint:errcheck
+		if h.prViewCursor < len(prs) {
+			if url := prs[h.prViewCursor].URL; url != "" {
+				exec.Command("open", url).Start() //nolint:errcheck
+			}
+		}
+		return h, nil
+
+	case "a":
+		// Approve selected PR
+		if h.prViewCursor < len(prs) && h.prManager != nil {
+			p := prs[h.prViewCursor]
+			ghPath := h.prManager.GHPath()
+			if ghPath != "" && p.Repo != "" {
+				repo, number := p.Repo, p.Number
+				h.setError(fmt.Errorf("Approving PR…"))
+				return h, func() tea.Msg {
+					err := prpkg.Approve(ghPath, repo, number, "")
+					if err != nil {
+						return errMsg{err: err}
+					}
+					return prActionResultMsg{action: "approve", repo: repo, number: number}
+				}
+			}
+		}
+		return h, nil
+
+	case "c":
+		// Add comment — store target PR, open sendTextDialog for body
+		if h.prViewCursor < len(prs) && h.prManager != nil {
+			p := prs[h.prViewCursor]
+			if p.Repo != "" {
+				h.pendingPRComment = p
+				h.sendTextDialog.Show("PR #" + prpkg.NumberStr(p.Number))
+			}
+		}
+		return h, nil
+
+	case "C":
+		// Close / Reopen selected PR (only works for own PRs)
+		if h.prViewCursor < len(prs) && h.prManager != nil {
+			p := prs[h.prViewCursor]
+			ghPath := h.prManager.GHPath()
+			if ghPath != "" && p.Repo != "" {
+				repo, number, state := p.Repo, p.Number, p.State
+				return h, func() tea.Msg {
+					var err error
+					if state == "CLOSED" {
+						err = prpkg.Reopen(ghPath, repo, number)
+					} else {
+						err = prpkg.Close(ghPath, repo, number)
+					}
+					if err != nil {
+						return errMsg{err: err}
+					}
+					return prActionResultMsg{action: "state", repo: repo, number: number}
+				}
 			}
 		}
 		return h, nil
@@ -4080,11 +4269,14 @@ func (h *Home) handlePRViewKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "r":
 		// Force re-fetch PR data for all sessions
 		var cmds []tea.Cmd
-		for _, inst := range sessions {
-			if inst.IsWorktree() && inst.WorktreePath != "" {
-				h.cache.InvalidatePRTimestamp(inst.ID)
-				sid := inst.ID
-				wtPath := inst.WorktreePath
+		for _, item := range h.flatItems {
+			if item.Type == session.ItemTypeSession && item.Session != nil && item.Session.IsWorktree() && item.Session.WorktreePath != "" {
+				h.cache.InvalidatePRTimestamp(item.Session.ID)
+				if h.prManager != nil {
+					h.prManager.InvalidateDetail(item.Session.WorktreePath, 0)
+				}
+				sid := item.Session.ID
+				wtPath := item.Session.WorktreePath
 				ghPath := h.ghPath
 				cmds = append(cmds, func() tea.Msg {
 					return fetchPRInfo(sid, wtPath, ghPath)
@@ -4193,7 +4385,7 @@ func (h *Home) handleConfirmDialogKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 								h.storageWatcher.TriggerReload()
 							}
 						}
-						srv := apiserver.New(cfg2, h.hookWatcher, getInstances2, getPRInfo2, triggerReload2, h.profile, Version)
+						srv := apiserver.New(cfg2, h.hookWatcher, getInstances2, getPRInfo2, triggerReload2, nil, h.profile, Version)
 						h.hookServer = srv
 						h.hookServerPort = port
 						go func() {
