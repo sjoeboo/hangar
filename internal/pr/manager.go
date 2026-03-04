@@ -99,6 +99,11 @@ func (m *Manager) Start() {
 		m.mu.Unlock()
 		slog.Debug("pr_manager: gh user detected", "user", user)
 
+		if user == "" {
+			slog.Warn("pr_manager: gh user empty; skipping global PR refresh")
+			return
+		}
+
 		// Initial fetch of global lists
 		m.refreshMyPRs()
 		m.refreshReviewPRs()

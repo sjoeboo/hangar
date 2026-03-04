@@ -271,7 +271,10 @@ func runWebInProcess(profile string, noOpen bool) context.CancelFunc {
 		}()
 	}
 
-	return cancel
+	return func() {
+		cancel()
+		prManager.Stop()
+	}
 }
 
 // handleWebStop sends SIGTERM to a running "hangar web start" process.

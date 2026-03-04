@@ -12,6 +12,32 @@ import (
 	prpkg "github.com/sjoeboo/hangar/internal/pr"
 )
 
+// ── Pre-compiled styles (avoid allocations in render hot path) ──────────────
+var (
+	prDetailHeaderStyle      = lipgloss.NewStyle().Foreground(ColorAccent).Bold(true)
+	prDetailActiveTabStyle   = lipgloss.NewStyle().Foreground(ColorBg).Background(ColorAccent).Bold(true).Padding(0, 1)
+	prDetailInactiveTabStyle = lipgloss.NewStyle().Foreground(ColorComment).Padding(0, 1)
+	prDetailSeparatorStyle   = lipgloss.NewStyle().Foreground(ColorBorder)
+	prDetailDimStyle         = lipgloss.NewStyle().Foreground(ColorTextDim).Italic(true)
+	prDetailErrStyle         = lipgloss.NewStyle().Foreground(ColorRed)
+	prDetailBgStyle          = lipgloss.NewStyle().Background(ColorBg)
+	prDetailLabelStyle       = lipgloss.NewStyle().Foreground(ColorComment)
+	prDetailValueStyle       = lipgloss.NewStyle().Foreground(ColorText)
+	prDetailSectionHdrStyle  = lipgloss.NewStyle().Foreground(ColorComment).Bold(true)
+	prDetailAuthorStyle      = lipgloss.NewStyle().Foreground(ColorAccent).Bold(true)
+	prDetailTimeStyle        = lipgloss.NewStyle().Foreground(ColorComment)
+	prDetailPathYellowStyle  = lipgloss.NewStyle().Foreground(ColorYellow)
+	prDetailFocusBgColor     = lipgloss.Color("#1e2d3a")
+	prDetailFocusPadStyle    = lipgloss.NewStyle().Background(lipgloss.Color("#1e2d3a"))
+
+	// Pre-compiled per-color styles for dynamic state/status rendering.
+	prDetailGreenStyle  = lipgloss.NewStyle().Foreground(ColorGreen)
+	prDetailRedStyle    = lipgloss.NewStyle().Foreground(ColorRed)
+	prDetailPurpleStyle = lipgloss.NewStyle().Foreground(ColorPurple)
+	prDetailYellowStyle = lipgloss.NewStyle().Foreground(ColorYellow)
+	prDetailCommentStyle = lipgloss.NewStyle().Foreground(ColorComment)
+)
+
 // PRDetailOverlay is a full-screen overlay showing PR detail with three tabs:
 // Overview (metadata + body + file list), Diff (unified diff), and
 // Conversation (comments and reviews in chronological order).
@@ -103,7 +129,6 @@ func (o *PRDetailOverlay) View() string {
 	var b strings.Builder
 
 	// ── Header ──────────────────────────────────────────────────────────
-	headerStyle := lipgloss.NewStyle().Foreground(ColorAccent).Bold(true)
 	title := "PR"
 	if o.pr != nil {
 		title = fmt.Sprintf("PR #%s: %s", prpkg.NumberStr(o.pr.Number), o.pr.Title)
@@ -113,24 +138,21 @@ func (o *PRDetailOverlay) View() string {
 	if maxTitleW > 0 && len(runes) > maxTitleW {
 		title = string(runes[:maxTitleW-1]) + "…"
 	}
-	b.WriteString(headerStyle.Render("  "+title) + "\n")
+	b.WriteString(prDetailHeaderStyle.Render("  "+title) + "\n")
 
 	// ── Tab bar ──────────────────────────────────────────────────────────
 	tabNames := []string{"Overview", "Description", "Diff", "Conversation"}
-	activeTabStyle := lipgloss.NewStyle().Foreground(ColorBg).Background(ColorAccent).Bold(true).Padding(0, 1)
-	inactiveTabStyle := lipgloss.NewStyle().Foreground(ColorComment).Padding(0, 1)
 	var tabParts []string
 	for i, name := range tabNames {
 		if i == o.tab {
-			tabParts = append(tabParts, activeTabStyle.Render(name))
+			tabParts = append(tabParts, prDetailActiveTabStyle.Render(name))
 		} else {
-			tabParts = append(tabParts, inactiveTabStyle.Render(name))
+			tabParts = append(tabParts, prDetailInactiveTabStyle.Render(name))
 		}
 	}
 	b.WriteString(strings.Join(tabParts, "") + "\n")
 
-	separatorStyle := lipgloss.NewStyle().Foreground(ColorBorder)
-	sep := separatorStyle.Render(strings.Repeat("─", max(o.width-2, 0)))
+	sep := prDetailSeparatorStyle.Render(strings.Repeat("─", max(o.width-2, 0)))
 	b.WriteString(sep + "\n")
 
 	// ── Content ──────────────────────────────────────────────────────────
@@ -140,14 +162,12 @@ func (o *PRDetailOverlay) View() string {
 		contentHeight = 1
 	}
 
-	dimStyle := lipgloss.NewStyle().Foreground(ColorTextDim).Italic(true)
 	if o.loading {
-		b.WriteString(dimStyle.Render("  Loading…") + "\n")
+		b.WriteString(prDetailDimStyle.Render("  Loading…") + "\n")
 	} else if o.err != nil {
-		errStyle := lipgloss.NewStyle().Foreground(ColorRed)
-		b.WriteString(errStyle.Render("  Error: "+o.err.Error()) + "\n")
+		b.WriteString(prDetailErrStyle.Render("  Error: "+o.err.Error()) + "\n")
 	} else if len(o.lines) == 0 {
-		b.WriteString(dimStyle.Render("  (empty)") + "\n")
+		b.WriteString(prDetailDimStyle.Render("  (empty)") + "\n")
 	} else {
 		start := o.scrollOffset
 		if start < 0 {
@@ -166,17 +186,15 @@ func (o *PRDetailOverlay) View() string {
 	}
 
 	b.WriteString(sep + "\n")
-	footerStyle := lipgloss.NewStyle().Foreground(ColorTextDim).Italic(true)
 	hint := "  Tab/Shift+Tab switch tab · j/k scroll · g/G top/bottom · o browser · c comment · q close"
 	if o.tab == 2 && len(o.diffFiles) > 0 {
 		hint = "  j/k navigate files · enter toggle · d/u half-page scroll · g/G top/bottom · o browser · q close"
 	}
-	b.WriteString(footerStyle.Render(hint))
+	b.WriteString(prDetailDimStyle.Render(hint))
 
 	// Pad to full height with background — do NOT use Width()+Height() on the
 	// outer container because lipgloss will re-wrap and center ANSI-coded lines.
 	content := b.String()
-	bgStyle := lipgloss.NewStyle().Background(ColorBg)
 	lines := strings.Split(content, "\n")
 	// pad to o.height lines
 	for len(lines) < o.height {
@@ -189,7 +207,7 @@ func (o *PRDetailOverlay) View() string {
 			lines[i] = l + strings.Repeat(" ", o.width-visible)
 		}
 	}
-	return bgStyle.Render(strings.Join(lines[:o.height], "\n"))
+	return prDetailBgStyle.Render(strings.Join(lines[:o.height], "\n"))
 }
 
 // HandleKey processes a key press. Returns (handled bool, cmd tea.Cmd).
@@ -202,10 +220,7 @@ func (o *PRDetailOverlay) HandleKey(key string) (bool, tea.Cmd) {
 	if contentHeight < 1 {
 		contentHeight = 1
 	}
-	halfPage := contentHeight / 2
-	if halfPage < 1 {
-		halfPage = 1
-	}
+	halfPage := max(contentHeight/2, 1)
 
 	// Diff tab: j/k navigate between file headers; enter/space toggle expand.
 	if o.tab == 2 && len(o.diffFiles) > 0 {
@@ -356,48 +371,46 @@ func (o *PRDetailOverlay) rebuildLines() {
 
 func (o *PRDetailOverlay) buildOverviewLines() []string {
 	d := o.detail
-	labelStyle := lipgloss.NewStyle().Foreground(ColorComment)
-	valueStyle := lipgloss.NewStyle().Foreground(ColorText)
 
 	field := func(label, value string) string {
-		return labelStyle.Render(fmt.Sprintf("  %-18s", label)) + valueStyle.Render(value)
+		return prDetailLabelStyle.Render(fmt.Sprintf("  %-18s", label)) + prDetailValueStyle.Render(value)
 	}
 
-	stateColor := ColorGreen
+	stateStyle := prDetailGreenStyle
 	switch d.State {
 	case "MERGED":
-		stateColor = ColorPurple
+		stateStyle = prDetailPurpleStyle
 	case "CLOSED":
-		stateColor = ColorRed
+		stateStyle = prDetailRedStyle
 	case "DRAFT":
-		stateColor = ColorComment
+		stateStyle = prDetailCommentStyle
 	}
 
 	var lines []string
-	lines = append(lines, field("State:", lipgloss.NewStyle().Foreground(stateColor).Render(d.State)))
+	lines = append(lines, field("State:", stateStyle.Render(d.State)))
 	lines = append(lines, field("Author:", d.Author))
 	lines = append(lines, field("Branch:", d.HeadBranch+" → "+d.BaseBranch))
 
 	if d.ReviewDecision != "" {
-		rdColor := ColorComment
+		rdStyle := prDetailCommentStyle
 		switch d.ReviewDecision {
 		case "APPROVED":
-			rdColor = ColorGreen
+			rdStyle = prDetailGreenStyle
 		case "CHANGES_REQUESTED":
-			rdColor = ColorRed
+			rdStyle = prDetailRedStyle
 		}
-		lines = append(lines, field("Review:", lipgloss.NewStyle().Foreground(rdColor).Render(d.ReviewDecision)))
+		lines = append(lines, field("Review:", rdStyle.Render(d.ReviewDecision)))
 	}
 
 	if d.Mergeability != "" {
-		mColor := ColorComment
+		mStyle := prDetailCommentStyle
 		switch d.Mergeability {
 		case "MERGEABLE":
-			mColor = ColorGreen
+			mStyle = prDetailGreenStyle
 		case "CONFLICTING":
-			mColor = ColorRed
+			mStyle = prDetailRedStyle
 		}
-		lines = append(lines, field("Mergeability:", lipgloss.NewStyle().Foreground(mColor).Render(d.Mergeability)))
+		lines = append(lines, field("Mergeability:", mStyle.Render(d.Mergeability)))
 	}
 
 	if d.HasChecks {
@@ -415,23 +428,22 @@ func (o *PRDetailOverlay) buildOverviewLines() []string {
 
 	// Files changed
 	if len(d.Files) > 0 {
-		hdrStyle := lipgloss.NewStyle().Foreground(ColorComment).Bold(true)
-		lines = append(lines, hdrStyle.Render(fmt.Sprintf("  Files Changed (%d)", len(d.Files))))
-		lines = append(lines, lipgloss.NewStyle().Foreground(ColorBorder).Render(strings.Repeat("─", max(o.width-6, 4))))
+		lines = append(lines, prDetailSectionHdrStyle.Render(fmt.Sprintf("  Files Changed (%d)", len(d.Files))))
+		lines = append(lines, prDetailSeparatorStyle.Render(strings.Repeat("─", max(o.width-6, 4))))
 		for _, f := range d.Files {
-			statusColor := ColorText
+			sStyle := prDetailValueStyle
 			switch f.Status {
 			case "added":
-				statusColor = ColorGreen
+				sStyle = prDetailGreenStyle
 			case "deleted":
-				statusColor = ColorRed
+				sStyle = prDetailRedStyle
 			case "modified":
-				statusColor = ColorYellow
+				sStyle = prDetailYellowStyle
 			}
 			diffStr := fmt.Sprintf("+%d -%d", f.Additions, f.Deletions)
 			lines = append(lines,
-				"  "+lipgloss.NewStyle().Foreground(statusColor).Render(f.Path)+
-					"  "+lipgloss.NewStyle().Foreground(ColorComment).Render(diffStr))
+				"  "+sStyle.Render(f.Path)+
+					"  "+prDetailCommentStyle.Render(diffStr))
 		}
 	}
 
@@ -441,7 +453,7 @@ func (o *PRDetailOverlay) buildOverviewLines() []string {
 func (o *PRDetailOverlay) buildDescriptionLines() []string {
 	d := o.detail
 	if d.Body == "" {
-		return []string{lipgloss.NewStyle().Foreground(ColorTextDim).Italic(true).Render("  No description")}
+		return []string{prDetailDimStyle.Render("  No description")}
 	}
 
 	// Render markdown via glamour — handles GFM, left-aligns naturally.
@@ -463,11 +475,10 @@ func (o *PRDetailOverlay) buildDescriptionLines() []string {
 	}
 
 	// Fallback: plain text if glamour fails.
-	bodyStyle := lipgloss.NewStyle().Foreground(ColorText)
 	var lines []string
 	for _, line := range strings.Split(d.Body, "\n") {
 		for _, wl := range prDetailWrapLine(line, o.width-4) {
-			lines = append(lines, bodyStyle.Render("  "+wl))
+			lines = append(lines, prDetailValueStyle.Render("  "+wl))
 		}
 	}
 	return lines
@@ -476,7 +487,7 @@ func (o *PRDetailOverlay) buildDescriptionLines() []string {
 func (o *PRDetailOverlay) buildDiffLines() []string {
 	d := o.detail
 	if d.DiffContent == "" {
-		return []string{lipgloss.NewStyle().Foreground(ColorTextDim).Italic(true).Render("  No diff available")}
+		return []string{prDetailDimStyle.Render("  No diff available")}
 	}
 
 	hunkMap := parseDiffHunks(d.DiffContent)
@@ -498,23 +509,16 @@ func (o *PRDetailOverlay) buildDiffLines() []string {
 		o.diffFileCursor = 0
 	}
 
-	// Styles
-	summaryStyle := lipgloss.NewStyle().Foreground(ColorComment)
-	indicatorStyle := lipgloss.NewStyle().Foreground(ColorComment)
-	statsStyle := lipgloss.NewStyle().Foreground(ColorComment)
-	dimStyle := lipgloss.NewStyle().Foreground(ColorTextDim).Italic(true)
-	focusBg := lipgloss.Color("#1e2d3a")
-
-	statusColor := func(status string) lipgloss.Color {
+	statusStyle := func(status string) lipgloss.Style {
 		switch status {
 		case "added":
-			return ColorGreen
+			return prDetailGreenStyle
 		case "deleted", "removed":
-			return ColorRed
+			return prDetailRedStyle
 		case "modified":
-			return ColorYellow
+			return prDetailYellowStyle
 		default:
-			return ColorAccent
+			return prDetailValueStyle
 		}
 	}
 
@@ -525,7 +529,7 @@ func (o *PRDetailOverlay) buildDiffLines() []string {
 		totalDel += f.Deletions
 	}
 	var lines []string
-	lines = append(lines, summaryStyle.Render(fmt.Sprintf("  %d file%s changed  +%d -%d",
+	lines = append(lines, prDetailCommentStyle.Render(fmt.Sprintf("  %d file%s changed  +%d -%d",
 		len(d.Files), map[bool]string{true: "s", false: ""}[len(d.Files) != 1], totalAdd, totalDel)))
 	lines = append(lines, "")
 
@@ -541,13 +545,13 @@ func (o *PRDetailOverlay) buildDiffLines() []string {
 		}
 		focused := i == o.diffFileCursor
 
-		pathStyle := lipgloss.NewStyle().Foreground(statusColor(entry.status))
-		indStyle := indicatorStyle
-		stStyle := statsStyle
+		pathStyle := statusStyle(entry.status)
+		indStyle := prDetailCommentStyle
+		stStyle := prDetailCommentStyle
 		if focused {
-			pathStyle = pathStyle.Background(focusBg)
-			indStyle = indStyle.Background(focusBg)
-			stStyle = stStyle.Background(focusBg)
+			pathStyle = pathStyle.Background(prDetailFocusBgColor)
+			indStyle = indStyle.Background(prDetailFocusBgColor)
+			stStyle = stStyle.Background(prDetailFocusBgColor)
 		}
 
 		// Truncate path if needed
@@ -567,7 +571,7 @@ func (o *PRDetailOverlay) buildDiffLines() []string {
 			// Pad header to full width so focus background extends across the row.
 			visible := lipgloss.Width(header)
 			if visible < o.width-2 {
-				header += lipgloss.NewStyle().Background(focusBg).Render(strings.Repeat(" ", o.width-2-visible))
+				header += prDetailFocusPadStyle.Render(strings.Repeat(" ", o.width-2-visible))
 			}
 		}
 		lines = append(lines, header)
@@ -584,7 +588,7 @@ func (o *PRDetailOverlay) buildDiffLines() []string {
 					lines = append(lines, "  "+renderDiffLine(l))
 				}
 			} else {
-				lines = append(lines, dimStyle.Render("    (no diff available for this file)"))
+				lines = append(lines, prDetailDimStyle.Render("    (no diff available for this file)"))
 			}
 			lines = append(lines, "") // blank separator after expanded content
 		}
@@ -628,12 +632,9 @@ func (o *PRDetailOverlay) buildConversationLines() []string {
 
 	var entries []entry
 
-	authorStyle := lipgloss.NewStyle().Foreground(ColorAccent).Bold(true)
-	timeStyle := lipgloss.NewStyle().Foreground(ColorComment)
-
 	// Comments
 	for _, c := range d.Comments {
-		header := "  " + authorStyle.Render(c.Author) + "  " + timeStyle.Render(c.CreatedAt.Format("Jan 02 15:04"))
+		header := "  " + prDetailAuthorStyle.Render(c.Author) + "  " + prDetailTimeStyle.Render(c.CreatedAt.Format("Jan 02 15:04"))
 		var ls []string
 		ls = append(ls, header)
 		ls = append(ls, o.renderMarkdownBlock(c.Body, o.width-6)...)
@@ -643,25 +644,23 @@ func (o *PRDetailOverlay) buildConversationLines() []string {
 
 	// Reviews
 	for _, r := range d.Reviews {
-		stateColor := ColorComment
+		rStateStyle := prDetailCommentStyle
 		switch r.State {
 		case "APPROVED":
-			stateColor = ColorGreen
+			rStateStyle = prDetailGreenStyle
 		case "CHANGES_REQUESTED":
-			stateColor = ColorRed
+			rStateStyle = prDetailRedStyle
 		}
-		stateStyle := lipgloss.NewStyle().Foreground(stateColor)
-		header := "  " + authorStyle.Render(r.Author) + " " +
-			stateStyle.Render("["+r.State+"]") + "  " +
-			timeStyle.Render(r.CreatedAt.Format("Jan 02 15:04"))
+		header := "  " + prDetailAuthorStyle.Render(r.Author) + " " +
+			rStateStyle.Render("["+r.State+"]") + "  " +
+			prDetailTimeStyle.Render(r.CreatedAt.Format("Jan 02 15:04"))
 		var ls []string
 		ls = append(ls, header)
 		if r.Body != "" {
 			ls = append(ls, o.renderMarkdownBlock(r.Body, o.width-6)...)
 		}
 		for _, c := range r.Comments {
-			pathStyle := lipgloss.NewStyle().Foreground(ColorYellow)
-			ls = append(ls, "    "+pathStyle.Render(fmt.Sprintf("%s:%d", c.Path, c.Line)))
+			ls = append(ls, "    "+prDetailPathYellowStyle.Render(fmt.Sprintf("%s:%d", c.Path, c.Line)))
 			ls = append(ls, o.renderMarkdownBlock(c.Body, o.width-8)...)
 		}
 		ls = append(ls, "")
@@ -669,7 +668,7 @@ func (o *PRDetailOverlay) buildConversationLines() []string {
 	}
 
 	if len(entries) == 0 {
-		return []string{lipgloss.NewStyle().Foreground(ColorTextDim).Italic(true).Render("  No conversation yet")}
+		return []string{prDetailDimStyle.Render("  No conversation yet")}
 	}
 
 	sort.Slice(entries, func(i, j int) bool { return entries[i].t < entries[j].t })
@@ -703,11 +702,10 @@ func (o *PRDetailOverlay) renderMarkdownBlock(text string, wrapWidth int) []stri
 		}
 	}
 	// Fallback: plain text
-	textStyle := lipgloss.NewStyle().Foreground(ColorText)
 	var lines []string
 	for _, l := range strings.Split(text, "\n") {
 		for _, wl := range prDetailWrapLine(l, wrapWidth) {
-			lines = append(lines, textStyle.Render("  "+wl))
+			lines = append(lines, prDetailValueStyle.Render("  "+wl))
 		}
 	}
 	return lines

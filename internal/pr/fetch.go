@@ -61,6 +61,7 @@ func fetchSearchBothHosts(ghPath, extraHost, filterFlag, filterValue string) ([]
 	}
 
 	// Also search GHE host if known
+	// Later entries with the same URL overwrite earlier ones; ensures freshest data wins.
 	if extraHost != "" && extraHost != "github.com" {
 		if prs, err := fetchSearchPRs(ghPath, extraHost, filterFlag, filterValue); err == nil {
 			for _, p := range prs {
@@ -88,7 +89,9 @@ func fetchSearchPRs(ghPath, ghHost, filterFlag, filterValue string) ([]*PR, erro
 		"--json", ghSearchFields,
 	)
 	if ghHost != "" && ghHost != "github.com" {
-		cmd.Env = append(os.Environ(), "GH_HOST="+ghHost)
+		env := append([]string(nil), os.Environ()...)
+		env = append(env, "GH_HOST="+ghHost)
+		cmd.Env = env
 	}
 	out, err := cmd.Output()
 	if err != nil {
@@ -182,7 +185,9 @@ func enrichChecksForPRs(ghPath string, prs []*PR) {
 				"--json", "statusCheckRollup,reviewDecision",
 			)
 			if ghHost != "" && ghHost != "github.com" {
-				cmd.Env = append(os.Environ(), "GH_HOST="+ghHost)
+				env := append([]string(nil), os.Environ()...)
+				env = append(env, "GH_HOST="+ghHost)
+				cmd.Env = env
 			}
 			out, err := cmd.Output()
 			if err != nil {
@@ -226,7 +231,9 @@ func FetchSessionPR(ghPath, worktreePath, sessionID string) (*PR, error) {
 	)
 	cmd.Dir = worktreePath
 	if host := ghHostFromDir(worktreePath); host != "" && host != "github.com" {
-		cmd.Env = append(os.Environ(), "GH_HOST="+host)
+		env := append([]string(nil), os.Environ()...)
+		env = append(env, "GH_HOST="+host)
+		cmd.Env = env
 	}
 
 	out, err := cmd.Output()
@@ -331,7 +338,8 @@ func FetchDetail(ghPath, repo string, number int) (*PRDetail, error) {
 		"--json", "number,title,body,state,url,author,isDraft,mergeStateStatus,reviewDecision,statusCheckRollup,comments,reviews,files,headRefName,baseRefName,createdAt,updatedAt",
 	)
 	if ghHost != "" && ghHost != "github.com" {
-		env = append(os.Environ(), "GH_HOST="+ghHost)
+		env = append([]string(nil), os.Environ()...)
+		env = append(env, "GH_HOST="+ghHost)
 		cmd.Env = env
 	}
 
