@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/sjoeboo/hangar/internal/apiserver"
+	"github.com/sjoeboo/hangar/internal/pr"
 	"github.com/sjoeboo/hangar/internal/session"
 )
 
@@ -96,11 +97,57 @@ func handleWebStart(profile string, noOpen bool) {
 		watcher = nil
 	}
 
-	cfg := apiserver.APIConfig{Port: port, BindAddress: bindAddr}
-	srv := apiserver.New(cfg, watcher, getInstances, nil, nil, nil, profile, Version)
-
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
+
+	// Create a PR manager for standalone mode. It self-initialises gh detection
+	// and background-fetches Mine/ReviewRequested lists via Start().
+	prManager := pr.New()
+	prManager.Start()
+
+	// Poll sessions from SQLite and call UpdateSessionPR for each worktree
+	// session so the PR dashboard is populated without the TUI running.
+	go func() {
+		pollSessionPRs := func() {
+			for _, inst := range getInstances() {
+				if inst.IsWorktree() && inst.WorktreePath != "" {
+					prManager.UpdateSessionPR(inst.ID, inst.WorktreePath)
+				}
+			}
+		}
+		pollSessionPRs()
+		ticker := time.NewTicker(90 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				pollSessionPRs()
+			}
+		}
+	}()
+
+	// Build a getPRInfo callback that serves session PR data from the manager.
+	getPRInfo := func(sessionID string) *apiserver.PRInfo {
+		p, exists := prManager.GetSessionPR(sessionID)
+		if !exists || p == nil {
+			return nil
+		}
+		return &apiserver.PRInfo{
+			Number:        p.Number,
+			Title:         p.Title,
+			State:         p.State,
+			URL:           p.URL,
+			ChecksPassed:  p.ChecksPassed,
+			ChecksFailed:  p.ChecksFailed,
+			ChecksPending: p.ChecksPending,
+			HasChecks:     p.HasChecks,
+		}
+	}
+
+	cfg := apiserver.APIConfig{Port: port, BindAddress: bindAddr}
+	srv := apiserver.New(cfg, watcher, getInstances, getPRInfo, nil, prManager, profile, Version)
 
 	uiURL := fmt.Sprintf("http://%s:%d/ui/", webDisplayAddr(bindAddr), port)
 	fmt.Printf("Hangar web server started.\n")
