@@ -209,6 +209,9 @@ func FetchSessionPR(ghPath, worktreePath, sessionID string) (*PR, error) {
 		Title             string     `json:"title"`
 		State             string     `json:"state"`
 		URL               string     `json:"url"`
+		Author            struct {
+			Login string `json:"login"`
+		} `json:"author"`
 		IsDraft           bool       `json:"isDraft"`
 		ReviewDecision    string     `json:"reviewDecision"`
 		HeadRefName       string     `json:"headRefName"`
@@ -219,7 +222,7 @@ func FetchSessionPR(ghPath, worktreePath, sessionID string) (*PR, error) {
 	}
 
 	cmd := exec.Command(ghPath, "pr", "view",
-		"--json", "number,title,state,url,isDraft,reviewDecision,headRefName,baseRefName,statusCheckRollup,createdAt,updatedAt",
+		"--json", "number,title,state,url,author,isDraft,reviewDecision,headRefName,baseRefName,statusCheckRollup,createdAt,updatedAt",
 	)
 	cmd.Dir = worktreePath
 	if host := ghHostFromDir(worktreePath); host != "" && host != "github.com" {
@@ -246,6 +249,7 @@ func FetchSessionPR(ghPath, worktreePath, sessionID string) (*PR, error) {
 		IsDraft:        raw.IsDraft,
 		URL:            raw.URL,
 		Repo:           repo,
+		Author:         raw.Author.Login,
 		HeadBranch:     raw.HeadRefName,
 		BaseBranch:     raw.BaseRefName,
 		ReviewDecision: raw.ReviewDecision,
