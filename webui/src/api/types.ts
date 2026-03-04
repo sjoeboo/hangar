@@ -63,6 +63,7 @@ export interface PRFileChange {
 }
 
 export interface PRDetail extends PRFullInfo {
+  body?: string
   mergeability?: string
   comments: PRComment[]
   reviews: PRReview[]

@@ -422,13 +422,18 @@ func FetchDetail(ghPath, repo string, number int) (*PRDetail, error) {
 		})
 	}
 
-	// Fetch diff separately
+	// Fetch diff separately; cap at 512 KB to avoid sending huge payloads.
+	const maxDiffBytes = 512 * 1024
 	diffCmd := exec.Command(ghPath, "pr", "diff", itoa(number), "--repo", ghRepo)
 	if ghHost != "" && ghHost != "github.com" {
 		diffCmd.Env = env
 	}
 	if diffOut, err := diffCmd.Output(); err == nil {
-		detail.DiffContent = string(diffOut)
+		if len(diffOut) > maxDiffBytes {
+			detail.DiffContent = string(diffOut[:maxDiffBytes]) + "\n[Diff truncated — too large to display in full]"
+		} else {
+			detail.DiffContent = string(diffOut)
+		}
 	}
 
 	return detail, nil

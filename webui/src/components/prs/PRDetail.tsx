@@ -4,6 +4,7 @@ import { api } from '@/api/client'
 import type { PRFullInfo } from '@/api/types'
 import { PRDiff } from './PRDiff'
 import { PRConversation } from './PRConversation'
+import { ErrorBoundary } from './ErrorBoundary'
 import { cn } from '@/lib/utils'
 
 interface PRDetailProps {
@@ -12,7 +13,7 @@ interface PRDetailProps {
   onNavigateToSession?: () => void
 }
 
-type DetailTab = 'overview' | 'diff' | 'conversation'
+type DetailTab = 'overview' | 'description' | 'diff' | 'conversation'
 
 const REVIEW_DECISION_DISPLAY: Record<string, { label: string; className: string }> = {
   APPROVED:           { label: '✓ Approved',         className: 'text-(--oasis-green)  bg-(--oasis-green)/10  border-(--oasis-green)/30' },
@@ -107,6 +108,7 @@ export function PRDetail({ pr, onClose, onNavigateToSession }: PRDetailProps) {
     | { kind: 'comment' }
     | null
   >(null)
+  const [mutationError, setMutationError] = useState<string | null>(null)
   const queryClient = useQueryClient()
 
   const repo = pr.repo ?? ''
@@ -127,6 +129,7 @@ export function PRDetail({ pr, onClose, onNavigateToSession }: PRDetailProps) {
       queryClient.invalidateQueries({ queryKey: ['prs'] })
       setActionModal(null)
     },
+    onError: (err: Error) => setMutationError(err.message),
   })
 
   const commentMutation = useMutation({
@@ -136,6 +139,7 @@ export function PRDetail({ pr, onClose, onNavigateToSession }: PRDetailProps) {
       queryClient.invalidateQueries({ queryKey: ['pr-detail', repo, pr.number] })
       setActionModal(null)
     },
+    onError: (err: Error) => setMutationError(err.message),
   })
 
   const stateMutation = useMutation({
@@ -153,6 +157,7 @@ export function PRDetail({ pr, onClose, onNavigateToSession }: PRDetailProps) {
 
   const tabs: { key: DetailTab; label: string }[] = [
     { key: 'overview',     label: 'Overview' },
+    { key: 'description',  label: 'Description' },
     { key: 'diff',         label: `Diff${detail?.files?.length ? ` (${detail.files.length})` : ''}` },
     { key: 'conversation', label: `Conversation${detail?.comments?.length || detail?.reviews?.length ? ` (${(detail?.comments?.length ?? 0) + (detail?.reviews?.length ?? 0)})` : ''}` },
   ]
@@ -248,8 +253,9 @@ export function PRDetail({ pr, onClose, onNavigateToSession }: PRDetailProps) {
                   : 'Leave a review comment (optional)…'
               }
               requireBody={actionModal.kind === 'comment'}
-              onCancel={() => setActionModal(null)}
+              onCancel={() => { setActionModal(null); setMutationError(null) }}
               onConfirm={(body) => {
+                setMutationError(null)
                 if (actionModal.kind === 'review_approve') {
                   reviewMutation.mutate({ action: 'approve', body: body || undefined })
                 } else if (actionModal.kind === 'review_changes') {
@@ -333,25 +339,52 @@ export function PRDetail({ pr, onClose, onNavigateToSession }: PRDetailProps) {
             </div>
           )}
 
+          {activeTab === 'description' && (
+            <div className="py-2">
+              {isLoading ? (
+                <div className="flex items-center justify-center py-12 text-muted-foreground text-sm">
+                  Loading…
+                </div>
+              ) : detail?.body ? (
+                <div
+                  className="prose prose-sm prose-invert max-w-none text-sm text-foreground/90 leading-relaxed whitespace-pre-wrap font-sans"
+                >
+                  {detail.body}
+                </div>
+              ) : (
+                <div className="flex items-center justify-center py-12 text-muted-foreground text-sm italic">
+                  No description
+                </div>
+              )}
+            </div>
+          )}
+
           {!isLoading && activeTab === 'diff' && detail && (
-            <PRDiff
-              files={detail.files ?? []}
-              diffContent={detail.diff_content ?? ''}
-              reviews={detail.reviews ?? []}
-            />
+            <ErrorBoundary>
+              <PRDiff
+                files={detail.files ?? []}
+                diffContent={detail.diff_content ?? ''}
+                reviews={detail.reviews ?? []}
+              />
+            </ErrorBoundary>
           )}
 
           {!isLoading && activeTab === 'conversation' && detail && (
-            <PRConversation
-              comments={detail.comments ?? []}
-              reviews={detail.reviews ?? []}
-            />
+            <ErrorBoundary>
+              <PRConversation
+                comments={detail.comments ?? []}
+                reviews={detail.reviews ?? []}
+              />
+            </ErrorBoundary>
           )}
         </div>
 
         {/* Action bar */}
         {hasRepo && (
           <div className="shrink-0 px-4 py-3 border-t border-border bg-card flex items-center gap-2 flex-wrap">
+            {mutationError && (
+              <p className="w-full mt-1 text-xs text-(--oasis-red)">{mutationError}</p>
+            )}
             {!isOwn && isOpen && (
               <>
                 <button

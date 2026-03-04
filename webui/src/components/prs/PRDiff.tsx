@@ -52,6 +52,30 @@ function DiffLine({ line }: { line: string }) {
   )
 }
 
+const MAX_DIFF_LINES = 300
+
+function TruncatedDiff({ fileDiff }: { fileDiff: string }) {
+  const [showAll, setShowAll] = useState(false)
+  const allLines = fileDiff.split('\n').slice(4)
+  const truncated = !showAll && allLines.length > MAX_DIFF_LINES
+  const lines = truncated ? allLines.slice(0, MAX_DIFF_LINES) : allLines
+  return (
+    <>
+      {lines.map((line, i) => (
+        <DiffLine key={i} line={line} />
+      ))}
+      {truncated && (
+        <button
+          onClick={() => setShowAll(true)}
+          className="w-full px-3 py-2 text-xs text-(--oasis-accent) hover:bg-muted/50 transition-colors text-left"
+        >
+          … {allLines.length - MAX_DIFF_LINES} more lines — click to show all
+        </button>
+      )}
+    </>
+  )
+}
+
 function getInlineComments(filePath: string, reviews: PRReview[]) {
   const comments: Array<{ author: string; body: string; line?: number }> = []
   for (const review of reviews) {
@@ -64,13 +88,13 @@ function getInlineComments(filePath: string, reviews: PRReview[]) {
   return comments
 }
 
-function FileDiff({ file, diffContent, reviews }: {
+function FileDiff({ file, hunkMap, reviews, defaultExpanded }: {
   file: PRFileChange
-  diffContent: string
+  hunkMap: Map<string, string>
   reviews: PRReview[]
+  defaultExpanded?: boolean
 }) {
-  const [expanded, setExpanded] = useState(true)
-  const hunkMap = parseHunks(diffContent)
+  const [expanded, setExpanded] = useState(defaultExpanded ?? false)
   const fileDiff = hunkMap.get(file.path)
   const inlineComments = getInlineComments(file.path, reviews)
 
@@ -103,11 +127,7 @@ function FileDiff({ file, diffContent, reviews }: {
       {expanded && (
         <div className="bg-background">
           {fileDiff ? (
-            <>
-              {fileDiff.split('\n').slice(4).map((line, i) => (
-                <DiffLine key={i} line={line} />
-              ))}
-            </>
+            <TruncatedDiff fileDiff={fileDiff} />
           ) : (
             <div className="px-3 py-2 text-xs text-muted-foreground italic">
               Diff not available for this file
@@ -142,6 +162,7 @@ export function PRDiff({ files, diffContent, reviews }: PRDiffProps) {
 
   const totalAdditions = files.reduce((s, f) => s + f.additions, 0)
   const totalDeletions = files.reduce((s, f) => s + f.deletions, 0)
+  const hunkMap = parseHunks(diffContent)
 
   return (
     <div className="py-2">
@@ -157,8 +178,9 @@ export function PRDiff({ files, diffContent, reviews }: PRDiffProps) {
         <FileDiff
           key={file.path}
           file={file}
-          diffContent={diffContent}
+          hunkMap={hunkMap}
           reviews={reviews}
+          defaultExpanded={files.length === 1}
         />
       ))}
     </div>

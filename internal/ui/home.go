@@ -6839,13 +6839,18 @@ func (h *Home) renderPROverview() string {
 	b.WriteString(strings.Join(tabParts, ""))
 	b.WriteString("\n")
 
+	// ── Column widths (declared here so both header and rows can reference them) ──
+	const repoColWidth = 28
+	const ageColWidth = 5
+	const authorColWidth = 16
+
 	// ── Column header ────────────────────────────────────────────────────
 	colStyle := lipgloss.NewStyle().Foreground(ColorComment).Bold(true)
 	lastColLabel := "TITLE"
 	if h.prViewTab == 3 {
 		lastColLabel = "SESSION"
 	}
-	b.WriteString(colStyle.Render(fmt.Sprintf("  %-7s  %-8s  %-14s  %s", "PR", "STATE", "CHECKS", lastColLabel)))
+	b.WriteString(colStyle.Render(fmt.Sprintf("  %-7s  %-8s  %-14s  %-*s  %-*s  %-*s  %s", "PR", "STATE", "CHECKS", repoColWidth, "REPO", ageColWidth, "AGE", authorColWidth, "AUTHOR", lastColLabel)))
 	b.WriteString("\n")
 	borderStyle := lipgloss.NewStyle().Foreground(ColorBorder)
 	b.WriteString(borderStyle.Render(strings.Repeat("─", max(0, h.width))))
@@ -6949,7 +6954,6 @@ func (h *Home) renderPROverview() string {
 			}
 
 			// Repo column: strip host prefix, cap at 28 chars.
-			const repoColWidth = 28
 			repoDisplay := p.Repo
 			if parts := strings.SplitN(repoDisplay, "/", 3); len(parts) == 3 {
 				repoDisplay = parts[1] + "/" + parts[2]
@@ -6961,9 +6965,16 @@ func (h *Home) renderPROverview() string {
 			repoCol := lipgloss.NewStyle().Foreground(ColorComment).Render(fmt.Sprintf("%-*s", repoColWidth, repoDisplay))
 
 			// Age column: how long the PR has been open.
-			const ageColWidth = 5
 			ageStr := prAgeStr(p.CreatedAt)
 			ageCol := lipgloss.NewStyle().Foreground(ColorComment).Render(fmt.Sprintf("%-*s", ageColWidth, ageStr))
+
+			// Author column: cap at 16 chars.
+			authorDisplay := p.Author
+			authorRunes := []rune(authorDisplay)
+			if len(authorRunes) > authorColWidth {
+				authorDisplay = string(authorRunes[:authorColWidth-1]) + "…"
+			}
+			authorCol := lipgloss.NewStyle().Foreground(ColorComment).Render(fmt.Sprintf("%-*s", authorColWidth, authorDisplay))
 
 			// Last column: for Sessions tab show session title (with status colour),
 			// for other tabs show PR title.
@@ -6988,14 +6999,14 @@ func (h *Home) renderPROverview() string {
 			} else {
 				colTitleStyle = lipgloss.NewStyle().Foreground(ColorText)
 			}
-			maxTitleWidth := h.width - 2 - 7 - 2 - 2 - 2 - 8 - 2 - 14 - 2 - repoColWidth - 2 - ageColWidth - 2 - 4
+			maxTitleWidth := h.width - 2 - 7 - 2 - 2 - 2 - 8 - 2 - 14 - 2 - repoColWidth - 2 - ageColWidth - 2 - authorColWidth - 2 - 4
 			runes := []rune(displayTitle)
 			if maxTitleWidth > 0 && len(runes) > maxTitleWidth {
 				displayTitle = string(runes[:maxTitleWidth-1]) + "…"
 			}
 			titleCol := colTitleStyle.Render(displayTitle)
 
-			row := fmt.Sprintf("  %s  %s  %s  %s  %s  %s  %s", prNum, reviewIcon, stateCol, checksRaw, repoCol, ageCol, titleCol)
+			row := fmt.Sprintf("  %s  %s  %s  %s  %s  %s  %s  %s", prNum, reviewIcon, stateCol, checksRaw, repoCol, ageCol, authorCol, titleCol)
 
 			if selected {
 				row = lipgloss.NewStyle().

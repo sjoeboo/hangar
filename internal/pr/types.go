@@ -21,7 +21,7 @@ const (
 type PR struct {
 	Number        int
 	Title         string
-	Body          string
+	Body          string `json:"body,omitempty"`
 	State         string // OPEN, DRAFT, MERGED, CLOSED
 	IsDraft       bool
 	URL           string

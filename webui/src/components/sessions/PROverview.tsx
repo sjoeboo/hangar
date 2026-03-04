@@ -225,12 +225,12 @@ export function PROverview() {
               <tr className="text-muted-foreground uppercase tracking-wider">
                 <th className="text-left py-1 px-2 font-medium w-10">#</th>
                 <th className="text-left py-1 px-2 font-medium w-10">Age</th>
+                {showAuthor && <th className="text-left py-1 px-2 font-medium w-28">Author</th>}
                 {showRepo && <th className="text-left py-1 px-2 font-medium w-36">Repo</th>}
                 <th className="text-left py-1 px-2 font-medium">Title</th>
                 <th className="text-left py-1 px-2 font-medium w-20">Checks</th>
                 <th className="text-left py-1 px-2 font-medium w-24">Review</th>
                 <th className="text-left py-1 px-2 font-medium w-16">State</th>
-                {!showAuthor && <th className="w-4" />}
               </tr>
             </thead>
             <tbody>
@@ -260,6 +260,11 @@ export function PROverview() {
                     <td className="py-1.5 px-2 text-muted-foreground whitespace-nowrap">
                       {prAgeStr(pr.created_at)}
                     </td>
+                    {showAuthor && (
+                      <td className="py-1.5 px-2 text-muted-foreground truncate max-w-[7rem]">
+                        {pr.author ?? ''}
+                      </td>
+                    )}
                     {showRepo && (
                       <td className="py-1.5 px-2 font-mono text-muted-foreground truncate max-w-[9rem]">
                         {pr.repo ? stripRepoHost(pr.repo) : ''}

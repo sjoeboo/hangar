@@ -26,7 +26,7 @@ type PRDetailOverlay struct {
 	loading bool
 	err     error
 
-	tab         int // 0=Overview, 1=Diff, 2=Conversation
+	tab         int // 0=Overview, 1=Description, 2=Diff, 3=Conversation
 	scrollOffset int
 
 	// lines is the flat rendered-line cache for the current tab, rebuilt by rebuildLines.
@@ -96,7 +96,7 @@ func (o *PRDetailOverlay) View() string {
 	b.WriteString(headerStyle.Render("  "+title) + "\n")
 
 	// ── Tab bar ──────────────────────────────────────────────────────────
-	tabNames := []string{"Overview", "Diff", "Conversation"}
+	tabNames := []string{"Overview", "Description", "Diff", "Conversation"}
 	activeTabStyle := lipgloss.NewStyle().Foreground(ColorBg).Background(ColorAccent).Bold(true).Padding(0, 1)
 	inactiveTabStyle := lipgloss.NewStyle().Foreground(ColorComment).Padding(0, 1)
 	var tabParts []string
@@ -147,11 +147,12 @@ func (o *PRDetailOverlay) View() string {
 
 	b.WriteString(sep + "\n")
 	footerStyle := lipgloss.NewStyle().Foreground(ColorTextDim).Italic(true)
-	b.WriteString(footerStyle.Render("  Tab next tab · j/k scroll · g/G top/bottom · o browser · c comment · q close"))
+	b.WriteString(footerStyle.Render("  Tab/Shift+Tab switch tab · j/k scroll · g/G top/bottom · o browser · c comment · q close"))
 
 	return lipgloss.NewStyle().
 		Width(o.width).
 		Height(o.height).
+		Align(lipgloss.Left, lipgloss.Top).
 		Background(ColorBg).
 		Padding(0, 1).
 		Render(b.String())
@@ -188,12 +189,12 @@ func (o *PRDetailOverlay) HandleKey(key string) (bool, tea.Cmd) {
 		}
 		return true, nil
 	case "tab":
-		o.tab = (o.tab + 1) % 3
+		o.tab = (o.tab + 1) % 4
 		o.scrollOffset = 0
 		o.rebuildLines()
 		return true, nil
 	case "shift+tab":
-		o.tab = (o.tab + 2) % 3
+		o.tab = (o.tab + 3) % 4
 		o.scrollOffset = 0
 		o.rebuildLines()
 		return true, nil
@@ -269,8 +270,10 @@ func (o *PRDetailOverlay) rebuildLines() {
 	case 0:
 		o.lines = o.buildOverviewLines()
 	case 1:
-		o.lines = o.buildDiffLines()
+		o.lines = o.buildDescriptionLines()
 	case 2:
+		o.lines = o.buildDiffLines()
+	case 3:
 		o.lines = o.buildConversationLines()
 	}
 }
@@ -334,20 +337,6 @@ func (o *PRDetailOverlay) buildOverviewLines() []string {
 
 	lines = append(lines, "")
 
-	// Body
-	if d.Body != "" {
-		hdrStyle := lipgloss.NewStyle().Foreground(ColorComment).Bold(true)
-		bodyStyle := lipgloss.NewStyle().Foreground(ColorTextDim)
-		lines = append(lines, hdrStyle.Render("  Description"))
-		lines = append(lines, bodyStyle.Render(strings.Repeat("─", max(o.width-6, 4))))
-		for _, line := range strings.Split(d.Body, "\n") {
-			for _, wl := range prDetailWrapLine(line, o.width-4) {
-				lines = append(lines, bodyStyle.Render("  "+wl))
-			}
-		}
-		lines = append(lines, "")
-	}
-
 	// Files changed
 	if len(d.Files) > 0 {
 		hdrStyle := lipgloss.NewStyle().Foreground(ColorComment).Bold(true)
@@ -370,6 +359,21 @@ func (o *PRDetailOverlay) buildOverviewLines() []string {
 		}
 	}
 
+	return lines
+}
+
+func (o *PRDetailOverlay) buildDescriptionLines() []string {
+	d := o.detail
+	if d.Body == "" {
+		return []string{lipgloss.NewStyle().Foreground(ColorTextDim).Italic(true).Render("  No description")}
+	}
+	bodyStyle := lipgloss.NewStyle().Foreground(ColorText)
+	var lines []string
+	for _, line := range strings.Split(d.Body, "\n") {
+		for _, wl := range prDetailWrapLine(line, o.width-4) {
+			lines = append(lines, bodyStyle.Render("  "+wl))
+		}
+	}
 	return lines
 }
 
