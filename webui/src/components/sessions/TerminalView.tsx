@@ -99,6 +99,19 @@ export function TerminalView({ sessionId, className }: TerminalViewProps) {
       }
     }
 
+    // Intercept Shift+Enter before xterm collapses it to a plain \r.
+    // Send the kitty keyboard protocol sequence so Claude Code receives
+    // "shift+enter" and inserts a newline instead of submitting.
+    term.attachCustomKeyEventHandler((e: KeyboardEvent) => {
+      if (e.type === 'keydown' && e.key === 'Enter' && e.shiftKey && !e.ctrlKey && !e.altKey) {
+        if (ws && ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({ type: 'input', data: '\x1b[13;2u' }))
+        }
+        return false // suppress xterm's default Enter handling for this key
+      }
+      return true
+    })
+
     // Forward keystrokes to server via the stream WS
     term.onData((data) => {
       if (ws && ws.readyState === WebSocket.OPEN) {
