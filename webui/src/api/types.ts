@@ -14,6 +14,7 @@ export interface Session {
   title: string
   project_path: string
   group_path: string
+  session_type?: string
   tool: string
   status: 'running' | 'waiting' | 'idle' | 'starting' | 'stopped' | 'unknown'
   worktree_branch?: string

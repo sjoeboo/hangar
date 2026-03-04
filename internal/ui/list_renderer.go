@@ -316,8 +316,16 @@ func (h *Home) renderSessionItem(b *strings.Builder, item session.Item, selected
 	}
 
 	title := titleStyle.Render(inst.Title)
+
+	// Tower sessions get a special ◈ badge; others show tool name (non-claude only)
 	tool := ""
-	if instTool != "claude" {
+	if inst.SessionType == "tower" {
+		towerStyle := TowerBadgeStyle
+		if selected {
+			towerStyle = SessionStatusSelStyle
+		}
+		tool = towerStyle.Render(" ◈")
+	} else if instTool != "claude" {
 		tool = toolStyle.Render(" " + instTool)
 	}
 

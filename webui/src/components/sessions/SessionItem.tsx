@@ -32,7 +32,11 @@ export function SessionItem({ session }: SessionItemProps) {
         <span className="truncate text-sm font-medium text-foreground">{session.title}</span>
         <div className="flex items-center gap-1.5 shrink-0">
           {session.pr && <PRBadge pr={session.pr} />}
-          <StatusBadge status={session.status} />
+          {session.session_type === 'tower' ? (
+            <span className="text-cyan-400 font-bold text-base leading-none" title="Tower">◈</span>
+          ) : (
+            <StatusBadge status={session.status} />
+          )}
         </div>
       </div>
       {session.worktree_branch && (
