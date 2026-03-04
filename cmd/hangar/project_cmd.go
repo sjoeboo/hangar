@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/sjoeboo/hangar/internal/git"
@@ -90,8 +91,13 @@ func handleProjectAdd(profile string, args []string) {
 		baseBranch = args[2]
 	}
 
-	// Expand ~ in path
+	// Expand ~ and env vars, then resolve to absolute path so that "." and
+	// other relative paths are stored correctly regardless of where the TUI
+	// is later launched from.
 	expandedDir := session.ExpandPath(baseDir)
+	if absDir, err := filepath.Abs(expandedDir); err == nil {
+		expandedDir = absDir
+	}
 
 	// Validate that base-dir is a git repo
 	if !git.IsGitRepo(expandedDir) {

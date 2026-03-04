@@ -5,6 +5,14 @@ All notable changes to Hangar will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.1.1] - 2026-03-04
+
+### Fixed
+
+- **`hangar project add <name> .`** — relative paths (`.`, `../foo`, etc.) are now
+  resolved to absolute paths at add-time, so the stored `base_dir` is always correct
+  regardless of where `hangar` is later launched from.
+
 ## [2.1.0] - 2026-03-03
 
 ### Added
