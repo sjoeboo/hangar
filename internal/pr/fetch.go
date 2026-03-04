@@ -364,6 +364,13 @@ func stateFromSearchResult(state string, isDraft bool) string {
 	return state
 }
 
+// RepoFromDir infers "owner/repo" (or "host/owner/repo" for GHE) from the git
+// remote URL of a directory. Returns "" if the directory is not a git repo or
+// has no origin remote.
+func RepoFromDir(dir string) string {
+	return repoFromDir(dir)
+}
+
 // repoFromDir infers "owner/repo" from the git remote URL of a directory.
 func repoFromDir(dir string) string {
 	out, err := exec.Command("git", "-C", dir, "remote", "get-url", "origin").Output()

@@ -145,6 +145,7 @@ type Home struct {
 	worktreeFinishDialog *WorktreeFinishDialog // For finishing worktree sessions (optional merge + cleanup)
 	reviewDialog         *ReviewDialog         // For launching a review session for the current branch
 	todoDialog           *TodoDialog           // For viewing/managing per-project todos
+	prDetailOverlay      *PRDetailOverlay      // For viewing full PR details (Overview/Diff/Conversation)
 	pendingTodoID        string                // Todo ID waiting for a session to be created from it
 	pendingTodoPrompt    string                // prompt to send when the pending todo's session starts
 	sendTextDialog       *SendTextDialog       // For sending text to a session without attaching
@@ -647,6 +648,12 @@ type prActionResultMsg struct {
 	number int
 }
 
+// prDetailLoadedMsg is returned when async PR detail fetch completes.
+type prDetailLoadedMsg struct {
+	detail *prpkg.PRDetail
+	err    error
+}
+
 // errMsg carries a generic error for display in the status bar.
 type errMsg struct{ err error }
 
@@ -715,6 +722,7 @@ func NewHomeWithProfileAndMode(profile string) *Home {
 		worktreeFinishDialog: NewWorktreeFinishDialog(),
 		reviewDialog:         NewReviewDialog(),
 		todoDialog:           NewTodoDialog(),
+		prDetailOverlay:      NewPRDetailOverlay(),
 		sendTextDialog:       NewSendTextDialog(),
 		cursor:               0,
 		initialLoading:       true, // Show splash until sessions load
@@ -2381,6 +2389,7 @@ func (h *Home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		h.setupWizard.SetSize(msg.Width, msg.Height)
 		h.settingsPanel.SetSize(msg.Width, msg.Height)
 		h.geminiModelDialog.SetSize(msg.Width, msg.Height)
+		h.prDetailOverlay.SetSize(msg.Width, msg.Height)
 		return h, nil
 
 	case loadSessionsMsg:
@@ -2614,6 +2623,10 @@ func (h *Home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return h, nil
 
+	case prDetailLoadedMsg:
+		h.prDetailOverlay.SetDetail(msg.detail, msg.err)
+		return h, nil
+
 	case errMsg:
 		h.setError(msg.err)
 		return h, nil
@@ -2807,6 +2820,14 @@ func (h *Home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if h.worktreeFinishDialog.IsVisible() {
 			return h.handleWorktreeFinishDialogKey(msg)
+		}
+
+		// PR detail overlay (takes precedence over PR overview keys)
+		if h.prDetailOverlay.IsVisible() {
+			if handled, cmd := h.prDetailOverlay.HandleKey(msg.String()); handled {
+				return h, cmd
+			}
+			return h, nil
 		}
 
 		// PR overview view
@@ -3134,7 +3155,8 @@ func (h *Home) handleMouseMsg(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 		h.confirmDialog.IsVisible() || h.geminiModelDialog.IsVisible() ||
 		h.sessionPickerDialog.IsVisible() || h.sendTextDialog.IsVisible() ||
 		h.worktreeFinishDialog.IsVisible() ||
-		h.todoDialog.IsVisible() || h.reviewDialog.IsVisible() {
+		h.todoDialog.IsVisible() || h.reviewDialog.IsVisible() ||
+		h.prDetailOverlay.IsVisible() {
 		return h, nil
 	}
 
@@ -4189,18 +4211,20 @@ func (h *Home) handlePRViewKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return h, nil
 
 	case "enter":
-		// If the selected PR is linked to a session, attach to it
+		// Open PR detail overlay for the selected PR
 		if h.prViewCursor < len(prs) {
 			p := prs[h.prViewCursor]
-			if p.SessionID != "" {
-				if inst, ok := h.instanceByID[p.SessionID]; ok && inst.Exists() {
-					h.isAttaching.Store(true)
-					return h, h.attachSession(inst)
+			h.prDetailOverlay.Show(p)
+			h.prDetailOverlay.SetSize(h.width, h.height)
+			if h.prManager != nil && p.Repo != "" {
+				ghPath := h.prManager.GHPath()
+				if ghPath != "" {
+					repo, number := p.Repo, p.Number
+					return h, func() tea.Msg {
+						detail, err := prpkg.FetchDetail(ghPath, repo, number)
+						return prDetailLoadedMsg{detail: detail, err: err}
+					}
 				}
-			}
-			// Otherwise open in browser
-			if p.URL != "" {
-				exec.Command("open", p.URL).Start() //nolint:errcheck
 			}
 		}
 		return h, nil
@@ -4284,6 +4308,34 @@ func (h *Home) handlePRViewKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 		}
 		return h, tea.Batch(cmds...)
+
+	case "s":
+		// Create a review session for the selected PR: find matching project by remote URL,
+		// then create a worktree from the PR's head branch.
+		if h.prViewCursor < len(prs) {
+			p := prs[h.prViewCursor]
+			if p.Repo != "" && p.HeadBranch != "" {
+				projects, err := session.LoadProjects()
+				if err == nil {
+					for _, proj := range projects {
+						if proj.BaseDir == "" {
+							continue
+						}
+						if prpkg.RepoFromDir(proj.BaseDir) == p.Repo {
+							sessionName := fmt.Sprintf("review/pr-%s", prpkg.NumberStr(p.Number))
+							h.pendingWorktrees = append(h.pendingWorktrees, pendingWorktreeItem{
+								branchName: sessionName,
+								groupPath:  proj.Name,
+								startedAt:  time.Now(),
+							})
+							return h, h.createReviewSession(proj.BaseDir, p.HeadBranch, sessionName, proj.Name, "")
+						}
+					}
+				}
+				h.setError(fmt.Errorf("no project found for repo %s — add it with 'hangar project add'", p.Repo))
+			}
+		}
+		return h, nil
 	}
 
 	return h, nil
@@ -5777,6 +5829,9 @@ func (h *Home) View() string {
 	if h.todoDialog.IsVisible() {
 		return h.todoDialog.View()
 	}
+	if h.prDetailOverlay.IsVisible() {
+		return h.prDetailOverlay.View()
+	}
 
 	// PR overview takes full screen
 	if h.viewMode == "prs" {
@@ -6691,7 +6746,7 @@ func (h *Home) renderHelpBarBulkMode() string {
 
 // renderPROverview renders the full-screen PR overview mode.
 func (h *Home) renderPROverview() string {
-	sessions := h.prViewSessions()
+	prs := h.prViewPRs()
 
 	var b strings.Builder
 
@@ -6700,7 +6755,7 @@ func (h *Home) renderPROverview() string {
 	logo := RenderLogoCompact(running, waiting, idle)
 	titleStyle := lipgloss.NewStyle().Bold(true).Foreground(ColorAccent)
 	viewLabel := lipgloss.NewStyle().Foreground(ColorPurple).Bold(true).Render("PR Overview")
-	headerRight := lipgloss.NewStyle().Foreground(ColorComment).Render(fmt.Sprintf("%d PRs", len(sessions)))
+	headerRight := lipgloss.NewStyle().Foreground(ColorComment).Render(fmt.Sprintf("%d PRs", len(prs)))
 	headerLeft := logo + "  " + titleStyle.Render("Hangar") + "  " + viewLabel
 	pad := h.width - lipgloss.Width(headerLeft) - lipgloss.Width(headerRight)
 	if pad < 1 {
@@ -6709,16 +6764,39 @@ func (h *Home) renderPROverview() string {
 	b.WriteString(headerLeft + strings.Repeat(" ", pad) + headerRight)
 	b.WriteString("\n")
 
+	// ── Tab bar ──────────────────────────────────────────────────────────
+	tabNames := []string{"All", "Mine", "Review Requests", "Sessions"}
+	activeTabStyle := lipgloss.NewStyle().Foreground(ColorBg).Background(ColorAccent).Bold(true).Padding(0, 1)
+	inactiveTabStyle := lipgloss.NewStyle().Foreground(ColorComment).Padding(0, 1)
+	var tabParts []string
+	for i, name := range tabNames {
+		if i == h.prViewTab {
+			tabParts = append(tabParts, activeTabStyle.Render(name))
+		} else {
+			tabParts = append(tabParts, inactiveTabStyle.Render(name))
+		}
+	}
+	b.WriteString(strings.Join(tabParts, ""))
+	b.WriteString("\n")
+
 	// ── Column header ────────────────────────────────────────────────────
 	colStyle := lipgloss.NewStyle().Foreground(ColorComment).Bold(true)
-	b.WriteString(colStyle.Render(fmt.Sprintf("  %-7s  %-8s  %-14s  %s", "PR", "STATE", "CHECKS", "SESSION")))
+	lastColLabel := "TITLE"
+	if h.prViewTab == 3 {
+		lastColLabel = "SESSION"
+	}
+	b.WriteString(colStyle.Render(fmt.Sprintf("  %-7s  %-8s  %-14s  %s", "PR", "STATE", "CHECKS", lastColLabel)))
 	b.WriteString("\n")
 	borderStyle := lipgloss.NewStyle().Foreground(ColorBorder)
 	b.WriteString(borderStyle.Render(strings.Repeat("─", max(0, h.width))))
 	b.WriteString("\n")
 
 	// ── Rows ─────────────────────────────────────────────────────────────
-	contentHeight := h.height - 5 // header(1) + colheader(1) + border(1) + helpbar(2)
+	// header(1) + tabs(1) + colheader(1) + border(1) + border(1) + helpbar(2)
+	contentHeight := h.height - 7
+	if contentHeight < 1 {
+		contentHeight = 1
+	}
 	startIdx := 0
 	if h.prViewCursor >= contentHeight {
 		startIdx = h.prViewCursor - contentHeight + 1
@@ -6726,30 +6804,25 @@ func (h *Home) renderPROverview() string {
 
 	dataRowsRendered := 0
 
-	if len(sessions) == 0 {
+	if len(prs) == 0 {
 		emptyStyle := lipgloss.NewStyle().Foreground(ColorComment).Italic(true)
 		b.WriteString("\n")
-		b.WriteString(lipgloss.PlaceHorizontal(h.width, lipgloss.Center, emptyStyle.Render("No sessions with open PRs")))
+		b.WriteString(lipgloss.PlaceHorizontal(h.width, lipgloss.Center, emptyStyle.Render("No PRs")))
 		b.WriteString("\n")
+		dataRowsRendered = 2
 	} else {
-		for i := startIdx; i < len(sessions) && i < startIdx+contentHeight; i++ {
-			inst := sessions[i]
+		for i := startIdx; i < len(prs) && i < startIdx+contentHeight; i++ {
+			p := prs[i]
 			selected := i == h.prViewCursor
-
-			pr, _ := h.cache.GetPR(inst.ID)
-
-			if pr == nil {
-				continue
-			}
 
 			// PR number
 			prNumStyle := lipgloss.NewStyle().Foreground(ColorAccent).Bold(true)
-			prNum := prNumStyle.Render(fmt.Sprintf("#%-5d", pr.Number))
+			prNum := prNumStyle.Render(fmt.Sprintf("#%-5d", p.Number))
 
 			// State
 			var stateStyle lipgloss.Style
 			var stateLabel string
-			switch pr.State {
+			switch p.State {
 			case "OPEN":
 				stateStyle = lipgloss.NewStyle().Foreground(ColorGreen)
 				stateLabel = "open"
@@ -6764,39 +6837,36 @@ func (h *Home) renderPROverview() string {
 				stateLabel = "closed"
 			default:
 				stateStyle = lipgloss.NewStyle().Foreground(ColorComment)
-				stateLabel = strings.ToLower(pr.State)
+				stateLabel = strings.ToLower(p.State)
 			}
 			stateCol := stateStyle.Render(fmt.Sprintf("%-8s", stateLabel))
 
 			// Checks
 			var checkParts []string
-			if pr.HasChecks {
-				if pr.ChecksFailed > 0 {
-					checkParts = append(checkParts, lipgloss.NewStyle().Foreground(ColorRed).Render(fmt.Sprintf("✗%d", pr.ChecksFailed)))
+			if p.HasChecks {
+				if p.ChecksFailed > 0 {
+					checkParts = append(checkParts, lipgloss.NewStyle().Foreground(ColorRed).Render(fmt.Sprintf("✗%d", p.ChecksFailed)))
 				}
-				if pr.ChecksPending > 0 {
-					checkParts = append(checkParts, lipgloss.NewStyle().Foreground(ColorYellow).Render(fmt.Sprintf("●%d", pr.ChecksPending)))
+				if p.ChecksPending > 0 {
+					checkParts = append(checkParts, lipgloss.NewStyle().Foreground(ColorYellow).Render(fmt.Sprintf("●%d", p.ChecksPending)))
 				}
-				if pr.ChecksPassed > 0 {
-					checkParts = append(checkParts, lipgloss.NewStyle().Foreground(ColorGreen).Render(fmt.Sprintf("✓%d", pr.ChecksPassed)))
+				if p.ChecksPassed > 0 {
+					checkParts = append(checkParts, lipgloss.NewStyle().Foreground(ColorGreen).Render(fmt.Sprintf("✓%d", p.ChecksPassed)))
 				}
 			}
 			checksRaw := strings.Join(checkParts, " ")
-			// Pad checks column to fixed width (14 visible chars)
 			checksVisible := lipgloss.Width(checksRaw)
 			if checksVisible < 14 {
 				checksRaw += strings.Repeat(" ", 14-checksVisible)
 			} else if checksVisible > 14 {
-				// Truncate check summary to fit column — drop least-important parts from the right
-				// Re-build a truncated version using only what fits
 				var truncParts []string
 				width := 0
 				for _, part := range checkParts {
 					w := lipgloss.Width(part)
-					if width+w+1 <= 14 { // +1 for separator space
+					if width+w+1 <= 14 {
 						truncParts = append(truncParts, part)
 						if width > 0 {
-							width++ // separator
+							width++
 						}
 						width += w
 					}
@@ -6808,23 +6878,35 @@ func (h *Home) renderPROverview() string {
 				}
 			}
 
-			// Session title — bright if running, dim if idle
-			status := inst.GetStatusThreadSafe()
-			var titleStyle lipgloss.Style
-			if status == session.StatusRunning {
-				titleStyle = lipgloss.NewStyle().Foreground(ColorText).Bold(true)
+			// Last column: for Sessions tab show session title (with status colour),
+			// for other tabs show PR title.
+			displayTitle := p.Title
+			var colTitleStyle lipgloss.Style
+			if h.prViewTab == 3 && p.SessionID != "" {
+				h.instancesMu.RLock()
+				inst := h.instanceByID[p.SessionID]
+				h.instancesMu.RUnlock()
+				if inst != nil {
+					displayTitle = inst.Title
+					if inst.GetStatusThreadSafe() == session.StatusRunning {
+						colTitleStyle = lipgloss.NewStyle().Foreground(ColorText).Bold(true)
+					} else {
+						colTitleStyle = lipgloss.NewStyle().Foreground(ColorComment)
+					}
+				} else {
+					colTitleStyle = lipgloss.NewStyle().Foreground(ColorComment)
+				}
 			} else {
-				titleStyle = lipgloss.NewStyle().Foreground(ColorComment)
+				colTitleStyle = lipgloss.NewStyle().Foreground(ColorText)
 			}
-			title := inst.Title
 			maxTitleWidth := h.width - 2 - 7 - 2 - 8 - 2 - 14 - 2 - 4
-			runes := []rune(title)
+			runes := []rune(displayTitle)
 			if maxTitleWidth > 0 && len(runes) > maxTitleWidth {
-				title = string(runes[:maxTitleWidth-1]) + "…"
+				displayTitle = string(runes[:maxTitleWidth-1]) + "…"
 			}
-			sessionCol := titleStyle.Render(title)
+			titleCol := colTitleStyle.Render(displayTitle)
 
-			row := fmt.Sprintf("  %s  %s  %s  %s", prNum, stateCol, checksRaw, sessionCol)
+			row := fmt.Sprintf("  %s  %s  %s  %s", prNum, stateCol, checksRaw, titleCol)
 
 			if selected {
 				row = lipgloss.NewStyle().
@@ -6856,11 +6938,13 @@ func (h *Home) renderPROverview() string {
 	sepStyle := lipgloss.NewStyle().Foreground(ColorBorder)
 	sep := sepStyle.Render(" │ ")
 	hints := strings.Join([]string{
-		renderKey("Enter", "Attach"),
-		renderKey("o", "Open PR"),
+		renderKey("Enter", "Detail"),
+		renderKey("o", "Browser"),
+		renderKey("a", "Approve"),
+		renderKey("c", "Comment"),
+		renderKey("Tab", "Switch tab"),
 		renderKey("r", "Refresh"),
 		renderKey("P/Esc", "Back"),
-		renderKey("↑↓/jk", "Nav"),
 	}, sep)
 	b.WriteString(hints)
 
@@ -7117,6 +7201,26 @@ func (h *Home) handleSendTextDialogKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "confirm":
 		text := h.sendTextDialog.GetText()
 		h.sendTextDialog.Hide()
+		// PR comment flow
+		if h.pendingPRComment != nil && text != "" {
+			p := h.pendingPRComment
+			h.pendingPRComment = nil
+			if h.prManager != nil {
+				ghPath := h.prManager.GHPath()
+				if ghPath != "" {
+					repo, number := p.Repo, p.Number
+					return h, func() tea.Msg {
+						err := prpkg.AddComment(ghPath, repo, number, text, "", 0)
+						if err != nil {
+							return errMsg{err: err}
+						}
+						return prActionResultMsg{action: "comment", repo: repo, number: number}
+					}
+				}
+			}
+			return h, nil
+		}
+		h.pendingPRComment = nil
 		// Bulk send
 		if len(h.sendTextTargetIDs) > 0 && text != "" {
 			targetIDs := h.sendTextTargetIDs
@@ -7154,6 +7258,7 @@ func (h *Home) handleSendTextDialogKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "close":
 		h.sendTextTargetID = ""
 		h.sendTextTargetIDs = nil
+		h.pendingPRComment = nil
 		return h, nil
 	default:
 		h.sendTextDialog.Update(msg)
