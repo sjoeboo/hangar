@@ -149,13 +149,23 @@ func (o *PRDetailOverlay) View() string {
 	footerStyle := lipgloss.NewStyle().Foreground(ColorTextDim).Italic(true)
 	b.WriteString(footerStyle.Render("  Tab/Shift+Tab switch tab · j/k scroll · g/G top/bottom · o browser · c comment · q close"))
 
-	return lipgloss.NewStyle().
-		Width(o.width).
-		Height(o.height).
-		Align(lipgloss.Left, lipgloss.Top).
-		Background(ColorBg).
-		Padding(0, 1).
-		Render(b.String())
+	// Pad to full height with background — do NOT use Width()+Height() on the
+	// outer container because lipgloss will re-wrap and center ANSI-coded lines.
+	content := b.String()
+	bgStyle := lipgloss.NewStyle().Background(ColorBg)
+	lines := strings.Split(content, "\n")
+	// pad to o.height lines
+	for len(lines) < o.height {
+		lines = append(lines, "")
+	}
+	// pad each line to o.width
+	for i, l := range lines {
+		visible := lipgloss.Width(l)
+		if visible < o.width {
+			lines[i] = l + strings.Repeat(" ", o.width-visible)
+		}
+	}
+	return bgStyle.Render(strings.Join(lines[:o.height], "\n"))
 }
 
 // HandleKey processes a key press. Returns (handled bool, cmd tea.Cmd).
