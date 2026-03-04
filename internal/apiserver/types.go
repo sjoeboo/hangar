@@ -8,6 +8,7 @@ type SessionResponse struct {
 	Title          string    `json:"title"`
 	ProjectPath    string    `json:"project_path"`
 	GroupPath      string    `json:"group_path"`
+	SessionType    string    `json:"session_type,omitempty"`
 	Tool           string    `json:"tool"`
 	Status         string    `json:"status"`
 	WorktreeBranch string    `json:"worktree_branch,omitempty"`

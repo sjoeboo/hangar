@@ -22,6 +22,7 @@ func sessionToResponse(inst *session.Instance, getPRInfo func(string) *PRInfo) S
 		Title:          inst.Title,
 		ProjectPath:    inst.ProjectPath,
 		GroupPath:      inst.GroupPath,
+		SessionType:    inst.SessionType,
 		Tool:           inst.Tool,
 		Status:         string(inst.Status),
 		WorktreeBranch: inst.WorktreeBranch,

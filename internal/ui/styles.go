@@ -246,6 +246,9 @@ var (
 	PRBadgeMerged lipgloss.Style
 	PRBadgeClosed lipgloss.Style
 
+	// Tower session badge
+	TowerBadgeStyle lipgloss.Style
+
 	// Session title styles by state
 	SessionTitleDefault  lipgloss.Style
 	SessionTitleActive   lipgloss.Style
@@ -680,6 +683,9 @@ func initStyles() {
 		Foreground(ColorBg).
 		Background(ColorCyan).
 		Padding(0, 1)
+
+	// Tower session badge style
+	TowerBadgeStyle = lipgloss.NewStyle().Foreground(ColorCyan).Bold(true)
 
 	// List renderer styles
 	styleListEmptyBorder = lipgloss.NewStyle().

@@ -29,7 +29,7 @@ import (
 	"github.com/sjoeboo/hangar/internal/update"
 )
 
-var Version = "2.0.0"
+var Version = "2.1.0"
 
 // Table column widths for list command output
 const (
@@ -248,6 +248,12 @@ func main() {
 			return
 		case "notify-daemon":
 			handleNotifyDaemon(args[1:])
+			return
+		case "mcp-server":
+			handleMCPServer(args[1:])
+			return
+		case "tower":
+			handleTower(profile, args[1:])
 			return
 		}
 	}

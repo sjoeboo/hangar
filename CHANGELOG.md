@@ -5,6 +5,38 @@ All notable changes to Hangar will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.1.0] - 2026-03-03
+
+### Added
+
+- **Tower — Hangar control agent** (`hangar tower`) — a special Claude Code session in
+  `~/.hangar/tower/` that acts as a meta-agent for all other sessions. Tower has access
+  to a built-in MCP server (`hangar mcp-server`) with 12 tools:
+  - Session tools: `hangar_list_sessions`, `hangar_get_session`, `hangar_get_output`,
+    `hangar_send_message`, `hangar_start_session`, `hangar_stop_session`,
+    `hangar_restart_session`, `hangar_create_session`
+  - Todo tools: `hangar_list_todos`, `hangar_create_todo`, `hangar_update_todo`,
+    `hangar_delete_todo`
+  - The MCP server communicates with the Hangar REST API; the web server is auto-started
+    if it is not already running.
+  - Tower's working directory, `.mcp.json`, `CLAUDE.md` system prompt, and
+    `settings.local.json` (pre-approving `hangar` CLI commands) are all scaffolded
+    automatically on first run.
+  - **Remote access**: pass `--happy` to wrap Tower with
+    [happy](https://github.com/anthropics/happy) (`happy {command}`) for remote browser
+    access. Use `--wrapper <cmd>` for any custom wrapper.
+  - Run `hangar tower --attach` (or `-a`) to attach the terminal directly; without the
+    flag the command starts Tower in the background and exits.
+
+- **`session_type` field** — sessions now carry a `session_type` string (`"tower"` for
+  Tower, empty for regular sessions). Exposed in the REST API and persisted in SQLite.
+
+- **Tower badge in TUI** — Tower sessions render a `◈` badge (cyan) in the session list
+  instead of the tool name badge, and are always pinned above all project groups.
+
+- **Tower badge in Web UI** — Tower sessions appear at the top of the sidebar with a
+  `◈` badge and a thin divider separating them from project groups.
+
 ## [2.0.2] - 2026-03-03
 
 ### Changed

@@ -2,6 +2,7 @@ import { useSessions } from '@/hooks/useSessions'
 import { useProjects } from '@/hooks/useProjects'
 import { useWebSocket } from '@/hooks/useWebSocket'
 import { ProjectSection } from '../projects/ProjectSection'
+import { SessionItem } from './SessionItem'
 import type { Session } from '@/api/types'
 
 export function SessionList() {
@@ -17,11 +18,15 @@ export function SessionList() {
     )
   }
 
-  // Group sessions by project path
+  // Tower sessions are always pinned above all groups.
+  const towerSessions = sessions.filter((s) => s.session_type === 'tower')
+
+  // Group non-tower sessions by project path
   const grouped = new Map<string, Session[]>()
   const ungrouped: Session[] = []
 
   for (const s of sessions) {
+    if (s.session_type === 'tower') continue
     if (s.group_path) {
       const key = s.group_path
       if (!grouped.has(key)) grouped.set(key, [])
@@ -48,6 +53,12 @@ export function SessionList() {
 
   return (
     <div className="overflow-y-auto flex-1 px-2 py-2">
+      {towerSessions.map((s) => (
+        <SessionItem key={s.id} session={s} />
+      ))}
+      {towerSessions.length > 0 && (sortedGroups.length > 0 || ungrouped.length > 0 || sortedEmptyProjects.length > 0) && (
+        <div className="my-1 border-t border-border/50" />
+      )}
       {sortedGroups.map(([path, groupSessions]) => (
         <ProjectSection
           key={path}

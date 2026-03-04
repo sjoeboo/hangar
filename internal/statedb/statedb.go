@@ -15,7 +15,7 @@ import (
 
 // SchemaVersion tracks the current database schema version.
 // Bump this when adding migrations.
-const SchemaVersion = 3
+const SchemaVersion = 4
 
 // StateDB wraps a SQLite database for session/group persistence.
 // Thread-safe for concurrent use from multiple goroutines within one process.
@@ -44,6 +44,7 @@ type InstanceRow struct {
 	WorktreeRepo    string
 	WorktreeBranch  string
 	ToolData        json.RawMessage // JSON blob for tool-specific data
+	SessionType     string          // e.g., "tower" for tower sessions
 }
 
 // GroupRow represents a group row in the database.
@@ -239,6 +240,13 @@ func (s *StateDB) Migrate() error {
 		}
 	}
 
+	// Migration v4: add session_type column to instances table.
+	if _, err := tx.Exec(`ALTER TABLE instances ADD COLUMN session_type TEXT NOT NULL DEFAULT ''`); err != nil {
+		if !strings.Contains(err.Error(), "duplicate column name") {
+			return fmt.Errorf("statedb: add session_type column: %w", err)
+		}
+	}
+
 	// Set schema version only when missing or changed.
 	// Avoiding a write on every open reduces lock contention between CLI processes.
 	schemaVersion := fmt.Sprintf("%d", SchemaVersion)
@@ -289,14 +297,14 @@ func (s *StateDB) SaveInstance(inst *InstanceRow) error {
 			command, wrapper, tool, status, tmux_session,
 			created_at, last_accessed,
 			parent_session_id, worktree_path, worktree_repo, worktree_branch,
-			tool_data
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			tool_data, session_type
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`,
 		inst.ID, inst.Title, inst.ProjectPath, inst.GroupPath, inst.Order,
 		inst.Command, inst.Wrapper, inst.Tool, inst.Status, inst.TmuxSession,
 		inst.CreatedAt.Unix(), inst.LastAccessed.Unix(),
 		inst.ParentSessionID, inst.WorktreePath, inst.WorktreeRepo, inst.WorktreeBranch,
-		string(toolData),
+		string(toolData), inst.SessionType,
 	)
 	return err
 }
@@ -335,8 +343,8 @@ func (s *StateDB) SaveInstances(insts []*InstanceRow) error {
 			command, wrapper, tool, status, tmux_session,
 			created_at, last_accessed,
 			parent_session_id, worktree_path, worktree_repo, worktree_branch,
-			tool_data
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			tool_data, session_type
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`)
 	if err != nil {
 		return err
@@ -353,7 +361,7 @@ func (s *StateDB) SaveInstances(insts []*InstanceRow) error {
 			inst.Command, inst.Wrapper, inst.Tool, inst.Status, inst.TmuxSession,
 			inst.CreatedAt.Unix(), inst.LastAccessed.Unix(),
 			inst.ParentSessionID, inst.WorktreePath, inst.WorktreeRepo, inst.WorktreeBranch,
-			string(toolData),
+			string(toolData), inst.SessionType,
 		); err != nil {
 			return err
 		}
@@ -369,7 +377,7 @@ func (s *StateDB) LoadInstances() ([]*InstanceRow, error) {
 			command, wrapper, tool, status, tmux_session,
 			created_at, last_accessed,
 			parent_session_id, worktree_path, worktree_repo, worktree_branch,
-			tool_data
+			tool_data, session_type
 		FROM instances ORDER BY sort_order
 	`)
 	if err != nil {
@@ -387,7 +395,7 @@ func (s *StateDB) LoadInstances() ([]*InstanceRow, error) {
 			&r.Command, &r.Wrapper, &r.Tool, &r.Status, &r.TmuxSession,
 			&createdUnix, &accessedUnix,
 			&r.ParentSessionID, &r.WorktreePath, &r.WorktreeRepo, &r.WorktreeBranch,
-			&toolDataStr,
+			&toolDataStr, &r.SessionType,
 		); err != nil {
 			return nil, err
 		}

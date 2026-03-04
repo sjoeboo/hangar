@@ -107,6 +107,9 @@ type Instance struct {
 	// JSON structure: {"tool": "claude", "options": {...}}
 	ToolOptionsJSON json.RawMessage `json:"tool_options,omitempty"`
 
+	// SessionType distinguishes special session types (e.g., "tower" for tower sessions)
+	SessionType string `json:"session_type,omitempty"`
+
 	tmuxSession *tmux.Session // Internal tmux session
 
 	// Hook-based status detection (set by StatusFileWatcher from Claude Code hooks)

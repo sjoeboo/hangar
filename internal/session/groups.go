@@ -84,9 +84,7 @@ func NewGroupTree(instances []*Instance) *GroupTree {
 
 	// Sort sessions within each group by persisted Order
 	for _, group := range tree.Groups {
-		sort.SliceStable(group.Sessions, func(i, j int) bool {
-			return group.Sessions[i].Order < group.Sessions[j].Order
-		})
+		sortSessionsByOrder(group.Sessions)
 	}
 
 	// Sort groups alphabetically and assign order
@@ -148,9 +146,7 @@ func NewGroupTreeWithGroups(instances []*Instance, storedGroups []*GroupData) *G
 
 	// Sort sessions within each group by persisted Order
 	for _, group := range tree.Groups {
-		sort.SliceStable(group.Sessions, func(i, j int) bool {
-			return group.Sessions[i].Order < group.Sessions[j].Order
-		})
+		sortSessionsByOrder(group.Sessions)
 	}
 
 	// Rebuild group list maintaining stored order
@@ -220,24 +216,36 @@ func NewGroupTreeFromProjects(instances []*Instance, projects []*Project, stored
 		tree.Expanded[slug] = expanded
 	}
 
-	// Assign instances to their matching group; orphans are silently skipped
+	// Assign instances to their matching group; orphans are silently skipped,
+	// except Tower sessions which get their own synthetic group.
 	for _, inst := range instances {
 		if inst.GroupPath == "" {
 			continue
 		}
 		group, exists := tree.Groups[inst.GroupPath]
 		if !exists {
-			// Orphan: no matching project slug
-			continue
+			if inst.SessionType != "tower" {
+				// Orphan: no matching project slug
+				continue
+			}
+			// Tower sessions get a synthetic group so they always appear in the TUI.
+			tree.ensureParentGroupsExist(inst.GroupPath)
+			name := extractGroupName(inst.GroupPath)
+			group = &Group{
+				Name:     name,
+				Path:     inst.GroupPath,
+				Expanded: true,
+				Sessions: []*Instance{},
+			}
+			tree.Groups[inst.GroupPath] = group
+			tree.Expanded[inst.GroupPath] = true
 		}
 		group.Sessions = append(group.Sessions, inst)
 	}
 
 	// Sort sessions within each group by Order (ascending, stable)
 	for _, group := range tree.Groups {
-		sort.SliceStable(group.Sessions, func(i, j int) bool {
-			return group.Sessions[i].Order < group.Sessions[j].Order
-		})
+		sortSessionsByOrder(group.Sessions)
 	}
 
 	tree.rebuildGroupList()
@@ -254,7 +262,11 @@ func NewGroupTreeFromProjects(instances []*Instance, projects []*Project, stored
 func (t *GroupTree) rebuildGroupList() {
 	t.GroupList = make([]*Group, 0, len(t.Groups))
 	for _, g := range t.Groups {
-		// Always pin the "conductor" group to the top
+		// Always pin the "tower" group above everything else.
+		if g.Path == "tower" && g.Order >= -1 {
+			g.Order = -2
+		}
+		// Always pin the "conductor" group just below tower.
 		if g.Path == "conductor" && g.Order >= 0 {
 			g.Order = -1
 		}
@@ -1038,9 +1050,7 @@ func (t *GroupTree) SyncWithInstances(instances []*Instance) {
 
 	// Sort sessions within each group by persisted Order
 	for _, group := range t.Groups {
-		sort.SliceStable(group.Sessions, func(i, j int) bool {
-			return group.Sessions[i].Order < group.Sessions[j].Order
-		})
+		sortSessionsByOrder(group.Sessions)
 	}
 
 	// Always rebuild GroupList at the end to ensure consistency between
@@ -1177,6 +1187,18 @@ func (t *GroupTree) SetDefaultPathForGroup(groupPath, defaultPath string) bool {
 }
 
 // updateGroupDefaultPath normalizes persisted explicit default paths.
+// sortSessionsByOrder sorts sessions within a group by Order, pinning tower sessions to the top.
+func sortSessionsByOrder(sessions []*Instance) {
+	sort.SliceStable(sessions, func(i, j int) bool {
+		ti := sessions[i].SessionType == "tower"
+		tj := sessions[j].SessionType == "tower"
+		if ti != tj {
+			return ti // tower sessions sort first
+		}
+		return sessions[i].Order < sessions[j].Order
+	})
+}
+
 // Derived fallback paths are computed on demand in DefaultPathForGroup().
 func (t *GroupTree) updateGroupDefaultPath(groupPath string) {
 	group, exists := t.Groups[groupPath]
