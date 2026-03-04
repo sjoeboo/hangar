@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"flag"
 	"fmt"
 	"net/http"
 	"os"
@@ -30,13 +31,10 @@ func handleWeb(profile string, args []string) {
 	}
 	switch sub {
 	case "start":
-		noOpen := false
-		for _, a := range rest {
-			if a == "--no-open" || a == "-no-open" {
-				noOpen = true
-			}
-		}
-		handleWebStart(profile, noOpen)
+		fs := flag.NewFlagSet("web start", flag.ExitOnError)
+		noOpen := fs.Bool("no-open", false, "Do not open browser after start")
+		_ = fs.Parse(normalizeArgs(fs, rest))
+		handleWebStart(profile, *noOpen)
 	case "stop":
 		handleWebStop()
 	case "status":
@@ -58,7 +56,12 @@ func handleWebStart(profile string, noOpen bool) {
 	// If a PID file exists and the process is alive, don't start a second one.
 	if pid := readWebPID(pidFile); pid > 0 && webProcessRunning(pid) {
 		fmt.Printf("Web server already running (PID %d).\n", pid)
-		webPrintURL()
+		port, bindAddr := webLoadConfig()
+		uiURL := fmt.Sprintf("http://%s:%d/ui/", webDisplayAddr(bindAddr), port)
+		fmt.Printf("  URL:  %s\n", uiURL)
+		if !noOpen {
+			openBrowser(uiURL)
+		}
 		return
 	}
 	// Remove any stale PID file.
@@ -107,7 +110,22 @@ func handleWebStart(profile string, noOpen bool) {
 	fmt.Printf("  Stop: hangar web stop\n")
 
 	if !noOpen {
-		openBrowser(uiURL)
+		// Poll the status endpoint before opening the browser so the tab doesn't
+		// hit a "connection refused" while the server is still binding its socket.
+		statusURL := fmt.Sprintf("http://127.0.0.1:%d/api/v1/status", port)
+		go func() {
+			client := &http.Client{Timeout: time.Second}
+			deadline := time.Now().Add(5 * time.Second)
+			for time.Now().Before(deadline) {
+				resp, err := client.Get(statusURL)
+				if err == nil {
+					resp.Body.Close()
+					openBrowser(uiURL)
+					return
+				}
+				time.Sleep(100 * time.Millisecond)
+			}
+		}()
 	}
 
 	if err := srv.Start(ctx); err != nil {
@@ -255,7 +273,7 @@ func openBrowser(url string) {
 	default:
 		cmd = exec.Command("xdg-open", url)
 	}
-	_ = cmd.Start()
+	cmd.Start() //nolint:errcheck // best-effort; URL already printed to stdout
 }
 
 // webPrintURL prints the configured web UI URL.
