@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/charmbracelet/glamour"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	prpkg "github.com/sjoeboo/hangar/internal/pr"
@@ -16,6 +17,16 @@ import (
 // Conversation (comments and reviews in chronological order).
 // It follows the same Show/Hide/IsVisible/SetSize/HandleKey contract as
 // other overlays (DiffView, HelpOverlay, etc.) in home.go.
+// diffFileEntry holds per-file state for the collapsible Diff tab.
+type diffFileEntry struct {
+	path      string
+	status    string
+	additions int
+	deletions int
+	hunk      string // raw diff section for this file
+	expanded  bool
+}
+
 type PRDetailOverlay struct {
 	visible bool
 	width   int
@@ -31,6 +42,11 @@ type PRDetailOverlay struct {
 
 	// lines is the flat rendered-line cache for the current tab, rebuilt by rebuildLines.
 	lines []string
+
+	// Diff tab state — reset when detail changes.
+	diffFiles          []diffFileEntry
+	diffFileCursor     int
+	diffHeaderLineIdxs []int // which indices in lines[] are file headers
 }
 
 func NewPRDetailOverlay() *PRDetailOverlay {
@@ -46,6 +62,8 @@ func (o *PRDetailOverlay) Show(pr *prpkg.PR) {
 	o.tab = 0
 	o.scrollOffset = 0
 	o.lines = nil
+	o.diffFiles = nil
+	o.diffFileCursor = 0
 	o.visible = true
 }
 
@@ -71,6 +89,8 @@ func (o *PRDetailOverlay) SetDetail(detail *prpkg.PRDetail, err error) {
 	o.detail = detail
 	o.err = err
 	o.scrollOffset = 0
+	o.diffFiles = nil // reset so buildDiffLines re-initialises with fresh file list
+	o.diffFileCursor = 0
 	o.rebuildLines()
 }
 
@@ -147,7 +167,11 @@ func (o *PRDetailOverlay) View() string {
 
 	b.WriteString(sep + "\n")
 	footerStyle := lipgloss.NewStyle().Foreground(ColorTextDim).Italic(true)
-	b.WriteString(footerStyle.Render("  Tab/Shift+Tab switch tab · j/k scroll · g/G top/bottom · o browser · c comment · q close"))
+	hint := "  Tab/Shift+Tab switch tab · j/k scroll · g/G top/bottom · o browser · c comment · q close"
+	if o.tab == 2 && len(o.diffFiles) > 0 {
+		hint = "  j/k navigate files · enter toggle · d/u half-page scroll · g/G top/bottom · o browser · q close"
+	}
+	b.WriteString(footerStyle.Render(hint))
 
 	// Pad to full height with background — do NOT use Width()+Height() on the
 	// outer container because lipgloss will re-wrap and center ANSI-coded lines.
@@ -181,6 +205,31 @@ func (o *PRDetailOverlay) HandleKey(key string) (bool, tea.Cmd) {
 	halfPage := contentHeight / 2
 	if halfPage < 1 {
 		halfPage = 1
+	}
+
+	// Diff tab: j/k navigate between file headers; enter/space toggle expand.
+	if o.tab == 2 && len(o.diffFiles) > 0 {
+		switch key {
+		case "j", "down":
+			if o.diffFileCursor < len(o.diffFiles)-1 {
+				o.diffFileCursor++
+				o.rebuildLines()
+				o.scrollToDiffCursor()
+			}
+			return true, nil
+		case "k", "up":
+			if o.diffFileCursor > 0 {
+				o.diffFileCursor--
+				o.rebuildLines()
+				o.scrollToDiffCursor()
+			}
+			return true, nil
+		case "enter", " ":
+			o.diffFiles[o.diffFileCursor].expanded = !o.diffFiles[o.diffFileCursor].expanded
+			o.rebuildLines()
+			o.scrollToDiffCursor()
+			return true, nil
+		}
 	}
 
 	switch key {
@@ -268,6 +317,23 @@ func (o *PRDetailOverlay) scrollToBottom() {
 		limit = 0
 	}
 	o.scrollOffset = limit
+}
+
+// scrollToDiffCursor scrolls so the currently focused diff file header is visible.
+func (o *PRDetailOverlay) scrollToDiffCursor() {
+	if o.diffFileCursor >= len(o.diffHeaderLineIdxs) {
+		return
+	}
+	contentHeight := o.height - 6
+	if contentHeight < 1 {
+		contentHeight = 1
+	}
+	headerLine := o.diffHeaderLineIdxs[o.diffFileCursor]
+	if headerLine < o.scrollOffset {
+		o.scrollOffset = headerLine
+	} else if headerLine >= o.scrollOffset+contentHeight {
+		o.scrollOffset = headerLine - contentHeight + 1
+	}
 }
 
 // rebuildLines regenerates the flat line cache for the current tab.
@@ -377,6 +443,26 @@ func (o *PRDetailOverlay) buildDescriptionLines() []string {
 	if d.Body == "" {
 		return []string{lipgloss.NewStyle().Foreground(ColorTextDim).Italic(true).Render("  No description")}
 	}
+
+	// Render markdown via glamour — handles GFM, left-aligns naturally.
+	wrapWidth := o.width - 4
+	if wrapWidth < 20 {
+		wrapWidth = 20
+	}
+	if r, err := glamour.NewTermRenderer(
+		glamour.WithStandardStyle("dark"),
+		glamour.WithWordWrap(wrapWidth),
+	); err == nil {
+		if rendered, rerr := r.Render(d.Body); rerr == nil {
+			var lines []string
+			for _, l := range strings.Split(strings.TrimRight(rendered, "\n"), "\n") {
+				lines = append(lines, l)
+			}
+			return lines
+		}
+	}
+
+	// Fallback: plain text if glamour fails.
 	bodyStyle := lipgloss.NewStyle().Foreground(ColorText)
 	var lines []string
 	for _, line := range strings.Split(d.Body, "\n") {
@@ -392,11 +478,144 @@ func (o *PRDetailOverlay) buildDiffLines() []string {
 	if d.DiffContent == "" {
 		return []string{lipgloss.NewStyle().Foreground(ColorTextDim).Italic(true).Render("  No diff available")}
 	}
-	var lines []string
-	for _, line := range strings.Split(d.DiffContent, "\n") {
-		lines = append(lines, renderDiffLine(line))
+
+	hunkMap := parseDiffHunks(d.DiffContent)
+
+	// Initialise per-file state on first build (or after a detail reset).
+	if o.diffFiles == nil {
+		o.diffFiles = make([]diffFileEntry, 0, len(d.Files))
+		autoExpand := len(d.Files) == 1
+		for _, f := range d.Files {
+			o.diffFiles = append(o.diffFiles, diffFileEntry{
+				path:      f.Path,
+				status:    f.Status,
+				additions: f.Additions,
+				deletions: f.Deletions,
+				hunk:      hunkMap[f.Path],
+				expanded:  autoExpand,
+			})
+		}
+		o.diffFileCursor = 0
 	}
+
+	// Styles
+	summaryStyle := lipgloss.NewStyle().Foreground(ColorComment)
+	indicatorStyle := lipgloss.NewStyle().Foreground(ColorComment)
+	statsStyle := lipgloss.NewStyle().Foreground(ColorComment)
+	dimStyle := lipgloss.NewStyle().Foreground(ColorTextDim).Italic(true)
+	focusBg := lipgloss.Color("#1e2d3a")
+
+	statusColor := func(status string) lipgloss.Color {
+		switch status {
+		case "added":
+			return ColorGreen
+		case "deleted", "removed":
+			return ColorRed
+		case "modified":
+			return ColorYellow
+		default:
+			return ColorAccent
+		}
+	}
+
+	// Summary bar
+	totalAdd, totalDel := 0, 0
+	for _, f := range d.Files {
+		totalAdd += f.Additions
+		totalDel += f.Deletions
+	}
+	var lines []string
+	lines = append(lines, summaryStyle.Render(fmt.Sprintf("  %d file%s changed  +%d -%d",
+		len(d.Files), map[bool]string{true: "s", false: ""}[len(d.Files) != 1], totalAdd, totalDel)))
+	lines = append(lines, "")
+
+	o.diffHeaderLineIdxs = nil
+
+	for i, entry := range o.diffFiles {
+		headerIdx := len(lines)
+		o.diffHeaderLineIdxs = append(o.diffHeaderLineIdxs, headerIdx)
+
+		indicator := "▶"
+		if entry.expanded {
+			indicator = "▼"
+		}
+		focused := i == o.diffFileCursor
+
+		pathStyle := lipgloss.NewStyle().Foreground(statusColor(entry.status))
+		indStyle := indicatorStyle
+		stStyle := statsStyle
+		if focused {
+			pathStyle = pathStyle.Background(focusBg)
+			indStyle = indStyle.Background(focusBg)
+			stStyle = stStyle.Background(focusBg)
+		}
+
+		// Truncate path if needed
+		maxPathW := o.width - 20
+		if maxPathW < 10 {
+			maxPathW = 10
+		}
+		path := entry.path
+		if len([]rune(path)) > maxPathW {
+			path = "…" + string([]rune(path)[len([]rune(path))-maxPathW+1:])
+		}
+
+		statsStr := fmt.Sprintf("+%d -%d", entry.additions, entry.deletions)
+		header := "  " + indStyle.Render(indicator) + " " + pathStyle.Render(path) +
+			"  " + stStyle.Render(statsStr)
+		if focused {
+			// Pad header to full width so focus background extends across the row.
+			visible := lipgloss.Width(header)
+			if visible < o.width-2 {
+				header += lipgloss.NewStyle().Background(focusBg).Render(strings.Repeat(" ", o.width-2-visible))
+			}
+		}
+		lines = append(lines, header)
+
+		if entry.expanded {
+			if entry.hunk != "" {
+				hunkLines := strings.Split(entry.hunk, "\n")
+				// Skip the "diff --git", "index", "---", "+++" header lines (first 4).
+				start := 4
+				if start > len(hunkLines) {
+					start = len(hunkLines)
+				}
+				for _, l := range hunkLines[start:] {
+					lines = append(lines, "  "+renderDiffLine(l))
+				}
+			} else {
+				lines = append(lines, dimStyle.Render("    (no diff available for this file)"))
+			}
+			lines = append(lines, "") // blank separator after expanded content
+		}
+	}
+
 	return lines
+}
+
+// parseDiffHunks splits a unified diff into per-file sections keyed by file path.
+func parseDiffHunks(diff string) map[string]string {
+	result := make(map[string]string)
+	rawLines := strings.Split(diff, "\n")
+	fileStart := -1
+	currentPath := ""
+	for i, line := range rawLines {
+		if strings.HasPrefix(line, "diff --git ") {
+			if fileStart >= 0 && currentPath != "" {
+				result[currentPath] = strings.Join(rawLines[fileStart:i], "\n")
+			}
+			// "diff --git a/<path> b/<path>" — take the b/ path.
+			parts := strings.Fields(line)
+			if len(parts) >= 4 {
+				currentPath = strings.TrimPrefix(parts[3], "b/")
+			}
+			fileStart = i
+		}
+	}
+	if fileStart >= 0 && currentPath != "" {
+		result[currentPath] = strings.Join(rawLines[fileStart:], "\n")
+	}
+	return result
 }
 
 func (o *PRDetailOverlay) buildConversationLines() []string {
@@ -411,18 +630,13 @@ func (o *PRDetailOverlay) buildConversationLines() []string {
 
 	authorStyle := lipgloss.NewStyle().Foreground(ColorAccent).Bold(true)
 	timeStyle := lipgloss.NewStyle().Foreground(ColorComment)
-	textStyle := lipgloss.NewStyle().Foreground(ColorText)
 
 	// Comments
 	for _, c := range d.Comments {
 		header := "  " + authorStyle.Render(c.Author) + "  " + timeStyle.Render(c.CreatedAt.Format("Jan 02 15:04"))
 		var ls []string
 		ls = append(ls, header)
-		for _, l := range strings.Split(c.Body, "\n") {
-			for _, wl := range prDetailWrapLine(l, o.width-6) {
-				ls = append(ls, textStyle.Render("    "+wl))
-			}
-		}
+		ls = append(ls, o.renderMarkdownBlock(c.Body, o.width-6)...)
 		ls = append(ls, "")
 		entries = append(entries, entry{t: c.CreatedAt.UnixNano(), lines: ls})
 	}
@@ -443,20 +657,12 @@ func (o *PRDetailOverlay) buildConversationLines() []string {
 		var ls []string
 		ls = append(ls, header)
 		if r.Body != "" {
-			for _, l := range strings.Split(r.Body, "\n") {
-				for _, wl := range prDetailWrapLine(l, o.width-6) {
-					ls = append(ls, textStyle.Render("    "+wl))
-				}
-			}
+			ls = append(ls, o.renderMarkdownBlock(r.Body, o.width-6)...)
 		}
 		for _, c := range r.Comments {
 			pathStyle := lipgloss.NewStyle().Foreground(ColorYellow)
 			ls = append(ls, "    "+pathStyle.Render(fmt.Sprintf("%s:%d", c.Path, c.Line)))
-			for _, l := range strings.Split(c.Body, "\n") {
-				for _, wl := range prDetailWrapLine(l, o.width-8) {
-					ls = append(ls, lipgloss.NewStyle().Foreground(ColorTextDim).Render("      "+wl))
-				}
-			}
+			ls = append(ls, o.renderMarkdownBlock(c.Body, o.width-8)...)
 		}
 		ls = append(ls, "")
 		entries = append(entries, entry{t: r.CreatedAt.UnixNano(), lines: ls})
@@ -471,6 +677,38 @@ func (o *PRDetailOverlay) buildConversationLines() []string {
 	var lines []string
 	for _, e := range entries {
 		lines = append(lines, e.lines...)
+	}
+	return lines
+}
+
+// renderMarkdownBlock renders text as GFM markdown using glamour, returning
+// one element per output line. Falls back to plain-text wrapping on error.
+func (o *PRDetailOverlay) renderMarkdownBlock(text string, wrapWidth int) []string {
+	if text == "" {
+		return nil
+	}
+	if wrapWidth < 20 {
+		wrapWidth = 20
+	}
+	if r, err := glamour.NewTermRenderer(
+		glamour.WithStandardStyle("dark"),
+		glamour.WithWordWrap(wrapWidth),
+	); err == nil {
+		if rendered, rerr := r.Render(text); rerr == nil {
+			var lines []string
+			for _, l := range strings.Split(strings.TrimRight(rendered, "\n"), "\n") {
+				lines = append(lines, l)
+			}
+			return lines
+		}
+	}
+	// Fallback: plain text
+	textStyle := lipgloss.NewStyle().Foreground(ColorText)
+	var lines []string
+	for _, l := range strings.Split(text, "\n") {
+		for _, wl := range prDetailWrapLine(l, wrapWidth) {
+			lines = append(lines, textStyle.Render("  "+wl))
+		}
 	}
 	return lines
 }
