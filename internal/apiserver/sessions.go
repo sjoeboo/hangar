@@ -99,7 +99,7 @@ func (s *APIServer) handleSessionStart(w http.ResponseWriter, r *http.Request) {
 			_ = ts.SendKeysAndEnter(req.Message)
 		}
 	}
-	writeJSON(w, http.StatusOK, sessionToResponse(inst, s.getPRInfo))
+	writeJSON(w, http.StatusOK, sessionToResponse(inst, s.getPRInfoFor))
 }
 
 func (s *APIServer) handleSessionStop(w http.ResponseWriter, r *http.Request) {
@@ -140,7 +140,7 @@ func (s *APIServer) handleSessionRestart(w http.ResponseWriter, r *http.Request)
 		writeError(w, http.StatusInternalServerError, fmt.Sprintf("restart failed: %v", err))
 		return
 	}
-	writeJSON(w, http.StatusOK, sessionToResponse(inst, s.getPRInfo))
+	writeJSON(w, http.StatusOK, sessionToResponse(inst, s.getPRInfoFor))
 }
 
 func (s *APIServer) handleSessionSend(w http.ResponseWriter, r *http.Request) {
@@ -180,7 +180,7 @@ func (s *APIServer) handleSessionSend(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// Broadcast update over WS
-	s.hub.broadcast <- WsMessage{Type: "session_updated", Data: sessionToResponse(inst, s.getPRInfo)}
+	s.hub.broadcast <- WsMessage{Type: "session_updated", Data: sessionToResponse(inst, s.getPRInfoFor)}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "sent"})
 }
 
@@ -246,7 +246,7 @@ func (s *APIServer) listSessions(w http.ResponseWriter, r *http.Request) {
 	instances := s.instances()
 	resp := make([]SessionResponse, 0, len(instances))
 	for _, inst := range instances {
-		resp = append(resp, sessionToResponse(inst, s.getPRInfo))
+		resp = append(resp, sessionToResponse(inst, s.getPRInfoFor))
 	}
 	writeJSON(w, http.StatusOK, resp)
 }
@@ -258,7 +258,7 @@ func (s *APIServer) getSession(w http.ResponseWriter, r *http.Request, id string
 		writeError(w, http.StatusNotFound, "session not found")
 		return
 	}
-	writeJSON(w, http.StatusOK, sessionToResponse(inst, s.getPRInfo))
+	writeJSON(w, http.StatusOK, sessionToResponse(inst, s.getPRInfoFor))
 }
 
 // createSession handles POST /api/v1/sessions.
@@ -376,7 +376,7 @@ func (s *APIServer) createSession(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Broadcast session_created event immediately so the frontend can show feedback.
-	s.hub.broadcast <- WsMessage{Type: "session_created", Data: sessionToResponse(inst, s.getPRInfo)}
+	s.hub.broadcast <- WsMessage{Type: "session_created", Data: sessionToResponse(inst, s.getPRInfoFor)}
 
 	// Trigger an immediate TUI reload so getInstances() returns the new session
 	// without waiting for the 2-second StorageWatcher poll interval.
@@ -388,7 +388,7 @@ func (s *APIServer) createSession(w http.ResponseWriter, r *http.Request) {
 		s.hub.broadcast <- WsMessage{Type: "sessions_changed"}
 	}()
 
-	writeJSON(w, http.StatusCreated, sessionToResponse(inst, s.getPRInfo))
+	writeJSON(w, http.StatusCreated, sessionToResponse(inst, s.getPRInfoFor))
 }
 
 // updateSession handles PATCH /api/v1/sessions/{id}.
@@ -444,7 +444,7 @@ func (s *APIServer) updateSession(w http.ResponseWriter, r *http.Request, id str
 		return
 	}
 
-	writeJSON(w, http.StatusOK, sessionToResponse(target, s.getPRInfo))
+	writeJSON(w, http.StatusOK, sessionToResponse(target, s.getPRInfoFor))
 }
 
 // deleteSession handles DELETE /api/v1/sessions/{id}.
@@ -505,7 +505,7 @@ func (s *APIServer) wsHandleSendMessage(c *Client, msg WsMessage) {
 	}
 	if ts := inst.GetTmuxSession(); ts != nil {
 		_ = ts.SendKeysAndEnter(data.Message)
-		s.hub.broadcast <- WsMessage{Type: "session_updated", Data: sessionToResponse(inst, s.getPRInfo)}
+		s.hub.broadcast <- WsMessage{Type: "session_updated", Data: sessionToResponse(inst, s.getPRInfoFor)}
 	}
 }
 
@@ -527,7 +527,7 @@ func (s *APIServer) wsHandleStopSession(c *Client, msg WsMessage) {
 	}
 	if ts := inst.GetTmuxSession(); ts != nil {
 		_ = ts.Kill()
-		s.hub.broadcast <- WsMessage{Type: "session_updated", Data: sessionToResponse(inst, s.getPRInfo)}
+		s.hub.broadcast <- WsMessage{Type: "session_updated", Data: sessionToResponse(inst, s.getPRInfoFor)}
 	}
 }
 
