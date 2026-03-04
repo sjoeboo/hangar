@@ -1,7 +1,6 @@
-import ReactMarkdown from 'react-markdown'
-import remarkGfm from 'remark-gfm'
 import type { PRComment, PRReview } from '@/api/types'
 import { cn } from '@/lib/utils'
+import { MarkdownContent } from './MarkdownContent'
 
 interface PRConversationProps {
   comments: PRComment[]
@@ -84,9 +83,7 @@ export function PRConversation({ comments, reviews }: PRConversationProps) {
                   <span className="text-xs font-medium text-foreground">{comment.author}</span>
                   <span className="text-xs text-muted-foreground">{relativeTime(comment.created_at)}</span>
                 </div>
-                <div className="prose prose-sm prose-invert max-w-none text-sm">
-                  <ReactMarkdown remarkPlugins={[remarkGfm]}>{comment.body}</ReactMarkdown>
-                </div>
+                <MarkdownContent>{comment.body}</MarkdownContent>
               </div>
             </div>
           )
@@ -108,9 +105,7 @@ export function PRConversation({ comments, reviews }: PRConversationProps) {
                   <span className="text-xs text-muted-foreground">{relativeTime(review.created_at)}</span>
                 </div>
                 {review.body && (
-                  <div className="prose prose-sm prose-invert max-w-none text-sm mb-2">
-                    <ReactMarkdown remarkPlugins={[remarkGfm]}>{review.body}</ReactMarkdown>
-                  </div>
+                  <MarkdownContent className="mb-2">{review.body}</MarkdownContent>
                 )}
                 {(review.comments?.length ?? 0) > 0 && (
                   <div className="ml-2 pl-3 border-l border-border space-y-2">

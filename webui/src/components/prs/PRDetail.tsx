@@ -2,8 +2,7 @@ import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/api/client'
 import type { PRFullInfo } from '@/api/types'
-import ReactMarkdown from 'react-markdown'
-import remarkGfm from 'remark-gfm'
+import { MarkdownContent } from './MarkdownContent'
 import { PRDiff } from './PRDiff'
 import { PRConversation } from './PRConversation'
 import { ErrorBoundary } from './ErrorBoundary'
@@ -348,9 +347,7 @@ export function PRDetail({ pr, onClose, onNavigateToSession }: PRDetailProps) {
                   Loading…
                 </div>
               ) : detail?.body ? (
-                <div className="prose prose-sm prose-invert max-w-none">
-                  <ReactMarkdown remarkPlugins={[remarkGfm]}>{detail.body}</ReactMarkdown>
-                </div>
+                <MarkdownContent>{detail.body}</MarkdownContent>
               ) : (
                 <div className="flex items-center justify-center py-12 text-muted-foreground text-sm italic">
                   No description
