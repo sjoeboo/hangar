@@ -1,30 +1,32 @@
 # Current Tasks — PR Management
 
-## Next Up
-- [ ] WebUI: Add same PR features as TUI (see SESSION-HANDOFF.md for full list)
-  - [ ] Repo column (owner/repo, strip GHE host)
-  - [ ] Age column (compact: <1d/3d/2w/14mo/2y from CreatedAt)
-  - [ ] Draft dimming + hide/show toggle button
-  - [ ] Review decision icon (✓ APPROVED, △ CHANGES_REQUESTED)
-  - [ ] Comment input in PRDetail/PRConversation
-  - [ ] Open in browser button in PRDetail header
-  - [ ] Verify check status shows correctly (enriched data via enrichChecksForPRs)
+## Open
+
+### TUI + WebUI
+- [ ] **Author column**: Add `author` column to both TUI and WebUI PR tables
+  - TUI (`home.go`): insert after Age in `renderPRRow`
+  - WebUI (`PROverview.tsx`): add `<th>Author</th>` + `<td>{pr.author}</td>` after Age col
+
+### WebUI Bugs
+- [ ] **Approve submit does nothing**: POST `/api/v1/prs/review` fails silently
+  - Check route registration in `server.go` ~line 108
+  - Check `reviewMutation` error handling in `PRDetail.tsx` — add visible error
+  - Check `isOwn` guard (Approve only shows when `!isOwn && isOpen`)
+- [ ] **No approval column**: `review_decision` not showing for some PRs
+  - Session PRs from `FetchSessionPR` include `reviewDecision` ✓
+  - Global PRs from `enrichChecksForPRs` include it ✓
+  - Check if enrichment is actually running in standalone mode (it runs inside `refreshMyPRs`/`refreshReviewPRs`)
+- [ ] **Large PR diff crashes UI**: `PRDiff.tsx` renders all files/diff without virtualization
+  - Truncate or lazy-expand file diffs; cap diff content size
 
 ## Completed This Session
-- [x] Bug 2: Repo+HeadBranch in UICache fallback (prViewPRs)
-- [x] Bug 1: Bridge prFetchedMsg → prManager.SetSessionPR with Repo/HeadBranch
-- [x] Bug 3: GHE host inference (inferGHHost) for global PR search
-- [x] Root fix: remoteURLToRepo preserves GHE host ("host/owner/repo")
-- [x] Mine/ReviewReq empty: removed unsupported ghSearchFields (reviewDecision, statusCheckRollup, comments)
-- [x] Draft state: fetchPRInfo now requests isDraft + uses StateFromSearchResult
-- [x] TriggerRefresh() on Manager (buffered channel, called after first session PR)
-- [x] Comment + browser open from PRDetailOverlay (c/o keys)
-- [x] Repo column in TUI PR list (28 chars, strips GHE host)
-- [x] Age column in TUI PR list (compact format, prAgeStr helper)
-- [x] --archived=false filter in gh search prs
-- [x] Draft dimming (ColorTextDim italic) + D toggle + hint bar label
-- [x] Review decision icon column (✓/△, prApproved map + ReviewDecision from enrichment)
-- [x] enrichChecksForPRs now also fetches reviewDecision
+- [x] PR overview — age, draft toggle/dimming, GHE host strip (WebUI)
+- [x] Wire pr.Manager into standalone web server (was passing nil → 503)
+- [x] Fix sidebar PR badge count (was counting sessions, now counts all PRs)
+- [x] Fix JSON tags on PRDetail/Comment/Review/FileChange (Diff/Conversation tabs were empty)
+- [x] Dual-host PR search — Mine/ReviewReq now searches github.com AND GHE
+- [x] Column table layout in WebUI PR overview
+- [x] Extract usePRDashboard hook (fixed make build-all TS6133 error)
 
 ## Previously Completed
 - [x] Phase 1: internal/pr/ package
