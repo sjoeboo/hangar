@@ -29,7 +29,7 @@ import (
 	"github.com/sjoeboo/hangar/internal/update"
 )
 
-var Version = "2.1.0"
+var Version = "2.1.1"
 
 // Table column widths for list command output
 const (
