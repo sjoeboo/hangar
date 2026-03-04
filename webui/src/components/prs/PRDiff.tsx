@@ -79,7 +79,7 @@ function TruncatedDiff({ fileDiff }: { fileDiff: string }) {
 function getInlineComments(filePath: string, reviews: PRReview[]) {
   const comments: Array<{ author: string; body: string; line?: number }> = []
   for (const review of reviews) {
-    for (const comment of review.comments) {
+    for (const comment of review.comments ?? []) {
       if (comment.path === filePath) {
         comments.push({ author: review.author, body: comment.body, line: comment.line })
       }

@@ -142,18 +142,18 @@ export function PRConversation({ comments, reviews }: PRConversationProps) {
                     dangerouslySetInnerHTML={{ __html: renderMarkdown(review.body) }}
                   />
                 )}
-                {review.comments.length > 0 && (
+                {(review.comments?.length ?? 0) > 0 && (
                   <div className="ml-2 pl-3 border-l border-border space-y-2">
-                    <p className="text-xs text-muted-foreground">{review.comments.length} inline comment{review.comments.length !== 1 ? 's' : ''}</p>
-                    {review.comments.slice(0, 3).map((c) => (
+                    <p className="text-xs text-muted-foreground">{review.comments!.length} inline comment{review.comments!.length !== 1 ? 's' : ''}</p>
+                    {review.comments!.slice(0, 3).map((c) => (
                       <div key={c.id} className="text-xs text-muted-foreground">
                         {c.path && <span className="font-mono text-blue-400">{c.path}{c.line ? `:${c.line}` : ''}</span>}
                         {c.path && ' — '}
                         <span className="truncate">{c.body.slice(0, 80)}{c.body.length > 80 ? '…' : ''}</span>
                       </div>
                     ))}
-                    {review.comments.length > 3 && (
-                      <p className="text-xs text-muted-foreground">…and {review.comments.length - 3} more</p>
+                    {review.comments!.length > 3 && (
+                      <p className="text-xs text-muted-foreground">…and {review.comments!.length - 3} more</p>
                     )}
                   </div>
                 )}
