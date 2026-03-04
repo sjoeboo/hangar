@@ -1,3 +1,5 @@
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 import type { PRComment, PRReview } from '@/api/types'
 import { cn } from '@/lib/utils'
 
@@ -112,10 +114,9 @@ export function PRConversation({ comments, reviews }: PRConversationProps) {
                   <span className="text-xs font-medium text-foreground">{comment.author}</span>
                   <span className="text-xs text-muted-foreground">{relativeTime(comment.created_at)}</span>
                 </div>
-                <div
-                  className="text-sm text-foreground/90 leading-relaxed"
-                  dangerouslySetInnerHTML={{ __html: renderMarkdown(comment.body) }}
-                />
+                <div className="prose prose-sm prose-invert max-w-none text-sm">
+                  <ReactMarkdown remarkPlugins={[remarkGfm]}>{comment.body}</ReactMarkdown>
+                </div>
               </div>
             </div>
           )
@@ -137,10 +138,9 @@ export function PRConversation({ comments, reviews }: PRConversationProps) {
                   <span className="text-xs text-muted-foreground">{relativeTime(review.created_at)}</span>
                 </div>
                 {review.body && (
-                  <div
-                    className="text-sm text-foreground/90 leading-relaxed mb-2"
-                    dangerouslySetInnerHTML={{ __html: renderMarkdown(review.body) }}
-                  />
+                  <div className="prose prose-sm prose-invert max-w-none text-sm mb-2">
+                    <ReactMarkdown remarkPlugins={[remarkGfm]}>{review.body}</ReactMarkdown>
+                  </div>
                 )}
                 {(review.comments?.length ?? 0) > 0 && (
                   <div className="ml-2 pl-3 border-l border-border space-y-2">
