@@ -81,6 +81,9 @@ type InstanceData struct {
 
 	// MCP tracking (persisted for sync status display)
 	LoadedMCPNames []string `json:"loaded_mcp_names,omitempty"`
+
+	// SessionType distinguishes special session types (e.g., "tower")
+	SessionType string `json:"session_type,omitempty"`
 }
 
 // GroupData represents serializable group data
@@ -278,6 +281,7 @@ func (s *Storage) SaveWithGroups(instances []*Instance, groupTree *GroupTree) er
 			WorktreeRepo:    inst.WorktreeRepoRoot,
 			WorktreeBranch:  inst.WorktreeBranch,
 			ToolData:        toolData,
+			SessionType:     inst.SessionType,
 		}
 	}
 
@@ -429,6 +433,7 @@ func (s *Storage) LoadLite() ([]*InstanceData, []*GroupData, error) {
 			LatestPrompt:       latestPrompt,
 			ToolOptionsJSON:    toolOpts,
 			LoadedMCPNames:     loadedMCPs,
+			SessionType:        r.SessionType,
 		}
 	}
 
@@ -511,6 +516,7 @@ func (s *Storage) LoadWithGroups() ([]*Instance, []*GroupData, error) {
 			LatestPrompt:       latestPrompt,
 			ToolOptionsJSON:    toolOpts,
 			LoadedMCPNames:     loadedMCPs,
+			SessionType:        r.SessionType,
 		}
 	}
 
@@ -644,6 +650,7 @@ func (s *Storage) convertToInstances(data *StorageData) ([]*Instance, []*GroupDa
 			ToolOptionsJSON:    instData.ToolOptionsJSON,
 			LatestPrompt:       instData.LatestPrompt,
 			LoadedMCPNames:     instData.LoadedMCPNames,
+			SessionType:        instData.SessionType,
 			tmuxSession:        tmuxSess,
 		}
 
