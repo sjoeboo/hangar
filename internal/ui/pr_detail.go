@@ -2,6 +2,7 @@ package ui
 
 import (
 	"fmt"
+	"os/exec"
 	"sort"
 	"strings"
 
@@ -146,7 +147,7 @@ func (o *PRDetailOverlay) View() string {
 
 	b.WriteString(sep + "\n")
 	footerStyle := lipgloss.NewStyle().Foreground(ColorTextDim).Italic(true)
-	b.WriteString(footerStyle.Render("  Tab next tab · j/k scroll · g/G top/bottom · q close"))
+	b.WriteString(footerStyle.Render("  Tab next tab · j/k scroll · g/G top/bottom · o browser · c comment · q close"))
 
 	return lipgloss.NewStyle().
 		Width(o.width).
@@ -174,6 +175,17 @@ func (o *PRDetailOverlay) HandleKey(key string) (bool, tea.Cmd) {
 	switch key {
 	case "q", "esc":
 		o.Hide()
+		return true, nil
+	case "o":
+		if o.pr != nil && o.pr.URL != "" {
+			exec.Command("open", o.pr.URL).Start() //nolint:errcheck
+		}
+		return true, nil
+	case "c":
+		if o.pr != nil {
+			pr := o.pr
+			return true, func() tea.Msg { return prDetailCommentRequestMsg{pr: pr} }
+		}
 		return true, nil
 	case "tab":
 		o.tab = (o.tab + 1) % 3

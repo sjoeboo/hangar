@@ -48,6 +48,10 @@ type Manager struct {
 	onChangeMu sync.Mutex
 	onChange   []func()
 
+	// refreshCh is a buffered channel used by TriggerRefresh to schedule a
+	// one-shot re-fetch of myPRs/reviewPRs. Buffer of 1 coalesces duplicates.
+	refreshCh chan struct{}
+
 	ctx    context.Context
 	cancel context.CancelFunc
 }
@@ -60,8 +64,18 @@ func New() *Manager {
 		sessionFetched:  make(map[string]time.Time),
 		detailCache:     make(map[string]*PRDetail),
 		detailFetchedAt: make(map[string]time.Time),
+		refreshCh:       make(chan struct{}, 1),
 		ctx:             ctx,
 		cancel:          cancel,
+	}
+}
+
+// TriggerRefresh schedules an immediate re-fetch of the Mine and ReviewRequested lists.
+// If a refresh is already pending, this is a no-op. Safe to call from any goroutine.
+func (m *Manager) TriggerRefresh() {
+	select {
+	case m.refreshCh <- struct{}{}:
+	default: // already queued
 	}
 }
 
@@ -97,6 +111,9 @@ func (m *Manager) Start() {
 			case <-m.ctx.Done():
 				return
 			case <-ticker.C:
+				m.refreshMyPRs()
+				m.refreshReviewPRs()
+			case <-m.refreshCh:
 				m.refreshMyPRs()
 				m.refreshReviewPRs()
 			}
@@ -305,13 +322,28 @@ func (m *Manager) InvalidateDetail(repo string, number int) {
 	m.mu.Unlock()
 }
 
+// inferGHHost returns the dominant GH host from known session PRs, or "".
+// Used to set GH_HOST when running gh search prs on GHE instances.
+func (m *Manager) inferGHHost() string {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	for _, p := range m.sessionPRs {
+		if p != nil {
+			if h := hostFromRepo(p.Repo); h != "" && h != "github.com" {
+				return h
+			}
+		}
+	}
+	return ""
+}
+
 // refreshMyPRs fetches the current user's open PRs and updates the cache.
 func (m *Manager) refreshMyPRs() {
 	ghPath := m.GHPath()
 	if ghPath == "" {
 		return
 	}
-	prs, err := FetchMyPRs(ghPath)
+	prs, err := FetchMyPRs(ghPath, m.inferGHHost())
 	if err != nil {
 		slog.Debug("pr_manager: fetch my PRs error", "err", err)
 		return
@@ -319,6 +351,7 @@ func (m *Manager) refreshMyPRs() {
 	for _, p := range prs {
 		p.Source = SourceMine
 	}
+	enrichChecksForPRs(ghPath, prs)
 	m.mu.Lock()
 	m.myPRs = prs
 	m.myPRsLastFetch = time.Now()
@@ -333,7 +366,7 @@ func (m *Manager) refreshReviewPRs() {
 	if ghPath == "" {
 		return
 	}
-	prs, err := FetchReviewRequestedPRs(ghPath)
+	prs, err := FetchReviewRequestedPRs(ghPath, m.inferGHHost())
 	if err != nil {
 		slog.Debug("pr_manager: fetch review PRs error", "err", err)
 		return
@@ -341,6 +374,7 @@ func (m *Manager) refreshReviewPRs() {
 	for _, p := range prs {
 		p.Source = SourceReviewRequested
 	}
+	enrichChecksForPRs(ghPath, prs)
 	m.mu.Lock()
 	m.reviewPRs = prs
 	m.reviewPRsLastFetch = time.Now()

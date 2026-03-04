@@ -5,11 +5,14 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"sync"
 	"time"
 )
 
 // ghSearchFields are the JSON fields requested from `gh search prs`.
-const ghSearchFields = "number,title,state,url,repository,author,isDraft,reviewDecision,statusCheckRollup,comments,createdAt,updatedAt"
+// Note: reviewDecision, statusCheckRollup, and comments are NOT available
+// from gh search prs — only from gh pr view. Use commentsCount instead.
+const ghSearchFields = "number,title,state,url,repository,author,isDraft,commentsCount,createdAt,updatedAt"
 
 // ghCheck is the common status-check shape returned by the gh API.
 type ghCheck struct {
@@ -32,23 +35,29 @@ func DetectGHUser(ghPath string) string {
 }
 
 // FetchMyPRs fetches open PRs authored by the current gh user.
-func FetchMyPRs(ghPath string) ([]*PR, error) {
-	return fetchSearchPRs(ghPath, "--author", "@me")
+// ghHost is optional; when non-empty and non-github.com it sets GH_HOST for GHE instances.
+func FetchMyPRs(ghPath, ghHost string) ([]*PR, error) {
+	return fetchSearchPRs(ghPath, ghHost, "--author", "@me")
 }
 
 // FetchReviewRequestedPRs fetches open PRs where review has been requested from the current user.
-func FetchReviewRequestedPRs(ghPath string) ([]*PR, error) {
-	return fetchSearchPRs(ghPath, "--review-requested", "@me")
+// ghHost is optional; when non-empty and non-github.com it sets GH_HOST for GHE instances.
+func FetchReviewRequestedPRs(ghPath, ghHost string) ([]*PR, error) {
+	return fetchSearchPRs(ghPath, ghHost, "--review-requested", "@me")
 }
 
 // fetchSearchPRs runs `gh search prs` with the given filter flag and parses the results.
-func fetchSearchPRs(ghPath, filterFlag, filterValue string) ([]*PR, error) {
+func fetchSearchPRs(ghPath, ghHost, filterFlag, filterValue string) ([]*PR, error) {
 	cmd := exec.Command(ghPath, "search", "prs",
 		filterFlag, filterValue,
 		"--state", "open",
+		"--archived=false",
 		"--limit", "50",
 		"--json", ghSearchFields,
 	)
+	if ghHost != "" && ghHost != "github.com" {
+		cmd.Env = append(os.Environ(), "GH_HOST="+ghHost)
+	}
 	out, err := cmd.Output()
 	if err != nil {
 		return nil, err
@@ -60,22 +69,17 @@ func fetchSearchPRs(ghPath, filterFlag, filterValue string) ([]*PR, error) {
 	type ghAuthor struct {
 		Login string `json:"login"`
 	}
-	type ghComments struct {
-		TotalCount int `json:"totalCount"`
-	}
 	type ghSearchResult struct {
-		Number         int        `json:"number"`
-		Title          string     `json:"title"`
-		State          string     `json:"state"`
-		URL            string     `json:"url"`
-		Repository     ghRepo     `json:"repository"`
-		Author         ghAuthor   `json:"author"`
-		IsDraft        bool       `json:"isDraft"`
-		ReviewDecision string     `json:"reviewDecision"`
-		StatusCheckRollup []ghCheck `json:"statusCheckRollup"`
-		Comments       ghComments `json:"comments"`
-		CreatedAt      time.Time  `json:"createdAt"`
-		UpdatedAt      time.Time  `json:"updatedAt"`
+		Number        int       `json:"number"`
+		Title         string    `json:"title"`
+		State         string    `json:"state"`
+		URL           string    `json:"url"`
+		Repository    ghRepo    `json:"repository"`
+		Author        ghAuthor  `json:"author"`
+		IsDraft       bool      `json:"isDraft"`
+		CommentsCount int       `json:"commentsCount"`
+		CreatedAt     time.Time `json:"createdAt"`
+		UpdatedAt     time.Time `json:"updatedAt"`
 	}
 
 	var results []ghSearchResult
@@ -85,23 +89,84 @@ func fetchSearchPRs(ghPath, filterFlag, filterValue string) ([]*PR, error) {
 
 	prs := make([]*PR, 0, len(results))
 	for _, r := range results {
+		// Build full repo key: "host/owner/repo" for GHE, "owner/repo" for github.com.
+		// The URL always contains the real hostname, so extract it rather than trusting
+		// the caller-supplied ghHost (which may be "" on first boot).
+		repo := repoWithHostFromURL(r.URL, r.Repository.NameWithOwner)
 		p := &PR{
-			Number:         r.Number,
-			Title:          r.Title,
-			State:          stateFromSearchResult(r.State, r.IsDraft),
-			IsDraft:        r.IsDraft,
-			URL:            r.URL,
-			Repo:           r.Repository.NameWithOwner,
-			Author:         r.Author.Login,
-			ReviewDecision: r.ReviewDecision,
-			CommentCount:   r.Comments.TotalCount,
-			CreatedAt:      r.CreatedAt,
-			UpdatedAt:      r.UpdatedAt,
+			Number:       r.Number,
+			Title:        r.Title,
+			State:        stateFromSearchResult(r.State, r.IsDraft),
+			IsDraft:      r.IsDraft,
+			URL:          r.URL,
+			Repo:         repo,
+			Author:       r.Author.Login,
+			CommentCount: r.CommentsCount,
+			CreatedAt:    r.CreatedAt,
+			UpdatedAt:    r.UpdatedAt,
 		}
-		parseChecks(p, r.StatusCheckRollup)
 		prs = append(prs, p)
 	}
 	return prs, nil
+}
+
+// repoWithHostFromURL returns "host/nameWithOwner" for GHE URLs,
+// or plain "nameWithOwner" for github.com URLs.
+// e.g. "https://ghe.example.com/owner/repo/pull/1" → "ghe.example.com/owner/repo"
+func repoWithHostFromURL(prURL, nameWithOwner string) string {
+	for _, scheme := range []string{"https://", "http://"} {
+		if after, ok := strings.CutPrefix(prURL, scheme); ok {
+			host, _, found := strings.Cut(after, "/")
+			if found && host != "github.com" {
+				return host + "/" + nameWithOwner
+			}
+			return nameWithOwner
+		}
+	}
+	return nameWithOwner
+}
+
+// enrichChecksForPRs fetches statusCheckRollup for each PR via `gh pr view`
+// in parallel (up to 5 concurrent). PRs are updated in place.
+func enrichChecksForPRs(ghPath string, prs []*PR) {
+	const concurrency = 5
+	sem := make(chan struct{}, concurrency)
+	var wg sync.WaitGroup
+	for _, p := range prs {
+		p := p
+		wg.Add(1)
+		sem <- struct{}{}
+		go func() {
+			defer wg.Done()
+			defer func() { <-sem }()
+			type ghCheckResult struct {
+				StatusCheckRollup []ghCheck `json:"statusCheckRollup"`
+				ReviewDecision    string    `json:"reviewDecision"`
+			}
+			ghRepo := repoArg(p.Repo)
+			ghHost := hostFromRepo(p.Repo)
+			cmd := exec.Command(ghPath, "pr", "view", itoa(p.Number),
+				"--repo", ghRepo,
+				"--json", "statusCheckRollup,reviewDecision",
+			)
+			if ghHost != "" && ghHost != "github.com" {
+				cmd.Env = append(os.Environ(), "GH_HOST="+ghHost)
+			}
+			out, err := cmd.Output()
+			if err != nil {
+				return
+			}
+			var res ghCheckResult
+			if err := json.Unmarshal(out, &res); err != nil {
+				return
+			}
+			parseChecks(p, res.StatusCheckRollup)
+			if res.ReviewDecision != "" {
+				p.ReviewDecision = res.ReviewDecision
+			}
+		}()
+	}
+	wg.Wait()
 }
 
 // FetchSessionPR fetches PR info for a single worktree session directory.
@@ -357,6 +422,9 @@ func parseChecks(p *PR, checks []ghCheck) {
 
 // stateFromSearchResult normalises the gh API state value, treating draft
 // as a separate state (GitHub API returns "OPEN" for drafts).
+// StateFromSearchResult normalises a gh API state+isDraft pair into a hangar state string.
+func StateFromSearchResult(state string, isDraft bool) string { return stateFromSearchResult(state, isDraft) }
+
 func stateFromSearchResult(state string, isDraft bool) string {
 	if isDraft && state == "OPEN" {
 		return "DRAFT"
@@ -380,24 +448,39 @@ func repoFromDir(dir string) string {
 	return remoteURLToRepo(strings.TrimSpace(string(out)))
 }
 
-// remoteURLToRepo converts a git remote URL to "owner/repo" format.
+// remoteURLToRepo converts a git remote URL to "owner/repo" for github.com,
+// or "host/owner/repo" for GHE instances (any host other than github.com).
 //
-//	git@github.com:owner/repo.git  → "owner/repo"
-//	https://github.com/owner/repo  → "owner/repo"
+//	git@github.com:owner/repo.git      → "owner/repo"
+//	git@ghe.example.com:owner/repo.git → "ghe.example.com/owner/repo"
+//	https://github.com/owner/repo      → "owner/repo"
+//	https://ghe.example.com/owner/repo → "ghe.example.com/owner/repo"
 func remoteURLToRepo(u string) string {
 	// git@HOST:owner/repo.git
 	if after, ok := strings.CutPrefix(u, "git@"); ok {
-		_, path, _ := strings.Cut(after, ":")
-		return strings.TrimSuffix(path, ".git")
+		host, path, found := strings.Cut(after, ":")
+		if !found {
+			return ""
+		}
+		path = strings.TrimSuffix(path, ".git")
+		if host == "github.com" {
+			return path
+		}
+		return host + "/" + path
 	}
 	// https://HOST/owner/repo[.git]
 	for _, scheme := range []string{"https://", "http://"} {
 		if after, ok := strings.CutPrefix(u, scheme); ok {
-			// after = "github.com/owner/repo.git"
-			_, path, found := strings.Cut(after, "/")
-			if found {
-				return strings.TrimSuffix(path, ".git")
+			// after = "HOST/owner/repo.git"
+			host, path, found := strings.Cut(after, "/")
+			if !found {
+				return ""
 			}
+			path = strings.TrimSuffix(path, ".git")
+			if host == "github.com" {
+				return path
+			}
+			return host + "/" + path
 		}
 	}
 	return ""

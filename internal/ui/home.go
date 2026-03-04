@@ -160,7 +160,9 @@ type Home struct {
 	sortMode     string         // "" = default, "status" = running→waiting→idle
 	// PR overview view
 	viewMode     string // "" or "sessions" = normal, "prs" = PR overview full-screen
-	prViewCursor int    // cursor position within PR overview list
+	prViewCursor  int          // cursor position within PR overview list
+	prHideDrafts  bool         // when true, draft PRs are hidden from PR overview
+	prApproved    map[string]bool // "repo#number" keys for PRs the user approved this session
 	// prViewTab selects the active PR filter tab in the PR overview:
 	//   0 = All, 1 = Mine, 2 = Review Requested, 3 = Sessions
 	prViewTab int
@@ -428,6 +430,8 @@ func (h *Home) prViewPRs() []*prpkg.PR {
 				Title:         pr.Title,
 				State:         pr.State,
 				URL:           pr.URL,
+				Repo:          prpkg.RepoFromDir(item.Session.WorktreePath),
+				HeadBranch:    item.Session.WorktreeBranch,
 				ChecksPassed:  pr.ChecksPassed,
 				ChecksFailed:  pr.ChecksFailed,
 				ChecksPending: pr.ChecksPending,
@@ -435,6 +439,15 @@ func (h *Home) prViewPRs() []*prpkg.PR {
 				Source:        prpkg.SourceSession,
 				SessionID:     item.Session.ID,
 			})
+		}
+		if h.prHideDrafts {
+			filtered := result[:0]
+			for _, p := range result {
+				if p.State != "DRAFT" {
+					filtered = append(filtered, p)
+				}
+			}
+			return filtered
 		}
 		return result
 	}
@@ -654,6 +667,12 @@ type prDetailLoadedMsg struct {
 	err    error
 }
 
+// prDetailCommentRequestMsg is sent by PRDetailOverlay when the user presses 'c'
+// to add a comment on the currently displayed PR.
+type prDetailCommentRequestMsg struct {
+	pr *prpkg.PR
+}
+
 // errMsg carries a generic error for display in the status bar.
 type errMsg struct{ err error }
 
@@ -733,6 +752,7 @@ func NewHomeWithProfileAndMode(profile string) *Home {
 		groupTree:            session.NewGroupTree([]*session.Instance{}),
 		flatItems:            []session.Item{},
 		cache:                newUICache(),
+		prApproved:           make(map[string]bool),
 		launchingSessions:    make(map[string]time.Time),
 		resumingSessions:     make(map[string]time.Time),
 		forkingSessions:      make(map[string]time.Time),
@@ -2618,6 +2638,9 @@ func (h *Home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case prActionResultMsg:
 		h.setError(fmt.Errorf("PR #%d: %s done", msg.number, msg.action))
+		if msg.action == "approve" {
+			h.prApproved[msg.repo+"#"+prpkg.NumberStr(msg.number)] = true
+		}
 		if h.prManager != nil {
 			h.prManager.InvalidateDetail(msg.repo, msg.number)
 		}
@@ -2625,6 +2648,13 @@ func (h *Home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case prDetailLoadedMsg:
 		h.prDetailOverlay.SetDetail(msg.detail, msg.err)
+		return h, nil
+
+	case prDetailCommentRequestMsg:
+		h.prDetailOverlay.Hide()
+		h.pendingPRComment = msg.pr
+		h.sendTextDialog.SetSize(h.width, h.height)
+		h.sendTextDialog.Show("PR #" + prpkg.NumberStr(msg.pr.Number))
 		return h, nil
 
 	case errMsg:
@@ -4195,6 +4225,11 @@ func (h *Home) handlePRViewKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case "shift+tab":
 		h.prViewTab = (h.prViewTab + 3) % 4
+		h.prViewCursor = 0
+		return h, nil
+
+	case "D":
+		h.prHideDrafts = !h.prHideDrafts
 		h.prViewCursor = 0
 		return h, nil
 
@@ -6744,6 +6779,31 @@ func (h *Home) renderHelpBarBulkMode() string {
 	return lipgloss.NewStyle().MaxWidth(h.width).Render(raw)
 }
 
+// prAgeStr returns a compact age string for a PR's creation time.
+// Zero time returns "-". Examples: "3d", "2w", "14mo", "2y".
+func prAgeStr(t time.Time) string {
+	if t.IsZero() {
+		return "-"
+	}
+	d := time.Since(t)
+	if d < 24*time.Hour {
+		return "<1d"
+	}
+	days := int(d.Hours() / 24)
+	if days < 14 {
+		return fmt.Sprintf("%dd", days)
+	}
+	weeks := days / 7
+	if weeks < 8 {
+		return fmt.Sprintf("%dw", weeks)
+	}
+	months := days / 30
+	if months < 24 {
+		return fmt.Sprintf("%dmo", months)
+	}
+	return fmt.Sprintf("%dy", days/365)
+}
+
 // renderPROverview renders the full-screen PR overview mode.
 func (h *Home) renderPROverview() string {
 	prs := h.prViewPRs()
@@ -6819,6 +6879,16 @@ func (h *Home) renderPROverview() string {
 			prNumStyle := lipgloss.NewStyle().Foreground(ColorAccent).Bold(true)
 			prNum := prNumStyle.Render(fmt.Sprintf("#%-5d", p.Number))
 
+			// Review decision icon (✓ approved, △ changes requested, blank otherwise)
+			prKey := p.Repo + "#" + prpkg.NumberStr(p.Number)
+			reviewIcon := "  "
+			switch {
+			case h.prApproved[prKey] || p.ReviewDecision == "APPROVED":
+				reviewIcon = lipgloss.NewStyle().Foreground(ColorGreen).Render("✓ ")
+			case p.ReviewDecision == "CHANGES_REQUESTED":
+				reviewIcon = lipgloss.NewStyle().Foreground(ColorRed).Render("△ ")
+			}
+
 			// State
 			var stateStyle lipgloss.Style
 			var stateLabel string
@@ -6878,6 +6948,23 @@ func (h *Home) renderPROverview() string {
 				}
 			}
 
+			// Repo column: strip host prefix, cap at 28 chars.
+			const repoColWidth = 28
+			repoDisplay := p.Repo
+			if parts := strings.SplitN(repoDisplay, "/", 3); len(parts) == 3 {
+				repoDisplay = parts[1] + "/" + parts[2]
+			}
+			repoRunes := []rune(repoDisplay)
+			if len(repoRunes) > repoColWidth {
+				repoDisplay = string(repoRunes[:repoColWidth-1]) + "…"
+			}
+			repoCol := lipgloss.NewStyle().Foreground(ColorComment).Render(fmt.Sprintf("%-*s", repoColWidth, repoDisplay))
+
+			// Age column: how long the PR has been open.
+			const ageColWidth = 5
+			ageStr := prAgeStr(p.CreatedAt)
+			ageCol := lipgloss.NewStyle().Foreground(ColorComment).Render(fmt.Sprintf("%-*s", ageColWidth, ageStr))
+
 			// Last column: for Sessions tab show session title (with status colour),
 			// for other tabs show PR title.
 			displayTitle := p.Title
@@ -6896,17 +6983,19 @@ func (h *Home) renderPROverview() string {
 				} else {
 					colTitleStyle = lipgloss.NewStyle().Foreground(ColorComment)
 				}
+			} else if p.State == "DRAFT" {
+				colTitleStyle = lipgloss.NewStyle().Foreground(ColorTextDim).Italic(true)
 			} else {
 				colTitleStyle = lipgloss.NewStyle().Foreground(ColorText)
 			}
-			maxTitleWidth := h.width - 2 - 7 - 2 - 8 - 2 - 14 - 2 - 4
+			maxTitleWidth := h.width - 2 - 7 - 2 - 2 - 2 - 8 - 2 - 14 - 2 - repoColWidth - 2 - ageColWidth - 2 - 4
 			runes := []rune(displayTitle)
 			if maxTitleWidth > 0 && len(runes) > maxTitleWidth {
 				displayTitle = string(runes[:maxTitleWidth-1]) + "…"
 			}
 			titleCol := colTitleStyle.Render(displayTitle)
 
-			row := fmt.Sprintf("  %s  %s  %s  %s", prNum, stateCol, checksRaw, titleCol)
+			row := fmt.Sprintf("  %s  %s  %s  %s  %s  %s  %s", prNum, reviewIcon, stateCol, checksRaw, repoCol, ageCol, titleCol)
 
 			if selected {
 				row = lipgloss.NewStyle().
@@ -6943,6 +7032,12 @@ func (h *Home) renderPROverview() string {
 		renderKey("a", "Approve"),
 		renderKey("c", "Comment"),
 		renderKey("Tab", "Switch tab"),
+		renderKey("D", func() string {
+			if h.prHideDrafts {
+				return "Show drafts"
+			}
+			return "Hide drafts"
+		}()),
 		renderKey("r", "Refresh"),
 		renderKey("P/Esc", "Back"),
 	}, sep)
@@ -7017,10 +7112,11 @@ func fetchPRInfo(sessionID, worktreePath, ghPath string) prFetchedMsg {
 		Number            int       `json:"number"`
 		Title             string    `json:"title"`
 		State             string    `json:"state"`
+		IsDraft           bool      `json:"isDraft"`
 		URL               string    `json:"url"`
 		StatusCheckRollup []ghCheck `json:"statusCheckRollup"`
 	}
-	cmd := exec.Command(ghPath, "pr", "view", "--json", "number,title,state,url,statusCheckRollup")
+	cmd := exec.Command(ghPath, "pr", "view", "--json", "number,title,state,isDraft,url,statusCheckRollup")
 	cmd.Dir = worktreePath
 	if host := ghHostFromDir(worktreePath); host != "" && host != "github.com" {
 		cmd.Env = append(os.Environ(), "GH_HOST="+host)
@@ -7036,7 +7132,7 @@ func fetchPRInfo(sessionID, worktreePath, ghPath string) prFetchedMsg {
 	entry := &prCacheEntry{
 		Number:    pr.Number,
 		Title:     pr.Title,
-		State:     pr.State,
+		State:     prpkg.StateFromSearchResult(pr.State, pr.IsDraft),
 		URL:       pr.URL,
 		HasChecks: len(pr.StatusCheckRollup) > 0,
 	}

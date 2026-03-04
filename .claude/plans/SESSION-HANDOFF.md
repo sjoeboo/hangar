@@ -1,50 +1,72 @@
 # Session Handoff — PR Management Overhaul
-
-## What Was Accomplished
-
-- **Phase 1** (`internal/pr/`): New unified PR package with `Manager`, `PR`, `PRDetail`, `Comment`, `Review`, `FileChange` types; `FetchMyPRs`, `FetchReviewRequestedPRs`, `FetchSessionPR`, `FetchDetail`; `Approve`, `RequestChanges`, `AddComment`, `Close`, `Reopen`, `ConvertToReady/Draft` actions
-- **Phase 2** (home.go): `prManager *prpkg.Manager` field + `prViewTab int`; `prViewPRs()` with UICache fallback; `handlePRViewKey` updated with Tab/a/c/C/o/r actions; `prActionResultMsg`/`errMsg` types; `pendingPRComment` field; manager bridged to apiserver.New()
-- **Phase 4** (apiserver): `internalPRCache` removed, `pr.Manager` dependency, `pr_handlers.go` with 5 endpoints, `PRFullInfo`/`PRDashboardResponse`/`ReviewActionRequest`/`CommentRequest`/`StateActionRequest` types
-- **Phase 5** (webui): `PRFullInfo`, `PRDashboard`, `PRDetail`, `PRComment`, `PRReview`, `PRFileChange` TS types; `getPRDashboard/getPRDetail/submitPRReview/addPRComment/changePRState` API functions; PROverview filter tabs; `PRDetail.tsx`, `PRDiff.tsx`, `PRConversation.tsx` components
+last_updated: 2026-03-04T18:13:43Z
 
 ## Current State
 
-- Branch: `pr-mgmt` (worktree at `.worktrees/pr-mgmt`)
-- Tests: `go test ./internal/pr/ ./internal/apiserver/ ./internal/ui/` — all pass
-- Build: `go build ./internal/pr/ ./internal/apiserver/ ./internal/ui/` — clean
-- Pre-existing failure: `internal/webui` needs `npm run build` first (not our problem)
+Branch: `pr-mgmt` (worktree at `.worktrees/pr-mgmt`)
+All TUI PR features are complete and working. WebUI needs the same features added.
 
-## Two Remaining Gaps Before Phase 2 is Visually Complete
+## ✅ Completed This Session
 
-1. **renderPROverview() tab bar** — `prViewTab` state exists but `renderPROverview()` still shows old header without tab bar. Add tab bar rows (line ~6570 in home.go): `[All (N)] [Mine (N)] [Review Requests (N)] [Sessions (N)]`
-2. **sendTextDialog PR comment flow** — `pendingPRComment *prpkg.PR` field is set when `c` pressed, but `sendTextDialog` submit handler doesn't check it. Find the `sendTextResultMsg` handler (~line 2563 home.go) or wherever sendTextDialog submission dispatches the text, and add: if `h.pendingPRComment != nil`, fire `prpkg.AddComment(...)` and clear field.
+### Bug Fixes
+- **Bug 2**: `prViewPRs()` UICache fallback now includes `Repo` + `HeadBranch` fields
+- **Bug 1**: `handlePRFetched` now bridges `Repo`/`HeadBranch` to `h.prManager.SetSessionPR()`
+- **Bug 3**: `fetchSearchPRs` now accepts `ghHost` param; `Manager.inferGHHost()` infers host from session PRs
+- **Root cause of exit status 1**: `remoteURLToRepo` now returns `"host/owner/repo"` for GHE (was stripping host)
+- **Mine/ReviewReq always empty**: `ghSearchFields` had unsupported fields (`reviewDecision`, `statusCheckRollup`, `comments`) — replaced with `commentsCount`
+- **Draft state wrong**: `fetchPRInfo` now requests `isDraft` and calls `StateFromSearchResult`
 
-## Open Issues / Next Steps (in order)
+### New TUI Features
+- **Repo column**: `owner/repo` column (28 chars) between checks and title — strips host for GHE
+- **Age column**: 5-char compact age (`3d`, `2w`, `14mo`, `2y`) between repo and title; uses `CreatedAt`
+- **Archive filter**: `--archived=false` added to `gh search prs`
+- **Draft dimming**: Draft PR rows render with `ColorTextDim + italic` title
+- **Draft hide toggle**: `D` key toggles `prHideDrafts`; hint bar shows "Hide drafts"/"Show drafts"
+- **Comment from detail**: `c` key in `PRDetailOverlay` fires `prDetailCommentRequestMsg`, opens sendTextDialog
+- **Browser from detail**: `o` key in `PRDetailOverlay` calls `exec.Command("open", url).Start()`
+- **TriggerRefresh()**: Manager method with buffered channel; called from `handlePRFetched` on first session PR
+- **Review decision icon**: `✓` (green) / `△` (red) icon column after `#num`; tracks `prApproved` map + `p.ReviewDecision`; `enrichChecksForPRs` now also fetches `reviewDecision`
 
-1. **Fix renderPROverview tab bar** — visual only, ~10 lines
-2. **Fix sendTextDialog PR comment** — wire `pendingPRComment` in the submit path
-3. **Phase 3: Create `internal/ui/pr_detail.go`**
-   - `PRDetailOverlay` struct with `visible bool`, `pr *prpkg.PR`, `detail *prpkg.PRDetail`, `tab int` (0=Overview,1=Diff,2=Conversation), `scrollOffset int`, `loading bool`
-   - Follow `DiffView` pattern (`internal/ui/diff_view.go`) for struct layout
-   - Wire into home.go in 7 places: struct field, init, key routing (Enter in PR view opens it), mouse guard, trigger, SetSize, View check
-   - New message types: `prDetailLoadingMsg{prKey string}`, `prDetailLoadedMsg{detail *prpkg.PRDetail}`
-4. **Phase 6: `internal/git/git.go`** — add `NormalizeRepoURL(url string) string`
-   - Strips `git@`, `https://`, `.git`; lowercases → returns `host/owner/repo`
-5. **Phase 6: `s` key in handlePRViewKey** — scan `h.projects` for match, call handleAdd with branch=pr.HeadBranch, after `worktreeCreatedForNewSessionMsg` auto-send review prompt
+## 🔜 Next: WebUI — Same Features
 
-## Important Context
+The WebUI lives at `internal/webui/assets/` (embedded). Need to add to the PR overview table:
 
-- Import alias for pr package in home.go and update_handlers.go: `prpkg "github.com/sjoeboo/hangar/internal/pr"`
-- `prCacheEntry` (home.go ~line 487) is KEPT for backward compat with UICache and worktreeFinishDialog.SetPR()
-- `apiserver.New()` signature is now: `New(cfg, watcher, getInstances, getPRInfo, triggerReload, prManager, profile, version)`
-- `prpkg.NumberStr(n int) string` helper exists in types.go
-- `sendTextDialog.Show(sessionTitle string)` — only takes a title, no callback
-- `setStatusMessage` does NOT exist — use `h.setError(fmt.Errorf(...))` for transient status
+### Features to add (match TUI exactly)
+1. **Repo column** — show `owner/repo` (strip host prefix for GHE 3-part repos)
+2. **Age column** — compact age from `CreatedAt` (same `<1d`/`3d`/`2w`/`14mo`/`2y` logic)
+3. **Archive filter** — already done server-side (`--archived=false` in fetch.go) ✓
+4. **Draft handling** — dim/italic draft rows; toggle button to hide/show drafts
+5. **Check status** — already shown in WebUI; verify enriched data comes through
+6. **Review decision icon** — `✓` for APPROVED, `△` for CHANGES_REQUESTED
+7. **Comment from detail** — already has PRConversation.tsx; add comment input box
+8. **Open in browser** — add button in PRDetail.tsx header
 
-## Commands to Run First
+### Key WebUI files
+- `internal/webui/assets/` — embedded static files (find with `ls internal/webui/assets/`)
+- PROverview, PRDetail, PRDiff, PRConversation components from Phase 5
+- API client in webui talks to `/api/v1/prs` and `/api/v1/prs/detail` endpoints
 
+### API data available
+The `/api/v1/prs` endpoint returns `PRFullInfo` which should include:
+- `Repo`, `CreatedAt`, `ReviewDecision`, `IsDraft`, `State` — check `internal/apiserver/pr_handlers.go`
+- If any fields are missing from the API response, add them there first
+
+### Comment API
+- POST `/api/v1/prs/review/comment/state` endpoint exists (from Phase 4)
+- Check `internal/apiserver/pr_handlers.go` for exact endpoint paths
+
+## Build & Test
 ```bash
 cd /Users/mnicholson/code/github/hangar/.worktrees/pr-mgmt
-go build ./internal/pr/ ./internal/apiserver/ ./internal/ui/  # verify clean
-go test ./internal/pr/ ./internal/apiserver/ ./internal/ui/   # verify tests pass
+go build ./...
+go test ./internal/pr/ ./internal/apiserver/ ./internal/ui/
 ```
+
+## Key Patterns
+- `prpkg.RepoFromDir(dir)` — gets "host/owner/repo" for GHE, "owner/repo" for github.com
+- `prpkg.StateFromSearchResult(state, isDraft)` — exported normalizer
+- `enrichChecksForPRs(ghPath, prs)` — parallel enrichment, now also sets `ReviewDecision`
+- `Manager.TriggerRefresh()` — non-blocking refresh trigger
+
+## Import Alias
+In home.go: `prpkg "github.com/sjoeboo/hangar/internal/pr"`

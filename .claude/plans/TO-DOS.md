@@ -1,17 +1,35 @@
-# Current Tasks — PR Management Overhaul
+# Current Tasks — PR Management
 
-## In Progress
-- [ ] Phase 3: PR detail overlay (internal/ui/pr_detail.go)
-- [ ] Phase 6: Review session creation (git.go + 's' key handler)
+## Next Up
+- [ ] WebUI: Add same PR features as TUI (see SESSION-HANDOFF.md for full list)
+  - [ ] Repo column (owner/repo, strip GHE host)
+  - [ ] Age column (compact: <1d/3d/2w/14mo/2y from CreatedAt)
+  - [ ] Draft dimming + hide/show toggle button
+  - [ ] Review decision icon (✓ APPROVED, △ CHANGES_REQUESTED)
+  - [ ] Comment input in PRDetail/PRConversation
+  - [ ] Open in browser button in PRDetail header
+  - [ ] Verify check status shows correctly (enriched data via enrichChecksForPRs)
 
 ## Completed This Session
-- [x] Phase 1: internal/pr/ package (types.go, manager.go, fetch.go, actions.go)
-- [x] Phase 2: TUI PR dashboard overhaul (home.go — prManager, tabs, new key actions)
-- [x] Phase 4: API server (pr.Manager integrated, 5 new endpoints in pr_handlers.go)
-- [x] Phase 5: WebUI (PROverview tabs, PRDetail/PRDiff/PRConversation components)
+- [x] Bug 2: Repo+HeadBranch in UICache fallback (prViewPRs)
+- [x] Bug 1: Bridge prFetchedMsg → prManager.SetSessionPR with Repo/HeadBranch
+- [x] Bug 3: GHE host inference (inferGHHost) for global PR search
+- [x] Root fix: remoteURLToRepo preserves GHE host ("host/owner/repo")
+- [x] Mine/ReviewReq empty: removed unsupported ghSearchFields (reviewDecision, statusCheckRollup, comments)
+- [x] Draft state: fetchPRInfo now requests isDraft + uses StateFromSearchResult
+- [x] TriggerRefresh() on Manager (buffered channel, called after first session PR)
+- [x] Comment + browser open from PRDetailOverlay (c/o keys)
+- [x] Repo column in TUI PR list (28 chars, strips GHE host)
+- [x] Age column in TUI PR list (compact format, prAgeStr helper)
+- [x] --archived=false filter in gh search prs
+- [x] Draft dimming (ColorTextDim italic) + D toggle + hint bar label
+- [x] Review decision icon column (✓/△, prApproved map + ReviewDecision from enrichment)
+- [x] enrichChecksForPRs now also fetches reviewDecision
 
-## Pending
-- [ ] renderPROverview() tab bar visual (tabs in state but header not yet updated)
-- [ ] Wire sendTextDialog PR comment submit (pendingPRComment set but not consumed)
-- [ ] Phase 3: pr_detail.go full-screen overlay with Overview/Diff/Conversation tabs
-- [ ] Phase 6: NormalizeRepoURL + 's' key review session creation
+## Previously Completed
+- [x] Phase 1: internal/pr/ package
+- [x] Phase 2: TUI PR dashboard (home.go)
+- [x] Phase 3: PRDetailOverlay (pr_detail.go)
+- [x] Phase 4: apiserver pr_handlers.go
+- [x] Phase 5: WebUI PR components
+- [x] Phase 6: RepoFromDir + 's' key review session

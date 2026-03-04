@@ -843,11 +843,19 @@ func (h *Home) handlePRFetched(msg prFetchedMsg) tea.Cmd {
 	if h.prManager != nil {
 		var p *prpkg.PR
 		if msg.pr != nil {
+			inst := h.instanceByID[msg.sessionID]
+			var worktreePath, worktreeBranch string
+			if inst != nil {
+				worktreePath = inst.WorktreePath
+				worktreeBranch = inst.WorktreeBranch
+			}
 			p = &prpkg.PR{
 				Number:        msg.pr.Number,
 				Title:         msg.pr.Title,
 				State:         msg.pr.State,
 				URL:           msg.pr.URL,
+				Repo:          prpkg.RepoFromDir(worktreePath),
+				HeadBranch:    worktreeBranch,
 				ChecksPassed:  msg.pr.ChecksPassed,
 				ChecksFailed:  msg.pr.ChecksFailed,
 				ChecksPending: msg.pr.ChecksPending,
@@ -858,6 +866,11 @@ func (h *Home) handlePRFetched(msg prFetchedMsg) tea.Cmd {
 			}
 		}
 		h.prManager.SetSessionPR(msg.sessionID, p)
+		// Trigger a global refresh so Mine/ReviewReq tabs pick up the GHE host
+		// now that at least one session PR is known.
+		if p != nil {
+			h.prManager.TriggerRefresh()
+		}
 	}
 
 	// If WorktreeFinishDialog is open for this session, push updated PR data
