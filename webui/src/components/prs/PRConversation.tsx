@@ -48,36 +48,6 @@ function relativeTime(iso: string): string {
   return `${Math.floor(h / 24)}d ago`
 }
 
-// Minimal markdown: bold, italic, inline code, code blocks
-function renderMarkdown(text: string): string {
-  // Escape HTML first
-  let out = text
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-
-  // Code blocks
-  out = out.replace(/```[\s\S]*?```/g, (match) => {
-    const inner = match.slice(3, -3).replace(/^\w*\n/, '')
-    return `<pre class="my-1 rounded bg-muted px-2 py-1 text-xs font-mono overflow-x-auto whitespace-pre-wrap">${inner}</pre>`
-  })
-
-  // Inline code
-  out = out.replace(/`([^`]+)`/g, '<code class="rounded bg-muted px-1 text-xs font-mono">$1</code>')
-
-  // Bold
-  out = out.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
-  out = out.replace(/__([^_]+)__/g, '<strong>$1</strong>')
-
-  // Italic
-  out = out.replace(/\*([^*]+)\*/g, '<em>$1</em>')
-  out = out.replace(/_([^_]+)_/g, '<em>$1</em>')
-
-  // Newlines
-  out = out.replace(/\n/g, '<br/>')
-
-  return out
-}
 
 type TimelineItem =
   | { kind: 'comment'; item: PRComment; time: string }
