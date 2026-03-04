@@ -189,6 +189,9 @@ func main() {
 		_ = os.Setenv("HANGAR_PROFILE", profile)
 	}
 
+	// Extract global -web/--web flag — starts the web server alongside the TUI.
+	webFlag, args := extractBoolFlag(args, "-web", "--web")
+
 	// Handle subcommands
 	if len(args) > 0 {
 		switch args[0] {
@@ -403,6 +406,12 @@ func main() {
 		}()
 	}
 
+	// If -web flag was given, start the web server in-process before the TUI.
+	if webFlag {
+		cancelWeb := runWebInProcess(profile, false)
+		defer cancelWeb()
+	}
+
 	// Start TUI with the specified profile
 	homeModel := ui.NewHomeWithProfileAndMode(profile)
 
@@ -456,6 +465,25 @@ func extractProfileFlag(args []string) (string, []string) {
 	}
 
 	return profile, remaining
+}
+
+// extractBoolFlag removes any of the given flag names from args and returns
+// whether the flag was present plus the remaining args.
+func extractBoolFlag(args []string, names ...string) (bool, []string) {
+	var found bool
+	var remaining []string
+	nameSet := make(map[string]bool, len(names))
+	for _, n := range names {
+		nameSet[n] = true
+	}
+	for _, arg := range args {
+		if nameSet[arg] {
+			found = true
+		} else {
+			remaining = append(remaining, arg)
+		}
+	}
+	return found, remaining
 }
 
 // reorderArgsForFlagParsing moves the path argument to the end of args
@@ -1949,10 +1977,11 @@ func printHelp() {
 	fmt.Printf("Hangar v%s\n", Version)
 	fmt.Println("Terminal session manager for AI coding agents")
 	fmt.Println()
-	fmt.Println("Usage: hangar [-p profile] [command]")
+	fmt.Println("Usage: hangar [-p profile] [--web] [command]")
 	fmt.Println()
 	fmt.Println("Global Options:")
 	fmt.Println("  -p, --profile <name>   Use specific profile (default: 'default')")
+	fmt.Println("  --web                  Start the web UI server alongside the TUI")
 	fmt.Println()
 	fmt.Println("Commands:")
 	fmt.Println("  (none)           Start the TUI")
