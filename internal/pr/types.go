@@ -47,38 +47,38 @@ type PR struct {
 // PRDetail extends PR with full detail loaded lazily (on demand).
 type PRDetail struct {
 	PR
-	Mergeability string // MERGEABLE, CONFLICTING, UNKNOWN
-	Comments     []Comment
-	Reviews      []Review
-	Files        []FileChange
-	DiffContent  string
+	Mergeability string     `json:"mergeability,omitempty"`
+	Comments     []Comment  `json:"comments"`
+	Reviews      []Review   `json:"reviews"`
+	Files        []FileChange `json:"files"`
+	DiffContent  string     `json:"diff_content,omitempty"`
 }
 
 // Comment represents a PR-level or inline review comment.
 type Comment struct {
-	ID        int64
-	Author    string
-	Body      string
-	CreatedAt time.Time
-	Path      string // empty = PR-level comment
-	Line      int
+	ID        int64     `json:"id"`
+	Author    string    `json:"author"`
+	Body      string    `json:"body"`
+	CreatedAt time.Time `json:"created_at"`
+	Path      string    `json:"path,omitempty"` // empty = PR-level comment
+	Line      int       `json:"line,omitempty"`
 }
 
 // Review represents a submitted review (approve, request-changes, comment).
 type Review struct {
-	Author    string
-	State     string // APPROVED, CHANGES_REQUESTED, COMMENTED, DISMISSED
-	Body      string
-	CreatedAt time.Time
-	Comments  []Comment // inline review comments
+	Author    string    `json:"author"`
+	State     string    `json:"state"` // APPROVED, CHANGES_REQUESTED, COMMENTED, DISMISSED
+	Body      string    `json:"body"`
+	CreatedAt time.Time `json:"created_at"`
+	Comments  []Comment `json:"comments"` // inline review comments
 }
 
 // FileChange describes a single file changed by the PR.
 type FileChange struct {
-	Path      string
-	Additions int
-	Deletions int
-	Status    string // added, modified, deleted, renamed
+	Path      string `json:"path"`
+	Additions int    `json:"additions"`
+	Deletions int    `json:"deletions"`
+	Status    string `json:"status"` // added, modified, deleted, renamed
 }
 
 // Key returns a unique cache key for this PR: "owner/repo#number".

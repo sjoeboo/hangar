@@ -4,7 +4,6 @@ import { useQuery } from '@tanstack/react-query'
 import { useSessions } from '@/hooks/useSessions'
 import { api } from '@/api/client'
 import type { PRFullInfo } from '@/api/types'
-import { PRBadge } from './PRBadge'
 import { StatusBadge } from './StatusBadge'
 import { PRDetail } from '@/components/prs/PRDetail'
 import { cn } from '@/lib/utils'
@@ -209,7 +208,7 @@ export function PROverview() {
       </div>
 
       {/* PR list */}
-      <div className="flex-1 overflow-y-auto p-4">
+      <div className="flex-1 overflow-y-auto px-2 py-2">
         {activePRs.length === 0 ? (
           <div className="flex items-center justify-center h-full text-muted-foreground">
             <div className="text-center">
@@ -227,71 +226,81 @@ export function PROverview() {
             </div>
           </div>
         ) : (
-          <div className="space-y-2">
-            {activePRs.map((pr) => {
-              const session = getSessionForPR(pr)
-              return (
-                <button
-                  key={`${pr.repo ?? 'local'}-${pr.number}`}
-                  onClick={() => setSelectedPR(pr)}
-                  className={cn(
-                    'w-full text-left p-3 rounded-lg border border-border bg-card hover:bg-accent/50 transition-colors',
-                    (pr.is_draft || pr.state === 'DRAFT') && 'opacity-60'
-                  )}
-                >
-                  <div className="flex items-center gap-2 min-w-0">
-                    <a
-                      href={pr.url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      onClick={(e) => e.stopPropagation()}
-                      className="shrink-0"
-                    >
-                      <PRBadge pr={pr} />
-                    </a>
-                    <span className={cn(
-                      'font-medium text-sm truncate text-foreground',
-                      (pr.is_draft || pr.state === 'DRAFT') && 'italic'
-                    )}>
-                      {pr.title}
-                    </span>
-                    <div className="ml-auto shrink-0 flex items-center gap-2">
-                      <ReviewDecisionBadge decision={pr.review_decision} />
-                      <PRStateBadge state={pr.state} isDraft={pr.is_draft} />
-                      {session && <StatusBadge status={session.status} />}
-                    </div>
-                  </div>
-                  <div className="mt-1 flex items-center gap-3 text-xs text-muted-foreground flex-wrap">
-                    {showRepo && pr.repo && (
-                      <span className="font-mono">{stripRepoHost(pr.repo)}</span>
+          <table className="w-full text-xs border-separate border-spacing-0">
+            <thead>
+              <tr className="text-muted-foreground uppercase tracking-wider">
+                <th className="text-left py-1 px-2 font-medium w-10">#</th>
+                <th className="text-left py-1 px-2 font-medium w-10">Age</th>
+                {showRepo && <th className="text-left py-1 px-2 font-medium w-36">Repo</th>}
+                <th className="text-left py-1 px-2 font-medium">Title</th>
+                <th className="text-left py-1 px-2 font-medium w-20">Checks</th>
+                <th className="text-left py-1 px-2 font-medium w-24">Review</th>
+                <th className="text-left py-1 px-2 font-medium w-16">State</th>
+                {!showAuthor && <th className="w-4" />}
+              </tr>
+            </thead>
+            <tbody>
+              {activePRs.map((pr) => {
+                const session = getSessionForPR(pr)
+                const isDraft = pr.is_draft || pr.state === 'DRAFT'
+                return (
+                  <tr
+                    key={`${pr.repo ?? 'local'}-${pr.number}`}
+                    onClick={() => setSelectedPR(pr)}
+                    className={cn(
+                      'cursor-pointer hover:bg-accent/40 transition-colors border-b border-border/40',
+                      isDraft && 'opacity-60'
                     )}
-                    <span className="shrink-0">{prAgeStr(pr.created_at)}</span>
-                    {showAuthor && pr.author && (
-                      <span>by {pr.author}</span>
+                  >
+                    <td className="py-1.5 px-2 font-mono text-muted-foreground whitespace-nowrap">
+                      <a
+                        href={pr.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        onClick={(e) => e.stopPropagation()}
+                        className="hover:underline text-(--oasis-accent)"
+                      >
+                        #{pr.number}
+                      </a>
+                    </td>
+                    <td className="py-1.5 px-2 text-muted-foreground whitespace-nowrap">
+                      {prAgeStr(pr.created_at)}
+                    </td>
+                    {showRepo && (
+                      <td className="py-1.5 px-2 font-mono text-muted-foreground truncate max-w-[9rem]">
+                        {pr.repo ? stripRepoHost(pr.repo) : ''}
+                      </td>
                     )}
-                    {pr.head_branch && pr.base_branch && (
-                      <span className="font-mono text-blue-400">
-                        {pr.base_branch} ← {pr.head_branch}
-                      </span>
-                    )}
-                    <ChecksBadge pr={pr} />
-                    {pr.comment_count != null && pr.comment_count > 0 && (
-                      <span>{pr.comment_count} comment{pr.comment_count !== 1 ? 's' : ''}</span>
-                    )}
-                  </div>
-                  {activeTab === 'sessions' && session && (
-                    <div className="mt-0.5 flex items-center gap-3 text-xs text-muted-foreground">
-                      <span className="font-medium text-foreground/70">{session.title}</span>
-                      {session.group_path && <span>📁 {session.group_path}</span>}
-                      {session.worktree_branch && (
-                        <span className="font-mono text-blue-400">⎇ {session.worktree_branch}</span>
+                    <td className="py-1.5 px-2 min-w-0">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className={cn('truncate text-foreground', isDraft && 'italic')}>
+                          {pr.title}
+                        </span>
+                        {session && <StatusBadge status={session.status} />}
+                      </div>
+                      {activeTab === 'sessions' && session && (
+                        <div className="text-muted-foreground truncate">
+                          {session.title}
+                          {session.worktree_branch && (
+                            <span className="ml-2 font-mono text-blue-400">⎇ {session.worktree_branch}</span>
+                          )}
+                        </div>
                       )}
-                    </div>
-                  )}
-                </button>
-              )
-            })}
-          </div>
+                    </td>
+                    <td className="py-1.5 px-2 whitespace-nowrap">
+                      <ChecksBadge pr={pr} />
+                    </td>
+                    <td className="py-1.5 px-2 whitespace-nowrap">
+                      <ReviewDecisionBadge decision={pr.review_decision} />
+                    </td>
+                    <td className="py-1.5 px-2 whitespace-nowrap">
+                      <PRStateBadge state={pr.state} isDraft={pr.is_draft} />
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
         )}
       </div>
 

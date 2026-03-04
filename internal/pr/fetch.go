@@ -35,15 +35,47 @@ func DetectGHUser(ghPath string) string {
 }
 
 // FetchMyPRs fetches open PRs authored by the current gh user.
-// ghHost is optional; when non-empty and non-github.com it sets GH_HOST for GHE instances.
-func FetchMyPRs(ghPath, ghHost string) ([]*PR, error) {
-	return fetchSearchPRs(ghPath, ghHost, "--author", "@me")
+// extraHost is an optional additional GHE host to also search.
+// Results from github.com and extraHost are merged (deduplicated by URL).
+func FetchMyPRs(ghPath, extraHost string) ([]*PR, error) {
+	return fetchSearchBothHosts(ghPath, extraHost, "--author", "@me")
 }
 
 // FetchReviewRequestedPRs fetches open PRs where review has been requested from the current user.
-// ghHost is optional; when non-empty and non-github.com it sets GH_HOST for GHE instances.
-func FetchReviewRequestedPRs(ghPath, ghHost string) ([]*PR, error) {
-	return fetchSearchPRs(ghPath, ghHost, "--review-requested", "@me")
+// extraHost is an optional additional GHE host to also search.
+// Results from github.com and extraHost are merged (deduplicated by URL).
+func FetchReviewRequestedPRs(ghPath, extraHost string) ([]*PR, error) {
+	return fetchSearchBothHosts(ghPath, extraHost, "--review-requested", "@me")
+}
+
+// fetchSearchBothHosts runs fetchSearchPRs against github.com and, if extraHost
+// is set, against the GHE host too. Results are merged and deduplicated by URL.
+func fetchSearchBothHosts(ghPath, extraHost, filterFlag, filterValue string) ([]*PR, error) {
+	seen := make(map[string]*PR)
+
+	// Always search github.com (no GH_HOST override)
+	if prs, err := fetchSearchPRs(ghPath, "", filterFlag, filterValue); err == nil {
+		for _, p := range prs {
+			seen[p.URL] = p
+		}
+	}
+
+	// Also search GHE host if known
+	if extraHost != "" && extraHost != "github.com" {
+		if prs, err := fetchSearchPRs(ghPath, extraHost, filterFlag, filterValue); err == nil {
+			for _, p := range prs {
+				if _, exists := seen[p.URL]; !exists {
+					seen[p.URL] = p
+				}
+			}
+		}
+	}
+
+	out := make([]*PR, 0, len(seen))
+	for _, p := range seen {
+		out = append(out, p)
+	}
+	return out, nil
 }
 
 // fetchSearchPRs runs `gh search prs` with the given filter flag and parses the results.
