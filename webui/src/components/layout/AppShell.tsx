@@ -5,8 +5,7 @@ import { CreateSessionDialog } from '../dialogs/CreateSessionDialog'
 import { AddProjectDialog } from '../projects/AddProjectDialog'
 import { useUIStore } from '@/stores/uiStore'
 import { useSessions } from '@/hooks/useSessions'
-import { useQuery } from '@tanstack/react-query'
-import { api } from '@/api/client'
+import { usePRDashboard } from '@/hooks/usePRDashboard'
 import { cn } from '@/lib/utils'
 
 // Lazy-load heavy components so xterm.js isn't in the initial bundle
@@ -36,12 +35,7 @@ export function AppShell() {
   // new session dialog can pre-populate the project field
   const selectedSession = sessions.find((s) => s.id === selectedSessionId)
   const defaultGroup = selectedSession?.group_path || undefined
-  const { data: prDashboard } = useQuery({
-    queryKey: ['prs'],
-    queryFn: api.getPRDashboard,
-    staleTime: 30_000,
-    refetchInterval: 60_000,
-  })
+  const { data: prDashboard } = usePRDashboard()
   const prCount = prDashboard?.all?.length ?? sessions.filter((s) => s.pr && (s.pr.state === 'OPEN' || s.pr.state === 'DRAFT')).length
 
   const startResize = useCallback((e: React.MouseEvent) => {

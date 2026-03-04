@@ -1,8 +1,7 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { useQuery } from '@tanstack/react-query'
 import { useSessions } from '@/hooks/useSessions'
-import { api } from '@/api/client'
+import { usePRDashboard } from '@/hooks/usePRDashboard'
 import type { PRFullInfo } from '@/api/types'
 import { StatusBadge } from './StatusBadge'
 import { PRDetail } from '@/components/prs/PRDetail'
@@ -95,12 +94,7 @@ export function PROverview() {
   const [selectedPR, setSelectedPR] = useState<PRFullInfo | null>(null)
   const [hideDrafts, setHideDrafts] = useState(false)
 
-  const { data: dashboard, isLoading } = useQuery({
-    queryKey: ['prs'],
-    queryFn: api.getPRDashboard,
-    staleTime: 30_000,
-    refetchInterval: 60_000,
-  })
+  const { data: dashboard, isLoading } = usePRDashboard()
 
   // Build the sessions tab PRs from session data + enrich with dashboard sessions map
   const sessionPRs: PRFullInfo[] = sessions
