@@ -190,8 +190,6 @@ func main() {
 		_ = os.Setenv("HANGAR_PROFILE", profile)
 	}
 
-	// (--web flag removed; daemon is auto-started below)
-
 	// Handle subcommands
 	if len(args) > 0 {
 		switch args[0] {
@@ -2066,7 +2064,7 @@ func printHelp() {
 	fmt.Println()
 	fmt.Println("Web UI Commands:")
 	fmt.Println("  web               Show web server status (same as 'web status')")
-	fmt.Println("  web start         Start standalone web server (foreground)")
+	fmt.Println("  web start         Start standalone web server (auto-started by TUI if not running)")
 	fmt.Println("  web stop          Stop standalone web server")
 	fmt.Println("  web status        Show web server status and URL")
 	fmt.Println()
