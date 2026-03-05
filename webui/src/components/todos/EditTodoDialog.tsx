@@ -27,7 +27,7 @@ export function EditTodoDialog({ open, onOpenChange, todo }: EditTodoDialogProps
       setDescription(todo.description ?? '')
       setPrompt(todo.prompt ?? '')
     }
-  }, [open, todo])
+  }, [open, todo.id, todo.title, todo.description, todo.prompt])
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
