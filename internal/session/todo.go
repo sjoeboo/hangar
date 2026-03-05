@@ -102,6 +102,24 @@ func (s *Storage) LoadTodos(projectPath string) ([]*Todo, error) {
 	return todos, nil
 }
 
+// LoadAllTodos returns all todos across all projects.
+func (s *Storage) LoadAllTodos() ([]*Todo, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.db == nil {
+		return nil, fmt.Errorf("storage database not initialized")
+	}
+	rows, err := s.db.LoadAllTodos()
+	if err != nil {
+		return nil, err
+	}
+	todos := make([]*Todo, len(rows))
+	for i, r := range rows {
+		todos[i] = todoFromRow(r)
+	}
+	return todos, nil
+}
+
 // SaveTodo inserts or updates a todo. Updates todo.UpdatedAt to the current time before saving.
 func (s *Storage) SaveTodo(todo *Todo) error {
 	s.mu.Lock()

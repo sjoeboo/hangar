@@ -729,11 +729,7 @@ func (d *TodoDialog) viewKanban() string {
 		Padding(0, 1).
 		Width(d.width - 4)
 
-	projectName := d.projectPath
-	if idx := strings.LastIndex(projectName, "/"); idx >= 0 {
-		projectName = projectName[idx+1:]
-	}
-	header := lipgloss.NewStyle().Bold(true).Render(projectName)
+	header := lipgloss.NewStyle().Bold(true).Render("All Todos")
 
 	hint := lipgloss.NewStyle().Foreground(lipgloss.Color("#5a6a7a")).Render(
 		"←/→ col  ↑/↓ card  n new  enter open  s status  e edit  d delete  shift+←/→ move  esc close",
@@ -850,24 +846,38 @@ func (d *TodoDialog) renderKanbanCard(t *session.Todo, isSelected, colFocused bo
 		selector = "▌"
 	}
 
+	// Project badge: last segment of ProjectPath shown dim below title
+	projName := t.ProjectPath
+	if idx := strings.LastIndex(projName, "/"); idx >= 0 {
+		projName = projName[idx+1:]
+	}
+	projBadge := lipgloss.NewStyle().Foreground(lipgloss.Color("#3a4a5a")).Width(width).Render("  " + projName)
+
+	var titleLine string
 	switch {
 	case isSelected:
 		styledIcon := todoStatusStyle(t.Status).Render(icon)
 		line := fmt.Sprintf("%s%s %s%s", selector, styledIcon, title, sessionMark)
-		return lipgloss.NewStyle().
+		titleLine = lipgloss.NewStyle().
 			Background(lipgloss.Color("#2a3a4a")).
 			Foreground(lipgloss.Color("#ffffff")).
 			Width(width).
 			Render(line)
+		projBadge = lipgloss.NewStyle().
+			Background(lipgloss.Color("#2a3a4a")).
+			Foreground(lipgloss.Color("#3a5a7a")).
+			Width(width).
+			Render("  " + projName)
 	case !colFocused:
 		line := fmt.Sprintf("%s%s %s%s", selector, icon, title, sessionMark)
-		return lipgloss.NewStyle().
+		titleLine = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#4a5a6a")).
 			Width(width).
 			Render(line)
 	default:
 		styledIcon := todoStatusStyle(t.Status).Render(icon)
 		line := fmt.Sprintf("%s%s %s%s", selector, styledIcon, title, sessionMark)
-		return lipgloss.NewStyle().Width(width).Render(line)
+		titleLine = lipgloss.NewStyle().Width(width).Render(line)
 	}
+	return titleLine + "\n" + projBadge
 }
