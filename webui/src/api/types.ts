@@ -99,6 +99,7 @@ export interface Todo {
   project_path: string
   title: string
   description?: string
+  prompt?: string
   status: 'todo' | 'in_progress' | 'done'
   session_id?: string
   order: number
