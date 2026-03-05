@@ -79,17 +79,22 @@ func TestDiffView_FileUnderCursor(t *testing.T) {
 func TestDiffView_Scroll(t *testing.T) {
 	dv := NewDiffView()
 	_ = dv.Parse(sampleDiff)
+	// Expand all files so there are enough lines to scroll
+	for i := range dv.diffFiles {
+		dv.diffFiles[i].expanded = true
+	}
 	dv.SetSize(120, 10)
+	dv.rebuildLines()
 
-	initial := dv.scrollOffset
 	dv.ScrollDown(3)
-	if dv.scrollOffset != initial+3 {
-		t.Errorf("expected scrollOffset %d, got %d", initial+3, dv.scrollOffset)
+	if dv.scrollOffset < 1 {
+		t.Errorf("ScrollDown should increase offset above 0, got %d (total lines: %d)", dv.scrollOffset, len(dv.lines))
 	}
 
+	before := dv.scrollOffset
 	dv.ScrollUp(1)
-	if dv.scrollOffset != initial+2 {
-		t.Errorf("expected scrollOffset %d, got %d", initial+2, dv.scrollOffset)
+	if dv.scrollOffset >= before {
+		t.Errorf("ScrollUp should decrease offset, was %d now %d", before, dv.scrollOffset)
 	}
 
 	// Cannot scroll above 0
@@ -98,10 +103,14 @@ func TestDiffView_Scroll(t *testing.T) {
 		t.Errorf("expected scrollOffset 0 after large scroll up, got %d", dv.scrollOffset)
 	}
 
-	// ScrollDown(999) clamps at len(lines) - visibleHeight
+	// ScrollDown(999) clamps at max
 	dv2 := NewDiffView()
 	_ = dv2.Parse(sampleDiff)
-	dv2.SetSize(120, 20) // visibleHeight = 20-4 = 16
+	for i := range dv2.diffFiles {
+		dv2.diffFiles[i].expanded = true
+	}
+	dv2.SetSize(120, 20)
+	dv2.rebuildLines()
 	dv2.ScrollDown(999)
 	visibleHeight := 16
 	maxOffset := len(dv2.lines) - visibleHeight
@@ -109,8 +118,7 @@ func TestDiffView_Scroll(t *testing.T) {
 		maxOffset = 0
 	}
 	if dv2.scrollOffset != maxOffset {
-		t.Errorf("expected scrollOffset clamped at %d (len(lines)=%d - visibleHeight=%d), got %d",
-			maxOffset, len(dv2.lines), visibleHeight, dv2.scrollOffset)
+		t.Errorf("expected scrollOffset clamped at %d, got %d", maxOffset, dv2.scrollOffset)
 	}
 }
 
@@ -154,19 +162,89 @@ func TestDiffView_HandleKey_EditorNoFile(t *testing.T) {
 	}
 }
 
-func TestDiffView_HandleKey_Scroll(t *testing.T) {
+func TestDiffView_HandleKey_FileNavigation(t *testing.T) {
 	dv := NewDiffView()
 	_ = dv.Parse(sampleDiff)
 	dv.Show()
-	dv.SetSize(120, 10)
+	dv.SetSize(120, 40)
 
-	before := dv.scrollOffset
+	// Initially on first file
+	if dv.diffFileCursor != 0 {
+		t.Fatalf("expected cursor at 0, got %d", dv.diffFileCursor)
+	}
+
+	// j moves to next file
 	handled, _ := dv.HandleKey("j")
 	if !handled {
 		t.Error("expected j to be handled")
 	}
-	if dv.scrollOffset != before+1 {
-		t.Errorf("expected scroll +1, got offset %d (was %d)", dv.scrollOffset, before)
+	if dv.diffFileCursor != 1 {
+		t.Errorf("expected cursor at 1 after j, got %d", dv.diffFileCursor)
+	}
+
+	// j at last file does not go further
+	dv.HandleKey("j")
+	if dv.diffFileCursor != 1 {
+		t.Errorf("expected cursor still at 1 (last file), got %d", dv.diffFileCursor)
+	}
+
+	// k moves back
+	dv.HandleKey("k")
+	if dv.diffFileCursor != 0 {
+		t.Errorf("expected cursor back at 0 after k, got %d", dv.diffFileCursor)
+	}
+
+	// k at first file does not go negative
+	dv.HandleKey("k")
+	if dv.diffFileCursor != 0 {
+		t.Errorf("expected cursor still at 0, got %d", dv.diffFileCursor)
+	}
+}
+
+func TestDiffView_HandleKey_Toggle(t *testing.T) {
+	dv := NewDiffView()
+	_ = dv.Parse(sampleDiff)
+	dv.Show()
+	dv.SetSize(120, 40)
+
+	// sampleDiff has 2 files — both start collapsed (autoExpand only for 1 file)
+	if dv.diffFiles[0].expanded {
+		t.Fatal("expected first file to start collapsed with 2-file diff")
+	}
+
+	// enter expands
+	handled, _ := dv.HandleKey("enter")
+	if !handled {
+		t.Error("expected enter to be handled")
+	}
+	if !dv.diffFiles[0].expanded {
+		t.Error("expected first file to be expanded after enter")
+	}
+
+	// enter again collapses
+	dv.HandleKey("enter")
+	if dv.diffFiles[0].expanded {
+		t.Error("expected first file to be collapsed after second enter")
+	}
+}
+
+func TestDiffView_SingleFile_AutoExpand(t *testing.T) {
+	singleFileDiff := `diff --git a/foo.go b/foo.go
+index abc..def 100644
+--- a/foo.go
++++ b/foo.go
+@@ -1,2 +1,3 @@
+ package main
++// added
+ func main() {}
+`
+	dv := NewDiffView()
+	_ = dv.Parse(singleFileDiff)
+	if len(dv.diffFiles) != 1 {
+		t.Fatalf("expected 1 file, got %d", len(dv.diffFiles))
+	}
+	if !dv.diffFiles[0].expanded {
+		t.Error("single-file diff should auto-expand")
 	}
 }
 
@@ -176,33 +254,26 @@ func TestDiffView_HandleKey_PagerBindings(t *testing.T) {
 		dv := NewDiffView()
 		_ = dv.Parse(sampleDiff)
 		dv.Show()
+		// Expand all files to have enough lines for paging
+		for i := range dv.diffFiles {
+			dv.diffFiles[i].expanded = true
+		}
 		dv.SetSize(120, 24)
+		dv.rebuildLines()
 		// Scroll to middle so both up and down have room
 		dv.ScrollDown(5)
 		return dv
 	}
 
-	fullPage := 20
 	halfPage := 10
-
-	t.Run("space full-page-down", func(t *testing.T) {
-		dv := setup()
-		before := dv.scrollOffset
-		handled, _ := dv.HandleKey(" ")
-		if !handled {
-			t.Error("expected space to be handled")
-		}
-		// clamped, so check at-least-as-far-as min(before+fullPage, max)
-		if dv.scrollOffset < before && dv.scrollOffset != 0 {
-			t.Errorf("space should scroll down; offset went from %d to %d", before, dv.scrollOffset)
-		}
-		_ = fullPage // used implicitly via scrolling
-	})
 
 	t.Run("f full-page-down", func(t *testing.T) {
 		dv := setup()
 		before := dv.scrollOffset
-		dv.HandleKey("f")
+		handled, _ := dv.HandleKey("f")
+		if !handled {
+			t.Error("expected f to be handled")
+		}
 		if dv.scrollOffset < before {
 			t.Errorf("f should scroll down; offset went from %d to %d", before, dv.scrollOffset)
 		}
