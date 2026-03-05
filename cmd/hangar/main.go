@@ -7,6 +7,7 @@ import (
 	"flag"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -189,8 +190,7 @@ func main() {
 		_ = os.Setenv("HANGAR_PROFILE", profile)
 	}
 
-	// Extract global -web/--web flag — starts the web server alongside the TUI.
-	webFlag, args := extractBoolFlag(args, "-web", "--web")
+	// (--web flag removed; daemon is auto-started below)
 
 	// Handle subcommands
 	if len(args) > 0 {
@@ -406,10 +406,19 @@ func main() {
 		}()
 	}
 
-	// If -web flag was given, start the web server in-process before the TUI.
-	if webFlag {
-		cancelWeb := runWebInProcess(profile, false)
-		defer cancelWeb()
+	// Ensure a daemon is running. If one is already up (e.g. "hangar web start"),
+	// connect to it. Otherwise fork one as a child and kill it when TUI exits.
+	{
+		port := resolvePort()
+		if !probeDaemon(port) {
+			if child, ok := startDaemonChild(port); ok {
+				defer func() {
+					if err := child.Signal(syscall.SIGTERM); err != nil {
+						_ = child.Kill()
+					}
+				}()
+			}
+		}
 	}
 
 	// Start TUI with the specified profile
@@ -467,23 +476,51 @@ func extractProfileFlag(args []string) (string, []string) {
 	return profile, remaining
 }
 
-// extractBoolFlag removes any of the given flag names from args and returns
-// whether the flag was present plus the remaining args.
-func extractBoolFlag(args []string, names ...string) (bool, []string) {
-	var found bool
-	var remaining []string
-	nameSet := make(map[string]bool, len(names))
-	for _, n := range names {
-		nameSet[n] = true
+// probeDaemon checks if a hangar daemon is already listening on the given port.
+func probeDaemon(port int) bool {
+	if port <= 0 {
+		return false
 	}
-	for _, arg := range args {
-		if nameSet[arg] {
-			found = true
-		} else {
-			remaining = append(remaining, arg)
+	client := &http.Client{Timeout: 200 * time.Millisecond}
+	url := fmt.Sprintf("http://127.0.0.1:%d/api/v1/status", port)
+	resp, err := client.Get(url)
+	if err != nil {
+		return false
+	}
+	resp.Body.Close()
+	return resp.StatusCode == http.StatusOK
+}
+
+// startDaemonChild forks "hangar web start --no-open" and waits up to 3s for it to be ready.
+func startDaemonChild(port int) (*os.Process, bool) {
+	self, err := os.Executable()
+	if err != nil {
+		return nil, false
+	}
+	cmd := exec.Command(self, "web", "start", "--no-open")
+	cmd.Stdout = nil
+	cmd.Stderr = nil
+	if err := cmd.Start(); err != nil {
+		return nil, false
+	}
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		if probeDaemon(port) {
+			return cmd.Process, true
 		}
+		time.Sleep(100 * time.Millisecond)
 	}
-	return found, remaining
+	_ = cmd.Process.Kill()
+	return nil, false
+}
+
+// resolvePort returns the configured API port from user config.
+func resolvePort() int {
+	cfg, err := session.LoadUserConfig()
+	if err != nil || cfg == nil {
+		return 47437
+	}
+	return cfg.API.GetPort(&cfg.Claude)
 }
 
 // reorderArgsForFlagParsing moves the path argument to the end of args
@@ -1977,11 +2014,10 @@ func printHelp() {
 	fmt.Printf("Hangar v%s\n", Version)
 	fmt.Println("Terminal session manager for AI coding agents")
 	fmt.Println()
-	fmt.Println("Usage: hangar [-p profile] [--web] [command]")
+	fmt.Println("Usage: hangar [-p profile] [command]")
 	fmt.Println()
 	fmt.Println("Global Options:")
 	fmt.Println("  -p, --profile <name>   Use specific profile (default: 'default')")
-	fmt.Println("  --web                  Start the web UI server alongside the TUI")
 	fmt.Println()
 	fmt.Println("Commands:")
 	fmt.Println("  (none)           Start the TUI")
