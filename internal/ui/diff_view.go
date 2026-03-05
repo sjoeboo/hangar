@@ -41,8 +41,12 @@ type DiffView struct {
 	files   []*diff.FileDiff
 	rawDiff string
 
-	// lines is the flat list of rendered lines, rebuilt on Parse/SetSize.
 	lines []renderedLine
+
+	// Collapsible file list state
+	diffFiles          []diffFileEntry
+	diffFileCursor     int
+	diffHeaderLineIdxs []int
 }
 
 // renderedLine holds one display line and the source file metadata it belongs to.
@@ -82,6 +86,8 @@ func (dv *DiffView) Parse(raw string) error {
 	dv.rawDiff = raw
 	dv.files = nil
 	dv.lines = nil
+	dv.diffFiles = nil
+	dv.diffFileCursor = 0
 
 	if strings.TrimSpace(raw) == "" {
 		return nil
@@ -92,6 +98,45 @@ func (dv *DiffView) Parse(raw string) error {
 		return fmt.Errorf("failed to parse diff: %w", err)
 	}
 	dv.files = files
+
+	autoExpand := len(files) == 1
+	dv.diffFiles = make([]diffFileEntry, 0, len(files))
+	for _, f := range files {
+		path := strings.TrimPrefix(f.NewName, "b/")
+		if path == "" || path == "/dev/null" {
+			path = strings.TrimPrefix(f.OrigName, "a/")
+		}
+
+		status := "modified"
+		origPath := strings.TrimPrefix(f.OrigName, "a/")
+		if origPath == "/dev/null" {
+			status = "added"
+		} else if strings.TrimPrefix(f.NewName, "b/") == "/dev/null" {
+			status = "deleted"
+			path = origPath
+		}
+
+		var additions, deletions int
+		for _, h := range f.Hunks {
+			for _, l := range strings.Split(string(h.Body), "\n") {
+				switch {
+				case strings.HasPrefix(l, "+"):
+					additions++
+				case strings.HasPrefix(l, "-"):
+					deletions++
+				}
+			}
+		}
+
+		dv.diffFiles = append(dv.diffFiles, diffFileEntry{
+			path:      path,
+			status:    status,
+			additions: additions,
+			deletions: deletions,
+			expanded:  autoExpand,
+		})
+	}
+
 	dv.rebuildLines()
 	return nil
 }
@@ -126,21 +171,17 @@ func (dv *DiffView) Summary() string {
 }
 
 // FileUnderCursor returns the file path and first changed line number for the
-// file whose header is at or above the current scroll position.
+// file currently under the cursor.
 func (dv *DiffView) FileUnderCursor() (string, int) {
-	if len(dv.lines) == 0 {
+	if len(dv.diffFiles) == 0 || dv.diffFileCursor >= len(dv.diffFiles) {
 		return "", 0
 	}
-	idx := dv.scrollOffset
-	if idx >= len(dv.lines) {
-		idx = len(dv.lines) - 1
+	path := dv.diffFiles[dv.diffFileCursor].path
+	line := 0
+	if dv.diffFileCursor < len(dv.files) && len(dv.files[dv.diffFileCursor].Hunks) > 0 {
+		line = int(dv.files[dv.diffFileCursor].Hunks[0].NewStartLine)
 	}
-	for i := idx; i >= 0; i-- {
-		if dv.lines[i].filePath != "" {
-			return dv.lines[i].filePath, dv.lines[i].line
-		}
-	}
-	return "", 0
+	return path, line
 }
 
 func (dv *DiffView) View() string {
@@ -148,15 +189,10 @@ func (dv *DiffView) View() string {
 		return ""
 	}
 
-	headerStyle := lipgloss.NewStyle().Foreground(ColorAccent).Bold(true)
-	footerStyle := lipgloss.NewStyle().Foreground(ColorTextDim).Italic(true)
-	dimStyle := lipgloss.NewStyle().Foreground(ColorTextDim).Italic(true)
-	separatorStyle := lipgloss.NewStyle().Foreground(ColorBorder)
-
-	sep := separatorStyle.Render(strings.Repeat("─", max(dv.width-2, 0)))
+	sep := diffViewSeparatorStyle.Render(strings.Repeat("─", max(dv.width-2, 0)))
 
 	var b strings.Builder
-	b.WriteString(headerStyle.Render("  Diff: "+dv.Summary()) + "\n")
+	b.WriteString(diffViewHeaderStyle.Render("  Diff: "+dv.Summary()) + "\n")
 	b.WriteString(sep + "\n")
 
 	contentHeight := dv.height - 4
@@ -165,7 +201,7 @@ func (dv *DiffView) View() string {
 	}
 
 	if len(dv.lines) == 0 {
-		b.WriteString(dimStyle.Render("  nothing to diff") + "\n")
+		b.WriteString(prDetailDimStyle.Render("  nothing to diff") + "\n")
 	} else {
 		start := dv.scrollOffset
 		if start >= len(dv.lines) {
@@ -184,7 +220,8 @@ func (dv *DiffView) View() string {
 	}
 
 	b.WriteString(sep + "\n")
-	b.WriteString(footerStyle.Render("  j/k scroll · space/b page · ctrl+d/u half-page · g/G top/bottom · e editor · q close"))
+	hint := "  j/k navigate files · enter toggle · space/b page · d/u half-page · g/G top/bottom · e editor · q close"
+	b.WriteString(diffViewFooterStyle.Render(hint))
 
 	return lipgloss.NewStyle().
 		Width(dv.width).
@@ -252,30 +289,45 @@ func (dv *DiffView) HandleKey(key string) (bool, tea.Cmd) {
 		halfPage = 1
 	}
 
+	// File navigation (when files are present)
+	if len(dv.diffFiles) > 0 {
+		switch key {
+		case "j", "down":
+			if dv.diffFileCursor < len(dv.diffFiles)-1 {
+				dv.diffFileCursor++
+				dv.rebuildLines()
+				dv.scrollToFileCursor()
+			}
+			return true, nil
+		case "k", "up":
+			if dv.diffFileCursor > 0 {
+				dv.diffFileCursor--
+				dv.rebuildLines()
+				dv.scrollToFileCursor()
+			}
+			return true, nil
+		case "enter", " ":
+			dv.diffFiles[dv.diffFileCursor].expanded = !dv.diffFiles[dv.diffFileCursor].expanded
+			dv.rebuildLines()
+			dv.scrollToFileCursor()
+			return true, nil
+		}
+	}
+
 	switch key {
 	case "q", "esc", "D":
 		dv.Hide()
 		return true, nil
-	case "j", "down":
-		dv.ScrollDown(1)
-		return true, nil
-	case "k", "up":
-		dv.ScrollUp(1)
-		return true, nil
-	case " ", "f", "ctrl+f", "pgdown":
-		// Full page down — less/more convention
+	case "f", "ctrl+f", "pgdown":
 		dv.ScrollDown(fullPage)
 		return true, nil
 	case "b", "ctrl+b", "pgup":
-		// Full page up — less/more convention
 		dv.ScrollUp(fullPage)
 		return true, nil
 	case "d", "ctrl+d":
-		// Half page down
 		dv.ScrollDown(halfPage)
 		return true, nil
 	case "u", "ctrl+u":
-		// Half page up
 		dv.ScrollUp(halfPage)
 		return true, nil
 	case "g":
@@ -316,38 +368,113 @@ func openInEditor(path string, line int) tea.Cmd {
 	})
 }
 
-// rebuildLines rebuilds the flat rendered-line cache from dv.files.
+// rebuildLines rebuilds the flat rendered-line cache from dv.diffFiles and dv.files.
 func (dv *DiffView) rebuildLines() {
 	dv.lines = nil
-	for _, f := range dv.files {
-		path := strings.TrimPrefix(f.NewName, "b/")
-		if path == "" || path == "/dev/null" {
-			path = strings.TrimPrefix(f.OrigName, "a/")
+	dv.diffHeaderLineIdxs = nil
+
+	if len(dv.diffFiles) == 0 {
+		return
+	}
+
+	statusStyle := func(status string) lipgloss.Style {
+		switch status {
+		case "added":
+			return prDetailGreenStyle
+		case "deleted":
+			return prDetailRedStyle
+		case "modified":
+			return prDetailYellowStyle
+		default:
+			return prDetailValueStyle
+		}
+	}
+
+	totalAdd, totalDel := 0, 0
+	for _, f := range dv.diffFiles {
+		totalAdd += f.additions
+		totalDel += f.deletions
+	}
+	noun := "file"
+	if len(dv.diffFiles) != 1 {
+		noun = "files"
+	}
+	dv.lines = append(dv.lines, renderedLine{
+		text: prDetailCommentStyle.Render(fmt.Sprintf("  %d %s changed  +%d -%d", len(dv.diffFiles), noun, totalAdd, totalDel)),
+	})
+	dv.lines = append(dv.lines, renderedLine{text: ""})
+
+	for i, entry := range dv.diffFiles {
+		headerIdx := len(dv.lines)
+		dv.diffHeaderLineIdxs = append(dv.diffHeaderLineIdxs, headerIdx)
+
+		indicator := "▶"
+		if entry.expanded {
+			indicator = "▼"
+		}
+		focused := i == dv.diffFileCursor
+
+		pathStyle := statusStyle(entry.status)
+		indStyle := prDetailCommentStyle
+		stStyle := prDetailCommentStyle
+		if focused {
+			pathStyle = pathStyle.Background(prDetailFocusBgColor)
+			indStyle = indStyle.Background(prDetailFocusBgColor)
+			stStyle = stStyle.Background(prDetailFocusBgColor)
 		}
 
-		firstLine := 0
-		if len(f.Hunks) > 0 {
-			firstLine = int(f.Hunks[0].NewStartLine)
+		maxPathW := dv.width - 20
+		if maxPathW < 10 {
+			maxPathW = 10
+		}
+		path := entry.path
+		if len([]rune(path)) > maxPathW {
+			path = "…" + string([]rune(path)[len([]rune(path))-maxPathW+1:])
 		}
 
-		dv.lines = append(dv.lines, renderedLine{
-			text:     renderFileHeader(path),
-			filePath: path,
-			line:     firstLine,
-		})
-
-		for _, h := range f.Hunks {
-			dv.lines = append(dv.lines, renderedLine{text: renderHunkHeader(h)})
-			for _, bodyLine := range strings.Split(string(h.Body), "\n") {
-				dv.lines = append(dv.lines, renderedLine{text: renderDiffLine(bodyLine)})
+		statsStr := fmt.Sprintf("+%d -%d", entry.additions, entry.deletions)
+		header := "  " + indStyle.Render(indicator) + " " + pathStyle.Render(path) +
+			"  " + stStyle.Render(statsStr)
+		if focused {
+			visible := lipgloss.Width(header)
+			if visible < dv.width-2 {
+				header += prDetailFocusPadStyle.Render(strings.Repeat(" ", dv.width-2-visible))
 			}
 		}
-		dv.lines = append(dv.lines, renderedLine{text: ""})
+
+		rl := renderedLine{text: header, filePath: entry.path}
+		if i < len(dv.files) && len(dv.files[i].Hunks) > 0 {
+			rl.line = int(dv.files[i].Hunks[0].NewStartLine)
+		}
+		dv.lines = append(dv.lines, rl)
+
+		if entry.expanded && i < len(dv.files) {
+			for _, h := range dv.files[i].Hunks {
+				dv.lines = append(dv.lines, renderedLine{text: renderHunkHeader(h)})
+				for _, bodyLine := range strings.Split(string(h.Body), "\n") {
+					dv.lines = append(dv.lines, renderedLine{text: "  " + renderDiffLine(bodyLine)})
+				}
+			}
+			dv.lines = append(dv.lines, renderedLine{text: ""})
+		}
 	}
 }
 
-func renderFileHeader(path string) string {
-	return lipgloss.NewStyle().Foreground(ColorAccent).Bold(true).Render("  " + path)
+// scrollToFileCursor adjusts scrollOffset so the cursor's file header is visible.
+func (dv *DiffView) scrollToFileCursor() {
+	if dv.diffFileCursor >= len(dv.diffHeaderLineIdxs) {
+		return
+	}
+	contentHeight := dv.height - 4
+	if contentHeight < 1 {
+		contentHeight = 1
+	}
+	headerLine := dv.diffHeaderLineIdxs[dv.diffFileCursor]
+	if headerLine < dv.scrollOffset {
+		dv.scrollOffset = headerLine
+	} else if headerLine >= dv.scrollOffset+contentHeight {
+		dv.scrollOffset = headerLine - contentHeight + 1
+	}
 }
 
 func renderHunkHeader(h *diff.Hunk) string {
