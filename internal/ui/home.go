@@ -5864,6 +5864,7 @@ func (h *Home) renderNavTabs() string {
 // renderFilterBar renders labeled status filter pills.
 // Format: [All] [● Running !] [◐ Waiting @] [○ Idle #] [✕ Errors $]
 func (h *Home) renderFilterBar() string {
+	h.filterPillRegions = make([][3]int, 0, 5)
 	running, waiting, idle, errored := h.countSessionStatuses()
 
 	type pillDef struct {
@@ -5935,7 +5936,7 @@ func (h *Home) renderFilterBar() string {
 		}
 
 		w := lipgloss.Width(rendered)
-		h.filterPillRegions[i] = [3]int{col, col + w, i}
+		h.filterPillRegions = append(h.filterPillRegions, [3]int{col, col + w, i})
 		col += w + 1 // +1 for space separator
 		pills = append(pills, rendered)
 	}
