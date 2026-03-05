@@ -1,4 +1,4 @@
-import type { Session, SessionOutputResponse, Project, Todo, CreateSessionRequest, CreateTodoRequest } from './types'
+import type { Session, SessionOutputResponse, Project, Todo, CreateSessionRequest, CreateTodoRequest, PRDashboard, PRDetail } from './types'
 
 const getBaseURL = (): string => {
   // In dev, Vite proxy handles /api → localhost:47437
@@ -71,4 +71,23 @@ export const api = {
     }),
   deleteTodo: (id: string) =>
     apiFetch<void>(`/api/v1/todos/${id}`, { method: 'DELETE' }),
+  getPRDashboard: () =>
+    apiFetch<PRDashboard>('/api/v1/prs'),
+  getPRDetail: (repo: string, number: number) =>
+    apiFetch<PRDetail>(`/api/v1/prs/detail?repo=${encodeURIComponent(repo)}&number=${number}`),
+  submitPRReview: (repo: string, number: number, action: string, body?: string) =>
+    apiFetch<void>(`/api/v1/prs/review?repo=${encodeURIComponent(repo)}&number=${number}`, {
+      method: 'POST',
+      body: JSON.stringify({ action, body }),
+    }),
+  addPRComment: (repo: string, number: number, commentBody: string, path?: string, line?: number) =>
+    apiFetch<void>(`/api/v1/prs/comment?repo=${encodeURIComponent(repo)}&number=${number}`, {
+      method: 'POST',
+      body: JSON.stringify({ body: commentBody, path, line }),
+    }),
+  changePRState: (repo: string, number: number, action: string) =>
+    apiFetch<void>(`/api/v1/prs/state?repo=${encodeURIComponent(repo)}&number=${number}`, {
+      method: 'POST',
+      body: JSON.stringify({ action }),
+    }),
 }

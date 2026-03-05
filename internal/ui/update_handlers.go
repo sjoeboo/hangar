@@ -9,6 +9,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/sjoeboo/hangar/internal/git"
+	prpkg "github.com/sjoeboo/hangar/internal/pr"
 	"github.com/sjoeboo/hangar/internal/session"
 	"github.com/sjoeboo/hangar/internal/tmux"
 )
@@ -837,6 +838,40 @@ func (h *Home) handlePreviewDebounce(msg previewDebounceMsg) tea.Cmd {
 func (h *Home) handlePRFetched(msg prFetchedMsg) tea.Cmd {
 	// Update PR cache (nil pr means no PR found — still record so we don't re-fetch immediately)
 	h.cache.SetPR(msg.sessionID, msg.pr)
+
+	// Also bridge into the unified PR manager for the PR overview dashboard.
+	if h.prManager != nil {
+		var p *prpkg.PR
+		if msg.pr != nil {
+			inst := h.instanceByID[msg.sessionID]
+			var worktreePath, worktreeBranch string
+			if inst != nil {
+				worktreePath = inst.WorktreePath
+				worktreeBranch = inst.WorktreeBranch
+			}
+			p = &prpkg.PR{
+				Number:        msg.pr.Number,
+				Title:         msg.pr.Title,
+				State:         msg.pr.State,
+				URL:           msg.pr.URL,
+				Repo:          prpkg.RepoFromDir(worktreePath),
+				HeadBranch:    worktreeBranch,
+				ChecksPassed:  msg.pr.ChecksPassed,
+				ChecksFailed:  msg.pr.ChecksFailed,
+				ChecksPending: msg.pr.ChecksPending,
+				HasChecks:     msg.pr.HasChecks,
+				Source:        prpkg.SourceSession,
+				SessionID:     msg.sessionID,
+				UpdatedAt:     time.Now(),
+			}
+		}
+		h.prManager.SetSessionPR(msg.sessionID, p)
+		// Trigger a global refresh so Mine/ReviewReq tabs pick up the GHE host
+		// now that at least one session PR is known.
+		if p != nil {
+			h.prManager.TriggerRefresh()
+		}
+	}
 
 	// If WorktreeFinishDialog is open for this session, push updated PR data
 	if h.worktreeFinishDialog.IsVisible() && h.worktreeFinishDialog.GetSessionID() == msg.sessionID {

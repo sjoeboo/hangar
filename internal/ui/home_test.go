@@ -1575,7 +1575,7 @@ func TestPRView_RenderEmpty(t *testing.T) {
 
 	view := home.View()
 
-	if !strings.Contains(view, "No sessions") {
+	if !strings.Contains(view, "No PRs") {
 		t.Error("Empty PR view should show empty state message")
 	}
 }

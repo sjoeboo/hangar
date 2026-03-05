@@ -1,63 +1,17 @@
 package apiserver
 
 import (
-	"context"
 	"encoding/json"
-	"log/slog"
 	"os"
 	"os/exec"
 	"strings"
-	"sync"
-	"time"
 
+	"github.com/sjoeboo/hangar/internal/pr"
 )
-
-const (
-	prCacheTTL      = 60 * time.Second
-	prRefreshPeriod = 60 * time.Second
-)
-
-// internalPREntry holds a cached PR result with its fetch timestamp.
-// info == nil means "no PR found" and is also cached to avoid repeated gh calls.
-type internalPREntry struct {
-	info      *PRInfo
-	fetchedAt time.Time
-}
-
-// internalPRCache is a simple TTL cache for PR info, keyed by session ID.
-// Used when the TUI callback is unavailable (standalone web server mode) or
-// as a fallback when the TUI cache hasn't fetched a given session yet.
-type internalPRCache struct {
-	mu      sync.RWMutex
-	entries map[string]internalPREntry
-}
-
-func newInternalPRCache() *internalPRCache {
-	return &internalPRCache{entries: make(map[string]internalPREntry)}
-}
-
-// get returns cached PR info if present and not expired.
-// Returns (nil, true) if a nil result is cached (no PR found).
-// Returns (nil, false) if the entry is missing or expired.
-func (c *internalPRCache) get(sessionID string) (*PRInfo, bool) {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-	e, ok := c.entries[sessionID]
-	if !ok || time.Since(e.fetchedAt) > prCacheTTL {
-		return nil, false
-	}
-	return e.info, true
-}
-
-// set stores PR info (may be nil, meaning no PR found).
-func (c *internalPRCache) set(sessionID string, info *PRInfo) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.entries[sessionID] = internalPREntry{info: info, fetchedAt: time.Now()}
-}
 
 // fetchPR runs `gh pr view` in the worktree directory and returns PR info.
 // Returns nil if no PR exists or gh is unavailable.
+// This is the legacy fallback used when prManager is nil (standalone mode).
 func fetchPR(worktreePath string) *PRInfo {
 	ghPath, err := exec.LookPath("gh")
 	if err != nil {
@@ -89,27 +43,27 @@ func fetchPR(worktreePath string) *PRInfo {
 		return nil
 	}
 
-	pr := &PRInfo{
+	info := &PRInfo{
 		Number: raw.Number,
 		Title:  raw.Title,
 		State:  raw.State,
 		URL:    raw.URL,
 	}
 	for _, check := range raw.StatusCheckRollup {
-		pr.HasChecks = true
+		info.HasChecks = true
 		switch check.Status {
 		case "COMPLETED":
 			switch check.Conclusion {
 			case "SUCCESS", "SKIPPED", "NEUTRAL":
-				pr.ChecksPassed++
+				info.ChecksPassed++
 			default:
-				pr.ChecksFailed++
+				info.ChecksFailed++
 			}
 		default:
-			pr.ChecksPending++
+			info.ChecksPending++
 		}
 	}
-	return pr
+	return info
 }
 
 // ghHostFromPath infers GH_HOST from the git remote URL in the given directory.
@@ -136,62 +90,38 @@ func ghHostFromPath(dir string) string {
 	return ""
 }
 
-// runPRRefreshLoop performs an initial PR fetch then loops every prRefreshPeriod,
-// refreshing PR info for all worktree sessions. Broadcasts sessions_changed after
-// each refresh so web clients receive updated PR data.
-func (s *APIServer) runPRRefreshLoop(ctx context.Context) {
-	// Initial fetch after a brief delay so instances are loaded.
-	select {
-	case <-ctx.Done():
-		return
-	case <-time.After(3 * time.Second):
+// prInfoFromPR converts a *pr.PR to a *PRInfo for use in session responses.
+func prInfoFromPR(p *pr.PR) *PRInfo {
+	if p == nil {
+		return nil
 	}
-	s.refreshAllPRs()
-
-	ticker := time.NewTicker(prRefreshPeriod)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			s.refreshAllPRs()
-		}
-	}
-}
-
-// refreshAllPRs updates the internal PR cache for every worktree session
-// and broadcasts sessions_changed so web clients pick up fresh PR data.
-func (s *APIServer) refreshAllPRs() {
-	instances := s.instances()
-	refreshed := 0
-	for _, inst := range instances {
-		if inst.WorktreePath == "" {
-			continue
-		}
-		pr := fetchPR(inst.WorktreePath)
-		s.internalPR.set(inst.ID, pr)
-		refreshed++
-		slog.Debug("pr_refreshed", "session_id", inst.ID, "has_pr", pr != nil)
-	}
-	if refreshed > 0 {
-		s.hub.broadcast <- WsMessage{Type: "sessions_changed"}
+	return &PRInfo{
+		Number:        p.Number,
+		Title:         p.Title,
+		State:         p.State,
+		URL:           p.URL,
+		ChecksPassed:  p.ChecksPassed,
+		ChecksFailed:  p.ChecksFailed,
+		ChecksPending: p.ChecksPending,
+		HasChecks:     p.HasChecks,
 	}
 }
 
 // getPRInfoFor returns PR info for a session.
-// It tries the TUI callback first (authoritative fast path when TUI is running),
-// then falls back to the internal cache (standalone mode or sessions not visible in TUI).
+// It tries the pr.Manager first (authoritative when available), then falls back
+// to the TUI callback, then to a direct gh fetch.
 func (s *APIServer) getPRInfoFor(sessionID string) *PRInfo {
-	if s.getPRInfo != nil {
-		if pr := s.getPRInfo(sessionID); pr != nil {
-			return pr
+	// Try pr.Manager first
+	if s.prManager != nil {
+		if p, exists := s.prManager.GetSessionPR(sessionID); exists && p != nil {
+			return prInfoFromPR(p)
 		}
 	}
-	pr, ok := s.internalPR.get(sessionID)
-	if ok {
-		return pr
+	// TUI callback (legacy)
+	if s.getPRInfo != nil {
+		if info := s.getPRInfo(sessionID); info != nil {
+			return info
+		}
 	}
 	return nil
 }
-

@@ -1,28 +1,37 @@
-# Current Tasks
+# Current Tasks — PR Management
 
-## In Progress
+## Open
 
-- [ ] Vagrant Mode ("Just Do It") feature -- design complete, awaiting implementation
+### TUI + WebUI
+- [ ] **Author column**: Add `author` column to both TUI and WebUI PR tables
+  - TUI (`home.go`): insert after Age in `renderPRRow`
+  - WebUI (`PROverview.tsx`): add `<th>Author</th>` + `<td>{pr.author}</td>` after Age col
+
+### WebUI Bugs
+- [ ] **Approve submit does nothing**: POST `/api/v1/prs/review` fails silently
+  - Check route registration in `server.go` ~line 108
+  - Check `reviewMutation` error handling in `PRDetail.tsx` — add visible error
+  - Check `isOwn` guard (Approve only shows when `!isOwn && isOpen`)
+- [ ] **No approval column**: `review_decision` not showing for some PRs
+  - Session PRs from `FetchSessionPR` include `reviewDecision` ✓
+  - Global PRs from `enrichChecksForPRs` include it ✓
+  - Check if enrichment is actually running in standalone mode (it runs inside `refreshMyPRs`/`refreshReviewPRs`)
+- [ ] **Large PR diff crashes UI**: `PRDiff.tsx` renders all files/diff without virtualization
+  - Truncate or lazy-expand file diffs; cap diff content size
 
 ## Completed This Session
+- [x] PR overview — age, draft toggle/dimming, GHE host strip (WebUI)
+- [x] Wire pr.Manager into standalone web server (was passing nil → 503)
+- [x] Fix sidebar PR badge count (was counting sessions, now counts all PRs)
+- [x] Fix JSON tags on PRDetail/Comment/Review/FileChange (Diff/Conversation tabs were empty)
+- [x] Dual-host PR search — Mine/ReviewReq now searches github.com AND GHE
+- [x] Column table layout in WebUI PR overview
+- [x] Extract usePRDashboard hook (fixed make build-all TS6133 error)
 
-- [x] Investigated why `agentic-ai-brainstorming` skill was unavailable in agent-deck (project-scoped vs global)
-- [x] Copied `agentic-ai-brainstorm`, `agentic-ai-implement`, `agentic-ai-plan` skills to `~/.claude/skills/` (global)
-- [x] Pushed skills to skeleton repo (`git@github.com:jonnocraig/skeleton.git`) on `feature/agentic-ai-skills` branch
-- [x] Multi-perspective brainstorm for Vagrant mode feature (Architect, Implementer, Devil's Advocate, Security Analyst)
-- [x] Wrote design document: `docs/plans/2026-02-14-vagrant-mode-design.md`
-- [x] Added MCP compatibility section (HTTP URL rewrite, STDIO provisioning, global/user config propagation)
-- [x] Added crash recovery & resilience section (VM health check, restart flow, agent-deck crash recovery)
-- [x] Updated error handling table with crash scenarios
-- [x] Copied `restart.md` and `catchup.md` commands from supabase project to `.claude/commands/`
-
-## Pending
-
-- [ ] Create implementation plan using `agentic-ai-plan` skill (enriches design doc with agent orchestration metadata)
-- [ ] Set up git worktree for implementation
-- [ ] Execute plan with agent team using `agentic-ai-implement`
-- [ ] Create PR for skeleton repo `feature/agentic-ai-skills` branch
-
-## Blocked
-
-- None
+## Previously Completed
+- [x] Phase 1: internal/pr/ package
+- [x] Phase 2: TUI PR dashboard (home.go)
+- [x] Phase 3: PRDetailOverlay (pr_detail.go)
+- [x] Phase 4: apiserver pr_handlers.go
+- [x] Phase 5: WebUI PR components
+- [x] Phase 6: RepoFromDir + 's' key review session

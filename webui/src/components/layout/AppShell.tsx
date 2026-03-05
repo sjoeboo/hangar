@@ -5,6 +5,7 @@ import { CreateSessionDialog } from '../dialogs/CreateSessionDialog'
 import { AddProjectDialog } from '../projects/AddProjectDialog'
 import { useUIStore } from '@/stores/uiStore'
 import { useSessions } from '@/hooks/useSessions'
+import { usePRDashboard } from '@/hooks/usePRDashboard'
 import { cn } from '@/lib/utils'
 
 // Lazy-load heavy components so xterm.js isn't in the initial bundle
@@ -34,7 +35,8 @@ export function AppShell() {
   // new session dialog can pre-populate the project field
   const selectedSession = sessions.find((s) => s.id === selectedSessionId)
   const defaultGroup = selectedSession?.group_path || undefined
-  const prCount = sessions.filter((s) => s.pr && (s.pr.state === 'OPEN' || s.pr.state === 'DRAFT')).length
+  const { data: prDashboard } = usePRDashboard()
+  const prCount = prDashboard?.all?.length ?? sessions.filter((s) => s.pr && (s.pr.state === 'OPEN' || s.pr.state === 'DRAFT')).length
 
   const startResize = useCallback((e: React.MouseEvent) => {
     e.preventDefault()

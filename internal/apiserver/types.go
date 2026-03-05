@@ -2,6 +2,55 @@ package apiserver
 
 import "time"
 
+// PRDashboardResponse is returned by GET /api/v1/prs.
+type PRDashboardResponse struct {
+	All             []*PRFullInfo          `json:"all"`
+	Mine            []*PRFullInfo          `json:"mine"`
+	ReviewRequested []*PRFullInfo          `json:"review_requested"`
+	Sessions        map[string]*PRFullInfo `json:"sessions"` // keyed by sessionID
+}
+
+// PRFullInfo is the rich PR representation (superset of PRInfo).
+type PRFullInfo struct {
+	Number         int       `json:"number"`
+	Title          string    `json:"title"`
+	State          string    `json:"state"`
+	IsDraft        bool      `json:"is_draft,omitempty"`
+	URL            string    `json:"url"`
+	Repo           string    `json:"repo,omitempty"`
+	HeadBranch     string    `json:"head_branch,omitempty"`
+	BaseBranch     string    `json:"base_branch,omitempty"`
+	Author         string    `json:"author,omitempty"`
+	ReviewDecision string    `json:"review_decision,omitempty"`
+	CommentCount   int       `json:"comment_count,omitempty"`
+	ChecksPassed   int       `json:"checks_passed,omitempty"`
+	ChecksFailed   int       `json:"checks_failed,omitempty"`
+	ChecksPending  int       `json:"checks_pending,omitempty"`
+	HasChecks      bool      `json:"has_checks,omitempty"`
+	CreatedAt      time.Time `json:"created_at"`
+	UpdatedAt      time.Time `json:"updated_at"`
+	Source         string    `json:"source,omitempty"`     // "session", "mine", "review_requested"
+	SessionID      string    `json:"session_id,omitempty"` // non-empty if linked to a session
+}
+
+// ReviewActionRequest is the JSON body for POST /api/v1/prs/review.
+type ReviewActionRequest struct {
+	Action string `json:"action"` // "approve", "request_changes", "comment"
+	Body   string `json:"body,omitempty"`
+}
+
+// CommentRequest is the JSON body for POST /api/v1/prs/comment.
+type CommentRequest struct {
+	Body string `json:"body"`
+	Path string `json:"path,omitempty"`
+	Line int    `json:"line,omitempty"`
+}
+
+// StateActionRequest is the JSON body for POST /api/v1/prs/state.
+type StateActionRequest struct {
+	Action string `json:"action"` // "close", "reopen", "draft", "ready"
+}
+
 // SessionResponse is the JSON representation of a session returned by the API.
 type SessionResponse struct {
 	ID             string    `json:"id"`

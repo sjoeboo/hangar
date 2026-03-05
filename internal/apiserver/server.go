@@ -16,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/sjoeboo/hangar/internal/pr"
 	"github.com/sjoeboo/hangar/internal/session"
 	"github.com/sjoeboo/hangar/internal/webui"
 )
@@ -31,12 +32,12 @@ type APIConfig struct {
 type APIServer struct {
 	cfg           APIConfig
 	watcher       *session.StatusFileWatcher
-	getInstances  func() []*session.Instance   // callback from TUI; caller holds instancesMu
+	getInstances  func() []*session.Instance    // callback from TUI; caller holds instancesMu
 	getPRInfo     func(sessionID string) *PRInfo // callback from TUI PR cache; may be nil
-	triggerReload func()                        // callback to immediately trigger TUI DB reload
+	triggerReload func()                         // callback to immediately trigger TUI DB reload
+	prManager     *pr.Manager                   // unified PR data layer; may be nil in standalone mode
 	profile       string
 	hub           *Hub
-	internalPR    *internalPRCache // standalone PR cache; used when getPRInfo is nil or returns nil
 	server        *http.Server
 	startedAt     time.Time
 	version       string
@@ -56,7 +57,11 @@ type APIServer struct {
 // triggerReload is an optional callback that immediately triggers the TUI to
 // reload sessions from the DB (bypasses the 2-second poll interval). Pass nil
 // if no TUI is running (e.g. tests).
-func New(cfg APIConfig, watcher *session.StatusFileWatcher, getInstances func() []*session.Instance, getPRInfo func(string) *PRInfo, triggerReload func(), profile string, version string) *APIServer {
+//
+// prManager is the unified PR data layer. Pass nil in standalone/test mode;
+// when non-nil it is used as the authoritative PR source and background refresh
+// is delegated to the manager (no internal PR refresh loop is started).
+func New(cfg APIConfig, watcher *session.StatusFileWatcher, getInstances func() []*session.Instance, getPRInfo func(string) *PRInfo, triggerReload func(), prManager *pr.Manager, profile string, version string) *APIServer {
 	hub := newHub()
 
 	s := &APIServer{
@@ -65,12 +70,19 @@ func New(cfg APIConfig, watcher *session.StatusFileWatcher, getInstances func() 
 		getInstances:  getInstances,
 		getPRInfo:     getPRInfo,
 		triggerReload: triggerReload,
+		prManager:     prManager,
 		profile:       profile,
 		hub:           hub,
-		internalPR:    newInternalPRCache(),
 		startedAt:     time.Now(),
 		version:       version,
 		done:          make(chan struct{}),
+	}
+
+	// Register onChange callback on prManager so web clients receive PR updates.
+	if prManager != nil {
+		prManager.RegisterOnChange(func() {
+			s.hub.broadcast <- WsMessage{Type: "sessions_changed"}
+		})
 	}
 
 	mux := http.NewServeMux()
@@ -92,6 +104,13 @@ func New(cfg APIConfig, watcher *session.StatusFileWatcher, getInstances func() 
 	mux.HandleFunc("/api/v1/projects/{id}", s.handleProject)
 	mux.HandleFunc("/api/v1/todos", s.handleTodos)
 	mux.HandleFunc("/api/v1/todos/{id}", s.handleTodo)
+
+	// PR dashboard endpoints (require prManager)
+	mux.HandleFunc("/api/v1/prs", s.handlePRDashboard)
+	mux.HandleFunc("/api/v1/prs/detail", s.handlePRDetail)
+	mux.HandleFunc("/api/v1/prs/review", s.handlePRReview)
+	mux.HandleFunc("/api/v1/prs/comment", s.handlePRComment)
+	mux.HandleFunc("/api/v1/prs/state", s.handlePRState)
 
 	// WebSocket
 	mux.HandleFunc("/api/v1/ws", s.handleWS)
@@ -151,10 +170,6 @@ func (s *APIServer) Start(ctx context.Context) error {
 	if s.watcher != nil {
 		go s.bridgeWatcherToHub(ctx)
 	}
-
-	// Background PR refresh loop — populates internalPR cache for worktree sessions.
-	// Works in both standalone and TUI-embedded modes.
-	go s.runPRRefreshLoop(ctx)
 
 	errCh := make(chan error, 1)
 	go func() {
