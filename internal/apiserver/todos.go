@@ -15,6 +15,7 @@ func todoToResponse(t *session.Todo) TodoResponse {
 		ProjectPath: t.ProjectPath,
 		Title:       t.Title,
 		Description: t.Description,
+		Prompt:      t.Prompt,
 		Status:      string(t.Status),
 		SessionID:   t.SessionID,
 		Order:       t.Order,
@@ -156,6 +157,9 @@ func (s *APIServer) updateTodo(w http.ResponseWriter, r *http.Request, id string
 		}
 		if req.SessionID != nil {
 			t.SessionID = *req.SessionID
+		}
+		if req.Prompt != nil {
+			t.Prompt = *req.Prompt
 		}
 		if err := storage.SaveTodo(t); err != nil {
 			writeError(w, http.StatusInternalServerError, fmt.Sprintf("save error: %v", err))

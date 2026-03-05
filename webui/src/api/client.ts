@@ -64,7 +64,7 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(req),
     }),
-  updateTodo: (id: string, req: { status?: string; title?: string; description?: string }) =>
+  updateTodo: (id: string, req: { status?: string; title?: string; description?: string; prompt?: string }) =>
     apiFetch<Todo>(`/api/v1/todos/${id}`, {
       method: 'PATCH',
       body: JSON.stringify(req),
