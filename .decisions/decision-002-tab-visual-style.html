@@ -1,0 +1,481 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Decision 2: Tab Visual Style — Hangar TUI Improvements</title>
+    <style>
+      *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+      body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif; background: #f1f5f9; color: #1a1a2e; min-height: 100vh; padding: 2rem; line-height: 1.6; }
+      header { text-align: center; margin-bottom: 2.5rem; padding-bottom: 1.5rem; border-bottom: 2px solid #e2e8f0; max-width: 1200px; margin-left: auto; margin-right: auto; }
+      .decision-number { font-size: 0.75rem; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: #64748b; }
+      header h1 { font-size: 1.6rem; font-weight: 700; color: #0f172a; letter-spacing: -0.02em; margin-top: 0.25rem; }
+      .category-badge { display: inline-block; padding: 4px 12px; border-radius: 999px; font-size: 0.7rem; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; margin-top: 0.5rem; }
+      .category-badge.visual { background: #fce7f3; color: #be185d; }
+      .decision-description { font-size: 1rem; color: #475569; margin-top: 0.75rem; max-width: 700px; margin-left: auto; margin-right: auto; line-height: 1.7; }
+      .instruction { margin-top: 1rem; font-size: 0.85rem; background: #eff6ff; color: #1d4ed8; padding: 0.6rem 1.25rem; border-radius: 8px; display: inline-block; border: 1px solid #bfdbfe; }
+      .options-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; max-width: 1200px; margin: 0 auto 3rem; }
+      .option-card { background: white; border-radius: 16px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.08), 0 4px 16px rgba(0,0,0,0.04); border: 2px solid #e2e8f0; transition: all 0.2s ease; display: flex; flex-direction: column; position: relative; }
+      .option-card:hover { border-color: #6366f1; box-shadow: 0 4px 20px rgba(99,102,241,0.12); }
+      .card-header { padding: 1rem 1.25rem 0.75rem; border-bottom: 1px solid #f1f5f9; display: flex; flex-direction: column; gap: 0.2rem; }
+      .card-header-top { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; }
+      .option-label { font-size: 0.65rem; font-weight: 800; letter-spacing: 0.1em; text-transform: uppercase; }
+      .option-card.option-a .option-label { color: #7c3aed; }
+      .option-card.option-b .option-label { color: #0891b2; }
+      .option-card.option-c .option-label { color: #059669; }
+      .option-card.option-d .option-label { color: #dc2626; }
+      .option-title { font-size: 1.05rem; font-weight: 600; color: #0f172a; }
+      .recommended-badge { background: #f59e0b; color: white; padding: 3px 10px; border-radius: 999px; font-size: 0.65rem; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; white-space: nowrap; }
+      .option-card.chosen { border: 3px solid #059669; box-shadow: 0 4px 20px rgba(5,150,105,0.15); }
+      .option-card.chosen:hover { border-color: #059669; }
+      .card-badges { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; flex-shrink: 0; }
+      .chosen-badge { background: #059669; color: white; padding: 3px 10px; border-radius: 999px; font-size: 0.65rem; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; white-space: nowrap; display: none; }
+      .option-card.chosen .chosen-badge { display: inline-block; }
+      .option-card.not-chosen { opacity: 0.55; filter: grayscale(20%); }
+      .option-card.not-chosen:hover { opacity: 0.8; filter: none; }
+      .visual-preview { padding: 1.5rem; background: #f8fafc; min-height: 200px; display: flex; align-items: center; justify-content: center; flex: 1; }
+      .option-summary { padding: 1rem 1.25rem; font-size: 0.875rem; color: #334155; line-height: 1.65; border-top: 1px solid #f1f5f9; }
+      .verdict { display: grid; grid-template-columns: 1fr 1fr; border-top: 1px solid #f1f5f9; }
+      .pros, .cons { padding: 1rem 1.25rem; }
+      .pros { border-right: 1px solid #f1f5f9; }
+      .pros h3, .cons h3 { font-size: 0.65rem; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; margin-bottom: 0.5rem; }
+      .pros h3 { color: #059669; }
+      .cons h3 { color: #e11d48; }
+      .verdict ul { list-style: none; padding: 0; }
+      .verdict li { font-size: 0.8rem; color: #475569; line-height: 1.5; padding: 0.15rem 0; padding-left: 1rem; position: relative; }
+      .pros li::before { content: "✓ "; color: #059669; font-weight: 700; position: absolute; left: 0; }
+      .cons li::before { content: "! "; color: #e11d48; font-weight: 700; position: absolute; left: 0; }
+      .card-footer { padding: 0.75rem 1.25rem; background: #f8fafc; border-top: 1px solid #f1f5f9; }
+      .tell-claude { font-size: 0.75rem; color: #64748b; background: #f1f5f9; padding: 0.35rem 0.65rem; border-radius: 6px; display: block; font-family: "SF Mono", "Fira Code", monospace; }
+      .comparison-section { max-width: 1200px; margin: 0 auto 3rem; }
+      .comparison-section h2 { font-size: 1.1rem; font-weight: 700; color: #0f172a; margin-bottom: 1rem; }
+      .comparison-table-wrapper { overflow-x: auto; border-radius: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.08), 0 4px 16px rgba(0,0,0,0.04); }
+      .comparison-table { width: 100%; border-collapse: collapse; background: white; font-size: 0.85rem; }
+      .comparison-table th { padding: 0.85rem 1rem; text-align: left; font-weight: 700; font-size: 0.75rem; letter-spacing: 0.05em; text-transform: uppercase; border-bottom: 2px solid #e2e8f0; white-space: nowrap; background: white; }
+      .comparison-table th:first-child { background: #f8fafc; color: #64748b; }
+      .comparison-table th.col-a { color: #7c3aed; }
+      .comparison-table th.col-b { color: #0891b2; }
+      .comparison-table th.col-c { color: #059669; }
+      .comparison-table th.col-d { color: #dc2626; }
+      .comparison-table td { padding: 0.75rem 1rem; border-bottom: 1px solid #f1f5f9; color: #334155; }
+      .comparison-table td:first-child { font-weight: 600; color: #475569; background: #f8fafc; }
+      .comparison-table tr:nth-child(even) td { background: #fafbfc; }
+      .comparison-table tr:nth-child(even) td:first-child { background: #f1f5f9; }
+      .comparison-table .col-recommended { background: #fffbeb !important; }
+      .comparison-table .col-chosen { background: #ecfdf5 !important; }
+      .comparison-table tr:last-child td { border-bottom: none; }
+      .page-footer { max-width: 1200px; margin: 0 auto; text-align: center; padding: 1.5rem; background: white; border-radius: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
+      .page-footer p { font-size: 0.85rem; color: #64748b; margin: 0.3rem 0; }
+      .page-footer strong { color: #334155; }
+      .back-link { display: inline-block; margin-bottom: 1.5rem; font-size: 0.85rem; color: #6366f1; text-decoration: none; max-width: 1200px; }
+      .back-link:hover { text-decoration: underline; }
+      @media (max-width: 768px) { .options-grid { grid-template-columns: 1fr; } body { padding: 1rem; } }
+
+      /* TUI mockup font */
+      .tui-mock {
+        font-family: "SF Mono", "Fira Code", "Cascadia Code", monospace;
+        background: #1a1f2e;
+        border-radius: 10px;
+        overflow: hidden;
+        width: 100%;
+        max-width: 340px;
+        font-size: 0.68rem;
+        line-height: 1.5;
+      }
+      .tui-body { padding: 10px 12px; }
+      .tui-session-row { display: flex; gap: 6px; align-items: center; padding: 2px 0; }
+      .tui-green { color: #4ade80; }
+      .tui-yellow { color: #fbbf24; }
+      .tui-dim { color: #4a5568; }
+      .tui-session-name { color: #e2e8f0; font-size: 0.62rem; }
+      .tui-session-name-dim { color: #9aa5c0; font-size: 0.62rem; }
+      .tui-divider { border-top: 1px solid #2a3040; margin: 4px 0; }
+      .tui-header-label { color: #4a90d9; font-weight: 700; font-size: 0.65rem; padding: 4px 0 2px; }
+      .tui-filter-row { display: flex; gap: 5px; align-items: center; padding: 3px 0; font-size: 0.62rem; }
+      .tui-filter-all { color: #e2e8f0; font-weight: 700; background: #2a3040; padding: 1px 6px; border-radius: 3px; }
+      .tui-filter-dim { color: #4a5568; }
+
+      /* Option A: Rounded powerline pills (matching existing tmux tabs) */
+      .tabs-pills {
+        display: flex;
+        gap: 0;
+        align-items: center;
+        padding: 6px 10px;
+        background: #131720;
+        border-radius: 10px 10px 0 0;
+      }
+      .pill { padding: 3px 12px; font-size: 0.65rem; font-weight: 700; border-radius: 999px; }
+      .pill.active { background: #0891b2; color: #f0f8ff; }
+      .pill.inactive { background: #252d40; color: #6b7a99; }
+      .pill-sep { color: #2a3040; margin: 0 1px; font-size: 0.7rem; }
+
+      /* Option B: Underline tabs (lazygit-style) */
+      .tabs-underline {
+        display: flex;
+        gap: 0;
+        background: #131720;
+        border-bottom: 1px solid #2a3040;
+        padding: 0 10px;
+        border-radius: 10px 10px 0 0;
+      }
+      .ul-tab { padding: 6px 12px; font-size: 0.65rem; font-weight: 700; border-bottom: 2px solid transparent; margin-bottom: -1px; cursor: pointer; }
+      .ul-tab.active { color: #22d3ee; border-bottom-color: #22d3ee; }
+      .ul-tab.inactive { color: #4a5568; }
+
+      /* Option C: Full-width colored band */
+      .tabs-band {
+        background: #0c4a6e;
+        padding: 5px 12px;
+        display: flex;
+        gap: 16px;
+        align-items: center;
+        border-radius: 10px 10px 0 0;
+      }
+      .band-tab { font-size: 0.65rem; font-weight: 700; padding: 2px 8px; border-radius: 3px; }
+      .band-tab.active { background: #0891b2; color: white; }
+      .band-tab.inactive { color: #7dd3fc; opacity: 0.6; }
+
+      /* Option D: Numbered shortcut pills */
+      .tabs-numbered {
+        display: flex;
+        gap: 6px;
+        align-items: center;
+        padding: 6px 10px;
+        background: #131720;
+        border-radius: 10px 10px 0 0;
+      }
+      .num-tab { display: flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 4px; font-size: 0.63rem; font-weight: 600; }
+      .num-tab.active { background: #1e3a5f; color: #e2e8f0; border: 1px solid #0891b2; }
+      .num-tab.inactive { background: #1e2535; color: #6b7a99; border: 1px solid transparent; }
+      .num-badge { background: #0891b2; color: white; border-radius: 3px; padding: 0px 4px; font-size: 0.55rem; font-weight: 800; }
+      .num-badge.inactive-num { background: #2a3040; color: #6b7a99; }
+    </style>
+  </head>
+  <body>
+    <a href="index.html" class="back-link">← All Decisions</a>
+
+    <header>
+      <span class="decision-number">Decision 2 of 4</span>
+      <h1>Tab Visual Style</h1>
+      <span class="category-badge visual">Visual</span>
+      <p class="decision-description">
+        We've decided on an extensible 3-tab nav (Sessions, PRs, Todos). Now we need to decide how those tabs <em>look</em>. The hangar TUI already has a visual language — the oasis_lagoon_dark theme with rounded powerline pills in the tmux tab bar. The tab style should feel cohesive with what's already there while being clearly interactive. These are terminal renderings, so we're working with colored text, backgrounds, and unicode — not pixel-perfect icons.
+      </p>
+      <p class="instruction">
+        Tell Claude: <strong>"Option A"</strong> · <strong>"Option B"</strong> · <strong>"Option C"</strong> · <strong>"Option D"</strong> · <strong>"more options"</strong>
+      </p>
+    </header>
+
+    <main class="options-grid">
+
+      <!-- Option A: Rounded pills (matches existing tmux tabs) -->
+      <article class="option-card option-a chosen">
+        <div class="card-header">
+          <div class="card-header-top">
+            <span class="option-label">Option A</span>
+            <div class="card-badges">
+              <span class="recommended-badge">Recommended</span>
+              <span class="chosen-badge">Chosen</span>
+            </div>
+          </div>
+          <h2 class="option-title">Rounded Pills</h2>
+        </div>
+        <div class="visual-preview">
+          <div class="tui-mock">
+            <div class="tabs-pills">
+              <span class="pill active">Sessions</span>
+              <span class="pill-sep">·</span>
+              <span class="pill inactive">PRs</span>
+              <span class="pill-sep">·</span>
+              <span class="pill inactive">Todos</span>
+            </div>
+            <div class="tui-body">
+              <div class="tui-filter-row">
+                <span class="tui-filter-all">All</span>
+                <span class="tui-green">● 1</span>
+                <span class="tui-yellow">◐ 2</span>
+                <span class="tui-dim">○ 0</span>
+              </div>
+              <div class="tui-divider"></div>
+              <div class="tui-header-label">SESSIONS</div>
+              <div class="tui-session-row"><span class="tui-green">●</span><span class="tui-session-name">feature-auth</span></div>
+              <div class="tui-session-row"><span class="tui-yellow">◐</span><span class="tui-session-name-dim">fix-login-bug</span></div>
+              <div class="tui-session-row"><span class="tui-dim">○</span><span class="tui-session-name-dim">data-pipeline</span></div>
+            </div>
+          </div>
+        </div>
+        <div class="option-summary">
+          Rounded pill buttons match the existing tmux window tabs in the status bar — so the whole UI feels cohesive. The active tab gets the cyan background, inactive tabs sit in a dark recessed state. This is the same visual language hangar already uses; adding these tabs just extends the pattern upward.
+        </div>
+        <div class="verdict">
+          <div class="pros">
+            <h3>Works well when</h3>
+            <ul>
+              <li>Consistency with existing tmux tab styling matters</li>
+              <li>Users already associate pill = interactive element</li>
+              <li>Renders cleanly at all terminal font sizes</li>
+            </ul>
+          </div>
+          <div class="cons">
+            <h3>Watch out for</h3>
+            <ul>
+              <li>Could be confused with the status filter pills below it</li>
+              <li>May need a visual separator between tab row and filter row</li>
+            </ul>
+          </div>
+        </div>
+        <div class="card-footer">
+          <code class="tell-claude">Tell Claude: "Option A"</code>
+        </div>
+      </article>
+
+      <!-- Option B: Underline tabs (lazygit-style) -->
+      <article class="option-card option-b not-chosen">
+        <div class="card-header">
+          <div class="card-header-top">
+            <span class="option-label">Option B</span>
+            <div class="card-badges">
+              <span class="chosen-badge">Chosen</span>
+            </div>
+          </div>
+          <h2 class="option-title">Underline Tabs</h2>
+        </div>
+        <div class="visual-preview">
+          <div class="tui-mock">
+            <div class="tabs-underline">
+              <span class="ul-tab active">Sessions</span>
+              <span class="ul-tab inactive">PRs</span>
+              <span class="ul-tab inactive">Todos</span>
+            </div>
+            <div class="tui-body">
+              <div class="tui-filter-row">
+                <span class="tui-filter-all">All</span>
+                <span class="tui-green">● 1</span>
+                <span class="tui-yellow">◐ 2</span>
+                <span class="tui-dim">○ 0</span>
+              </div>
+              <div class="tui-divider"></div>
+              <div class="tui-header-label">SESSIONS</div>
+              <div class="tui-session-row"><span class="tui-green">●</span><span class="tui-session-name">feature-auth</span></div>
+              <div class="tui-session-row"><span class="tui-yellow">◐</span><span class="tui-session-name-dim">fix-login-bug</span></div>
+              <div class="tui-session-row"><span class="tui-dim">○</span><span class="tui-session-name-dim">data-pipeline</span></div>
+            </div>
+          </div>
+        </div>
+        <div class="option-summary">
+          The active tab gets an underline in cyan — the same style used by lazygit, delta, and many modern TUI tools. Inactive tabs are dimmed text. This style uses very little vertical space and creates clear visual hierarchy without colored backgrounds. The cyan underline connects naturally to the oasis theme's accent color.
+        </div>
+        <div class="verdict">
+          <div class="pros">
+            <h3>Works well when</h3>
+            <ul>
+              <li>You want maximum vertical space for content</li>
+              <li>Familiar to lazygit users (popular TUI)</li>
+              <li>Clearly distinct from the pill-style filter row below</li>
+            </ul>
+          </div>
+          <div class="cons">
+            <h3>Watch out for</h3>
+            <ul>
+              <li>Underlines can be subtle in some terminal fonts</li>
+              <li>Less consistent with existing pill-style tmux tabs</li>
+            </ul>
+          </div>
+        </div>
+        <div class="card-footer">
+          <code class="tell-claude">Tell Claude: "Option B"</code>
+        </div>
+      </article>
+
+      <!-- Option C: Full-width colored band -->
+      <article class="option-card option-c not-chosen">
+        <div class="card-header">
+          <div class="card-header-top">
+            <span class="option-label">Option C</span>
+            <div class="card-badges">
+              <span class="chosen-badge">Chosen</span>
+            </div>
+          </div>
+          <h2 class="option-title">Colored Band</h2>
+        </div>
+        <div class="visual-preview">
+          <div class="tui-mock">
+            <div class="tabs-band">
+              <span class="band-tab active">Sessions</span>
+              <span class="band-tab inactive">PRs</span>
+              <span class="band-tab inactive">Todos</span>
+            </div>
+            <div class="tui-body">
+              <div class="tui-filter-row">
+                <span class="tui-filter-all">All</span>
+                <span class="tui-green">● 1</span>
+                <span class="tui-yellow">◐ 2</span>
+                <span class="tui-dim">○ 0</span>
+              </div>
+              <div class="tui-divider"></div>
+              <div class="tui-header-label">SESSIONS</div>
+              <div class="tui-session-row"><span class="tui-green">●</span><span class="tui-session-name">feature-auth</span></div>
+              <div class="tui-session-row"><span class="tui-yellow">◐</span><span class="tui-session-name-dim">fix-login-bug</span></div>
+              <div class="tui-session-row"><span class="tui-dim">○</span><span class="tui-session-name-dim">data-pipeline</span></div>
+            </div>
+          </div>
+        </div>
+        <div class="option-summary">
+          A full-width colored header band holds the tabs. The band uses a deep blue background that makes the entire tab row visually prominent — you can't miss it. The active tab gets a brighter highlight within the band. This is visually striking but uses more color than the rest of hangar's UI.
+        </div>
+        <div class="verdict">
+          <div class="pros">
+            <h3>Works well when</h3>
+            <ul>
+              <li>Maximum discoverability is the priority</li>
+              <li>You want tabs to feel like a distinct navigation zone</li>
+            </ul>
+          </div>
+          <div class="cons">
+            <h3>Watch out for</h3>
+            <ul>
+              <li>Heaviest visual weight — competes with content</li>
+              <li>May clash with oasis_lagoon_dark palette</li>
+              <li>Uses more vertical space than other options</li>
+            </ul>
+          </div>
+        </div>
+        <div class="card-footer">
+          <code class="tell-claude">Tell Claude: "Option C"</code>
+        </div>
+      </article>
+
+      <!-- Option D: Numbered shortcut tabs -->
+      <article class="option-card option-d not-chosen">
+        <div class="card-header">
+          <div class="card-header-top">
+            <span class="option-label">Option D</span>
+            <div class="card-badges">
+              <span class="chosen-badge">Chosen</span>
+            </div>
+          </div>
+          <h2 class="option-title">Numbered Shortcuts</h2>
+        </div>
+        <div class="visual-preview">
+          <div class="tui-mock">
+            <div class="tabs-numbered">
+              <span class="num-tab active">
+                <span class="num-badge">1</span> Sessions
+              </span>
+              <span class="num-tab inactive">
+                <span class="num-badge inactive-num">2</span> PRs
+              </span>
+              <span class="num-tab inactive">
+                <span class="num-badge inactive-num">3</span> Todos
+              </span>
+            </div>
+            <div class="tui-body">
+              <div class="tui-filter-row">
+                <span class="tui-filter-all">All</span>
+                <span class="tui-green">● 1</span>
+                <span class="tui-yellow">◐ 2</span>
+                <span class="tui-dim">○ 0</span>
+              </div>
+              <div class="tui-divider"></div>
+              <div class="tui-header-label">SESSIONS</div>
+              <div class="tui-session-row"><span class="tui-green">●</span><span class="tui-session-name">feature-auth</span></div>
+              <div class="tui-session-row"><span class="tui-yellow">◐</span><span class="tui-session-name-dim">fix-login-bug</span></div>
+              <div class="tui-session-row"><span class="tui-dim">○</span><span class="tui-session-name-dim">data-pipeline</span></div>
+            </div>
+          </div>
+        </div>
+        <div class="option-summary">
+          Each tab shows its number shortcut badge (1, 2, 3) right on the tab itself, teaching users the keyboard shortcut just by looking at it. Press <code>1</code> for Sessions, <code>2</code> for PRs, <code>3</code> for Todos. This helps discoverability of both the views <em>and</em> their shortcuts simultaneously.
+        </div>
+        <div class="verdict">
+          <div class="pros">
+            <h3>Works well when</h3>
+            <ul>
+              <li>You want users to learn keyboard shortcuts naturally</li>
+              <li>Self-documenting UI (no separate help needed)</li>
+              <li>Good balance of keyboard + mouse support</li>
+            </ul>
+          </div>
+          <div class="cons">
+            <h3>Watch out for</h3>
+            <ul>
+              <li>Badges add visual noise if you have many tabs</li>
+              <li>Number keys may conflict with other bindings</li>
+              <li>Confusing if status filter also uses number-adjacent keys (!@#)</li>
+            </ul>
+          </div>
+        </div>
+        <div class="card-footer">
+          <code class="tell-claude">Tell Claude: "Option D"</code>
+        </div>
+      </article>
+
+    </main>
+
+    <section class="comparison-section">
+      <h2>How They Compare</h2>
+      <div class="comparison-table-wrapper">
+        <table class="comparison-table">
+          <thead>
+            <tr>
+              <th></th>
+              <th class="col-a col-recommended">A: Rounded Pills</th>
+              <th class="col-b">B: Underline</th>
+              <th class="col-c">C: Colored Band</th>
+              <th class="col-d">D: Numbered</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Consistency with existing UI</td>
+              <td class="col-recommended">High (matches tmux tabs)</td>
+              <td>Medium</td>
+              <td>Low</td>
+              <td>Medium</td>
+            </tr>
+            <tr>
+              <td>Discoverability</td>
+              <td class="col-recommended">High</td>
+              <td>High</td>
+              <td>Very High</td>
+              <td>High + shortcuts</td>
+            </tr>
+            <tr>
+              <td>Vertical space used</td>
+              <td class="col-recommended">1 row</td>
+              <td>1 row</td>
+              <td>1 row (heavier)</td>
+              <td>1 row</td>
+            </tr>
+            <tr>
+              <td>Distinct from filter pills</td>
+              <td class="col-recommended">Medium (same pill style)</td>
+              <td>High (different style)</td>
+              <td>High</td>
+              <td>High</td>
+            </tr>
+            <tr>
+              <td>Mouse clickability</td>
+              <td class="col-recommended">Natural</td>
+              <td>Natural</td>
+              <td>Natural</td>
+              <td>Natural</td>
+            </tr>
+            <tr>
+              <td>Implementation complexity</td>
+              <td class="col-recommended">Low</td>
+              <td>Low</td>
+              <td>Low</td>
+              <td>Medium</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <div class="page-footer">
+      <p>Tell Claude: <strong>"Option A"</strong>, <strong>"Option B but [change]"</strong>, or <strong>"more options"</strong></p>
+      <p>To change a past decision: <strong>"for decision-001 I want Option C instead"</strong></p>
+    </div>
+  </body>
+</html>

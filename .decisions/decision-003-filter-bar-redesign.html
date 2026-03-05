@@ -1,0 +1,447 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Decision 3: Filter Bar Redesign — Hangar TUI Improvements</title>
+    <style>
+      *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+      body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif; background: #f1f5f9; color: #1a1a2e; min-height: 100vh; padding: 2rem; line-height: 1.6; }
+      header { text-align: center; margin-bottom: 2.5rem; padding-bottom: 1.5rem; border-bottom: 2px solid #e2e8f0; max-width: 1200px; margin-left: auto; margin-right: auto; }
+      .decision-number { font-size: 0.75rem; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: #64748b; }
+      header h1 { font-size: 1.6rem; font-weight: 700; color: #0f172a; letter-spacing: -0.02em; margin-top: 0.25rem; }
+      .category-badge { display: inline-block; padding: 4px 12px; border-radius: 999px; font-size: 0.7rem; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; margin-top: 0.5rem; }
+      .category-badge.visual { background: #fce7f3; color: #be185d; }
+      .decision-description { font-size: 1rem; color: #475569; margin-top: 0.75rem; max-width: 700px; margin-left: auto; margin-right: auto; line-height: 1.7; }
+      .instruction { margin-top: 1rem; font-size: 0.85rem; background: #eff6ff; color: #1d4ed8; padding: 0.6rem 1.25rem; border-radius: 8px; display: inline-block; border: 1px solid #bfdbfe; }
+      .options-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; max-width: 1200px; margin: 0 auto 3rem; }
+      .option-card { background: white; border-radius: 16px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.08), 0 4px 16px rgba(0,0,0,0.04); border: 2px solid #e2e8f0; transition: all 0.2s ease; display: flex; flex-direction: column; position: relative; }
+      .option-card:hover { border-color: #6366f1; box-shadow: 0 4px 20px rgba(99,102,241,0.12); }
+      .card-header { padding: 1rem 1.25rem 0.75rem; border-bottom: 1px solid #f1f5f9; display: flex; flex-direction: column; gap: 0.2rem; }
+      .card-header-top { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; }
+      .option-label { font-size: 0.65rem; font-weight: 800; letter-spacing: 0.1em; text-transform: uppercase; }
+      .option-card.option-a .option-label { color: #7c3aed; }
+      .option-card.option-b .option-label { color: #0891b2; }
+      .option-card.option-c .option-label { color: #059669; }
+      .option-card.option-d .option-label { color: #dc2626; }
+      .option-title { font-size: 1.05rem; font-weight: 600; color: #0f172a; }
+      .recommended-badge { background: #f59e0b; color: white; padding: 3px 10px; border-radius: 999px; font-size: 0.65rem; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; white-space: nowrap; }
+      .option-card.chosen { border: 3px solid #059669; box-shadow: 0 4px 20px rgba(5,150,105,0.15); }
+      .option-card.chosen:hover { border-color: #059669; }
+      .card-badges { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; flex-shrink: 0; }
+      .chosen-badge { background: #059669; color: white; padding: 3px 10px; border-radius: 999px; font-size: 0.65rem; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; white-space: nowrap; display: none; }
+      .option-card.chosen .chosen-badge { display: inline-block; }
+      .option-card.not-chosen { opacity: 0.55; filter: grayscale(20%); }
+      .option-card.not-chosen:hover { opacity: 0.8; filter: none; }
+      .visual-preview { padding: 1.5rem; background: #f8fafc; min-height: 200px; display: flex; align-items: center; justify-content: center; flex: 1; }
+      .option-summary { padding: 1rem 1.25rem; font-size: 0.875rem; color: #334155; line-height: 1.65; border-top: 1px solid #f1f5f9; }
+      .verdict { display: grid; grid-template-columns: 1fr 1fr; border-top: 1px solid #f1f5f9; }
+      .pros, .cons { padding: 1rem 1.25rem; }
+      .pros { border-right: 1px solid #f1f5f9; }
+      .pros h3, .cons h3 { font-size: 0.65rem; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; margin-bottom: 0.5rem; }
+      .pros h3 { color: #059669; }
+      .cons h3 { color: #e11d48; }
+      .verdict ul { list-style: none; padding: 0; }
+      .verdict li { font-size: 0.8rem; color: #475569; line-height: 1.5; padding: 0.15rem 0; padding-left: 1rem; position: relative; }
+      .pros li::before { content: "✓ "; color: #059669; font-weight: 700; position: absolute; left: 0; }
+      .cons li::before { content: "! "; color: #e11d48; font-weight: 700; position: absolute; left: 0; }
+      .card-footer { padding: 0.75rem 1.25rem; background: #f8fafc; border-top: 1px solid #f1f5f9; }
+      .tell-claude { font-size: 0.75rem; color: #64748b; background: #f1f5f9; padding: 0.35rem 0.65rem; border-radius: 6px; display: block; font-family: "SF Mono", "Fira Code", monospace; }
+      .comparison-section { max-width: 1200px; margin: 0 auto 3rem; }
+      .comparison-section h2 { font-size: 1.1rem; font-weight: 700; color: #0f172a; margin-bottom: 1rem; }
+      .comparison-table-wrapper { overflow-x: auto; border-radius: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.08), 0 4px 16px rgba(0,0,0,0.04); }
+      .comparison-table { width: 100%; border-collapse: collapse; background: white; font-size: 0.85rem; }
+      .comparison-table th { padding: 0.85rem 1rem; text-align: left; font-weight: 700; font-size: 0.75rem; letter-spacing: 0.05em; text-transform: uppercase; border-bottom: 2px solid #e2e8f0; white-space: nowrap; background: white; }
+      .comparison-table th:first-child { background: #f8fafc; color: #64748b; }
+      .comparison-table th.col-a { color: #7c3aed; }
+      .comparison-table th.col-b { color: #0891b2; }
+      .comparison-table th.col-c { color: #059669; }
+      .comparison-table th.col-d { color: #dc2626; }
+      .comparison-table td { padding: 0.75rem 1rem; border-bottom: 1px solid #f1f5f9; color: #334155; }
+      .comparison-table td:first-child { font-weight: 600; color: #475569; background: #f8fafc; }
+      .comparison-table tr:nth-child(even) td { background: #fafbfc; }
+      .comparison-table tr:nth-child(even) td:first-child { background: #f1f5f9; }
+      .comparison-table .col-recommended { background: #fffbeb !important; }
+      .comparison-table .col-chosen { background: #ecfdf5 !important; }
+      .comparison-table tr:last-child td { border-bottom: none; }
+      .page-footer { max-width: 1200px; margin: 0 auto; text-align: center; padding: 1.5rem; background: white; border-radius: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
+      .page-footer p { font-size: 0.85rem; color: #64748b; margin: 0.3rem 0; }
+      .page-footer strong { color: #334155; }
+      .back-link { display: inline-block; margin-bottom: 1.5rem; font-size: 0.85rem; color: #6366f1; text-decoration: none; }
+      .back-link:hover { text-decoration: underline; }
+      @media (max-width: 768px) { .options-grid { grid-template-columns: 1fr; } body { padding: 1rem; } }
+
+      /* Shared TUI mockup base */
+      .tui-mock {
+        font-family: "SF Mono", "Fira Code", "Cascadia Code", monospace;
+        background: #1a1f2e;
+        border-radius: 10px;
+        overflow: hidden;
+        width: 100%;
+        max-width: 340px;
+        font-size: 0.68rem;
+        line-height: 1.5;
+      }
+      .tui-tabs {
+        display: flex; gap: 0; align-items: center;
+        padding: 5px 10px; background: #131720;
+        border-radius: 10px 10px 0 0;
+      }
+      .tui-pill { padding: 2px 10px; font-size: 0.63rem; font-weight: 700; border-radius: 999px; }
+      .tui-pill.active { background: #0891b2; color: #f0f8ff; }
+      .tui-pill.inactive { background: #252d40; color: #6b7a99; }
+      .tui-pill-sep { color: #2a3040; margin: 0 2px; font-size: 0.65rem; }
+      .tui-body { padding: 8px 12px; }
+      .tui-row { display: flex; gap: 5px; align-items: center; padding: 2px 0; font-size: 0.63rem; }
+      .tui-green { color: #4ade80; }
+      .tui-yellow { color: #fbbf24; }
+      .tui-dim { color: #4a5568; }
+      .tui-muted { color: #9aa5c0; }
+      .tui-white { color: #e2e8f0; }
+      .tui-cyan { color: #22d3ee; }
+      .tui-red { color: #f87171; }
+      .tui-divider { border-top: 1px solid #2a3040; margin: 4px 0; }
+      .tui-section-label { color: #4a90d9; font-weight: 700; font-size: 0.63rem; padding: 3px 0 1px; }
+      .tui-hint { color: #2e3a4e; font-size: 0.58rem; font-style: italic; }
+
+      /* Filter pill variants */
+      .fp-active-all { background: #2a3a50; color: #e2e8f0; padding: 1px 7px; border-radius: 999px; font-weight: 700; }
+      .fp-count { font-weight: 600; }
+      .fp-running { color: #4ade80; }
+      .fp-waiting { color: #fbbf24; }
+      .fp-idle { color: #6b7a99; }
+      .fp-active-filter { background: #0891b2; color: white; padding: 1px 7px; border-radius: 999px; font-weight: 700; }
+
+      /* Option A: labeled clickable pills */
+      .filter-labeled { display: flex; gap: 5px; align-items: center; padding: 3px 0; flex-wrap: wrap; }
+      .flabel { font-size: 0.6rem; font-weight: 700; padding: 2px 7px; border-radius: 999px; display: flex; align-items: center; gap: 3px; }
+      .flabel.all.active { background: #2a3a50; color: #e2e8f0; }
+      .flabel.running { background: #14532d; color: #4ade80; }
+      .flabel.waiting { background: #451a03; color: #fbbf24; }
+      .flabel.idle { color: #6b7a99; background: #1e2535; }
+    </style>
+  </head>
+  <body>
+    <a href="index.html" class="back-link">← All Decisions</a>
+
+    <header>
+      <span class="decision-number">Decision 3 of 4</span>
+      <h1>Filter Bar Redesign</h1>
+      <span class="category-badge visual">Visual</span>
+      <p class="decision-description">
+        The current filter bar shows <code>All ●1 ◐2 ○0 !@#$ filter · 0 all</code> — status counts you can click, plus a hint that <code>!</code>/<code>@</code>/<code>#</code>/<code>$</code> are keyboard shortcuts. Nobody reading that cold knows what <code>!@#$</code> means. Now that we're adding view tabs above this row, we also need to make sure this sub-filter row clearly belongs to the Sessions view and doesn't visually compete with the tabs. How should we fix it?
+      </p>
+      <p class="instruction">
+        Tell Claude: <strong>"Option A"</strong> · <strong>"Option B"</strong> · <strong>"Option C"</strong> · <strong>"Option D"</strong> · <strong>"more options"</strong>
+      </p>
+    </header>
+
+    <main class="options-grid">
+
+      <!-- Option A: Labeled filter pills with key hints inline -->
+      <article class="option-card option-a chosen">
+        <div class="card-header">
+          <div class="card-header-top">
+            <span class="option-label">Option A</span>
+            <div class="card-badges">
+              <span class="recommended-badge">Recommended</span>
+              <span class="chosen-badge">Chosen</span>
+            </div>
+          </div>
+          <h2 class="option-title">Labeled Status Pills</h2>
+        </div>
+        <div class="visual-preview">
+          <div class="tui-mock">
+            <div class="tui-tabs">
+              <span class="tui-pill active">Sessions</span>
+              <span class="tui-pill-sep">·</span>
+              <span class="tui-pill inactive">PRs</span>
+              <span class="tui-pill-sep">·</span>
+              <span class="tui-pill inactive">Todos</span>
+            </div>
+            <div class="tui-body">
+              <div class="filter-labeled">
+                <span class="flabel all active">All</span>
+                <span class="flabel running">● Running <span style="opacity:0.6;font-size:0.55rem">!</span></span>
+                <span class="flabel waiting">◐ Waiting <span style="opacity:0.6;font-size:0.55rem">@</span></span>
+                <span class="flabel idle">○ Idle <span style="opacity:0.6;font-size:0.55rem">#</span></span>
+              </div>
+              <div class="tui-divider"></div>
+              <div class="tui-section-label">SESSIONS</div>
+              <div class="tui-row"><span class="tui-green">●</span><span class="tui-white">feature-auth</span></div>
+              <div class="tui-row"><span class="tui-yellow">◐</span><span class="tui-muted">fix-login-bug</span></div>
+              <div class="tui-row"><span class="tui-dim">○</span><span class="tui-muted">data-pipeline</span></div>
+            </div>
+          </div>
+        </div>
+        <div class="option-summary">
+          Each filter pill gets a text label — <strong>Running</strong>, <strong>Waiting</strong>, <strong>Idle</strong> — so you immediately know what you're filtering to. The keyboard shortcut key (<code>!</code>, <code>@</code>, <code>#</code>) appears as a tiny superscript inside the pill. The <code>!@#$ filter · 0 all</code> hint is removed entirely. Click or key to activate; the active pill highlights in that status's color.
+        </div>
+        <div class="verdict">
+          <div class="pros">
+            <h3>Works well when</h3>
+            <ul>
+              <li>New users need to understand what filtering does</li>
+              <li>Mouse users want to click a clearly-labeled target</li>
+              <li>Keyboard shortcuts still work but are learnable in context</li>
+            </ul>
+          </div>
+          <div class="cons">
+            <h3>Watch out for</h3>
+            <ul>
+              <li>Takes slightly more horizontal space than current</li>
+              <li>Labels can get crowded if terminal is narrow</li>
+            </ul>
+          </div>
+        </div>
+        <div class="card-footer">
+          <code class="tell-claude">Tell Claude: "Option A"</code>
+        </div>
+      </article>
+
+      <!-- Option B: Keep icons, fix hint text only -->
+      <article class="option-card option-b not-chosen">
+        <div class="card-header">
+          <div class="card-header-top">
+            <span class="option-label">Option B</span>
+            <div class="card-badges">
+              <span class="chosen-badge">Chosen</span>
+            </div>
+          </div>
+          <h2 class="option-title">Fix the Hint Text Only</h2>
+        </div>
+        <div class="visual-preview">
+          <div class="tui-mock">
+            <div class="tui-tabs">
+              <span class="tui-pill active">Sessions</span>
+              <span class="tui-pill-sep">·</span>
+              <span class="tui-pill inactive">PRs</span>
+              <span class="tui-pill-sep">·</span>
+              <span class="tui-pill inactive">Todos</span>
+            </div>
+            <div class="tui-body">
+              <div class="tui-row">
+                <span class="fp-active-all">All</span>
+                <span class="fp-running fp-count">● 1</span>
+                <span class="fp-waiting fp-count">◐ 2</span>
+                <span class="fp-idle fp-count">○ 0</span>
+                <span class="tui-hint" style="margin-left:6px">  click or !/@ to filter</span>
+              </div>
+              <div class="tui-divider"></div>
+              <div class="tui-section-label">SESSIONS</div>
+              <div class="tui-row"><span class="tui-green">●</span><span class="tui-white">feature-auth</span></div>
+              <div class="tui-row"><span class="tui-yellow">◐</span><span class="tui-muted">fix-login-bug</span></div>
+              <div class="tui-row"><span class="tui-dim">○</span><span class="tui-muted">data-pipeline</span></div>
+            </div>
+          </div>
+        </div>
+        <div class="option-summary">
+          Keep the existing icon-count pills (<code>● 1</code>, <code>◐ 2</code>, <code>○ 0</code>) but replace the cryptic <code>!@#$ filter · 0 all</code> with plain English: <code>click or !/@ to filter</code>. Minimal code change, immediately more readable. The session counts stay compact. Mouse users can still click the pills.
+        </div>
+        <div class="verdict">
+          <div class="pros">
+            <h3>Works well when</h3>
+            <ul>
+              <li>You want the smallest possible change</li>
+              <li>Existing users already know the icon meanings</li>
+              <li>Keeps the compact, information-dense style</li>
+            </ul>
+          </div>
+          <div class="cons">
+            <h3>Watch out for</h3>
+            <ul>
+              <li>Icons alone (●, ◐, ○) still require prior knowledge</li>
+              <li>Doesn't fully solve discoverability for new users</li>
+            </ul>
+          </div>
+        </div>
+        <div class="card-footer">
+          <code class="tell-claude">Tell Claude: "Option B"</code>
+        </div>
+      </article>
+
+      <!-- Option C: Remove the filter bar entirely -->
+      <article class="option-card option-c not-chosen">
+        <div class="card-header">
+          <div class="card-header-top">
+            <span class="option-label">Option C</span>
+            <div class="card-badges">
+              <span class="chosen-badge">Chosen</span>
+            </div>
+          </div>
+          <h2 class="option-title">Remove the Filter Bar</h2>
+        </div>
+        <div class="visual-preview">
+          <div class="tui-mock">
+            <div class="tui-tabs">
+              <span class="tui-pill active">Sessions</span>
+              <span class="tui-pill-sep">·</span>
+              <span class="tui-pill inactive">PRs</span>
+              <span class="tui-pill-sep">·</span>
+              <span class="tui-pill inactive">Todos</span>
+            </div>
+            <div class="tui-body">
+              <div class="tui-section-label">SESSIONS  <span style="color:#4a5568;font-weight:400">● 1 running · ◐ 2 waiting</span></div>
+              <div class="tui-divider"></div>
+              <div class="tui-row"><span class="tui-green">●</span><span class="tui-white">feature-auth</span></div>
+              <div class="tui-row"><span class="tui-yellow">◐</span><span class="tui-muted">fix-login-bug</span></div>
+              <div class="tui-row"><span class="tui-dim">○</span><span class="tui-muted">data-pipeline</span></div>
+              <div class="tui-row"><span class="tui-dim">○</span><span class="tui-muted">refactor-api</span></div>
+            </div>
+          </div>
+        </div>
+        <div class="option-summary">
+          Drop the filter bar entirely. Status counts move into the section header as a compact inline summary (<code>SESSIONS ● 1 running · ◐ 2 waiting</code>). Filtering by status gets removed — or stays as hidden keyboard-only feature without the bar. This gives back one full row of vertical space for sessions.
+        </div>
+        <div class="verdict">
+          <div class="pros">
+            <h3>Works well when</h3>
+            <ul>
+              <li>You rarely actually filter by status</li>
+              <li>Recovering vertical space matters</li>
+              <li>Status counts in the header row are enough context</li>
+            </ul>
+          </div>
+          <div class="cons">
+            <h3>Watch out for</h3>
+            <ul>
+              <li>Loses a genuinely useful feature (filter to "show me just waiting sessions")</li>
+              <li>Keyboard shortcuts become truly hidden/undiscoverable</li>
+            </ul>
+          </div>
+        </div>
+        <div class="card-footer">
+          <code class="tell-claude">Tell Claude: "Option C"</code>
+        </div>
+      </article>
+
+      <!-- Option D: Promote filter to a search/command bar -->
+      <article class="option-card option-d not-chosen">
+        <div class="card-header">
+          <div class="card-header-top">
+            <span class="option-label">Option D</span>
+            <div class="card-badges">
+              <span class="chosen-badge">Chosen</span>
+            </div>
+          </div>
+          <h2 class="option-title">Inline Status Summary Only</h2>
+        </div>
+        <div class="visual-preview">
+          <div class="tui-mock">
+            <div class="tui-tabs">
+              <span class="tui-pill active">Sessions</span>
+              <span class="tui-pill-sep">·</span>
+              <span class="tui-pill inactive">PRs</span>
+              <span class="tui-pill-sep">·</span>
+              <span class="tui-pill inactive">Todos</span>
+            </div>
+            <div class="tui-body">
+              <!-- Filter row: just counts as clickable colored tokens, no hint text -->
+              <div class="tui-row" style="gap:8px">
+                <span style="color:#e2e8f0;font-weight:700;font-size:0.62rem">Sessions:</span>
+                <span class="tui-green" style="font-weight:600">● 1 running</span>
+                <span class="tui-yellow" style="font-weight:600">◐ 2 waiting</span>
+                <span class="tui-dim">○ 0 idle</span>
+              </div>
+              <div class="tui-divider"></div>
+              <div class="tui-row"><span class="tui-green">●</span><span class="tui-white">feature-auth</span></div>
+              <div class="tui-row"><span class="tui-yellow">◐</span><span class="tui-muted">fix-login-bug</span></div>
+              <div class="tui-row"><span class="tui-dim">○</span><span class="tui-muted">data-pipeline</span></div>
+              <div class="tui-row"><span class="tui-dim">○</span><span class="tui-muted">refactor-api</span></div>
+            </div>
+          </div>
+        </div>
+        <div class="option-summary">
+          Replace the pill filter with a plain-English status summary row: <code>Sessions: ● 1 running · ◐ 2 waiting · ○ 0 idle</code>. Each token is still clickable to filter, but there's no ambiguous icon-only pill — the words make it immediately clear. No hint text needed. The <code>~</code> key for sort and <code>!</code>/<code>@</code>/<code>#</code> shortcuts still work silently.
+        </div>
+        <div class="verdict">
+          <div class="pros">
+            <h3>Works well when</h3>
+            <ul>
+              <li>You want readable status at a glance</li>
+              <li>Mouse click-to-filter still works naturally</li>
+              <li>No confusing shortcut hints cluttering the row</li>
+            </ul>
+          </div>
+          <div class="cons">
+            <h3>Watch out for</h3>
+            <ul>
+              <li>Keyboard shortcuts become invisible to new users</li>
+              <li>Longer text may wrap at very narrow terminal widths</li>
+            </ul>
+          </div>
+        </div>
+        <div class="card-footer">
+          <code class="tell-claude">Tell Claude: "Option D"</code>
+        </div>
+      </article>
+
+    </main>
+
+    <section class="comparison-section">
+      <h2>How They Compare</h2>
+      <div class="comparison-table-wrapper">
+        <table class="comparison-table">
+          <thead>
+            <tr>
+              <th></th>
+              <th class="col-a col-recommended">A: Labeled Pills</th>
+              <th class="col-b">B: Fix Hint Only</th>
+              <th class="col-c">C: Remove Bar</th>
+              <th class="col-d">D: Plain-English Summary</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Understandable cold</td>
+              <td class="col-recommended">Yes — labels explain it</td>
+              <td>Partially</td>
+              <td>N/A (no bar)</td>
+              <td>Yes — full words</td>
+            </tr>
+            <tr>
+              <td>Filter feature preserved</td>
+              <td class="col-recommended">Yes</td>
+              <td>Yes</td>
+              <td>Hidden/removed</td>
+              <td>Yes (click to filter)</td>
+            </tr>
+            <tr>
+              <td>Keyboard shortcuts visible</td>
+              <td class="col-recommended">Yes (tiny superscript)</td>
+              <td>Yes (updated hint)</td>
+              <td>No</td>
+              <td>No</td>
+            </tr>
+            <tr>
+              <td>Mouse clickable</td>
+              <td class="col-recommended">Yes</td>
+              <td>Yes</td>
+              <td>N/A</td>
+              <td>Yes</td>
+            </tr>
+            <tr>
+              <td>Horizontal space used</td>
+              <td class="col-recommended">Medium</td>
+              <td>Similar to current</td>
+              <td>None (saved)</td>
+              <td>Medium-high</td>
+            </tr>
+            <tr>
+              <td>Code change required</td>
+              <td class="col-recommended">Medium</td>
+              <td>Tiny</td>
+              <td>Small (delete)</td>
+              <td>Small</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <div class="page-footer">
+      <p>Tell Claude: <strong>"Option A"</strong>, <strong>"Option C but keep keyboard shortcuts"</strong>, or <strong>"more options"</strong></p>
+      <p>To change a past decision: <strong>"for decision-002 I want Option B instead"</strong></p>
+    </div>
+  </body>
+</html>
