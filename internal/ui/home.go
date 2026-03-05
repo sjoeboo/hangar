@@ -1431,7 +1431,7 @@ func (h *Home) cleanupNotifications() {
 func (h *Home) getVisibleHeight() int {
 	helpBarHeight := 2
 	panelTitleLines := 2
-	filterBarHeight := 1
+	filterBarHeight := 2 // nav tab row + filter row
 	updateBannerHeight := 0
 	if h.updateInfo != nil && h.updateInfo.Available {
 		updateBannerHeight = 1
@@ -7346,9 +7346,9 @@ func (h *Home) listItemAt(x, y int) int {
 	if h.maintenanceMsg != "" {
 		maintenanceBannerHeight = 1
 	}
-	// listStartRow: top bar (1) + filter bar (1) + optional banners + panel title+underline (2)
+	// listStartRow: top bar (1) + nav tab row + filter bar (2) + optional banners + panel title+underline (2)
 
-	listStartRow := 1 + 1 + updateBannerHeight + maintenanceBannerHeight + 2
+	listStartRow := 1 + 2 + updateBannerHeight + maintenanceBannerHeight + 2
 	if h.viewOffset > 0 {
 		listStartRow++ // "more above" indicator occupies the first list row
 	}
