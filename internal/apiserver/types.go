@@ -105,6 +105,7 @@ type TodoResponse struct {
 	ProjectPath string    `json:"project_path"`
 	Title       string    `json:"title"`
 	Description string    `json:"description,omitempty"`
+	Prompt      string    `json:"prompt,omitempty"`
 	Status      string    `json:"status"`
 	SessionID   string    `json:"session_id,omitempty"`
 	Order       int       `json:"order"`
@@ -124,6 +125,7 @@ type CreateTodoRequest struct {
 type UpdateTodoRequest struct {
 	Title       *string `json:"title,omitempty"`
 	Description *string `json:"description,omitempty"`
+	Prompt      *string `json:"prompt,omitempty"`
 	Status      *string `json:"status,omitempty"`
 	SessionID   *string `json:"session_id,omitempty"`
 }

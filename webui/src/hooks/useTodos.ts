@@ -14,7 +14,7 @@ export function useTodos(projectPath: string) {
 export function useUpdateTodo() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: ({ id, updates }: { id: string; updates: { status?: string; title?: string; description?: string } }) =>
+    mutationFn: ({ id, updates }: { id: string; updates: { status?: string; title?: string; description?: string; prompt?: string } }) =>
       api.updateTodo(id, updates),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['todos'] })
