@@ -5879,7 +5879,7 @@ func renderPill(label string, textFg, pillBg, barBg lipgloss.Color, bold bool) s
 // renderHeaderBar renders the top status/logo bar (row 0) used by all three tab views.
 func (h *Home) renderHeaderBar() string {
 	running, waiting, idle, _ := h.countSessionStatuses()
-	logo := RenderLogoCompact(running, waiting, idle)
+	logo := RenderLogoCompact(running, waiting, idle, ColorSurface)
 	titleStyle := lipgloss.NewStyle().Bold(true).Foreground(ColorAccent)
 	titleText := "Hangar"
 	if h.profile != "" && h.profile != session.DefaultProfile {

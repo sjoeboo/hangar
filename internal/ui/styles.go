@@ -727,7 +727,7 @@ func initStyles() {
 	filterPillWaitingActiveStyle = lipgloss.NewStyle().Foreground(ColorBg).Background(ColorYellow).Bold(true).Padding(0, 1)
 	filterPillIdleActiveStyle    = lipgloss.NewStyle().Foreground(ColorBg).Background(ColorTextDim).Bold(true).Padding(0, 1)
 	filterPillErrorActiveStyle   = lipgloss.NewStyle().Foreground(ColorBg).Background(ColorRed).Bold(true).Padding(0, 1)
-	filterPillInactiveStyle      = lipgloss.NewStyle().Foreground(ColorText).Background(ColorSurface).Padding(0, 1)
+	filterPillInactiveStyle      = lipgloss.NewStyle().Foreground(ColorComment).Padding(0, 1)
 	filterPillDimStyle           = lipgloss.NewStyle().Foreground(ColorText).Faint(true).Padding(0, 1)
 
 	prDetailSeparatorStyle   = lipgloss.NewStyle().Foreground(ColorBorder)
@@ -888,16 +888,31 @@ func getLogoIndicators(running, waiting, idle int) []string {
 // RenderLogoCompact renders the compact inline logo for the header
 // Shows REAL status: running=●, waiting=◐, idle=○
 // Format: ⟨ ● │ ◐ │ ○ ⟩  (using angle brackets for modern look)
-func RenderLogoCompact(running, waiting, idle int) string {
+// bg must match the row's background color so that each segment
+// explicitly declares it — preventing lipgloss \x1b[0m resets from
+// exposing the terminal default background between segments.
+func RenderLogoCompact(running, waiting, idle int, bg lipgloss.Color) string {
 	indicators := getLogoIndicators(running, waiting, idle)
-	bracketStyle := lipgloss.NewStyle().Foreground(ColorAccent).Bold(true)
+	bracketStyle := lipgloss.NewStyle().Foreground(ColorAccent).Background(bg).Bold(true)
+	borderStyle := lipgloss.NewStyle().Foreground(ColorBorder).Background(bg)
+	sp := lipgloss.NewStyle().Background(bg).Render(" ")
+	indicator := func(ind string) string {
+		var color lipgloss.Color
+		switch ind {
+		case "●":
+			color = ColorGreen
+		case "◐":
+			color = ColorYellow
+		default:
+			color = ColorTextDim
+		}
+		return lipgloss.NewStyle().Foreground(color).Background(bg).Bold(true).Render(ind)
+	}
 	return bracketStyle.Render("⟨") +
-		" " + RenderLogoIndicator(indicators[0]) +
-		LogoBorderStyle.Render(" │ ") +
-		RenderLogoIndicator(indicators[1]) +
-		LogoBorderStyle.Render(" │ ") +
-		RenderLogoIndicator(indicators[2]) + " " +
-		bracketStyle.Render("⟩")
+		sp + indicator(indicators[0]) +
+		borderStyle.Render(" │ ") + indicator(indicators[1]) +
+		borderStyle.Render(" │ ") + indicator(indicators[2]) +
+		sp + bracketStyle.Render("⟩")
 }
 
 // RenderLogoLarge renders the large logo for empty state
