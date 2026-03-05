@@ -6,8 +6,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/charmbracelet/glamour"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/glamour"
 	"github.com/charmbracelet/lipgloss"
 	prpkg "github.com/sjoeboo/hangar/internal/pr"
 )
@@ -31,10 +31,10 @@ var (
 	prDetailFocusPadStyle    = lipgloss.NewStyle().Background(lipgloss.Color("#1e2d3a"))
 
 	// Pre-compiled per-color styles for dynamic state/status rendering.
-	prDetailGreenStyle  = lipgloss.NewStyle().Foreground(ColorGreen)
-	prDetailRedStyle    = lipgloss.NewStyle().Foreground(ColorRed)
-	prDetailPurpleStyle = lipgloss.NewStyle().Foreground(ColorPurple)
-	prDetailYellowStyle = lipgloss.NewStyle().Foreground(ColorYellow)
+	prDetailGreenStyle   = lipgloss.NewStyle().Foreground(ColorGreen)
+	prDetailRedStyle     = lipgloss.NewStyle().Foreground(ColorRed)
+	prDetailPurpleStyle  = lipgloss.NewStyle().Foreground(ColorPurple)
+	prDetailYellowStyle  = lipgloss.NewStyle().Foreground(ColorYellow)
 	prDetailCommentStyle = lipgloss.NewStyle().Foreground(ColorComment)
 )
 
@@ -63,7 +63,7 @@ type PRDetailOverlay struct {
 	loading bool
 	err     error
 
-	tab         int // 0=Overview, 1=Description, 2=Diff, 3=Conversation
+	tab          int // 0=Overview, 1=Description, 2=Diff, 3=Conversation
 	scrollOffset int
 
 	// lines is the flat rendered-line cache for the current tab, rebuilt by rebuildLines.
@@ -186,7 +186,7 @@ func (o *PRDetailOverlay) View() string {
 	}
 
 	b.WriteString(sep + "\n")
-	hint := "  Tab/Shift+Tab switch tab · j/k scroll · g/G top/bottom · o browser · c comment · q close"
+	hint := "  Tab/Shift+Tab switch tab · j/k scroll · g/G top/bottom · o browser · a approve · c comment · q close"
 	if o.tab == 2 && len(o.diffFiles) > 0 {
 		hint = "  j/k navigate files · enter toggle · d/u half-page scroll · g/G top/bottom · o browser · q close"
 	}
@@ -254,6 +254,12 @@ func (o *PRDetailOverlay) HandleKey(key string) (bool, tea.Cmd) {
 	case "o":
 		if o.pr != nil && o.pr.URL != "" {
 			exec.Command("open", o.pr.URL).Start() //nolint:errcheck
+		}
+		return true, nil
+	case "a":
+		if o.pr != nil {
+			pr := o.pr
+			return true, func() tea.Msg { return prDetailApproveRequestMsg{pr: pr} }
 		}
 		return true, nil
 	case "c":
