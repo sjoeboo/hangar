@@ -5,6 +5,48 @@ All notable changes to Hangar will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.6.0] - 2026-03-05
+
+### Added
+
+- **TUI: Nav tab bar** — a persistent `Sessions · PRs · Todos` tab row appears below the
+  header in all three views. Click tabs or press `[`/`]` to cycle. Active tab uses a
+  powerline pill; inactive tabs are plain text.
+
+- **TUI: Labeled filter pills** — Sessions view shows `All · ● Running N · ◐ Waiting N · ○ Idle N`
+  below the nav tabs. Click a pill or press `!`/`@`/`#`/`$` to filter; click the active pill
+  to clear. Counts update live. Mouse-clickable.
+
+- **TUI: All-todos kanban** — Todos tab shows todos across all projects in one board. Each
+  card shows a dim project badge. Press `f` to filter to a specific project.
+
+- **TUI: Project picker for new todos** — pressing `n` in the all-projects todo view opens a
+  project picker (pre-selected to the active project) before the form. Pressing `n` when
+  already filtered jumps straight to the form.
+
+- **TUI: Todo filter shows all projects** — the `f` project filter now lists all known
+  projects from the group tree, not just those with existing todos.
+
+### Fixed
+
+- **TUI: Uniform header bar** — all views use `renderHeaderBar()` with consistent
+  `ColorSurface` background. Every rendered element carries an explicit background, eliminating
+  terminal-default gaps that made the logo brackets appear as a distinct box.
+
+- **TUI: No background boxes on inactive items** — inactive nav tabs and the `All` filter pill
+  no longer carry `ColorSurface` rectangles; they appear as plain text matching other inactive
+  items.
+
+- **TUI: No dark line in active filter pill** — pre-rendering the keyboard hint inside the
+  pill body caused a mid-body reset making the trailing space dark before the right powerline
+  cap. Active pill hints are now plain text.
+
+- **TUI: Filter bar click offset corrected** — filter pill mouse clicks now register on the
+  correct row after the separator row was introduced between nav tabs and filter bar.
+
+- **TUI: PR view layout consistency** — PR overview uses `renderHeaderBar()` and includes the
+  same separator row between nav tabs and its sub-tabs, matching Sessions view structure.
+
 ## [2.5.0] - 2026-03-04
 
 ### Added
