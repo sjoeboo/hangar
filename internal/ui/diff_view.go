@@ -220,7 +220,7 @@ func (dv *DiffView) View() string {
 	}
 
 	b.WriteString(sep + "\n")
-	hint := "  j/k navigate files · enter toggle · space/b page · d/u half-page · g/G top/bottom · e editor · q close"
+	hint := "  j/k navigate files · enter toggle · f/b page · d/u half-page · g/G top/bottom · e editor · q close"
 	b.WriteString(diffViewFooterStyle.Render(hint))
 
 	return lipgloss.NewStyle().
