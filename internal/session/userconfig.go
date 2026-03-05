@@ -20,6 +20,12 @@ const UserConfigFileName = "config.toml"
 
 // UserConfig represents user-facing configuration in TOML format
 type UserConfig struct {
+	// Editor is the command used to open a session's worktree directory.
+	// Examples: "nvim", "zed", "code", "idea", or a custom command like "my-editor --flag {path}"
+	// Use {path} as a placeholder for the worktree path; if omitted, the path is appended automatically.
+	// The $HANGAR_EDITOR environment variable overrides this setting.
+	Editor string `toml:"editor"`
+
 	// DefaultTool is the pre-selected AI tool when creating new sessions
 	// Valid values: "claude", "gemini", "opencode", "codex", or any custom tool name
 	// If empty or invalid, defaults to "shell" (no pre-selection)

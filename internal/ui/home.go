@@ -23,6 +23,7 @@ import (
 	"github.com/sjoeboo/hangar/internal/apiserver"
 	"github.com/sjoeboo/hangar/internal/clipboard"
 	"github.com/sjoeboo/hangar/internal/git"
+	"github.com/sjoeboo/hangar/internal/editor"
 	"github.com/sjoeboo/hangar/internal/logging"
 	prpkg "github.com/sjoeboo/hangar/internal/pr"
 	"github.com/sjoeboo/hangar/internal/session"
@@ -145,6 +146,7 @@ type Home struct {
 	worktreeFinishDialog *WorktreeFinishDialog // For finishing worktree sessions (optional merge + cleanup)
 	reviewDialog         *ReviewDialog         // For launching a review session for the current branch
 	todoDialog           *TodoDialog           // For viewing/managing per-project todos
+	editorPickerDialog   *EditorPickerDialog   // For picking an editor to open the worktree directory
 	prDetailOverlay      *PRDetailOverlay      // For viewing full PR details (Overview/Diff/Conversation)
 	pendingTodoID        string                // Todo ID waiting for a session to be created from it
 	pendingTodoPrompt    string                // prompt to send when the pending todo's session starts
@@ -799,6 +801,7 @@ func NewHomeWithProfileAndMode(profile string) *Home {
 		worktreeFinishDialog: NewWorktreeFinishDialog(),
 		reviewDialog:         NewReviewDialog(),
 		todoDialog:           NewTodoDialog(),
+		editorPickerDialog:   NewEditorPickerDialog(),
 		prDetailOverlay:      NewPRDetailOverlay(),
 		sendTextDialog:       NewSendTextDialog(),
 		cursor:               0,
@@ -2438,6 +2441,7 @@ func (h *Home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		h.settingsPanel.SetSize(msg.Width, msg.Height)
 		h.geminiModelDialog.SetSize(msg.Width, msg.Height)
 		h.prDetailOverlay.SetSize(msg.Width, msg.Height)
+		h.editorPickerDialog.SetSize(msg.Width, msg.Height)
 		return h, nil
 
 	case loadSessionsMsg:
@@ -2848,6 +2852,9 @@ func (h *Home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if h.todoDialog.IsVisible() {
 			return h.handleTodoDialogKey(msg)
+		}
+		if h.editorPickerDialog.IsVisible() {
+			return h.handleEditorPickerKey(msg)
 		}
 		if h.reviewDialog.IsVisible() {
 			action := h.reviewDialog.HandleKey(msg.String())
@@ -3288,6 +3295,7 @@ func (h *Home) handleMouseMsg(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 		h.sessionPickerDialog.IsVisible() || h.sendTextDialog.IsVisible() ||
 		h.worktreeFinishDialog.IsVisible() ||
 		h.todoDialog.IsVisible() || h.reviewDialog.IsVisible() ||
+		h.editorPickerDialog.IsVisible() ||
 		h.prDetailOverlay.IsVisible() {
 		return h, nil
 	}
@@ -3638,6 +3646,71 @@ func (h *Home) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 					h.diffView.SetSize(h.width, h.height)
 					h.diffView.Show()
 				}
+			}
+		}
+		return h, nil
+
+	case "e": // Open worktree/project directory in configured editor (fast path)
+		if h.cursor < len(h.flatItems) {
+			item := h.flatItems[h.cursor]
+			if item.Type == session.ItemTypeSession && item.Session != nil {
+				wtPath := item.Session.WorktreePath
+				if wtPath == "" {
+					wtPath = item.Session.ProjectPath
+				}
+				if wtPath == "" {
+					h.setError(fmt.Errorf("no directory to open — session has no worktree or project path"))
+					return h, nil
+				}
+				userCfg, _ := session.LoadUserConfig()
+				cfgEditor := ""
+				if userCfg != nil {
+					cfgEditor = userCfg.Editor
+				}
+				editorCmd := editor.GetCmd(cfgEditor)
+				sessionName := ""
+				if ts := item.Session.GetTmuxSession(); ts != nil {
+					sessionName = ts.Name
+				}
+				if editorCmd == "" {
+					// No editor configured — open picker so user can choose one
+					h.editorPickerDialog.Show(wtPath, sessionName, "")
+					h.editorPickerDialog.SetSize(h.width, h.height)
+					return h, nil
+				}
+				capturedPath, capturedSess, capturedCmd := wtPath, sessionName, editorCmd
+				return h, func() tea.Msg {
+					_ = editor.Launch(capturedCmd, capturedPath, capturedSess)
+					return nil
+				}
+			}
+		}
+		return h, nil
+
+	case "E": // Open editor picker overlay
+		if h.cursor < len(h.flatItems) {
+			item := h.flatItems[h.cursor]
+			if item.Type == session.ItemTypeSession && item.Session != nil {
+				wtPath := item.Session.WorktreePath
+				if wtPath == "" {
+					wtPath = item.Session.ProjectPath
+				}
+				if wtPath == "" {
+					h.setError(fmt.Errorf("no directory to open — session has no worktree or project path"))
+					return h, nil
+				}
+				sessionName := ""
+				if ts := item.Session.GetTmuxSession(); ts != nil {
+					sessionName = ts.Name
+				}
+				userCfg, _ := session.LoadUserConfig()
+				cfgEditor := ""
+				if userCfg != nil {
+					cfgEditor = userCfg.Editor
+				}
+				configCmd := editor.GetCmd(cfgEditor)
+				h.editorPickerDialog.Show(wtPath, sessionName, configCmd)
+				h.editorPickerDialog.SetSize(h.width, h.height)
 			}
 		}
 		return h, nil
@@ -6000,6 +6073,9 @@ func (h *Home) View() string {
 	if h.todoDialog.IsVisible() {
 		return h.todoDialog.View()
 	}
+	if h.editorPickerDialog.IsVisible() {
+		return h.editorPickerDialog.View()
+	}
 	if h.prDetailOverlay.IsVisible() {
 		return h.prDetailOverlay.View()
 	}
@@ -8026,6 +8102,32 @@ func (h *Home) handleTodoDialogKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		h.todoDialog.Hide()
 		h.newDialog.ShowInGroupWithWorktree(groupPath, groupName, projectPath, branchName)
 		return h, nil
+	}
+	return h, nil
+}
+
+// handleEditorPickerKey routes keypresses while the editor picker overlay is open.
+func (h *Home) handleEditorPickerKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc", "q":
+		h.editorPickerDialog.Hide()
+		return h, nil
+	default:
+		selected, editorCmd := h.editorPickerDialog.HandleKey(msg.String())
+		if selected {
+			wtPath := h.editorPickerDialog.worktreePath
+			tmuxSess := h.editorPickerDialog.tmuxSession
+			h.editorPickerDialog.Hide()
+			if editorCmd == "" {
+				h.setError(fmt.Errorf("no editor configured for Custom — set 'editor' in ~/.hangar/config.toml or $HANGAR_EDITOR"))
+				return h, nil
+			}
+			capturedCmd, capturedPath, capturedSess := editorCmd, wtPath, tmuxSess
+			return h, func() tea.Msg {
+				_ = editor.Launch(capturedCmd, capturedPath, capturedSess)
+				return nil
+			}
+		}
 	}
 	return h, nil
 }

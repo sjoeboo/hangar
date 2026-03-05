@@ -5,6 +5,18 @@ All notable changes to Hangar will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.6.0] - 2026-03-05
+
+### Added
+
+- **TUI: Open session directory in editor** — `e` fast-launches the configured editor for the
+  selected session's worktree or project directory; `E` opens a picker overlay to choose from
+  built-in presets (Neovim, Zed, VS Code, IntelliJ IDEA, Custom). Terminal editors (nvim, vim,
+  helix, emacs, etc.) open in a new tmux window within the session; GUI editors are launched as
+  detached background processes. Configure the default via `editor` in `~/.hangar/config.toml`
+  or override per-invocation with `$HANGAR_EDITOR`. Pressing `e` with no editor configured
+  automatically opens the picker for easy first-time setup.
+
 ## [2.5.0] - 2026-03-04
 
 ### Added
