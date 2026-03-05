@@ -1561,8 +1561,8 @@ func TestPRView_RenderShowsPRs(t *testing.T) {
 	if !strings.Contains(view, "Fix auth bug") {
 		t.Error("View should contain session title")
 	}
-	if !strings.Contains(view, "PR Overview") {
-		t.Error("View should show 'PR Overview' header label")
+	if !strings.Contains(view, "PRs") {
+		t.Error("View should show PRs nav tab")
 	}
 }
 

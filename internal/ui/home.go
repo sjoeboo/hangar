@@ -3217,8 +3217,8 @@ func (h *Home) handleNewDialogKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 // handlePRMouseMsg handles mouse events in the PR overview (viewMode=="prs").
 // Scroll wheel moves cursor; left-click selects a row (click selected row = open detail).
-// prDataRowOffset is: header(1)+navtab(1)+tabs(1)+colheader(1)+border(1) = 5 lines.
-const prDataRowOffset = 5
+// prDataRowOffset is: header(1)+navtab(1)+separator(1)+tabs(1)+colheader(1)+border(1) = 6 lines.
+const prDataRowOffset = 6
 
 func (h *Home) handlePRMouseMsg(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 	prs := h.prViewPRs()
@@ -5916,7 +5916,7 @@ func (h *Home) renderNavTabs() string {
 		if h.viewMode == tab.mode {
 			rendered = renderPill(tab.label, ColorBg, ColorAccent, ColorSurface, true)
 		} else {
-			rendered = lipgloss.NewStyle().Foreground(ColorComment).Padding(0, 1).Render(tab.label)
+			rendered = lipgloss.NewStyle().Foreground(ColorComment).Background(ColorSurface).Padding(0, 1).Render(tab.label)
 		}
 		// Track click region for mouse support
 		w := lipgloss.Width(rendered)
@@ -7023,21 +7023,15 @@ func (h *Home) renderPROverview() string {
 	var b strings.Builder
 
 	// ── Header ──────────────────────────────────────────────────────────
-	running, waiting, idle, _ := h.countSessionStatuses()
-	logo := RenderLogoCompact(running, waiting, idle)
-	titleStyle := lipgloss.NewStyle().Bold(true).Foreground(ColorAccent)
-	viewLabel := lipgloss.NewStyle().Foreground(ColorPurple).Bold(true).Render("PR Overview")
-	headerRight := lipgloss.NewStyle().Foreground(ColorComment).Render(fmt.Sprintf("%d PRs", len(prs)))
-	headerLeft := logo + "  " + titleStyle.Render("Hangar") + "  " + viewLabel
-	pad := h.width - lipgloss.Width(headerLeft) - lipgloss.Width(headerRight)
-	if pad < 1 {
-		pad = 1
-	}
-	b.WriteString(headerLeft + strings.Repeat(" ", pad) + headerRight)
+	b.WriteString(h.renderHeaderBar())
 	b.WriteString("\n")
 
 	// ── Nav tab bar (Sessions · PRs · Todos) ────────────────────────────
 	b.WriteString(h.renderNavTabs())
+	b.WriteString("\n")
+
+	// ── Separator ────────────────────────────────────────────────────────
+	b.WriteString(lipgloss.NewStyle().Background(ColorBg).Width(h.width).Render(""))
 	b.WriteString("\n")
 
 	// ── Tab bar ──────────────────────────────────────────────────────────
@@ -7089,8 +7083,8 @@ func (h *Home) renderPROverview() string {
 	b.WriteString("\n")
 
 	// ── Rows ─────────────────────────────────────────────────────────────
-	// header(1) + navtab(1) + tabs(1) + colheader(1) + border(1) + border(1) + helpbar(2)
-	contentHeight := h.height - 8
+	// header(1) + navtab(1) + separator(1) + tabs(1) + colheader(1) + border(1) + border(1) + helpbar(2)
+	contentHeight := h.height - 9
 	if contentHeight < 1 {
 		contentHeight = 1
 	}
