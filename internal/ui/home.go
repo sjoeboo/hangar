@@ -1291,7 +1291,7 @@ func (h *Home) syncViewport() {
 	panelTitleLines := 2 // SESSIONS title + underline (matches View())
 
 	// Filter bar is always shown for consistent layout (matches View())
-	filterBarHeight := 2 // nav tab row + filter row
+	filterBarHeight := 3 // nav tab row + separator + filter row
 	updateBannerHeight := 0
 	if h.updateInfo != nil && h.updateInfo.Available {
 		updateBannerHeight = 1
@@ -1431,7 +1431,7 @@ func (h *Home) cleanupNotifications() {
 func (h *Home) getVisibleHeight() int {
 	helpBarHeight := 2
 	panelTitleLines := 2
-	filterBarHeight := 2 // nav tab row + filter row
+	filterBarHeight := 3 // nav tab row + separator + filter row
 	updateBannerHeight := 0
 	if h.updateInfo != nil && h.updateInfo.Available {
 		updateBannerHeight = 1
@@ -5878,7 +5878,7 @@ func renderPill(label string, textFg, pillBg, barBg lipgloss.Color, bold bool) s
 
 // renderHeaderBar renders the top status/logo bar (row 0) used by all three tab views.
 func (h *Home) renderHeaderBar() string {
-	running, waiting, idle, errored := h.countSessionStatuses()
+	running, waiting, idle, _ := h.countSessionStatuses()
 	logo := RenderLogoCompact(running, waiting, idle)
 	titleStyle := lipgloss.NewStyle().Bold(true).Foreground(ColorAccent)
 	titleText := "Hangar"
@@ -5886,26 +5886,8 @@ func (h *Home) renderHeaderBar() string {
 		titleText = "Hangar " + lipgloss.NewStyle().Foreground(ColorCyan).Bold(true).Render("["+h.profile+"]")
 	}
 	title := titleStyle.Render(titleText)
-	var statsParts []string
-	statsSep := lipgloss.NewStyle().Foreground(ColorBorder).Render(" • ")
-	if running > 0 {
-		statsParts = append(statsParts, lipgloss.NewStyle().Foreground(ColorGreen).Render(fmt.Sprintf("● %d running", running)))
-	}
-	if waiting > 0 {
-		statsParts = append(statsParts, lipgloss.NewStyle().Foreground(ColorYellow).Render(fmt.Sprintf("◐ %d waiting", waiting)))
-	}
-	if idle > 0 {
-		statsParts = append(statsParts, lipgloss.NewStyle().Foreground(ColorText).Render(fmt.Sprintf("○ %d idle", idle)))
-	}
-	if errored > 0 {
-		statsParts = append(statsParts, lipgloss.NewStyle().Foreground(ColorRed).Render(fmt.Sprintf("✕ %d error", errored)))
-	}
-	stats := "no sessions"
-	if len(statsParts) > 0 {
-		stats = strings.Join(statsParts, statsSep)
-	}
 	versionBadge := lipgloss.NewStyle().Foreground(ColorComment).Faint(true).Render("v" + Version)
-	headerLeft := lipgloss.JoinHorizontal(lipgloss.Left, logo, "  ", title, "  ", stats)
+	headerLeft := lipgloss.JoinHorizontal(lipgloss.Left, logo, "  ", title)
 	pad := h.width - lipgloss.Width(headerLeft) - lipgloss.Width(versionBadge) - 2
 	if pad < 1 {
 		pad = 1
@@ -5934,7 +5916,7 @@ func (h *Home) renderNavTabs() string {
 		if h.viewMode == tab.mode {
 			rendered = renderPill(tab.label, ColorBg, ColorAccent, ColorSurface, true)
 		} else {
-			rendered = renderPill(tab.label, ColorComment, ColorSurface, ColorSurface, false)
+			rendered = lipgloss.NewStyle().Foreground(ColorComment).Padding(0, 1).Render(tab.label)
 		}
 		// Track click region for mouse support
 		w := lipgloss.Width(rendered)
@@ -6146,8 +6128,9 @@ func (h *Home) View() string {
 		return h.reviewDialog.View()
 	}
 	if h.todoDialog.IsVisible() {
-		h.todoDialog.SetSize(h.width, h.height-2)
-		return h.renderHeaderBar() + "\n" + h.renderNavTabs() + "\n" + h.todoDialog.View()
+		h.todoDialog.SetSize(h.width, h.height-3)
+		sep := lipgloss.NewStyle().Background(ColorBg).Width(h.width).Render("")
+		return h.renderHeaderBar() + "\n" + h.renderNavTabs() + "\n" + sep + "\n" + h.todoDialog.View()
 	}
 	if h.prDetailOverlay.IsVisible() {
 		return h.prDetailOverlay.View()
@@ -6166,71 +6149,7 @@ func (h *Home) View() string {
 	// ═══════════════════════════════════════════════════════════════════
 	// HEADER BAR
 	// ═══════════════════════════════════════════════════════════════════
-	// Calculate real session status counts for logo and stats
-	running, waiting, idle, errored := h.countSessionStatuses()
-	logo := RenderLogoCompact(running, waiting, idle)
-
-	titleStyle := lipgloss.NewStyle().
-		Bold(true).
-		Foreground(ColorAccent)
-
-	// Show profile in title if not default
-	titleText := "Hangar"
-	if h.profile != "" && h.profile != session.DefaultProfile {
-		profileStyle := lipgloss.NewStyle().
-			Foreground(ColorCyan).
-			Bold(true)
-		titleText = "Hangar " + profileStyle.Render("["+h.profile+"]")
-	}
-	title := titleStyle.Render(titleText)
-
-	// Status-based stats (more useful than group/session counts)
-	// Format: ● 2 running • ◐ 1 waiting • ○ 3 idle (• ✕ 1 error)
-	var statsParts []string
-	statsSep := lipgloss.NewStyle().Foreground(ColorBorder).Render(" • ")
-
-	if running > 0 {
-		statsParts = append(statsParts, lipgloss.NewStyle().Foreground(ColorGreen).Render(fmt.Sprintf("● %d running", running)))
-	}
-	if waiting > 0 {
-		statsParts = append(statsParts, lipgloss.NewStyle().Foreground(ColorYellow).Render(fmt.Sprintf("◐ %d waiting", waiting)))
-	}
-	if idle > 0 {
-		statsParts = append(statsParts, lipgloss.NewStyle().Foreground(ColorText).Render(fmt.Sprintf("○ %d idle", idle)))
-	}
-	if errored > 0 {
-		statsParts = append(statsParts, lipgloss.NewStyle().Foreground(ColorRed).Render(fmt.Sprintf("✕ %d error", errored)))
-	}
-
-	// Fallback if no sessions
-	stats := ""
-	if len(statsParts) > 0 {
-		stats = strings.Join(statsParts, statsSep)
-	} else {
-		stats = lipgloss.NewStyle().Foreground(ColorText).Render("no sessions")
-	}
-
-	// Version badge (right-aligned, subtle inline style - no border to keep single line)
-	versionStyle := lipgloss.NewStyle().
-		Foreground(ColorComment).
-		Faint(true)
-	versionBadge := versionStyle.Render("v" + Version)
-
-	// Fill remaining header space
-	headerLeft := lipgloss.JoinHorizontal(lipgloss.Left, logo, "  ", title, "  ", stats)
-	headerPadding := h.width - lipgloss.Width(headerLeft) - lipgloss.Width(versionBadge) - 2
-	if headerPadding < 1 {
-		headerPadding = 1
-	}
-	headerContent := headerLeft + strings.Repeat(" ", headerPadding) + versionBadge
-
-	headerBar := lipgloss.NewStyle().
-		Background(ColorSurface).
-		MaxWidth(h.width).
-		Padding(0, 1).
-		Render(headerContent)
-
-	b.WriteString(headerBar)
+	b.WriteString(h.renderHeaderBar())
 	b.WriteString("\n")
 
 	// ═══════════════════════════════════════════════════════════════════
@@ -6243,7 +6162,9 @@ func (h *Home) View() string {
 	// FILTER BAR (labeled status filter pills — Sessions view only)
 	// ═══════════════════════════════════════════════════════════════════
 	// Always show filter bar for consistent layout (prevents viewport jumping)
-	filterBarHeight := 2 // nav tab row + filter row
+	filterBarHeight := 3 // nav tab row + separator + filter row
+	b.WriteString(lipgloss.NewStyle().Background(ColorBg).Width(h.width).Render(""))
+	b.WriteString("\n")
 	b.WriteString(h.renderFilterBar())
 	b.WriteString("\n")
 
@@ -7444,9 +7365,9 @@ func (h *Home) listItemAt(x, y int) int {
 	if h.maintenanceMsg != "" {
 		maintenanceBannerHeight = 1
 	}
-	// listStartRow: top bar (1) + nav tab row + filter bar (2) + optional banners + panel title+underline (2)
+	// listStartRow: top bar (1) + nav tab row + separator + filter bar (3) + optional banners + panel title+underline (2)
 
-	listStartRow := 1 + 2 + updateBannerHeight + maintenanceBannerHeight + 2
+	listStartRow := 1 + 3 + updateBannerHeight + maintenanceBannerHeight + 2
 	if h.viewOffset > 0 {
 		listStartRow++ // "more above" indicator occupies the first list row
 	}
