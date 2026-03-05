@@ -1,0 +1,63 @@
+{
+  "projectName": "Hangar TUI Improvements",
+  "projectDescription": "Add top-level tab navigation between Sessions/PRs views, redesign the confusing status filter bar, and add mouse support.",
+  "createdAt": "2026-03-05T00:00:00Z",
+  "decisions": [
+    {
+      "id": "decision-001",
+      "slug": "tab-navigation-model",
+      "title": "Tab Navigation Model",
+      "category": "ia",
+      "status": "chosen",
+      "chosenOption": "B",
+      "chosenTitle": "Extensible Nav Bar",
+      "options": ["A", "B", "C", "D"],
+      "recommended": "B",
+      "htmlFile": "decision-001-tab-navigation-model.html",
+      "decidedAt": "2026-03-05T00:00:00Z",
+      "summary": "What top-level views exist as tabs and how do users navigate between them"
+    },
+    {
+      "id": "decision-002",
+      "slug": "tab-visual-style",
+      "title": "Tab Visual Style",
+      "category": "visual",
+      "status": "chosen",
+      "chosenOption": "A",
+      "chosenTitle": "Rounded Pills",
+      "options": ["A", "B", "C", "D"],
+      "recommended": "A",
+      "htmlFile": "decision-002-tab-visual-style.html",
+      "decidedAt": "2026-03-05T00:00:00Z",
+      "summary": "How the top-level view tabs look in the terminal UI"
+    },
+    {
+      "id": "decision-003",
+      "slug": "filter-bar-redesign",
+      "title": "Filter Bar Redesign",
+      "category": "visual",
+      "status": "chosen",
+      "chosenOption": "A",
+      "chosenTitle": "Labeled Status Pills",
+      "options": ["A", "B", "C", "D"],
+      "recommended": "A",
+      "htmlFile": "decision-003-filter-bar-redesign.html",
+      "decidedAt": "2026-03-05T00:00:00Z",
+      "summary": "Whether and how to fix the cryptic !@#$ filter hint"
+    },
+    {
+      "id": "decision-004",
+      "slug": "mouse-support-scope",
+      "title": "Mouse Support Scope",
+      "category": "interaction",
+      "status": "chosen",
+      "chosenOption": "C",
+      "chosenTitle": "Tabs + Filters + Session Click",
+      "options": ["A", "B", "C", "D"],
+      "recommended": "B",
+      "htmlFile": "decision-004-mouse-support-scope.html",
+      "decidedAt": "2026-03-05T00:00:00Z",
+      "summary": "Which UI elements become mouse-clickable"
+    }
+  ]
+}

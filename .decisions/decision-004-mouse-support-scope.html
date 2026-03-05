@@ -1,0 +1,440 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Decision 4: Mouse Support Scope — Hangar TUI Improvements</title>
+    <style>
+      *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+      body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif; background: #f1f5f9; color: #1a1a2e; min-height: 100vh; padding: 2rem; line-height: 1.6; }
+      header { text-align: center; margin-bottom: 2.5rem; padding-bottom: 1.5rem; border-bottom: 2px solid #e2e8f0; max-width: 1200px; margin-left: auto; margin-right: auto; }
+      .decision-number { font-size: 0.75rem; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: #64748b; }
+      header h1 { font-size: 1.6rem; font-weight: 700; color: #0f172a; letter-spacing: -0.02em; margin-top: 0.25rem; }
+      .category-badge { display: inline-block; padding: 4px 12px; border-radius: 999px; font-size: 0.7rem; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; margin-top: 0.5rem; }
+      .category-badge.interaction { background: #e0f2fe; color: #0369a1; }
+      .decision-description { font-size: 1rem; color: #475569; margin-top: 0.75rem; max-width: 700px; margin-left: auto; margin-right: auto; line-height: 1.7; }
+      .instruction { margin-top: 1rem; font-size: 0.85rem; background: #eff6ff; color: #1d4ed8; padding: 0.6rem 1.25rem; border-radius: 8px; display: inline-block; border: 1px solid #bfdbfe; }
+      .options-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; max-width: 1200px; margin: 0 auto 3rem; }
+      .option-card { background: white; border-radius: 16px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.08), 0 4px 16px rgba(0,0,0,0.04); border: 2px solid #e2e8f0; transition: all 0.2s ease; display: flex; flex-direction: column; position: relative; }
+      .option-card:hover { border-color: #6366f1; box-shadow: 0 4px 20px rgba(99,102,241,0.12); }
+      .card-header { padding: 1rem 1.25rem 0.75rem; border-bottom: 1px solid #f1f5f9; display: flex; flex-direction: column; gap: 0.2rem; }
+      .card-header-top { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; }
+      .option-label { font-size: 0.65rem; font-weight: 800; letter-spacing: 0.1em; text-transform: uppercase; }
+      .option-card.option-a .option-label { color: #7c3aed; }
+      .option-card.option-b .option-label { color: #0891b2; }
+      .option-card.option-c .option-label { color: #059669; }
+      .option-card.option-d .option-label { color: #dc2626; }
+      .option-title { font-size: 1.05rem; font-weight: 600; color: #0f172a; }
+      .recommended-badge { background: #f59e0b; color: white; padding: 3px 10px; border-radius: 999px; font-size: 0.65rem; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; white-space: nowrap; }
+      .option-card.chosen { border: 3px solid #059669; box-shadow: 0 4px 20px rgba(5,150,105,0.15); }
+      .option-card.chosen:hover { border-color: #059669; }
+      .card-badges { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; flex-shrink: 0; }
+      .chosen-badge { background: #059669; color: white; padding: 3px 10px; border-radius: 999px; font-size: 0.65rem; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; white-space: nowrap; display: none; }
+      .option-card.chosen .chosen-badge { display: inline-block; }
+      .option-card.not-chosen { opacity: 0.55; filter: grayscale(20%); }
+      .option-card.not-chosen:hover { opacity: 0.8; filter: none; }
+      .visual-preview { padding: 1.5rem; background: #f8fafc; min-height: 220px; display: flex; align-items: center; justify-content: center; flex: 1; }
+      .option-summary { padding: 1rem 1.25rem; font-size: 0.875rem; color: #334155; line-height: 1.65; border-top: 1px solid #f1f5f9; }
+      .verdict { display: grid; grid-template-columns: 1fr 1fr; border-top: 1px solid #f1f5f9; }
+      .pros, .cons { padding: 1rem 1.25rem; }
+      .pros { border-right: 1px solid #f1f5f9; }
+      .pros h3, .cons h3 { font-size: 0.65rem; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; margin-bottom: 0.5rem; }
+      .pros h3 { color: #059669; }
+      .cons h3 { color: #e11d48; }
+      .verdict ul { list-style: none; padding: 0; }
+      .verdict li { font-size: 0.8rem; color: #475569; line-height: 1.5; padding: 0.15rem 0; padding-left: 1rem; position: relative; }
+      .pros li::before { content: "✓ "; color: #059669; font-weight: 700; position: absolute; left: 0; }
+      .cons li::before { content: "! "; color: #e11d48; font-weight: 700; position: absolute; left: 0; }
+      .card-footer { padding: 0.75rem 1.25rem; background: #f8fafc; border-top: 1px solid #f1f5f9; }
+      .tell-claude { font-size: 0.75rem; color: #64748b; background: #f1f5f9; padding: 0.35rem 0.65rem; border-radius: 6px; display: block; font-family: "SF Mono", "Fira Code", monospace; }
+      .comparison-section { max-width: 1200px; margin: 0 auto 3rem; }
+      .comparison-section h2 { font-size: 1.1rem; font-weight: 700; color: #0f172a; margin-bottom: 1rem; }
+      .comparison-table-wrapper { overflow-x: auto; border-radius: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.08), 0 4px 16px rgba(0,0,0,0.04); }
+      .comparison-table { width: 100%; border-collapse: collapse; background: white; font-size: 0.85rem; }
+      .comparison-table th { padding: 0.85rem 1rem; text-align: left; font-weight: 700; font-size: 0.75rem; letter-spacing: 0.05em; text-transform: uppercase; border-bottom: 2px solid #e2e8f0; white-space: nowrap; background: white; }
+      .comparison-table th:first-child { background: #f8fafc; color: #64748b; }
+      .comparison-table th.col-a { color: #7c3aed; }
+      .comparison-table th.col-b { color: #0891b2; }
+      .comparison-table th.col-c { color: #059669; }
+      .comparison-table th.col-d { color: #dc2626; }
+      .comparison-table td { padding: 0.75rem 1rem; border-bottom: 1px solid #f1f5f9; color: #334155; }
+      .comparison-table td:first-child { font-weight: 600; color: #475569; background: #f8fafc; }
+      .comparison-table tr:nth-child(even) td { background: #fafbfc; }
+      .comparison-table tr:nth-child(even) td:first-child { background: #f1f5f9; }
+      .comparison-table .col-recommended { background: #fffbeb !important; }
+      .comparison-table .col-chosen { background: #ecfdf5 !important; }
+      .comparison-table tr:last-child td { border-bottom: none; }
+      .page-footer { max-width: 1200px; margin: 0 auto; text-align: center; padding: 1.5rem; background: white; border-radius: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
+      .page-footer p { font-size: 0.85rem; color: #64748b; margin: 0.3rem 0; }
+      .page-footer strong { color: #334155; }
+      .back-link { display: inline-block; margin-bottom: 1.5rem; font-size: 0.85rem; color: #6366f1; text-decoration: none; }
+      .back-link:hover { text-decoration: underline; }
+      @media (max-width: 768px) { .options-grid { grid-template-columns: 1fr; } body { padding: 1rem; } }
+
+      /* Flow diagram */
+      .flow-container { display: flex; flex-direction: column; align-items: stretch; gap: 0; padding: 0.5rem; width: 100%; max-width: 260px; }
+      .flow-step { display: flex; align-items: center; gap: 10px; background: white; border: 2px solid #e2e8f0; border-radius: 10px; padding: 7px 11px; font-size: 0.68rem; font-weight: 600; color: #334155; box-shadow: 0 1px 2px rgba(0,0,0,0.05); }
+      .flow-step.highlight { border-color: #6366f1; background: #eff6ff; color: #1d4ed8; }
+      .flow-step.success { border-color: #059669; background: #ecfdf5; color: #065f46; }
+      .flow-step-number { width: 20px; height: 20px; border-radius: 50%; background: #e2e8f0; color: #475569; display: flex; align-items: center; justify-content: center; font-size: 0.58rem; font-weight: 700; flex-shrink: 0; }
+      .flow-step.highlight .flow-step-number { background: #6366f1; color: white; }
+      .flow-step.success .flow-step-number { background: #059669; color: white; }
+      .flow-step-label { flex: 1; }
+      .flow-down-arrow { font-size: 0.9rem; color: #94a3b8; padding: 1px 0; text-align: center; }
+
+      /* Clickable zone diagram */
+      .zone-diagram { width: 100%; max-width: 300px; font-family: "SF Mono", "Fira Code", monospace; font-size: 0.63rem; }
+      .zone-row { display: flex; gap: 0; }
+      .zone-cell { padding: 5px 8px; border: 1px solid #2a3040; text-align: center; white-space: nowrap; }
+      .zone-clickable { background: #1a3a2e; border-color: #059669; color: #4ade80; font-weight: 700; }
+      .zone-clickable-2 { background: #1a2a3e; border-color: #0891b2; color: #22d3ee; font-weight: 700; }
+      .zone-clickable-3 { background: #2a1a2e; border-color: #7c3aed; color: #a78bfa; font-weight: 700; }
+      .zone-passive { background: #1a1f2e; color: #4a5568; }
+      .zone-label { font-size: 0.55rem; color: #64748b; text-align: center; margin-top: 6px; }
+      .zone-legend { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+      .zone-legend-item { display: flex; align-items: center; gap: 4px; font-size: 0.58rem; color: #475569; }
+      .zone-dot { width: 8px; height: 8px; border-radius: 2px; }
+    </style>
+  </head>
+  <body>
+    <a href="index.html" class="back-link">← All Decisions</a>
+
+    <header>
+      <span class="decision-number">Decision 4 of 4</span>
+      <h1>Mouse Support Scope</h1>
+      <span class="category-badge interaction">Interaction</span>
+      <p class="decision-description">
+        Bubble Tea (the TUI framework hangar uses) supports mouse events — you just have to opt in and handle them. Mouse support already exists for the PR overview table. The question is how far to extend it for the new nav tabs and filter pills. More clickable zones = more implementation work + more edge cases to test. Where's the right stopping point?
+      </p>
+      <p class="instruction">
+        Tell Claude: <strong>"Option A"</strong> · <strong>"Option B"</strong> · <strong>"Option C"</strong> · <strong>"Option D"</strong> · <strong>"more options"</strong>
+      </p>
+    </header>
+
+    <main class="options-grid">
+
+      <!-- Option A: Tabs only -->
+      <article class="option-card option-a not-chosen">
+        <div class="card-header">
+          <div class="card-header-top">
+            <span class="option-label">Option A</span>
+            <div class="card-badges">
+              <span class="chosen-badge">Chosen</span>
+            </div>
+          </div>
+          <h2 class="option-title">Tabs Only</h2>
+        </div>
+        <div class="visual-preview">
+          <div class="zone-diagram">
+            <div class="zone-row">
+              <div class="zone-cell zone-clickable" style="flex:1">Sessions ✓</div>
+              <div class="zone-cell zone-clickable" style="flex:1">PRs ✓</div>
+              <div class="zone-cell zone-clickable" style="flex:1">Todos ✓</div>
+            </div>
+            <div class="zone-row">
+              <div class="zone-cell zone-passive" style="flex:1">Running ! &nbsp;</div>
+              <div class="zone-cell zone-passive" style="flex:1">Waiting @</div>
+              <div class="zone-cell zone-passive" style="flex:1">Idle #&nbsp;&nbsp;&nbsp;</div>
+            </div>
+            <div class="zone-row">
+              <div class="zone-cell zone-passive" style="flex:3; font-size:0.58rem; color:#2e3a4e">session items (keyboard only)</div>
+            </div>
+            <div class="zone-row">
+              <div class="zone-cell zone-passive" style="flex:3; font-size:0.58rem; color:#2e3a4e">preview pane</div>
+            </div>
+            <div class="zone-legend">
+              <div class="zone-legend-item"><div class="zone-dot" style="background:#059669"></div> mouse clickable</div>
+              <div class="zone-legend-item"><div class="zone-dot" style="background:#2a3040"></div> keyboard only</div>
+            </div>
+          </div>
+        </div>
+        <div class="option-summary">
+          Only the three nav tabs (Sessions, PRs, Todos) respond to mouse clicks. Everything else — filter pills, session list items, preview pane — stays keyboard-only. This is the minimum viable mouse addition: just make the new navigation elements clickable.
+        </div>
+        <div class="verdict">
+          <div class="pros">
+            <h3>Works well when</h3>
+            <ul>
+              <li>Smallest implementation surface, fewest edge cases</li>
+              <li>Keyboard users aren't impacted at all</li>
+              <li>You can always expand mouse support later</li>
+            </ul>
+          </div>
+          <div class="cons">
+            <h3>Watch out for</h3>
+            <ul>
+              <li>Filter pills look clickable (labeled pills) but aren't</li>
+              <li>Inconsistent — some rows are clickable, others aren't</li>
+            </ul>
+          </div>
+        </div>
+        <div class="card-footer">
+          <code class="tell-claude">Tell Claude: "Option A"</code>
+        </div>
+      </article>
+
+      <!-- Option B: Tabs + filter pills (recommended) -->
+      <article class="option-card option-b not-chosen">
+        <div class="card-header">
+          <div class="card-header-top">
+            <span class="option-label">Option B</span>
+            <div class="card-badges">
+              <span class="recommended-badge">Recommended</span>
+              <span class="chosen-badge">Chosen</span>
+            </div>
+          </div>
+          <h2 class="option-title">Tabs + Filter Pills</h2>
+        </div>
+        <div class="visual-preview">
+          <div class="zone-diagram">
+            <div class="zone-row">
+              <div class="zone-cell zone-clickable" style="flex:1">Sessions ✓</div>
+              <div class="zone-cell zone-clickable" style="flex:1">PRs ✓</div>
+              <div class="zone-cell zone-clickable" style="flex:1">Todos ✓</div>
+            </div>
+            <div class="zone-row">
+              <div class="zone-cell zone-clickable-2" style="flex:1">Running ✓</div>
+              <div class="zone-cell zone-clickable-2" style="flex:1">Waiting ✓</div>
+              <div class="zone-cell zone-clickable-2" style="flex:1">Idle ✓&nbsp;&nbsp;</div>
+            </div>
+            <div class="zone-row">
+              <div class="zone-cell zone-passive" style="flex:3; font-size:0.58rem; color:#2e3a4e">session items (keyboard only)</div>
+            </div>
+            <div class="zone-row">
+              <div class="zone-cell zone-passive" style="flex:3; font-size:0.58rem; color:#2e3a4e">preview pane</div>
+            </div>
+            <div class="zone-legend">
+              <div class="zone-legend-item"><div class="zone-dot" style="background:#059669"></div> nav tabs</div>
+              <div class="zone-legend-item"><div class="zone-dot" style="background:#0891b2"></div> filter pills</div>
+              <div class="zone-legend-item"><div class="zone-dot" style="background:#2a3040"></div> keyboard only</div>
+            </div>
+          </div>
+        </div>
+        <div class="option-summary">
+          Both the nav tabs and the status filter pills are mouse-clickable. This is the natural choice: since we're relabeling the filter pills to look like interactive controls (Option A from Decision 3), they should actually <em>behave</em> as interactive controls. Click <strong>Waiting</strong> to filter to waiting sessions; click <strong>Sessions</strong> to switch views. Session list items stay keyboard-driven.
+        </div>
+        <div class="verdict">
+          <div class="pros">
+            <h3>Works well when</h3>
+            <ul>
+              <li>UI affordance matches behavior (labeled pills = clickable)</li>
+              <li>Mouse users can do the most common navigation actions</li>
+              <li>Consistent: all controls in the top two rows are clickable</li>
+            </ul>
+          </div>
+          <div class="cons">
+            <h3>Watch out for</h3>
+            <ul>
+              <li>Requires hit-testing both rows of elements</li>
+              <li>Need to guard against accidental click during scroll</li>
+            </ul>
+          </div>
+        </div>
+        <div class="card-footer">
+          <code class="tell-claude">Tell Claude: "Option B"</code>
+        </div>
+      </article>
+
+      <!-- Option C: Tabs + filter + session list click to select -->
+      <article class="option-card option-c chosen">
+        <div class="card-header">
+          <div class="card-header-top">
+            <span class="option-label">Option C</span>
+            <div class="card-badges">
+              <span class="chosen-badge">Chosen</span>
+            </div>
+          </div>
+          <h2 class="option-title">Tabs + Filters + Session Click</h2>
+        </div>
+        <div class="visual-preview">
+          <div class="zone-diagram">
+            <div class="zone-row">
+              <div class="zone-cell zone-clickable" style="flex:1">Sessions ✓</div>
+              <div class="zone-cell zone-clickable" style="flex:1">PRs ✓</div>
+              <div class="zone-cell zone-clickable" style="flex:1">Todos ✓</div>
+            </div>
+            <div class="zone-row">
+              <div class="zone-cell zone-clickable-2" style="flex:1">Running ✓</div>
+              <div class="zone-cell zone-clickable-2" style="flex:1">Waiting ✓</div>
+              <div class="zone-cell zone-clickable-2" style="flex:1">Idle ✓&nbsp;&nbsp;</div>
+            </div>
+            <div class="zone-row">
+              <div class="zone-cell zone-clickable-3" style="flex:3; font-size:0.6rem">session items — click to select, dblclick to attach ✓</div>
+            </div>
+            <div class="zone-row">
+              <div class="zone-cell zone-passive" style="flex:3; font-size:0.58rem; color:#2e3a4e">preview pane</div>
+            </div>
+            <div class="zone-legend">
+              <div class="zone-legend-item"><div class="zone-dot" style="background:#059669"></div> nav tabs</div>
+              <div class="zone-legend-item"><div class="zone-dot" style="background:#0891b2"></div> filter pills</div>
+              <div class="zone-legend-item"><div class="zone-dot" style="background:#7c3aed"></div> session items</div>
+            </div>
+          </div>
+        </div>
+        <div class="option-summary">
+          Tabs, filter pills, and session list items are all mouse-responsive. Single-click moves the cursor to that session (same as pressing ↑/↓). Double-click attaches (same as pressing Enter). This is how tools like <code>lazygit</code> and <code>k9s</code> handle their list views. Makes hangar feel much more like a normal GUI app.
+        </div>
+        <div class="verdict">
+          <div class="pros">
+            <h3>Works well when</h3>
+            <ul>
+              <li>Users expect mouse to work everywhere</li>
+              <li>Sessions list is long and scrolling by mouse is natural</li>
+              <li>Consistent with how k9s, lazygit behave</li>
+            </ul>
+          </div>
+          <div class="cons">
+            <h3>Watch out for</h3>
+            <ul>
+              <li>Hit-testing session rows requires tracking render positions</li>
+              <li>Mouse scroll vs click disambiguation in Bubble Tea needs care</li>
+              <li>More implementation work — medium complexity</li>
+            </ul>
+          </div>
+        </div>
+        <div class="card-footer">
+          <code class="tell-claude">Tell Claude: "Option C"</code>
+        </div>
+      </article>
+
+      <!-- Option D: Full mouse — tabs + filters + sessions + scroll wheel -->
+      <article class="option-card option-d not-chosen">
+        <div class="card-header">
+          <div class="card-header-top">
+            <span class="option-label">Option D</span>
+            <div class="card-badges">
+              <span class="chosen-badge">Chosen</span>
+            </div>
+          </div>
+          <h2 class="option-title">Full Mouse Mode</h2>
+        </div>
+        <div class="visual-preview">
+          <div class="flow-container">
+            <div class="flow-step highlight">
+              <span class="flow-step-number">1</span>
+              <span class="flow-step-label">Click tab → switch view</span>
+            </div>
+            <div class="flow-down-arrow">↓</div>
+            <div class="flow-step highlight">
+              <span class="flow-step-number">2</span>
+              <span class="flow-step-label">Click filter pill → filter list</span>
+            </div>
+            <div class="flow-down-arrow">↓</div>
+            <div class="flow-step highlight">
+              <span class="flow-step-number">3</span>
+              <span class="flow-step-label">Click session → select it</span>
+            </div>
+            <div class="flow-down-arrow">↓</div>
+            <div class="flow-step highlight">
+              <span class="flow-step-number">4</span>
+              <span class="flow-step-label">Scroll wheel → scroll list</span>
+            </div>
+            <div class="flow-down-arrow">↓</div>
+            <div class="flow-step success">
+              <span class="flow-step-number">5</span>
+              <span class="flow-step-label">Double-click → attach session</span>
+            </div>
+          </div>
+        </div>
+        <div class="option-summary">
+          Everything is mouse-aware: tabs, filter pills, session list (click to select, double-click to attach), and scroll wheel to scroll the session list without needing to click first. This is the most complete mouse experience — you could theoretically never touch the keyboard. But it's also the most implementation work.
+        </div>
+        <div class="verdict">
+          <div class="pros">
+            <h3>Works well when</h3>
+            <ul>
+              <li>You want hangar to feel like a fully GUI-capable app</li>
+              <li>Users frequently switch between mouse and keyboard</li>
+              <li>Scroll wheel support makes long session lists much easier</li>
+            </ul>
+          </div>
+          <div class="cons">
+            <h3>Watch out for</h3>
+            <ul>
+              <li>Scroll wheel in Bubble Tea conflicts with terminal scrollback</li>
+              <li>Highest implementation complexity and test surface</li>
+              <li>tmux mouse mode must also be enabled for scroll to work</li>
+            </ul>
+          </div>
+        </div>
+        <div class="card-footer">
+          <code class="tell-claude">Tell Claude: "Option D"</code>
+        </div>
+      </article>
+
+    </main>
+
+    <section class="comparison-section">
+      <h2>How They Compare</h2>
+      <div class="comparison-table-wrapper">
+        <table class="comparison-table">
+          <thead>
+            <tr>
+              <th></th>
+              <th class="col-a">A: Tabs Only</th>
+              <th class="col-b col-recommended">B: Tabs + Filters</th>
+              <th class="col-c">C: + Session Click</th>
+              <th class="col-d">D: Full Mouse</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Nav tabs clickable</td>
+              <td>Yes</td>
+              <td class="col-recommended">Yes</td>
+              <td>Yes</td>
+              <td>Yes</td>
+            </tr>
+            <tr>
+              <td>Filter pills clickable</td>
+              <td>No</td>
+              <td class="col-recommended">Yes</td>
+              <td>Yes</td>
+              <td>Yes</td>
+            </tr>
+            <tr>
+              <td>Session list click</td>
+              <td>No</td>
+              <td class="col-recommended">No</td>
+              <td>Yes (select + dblclick attach)</td>
+              <td>Yes</td>
+            </tr>
+            <tr>
+              <td>Scroll wheel</td>
+              <td>No</td>
+              <td class="col-recommended">No</td>
+              <td>No</td>
+              <td>Yes (complex)</td>
+            </tr>
+            <tr>
+              <td>UI consistency</td>
+              <td>Low (pills look clickable)</td>
+              <td class="col-recommended">High (top rows consistent)</td>
+              <td>Very High</td>
+              <td>Very High</td>
+            </tr>
+            <tr>
+              <td>Implementation effort</td>
+              <td>Tiny</td>
+              <td class="col-recommended">Small</td>
+              <td>Medium</td>
+              <td>Large</td>
+            </tr>
+            <tr>
+              <td>Risk of regressions</td>
+              <td>Very Low</td>
+              <td class="col-recommended">Low</td>
+              <td>Medium</td>
+              <td>High</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <div class="page-footer">
+      <p>Tell Claude: <strong>"Option B"</strong>, <strong>"Option C but no double-click"</strong>, or <strong>"more options"</strong></p>
+      <p>To change a past decision: <strong>"for decision-003 I want Option B instead"</strong></p>
+    </div>
+  </body>
+</html>

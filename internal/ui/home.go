@@ -159,7 +159,9 @@ type Home struct {
 	statusFilter session.Status // Filter sessions by status ("" = all, or specific status)
 	sortMode     string         // "" = default, "status" = running→waiting→idle
 	// PR overview view
-	viewMode     string          // "" or "sessions" = normal, "prs" = PR overview full-screen
+	viewMode          string     // "" or "sessions" = normal, "prs" = PR overview, "todos" = todo kanban
+	navTabRegions     [3][2]int  // [tabIndex][startCol, endCol] for mouse hit-testing
+	filterPillRegions [][3]int   // [startCol, endCol, pillIndex] for mouse hit-testing
 	prViewCursor int             // cursor position within PR overview list
 	prHideDrafts bool            // when true, draft PRs are hidden from PR overview
 	prApproved   map[string]bool // "repo#number" keys for PRs the user approved this session
@@ -1289,7 +1291,7 @@ func (h *Home) syncViewport() {
 	panelTitleLines := 2 // SESSIONS title + underline (matches View())
 
 	// Filter bar is always shown for consistent layout (matches View())
-	filterBarHeight := 1
+	filterBarHeight := 2 // nav tab row + filter row
 	updateBannerHeight := 0
 	if h.updateInfo != nil && h.updateInfo.Available {
 		updateBannerHeight = 1
@@ -3333,6 +3335,44 @@ func (h *Home) handleMouseMsg(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 		return h, nil
 
 	case tea.MouseButtonLeft:
+		// Nav tab bar click (row 1, after the header bar at row 0)
+		if msg.Y == 1 {
+			views := []string{"", "prs", "todos"}
+			for i, region := range h.navTabRegions {
+				if i < len(views) && msg.X >= region[0] && msg.X < region[1] {
+					switch views[i] {
+					case "prs":
+						return h.handleMainKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'P'}})
+					case "todos":
+						h.viewMode = "todos"
+						return h, h.showTodoDialog()
+					default:
+						h.viewMode = ""
+						h.todoDialog.Hide()
+					}
+					return h, nil
+				}
+			}
+			return h, nil
+		}
+		// Filter pill bar click (row 2, after nav tab row)
+		if msg.Y == 2 {
+			statuses := []session.Status{"", session.StatusRunning, session.StatusWaiting, session.StatusIdle, session.StatusError}
+			for _, region := range h.filterPillRegions {
+				if msg.X >= region[0] && msg.X < region[1] && region[2] < len(statuses) {
+					s := statuses[region[2]]
+					if h.statusFilter == s {
+						h.statusFilter = ""
+					} else {
+						h.statusFilter = s
+					}
+					h.rebuildFlatItems()
+					return h, nil
+				}
+			}
+			return h, nil
+		}
+
 		idx := h.listItemAt(msg.X, msg.Y)
 		if idx < 0 || idx >= len(h.flatItems) {
 			return h, nil
@@ -4184,7 +4224,16 @@ func (h *Home) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case "t":
 		// Open todos view for the current project
+		h.viewMode = "todos"
 		return h, h.showTodoDialog()
+
+	case "]":
+		// Cycle view forward: sessions → prs → todos → sessions
+		return h.cycleView(1)
+
+	case "[":
+		// Cycle view backward: sessions → todos → prs → sessions
+		return h.cycleView(-1)
 
 	case "ctrl+g":
 		// Open Gemini model selection dialog (only for Gemini sessions)
@@ -5773,127 +5822,132 @@ func (h *Home) countSessionStatuses() (running, waiting, idle, errored int) {
 	return running, waiting, idle, errored
 }
 
-// renderFilterBar renders the quick filter pills
-// Format: [All] [● Running 2] [◐ Waiting 1] [○ Idle 5] [✕ Error 1]
+// renderNavTabs renders the top-level view tab bar: Sessions · PRs · Todos
+// navTabX fields track rendered column positions for mouse hit-testing.
+func (h *Home) renderNavTabs() string {
+	sep := lipgloss.NewStyle().Foreground(ColorComment).Faint(true).Render(" · ")
+
+	type tabDef struct {
+		label   string
+		mode    string
+	}
+	tabs := []tabDef{
+		{"Sessions", ""},
+		{"PRs", "prs"},
+		{"Todos", "todos"},
+	}
+
+	var parts []string
+	col := 1 // leading space
+	for i, tab := range tabs {
+		var rendered string
+		if h.viewMode == tab.mode {
+			rendered = navTabActiveStyle.Render(tab.label)
+		} else {
+			rendered = navTabInactiveStyle.Render(tab.label)
+		}
+		// Track click region for mouse support
+		w := lipgloss.Width(rendered)
+		h.navTabRegions[i] = [2]int{col, col + w}
+		col += w
+		parts = append(parts, rendered)
+		if i < len(tabs)-1 {
+			parts = append(parts, sep)
+			col += lipgloss.Width(sep)
+		}
+	}
+
+	row := " " + strings.Join(parts, "")
+	return lipgloss.NewStyle().MaxWidth(h.width).Render(row)
+}
+
+// renderFilterBar renders labeled status filter pills.
+// Format: [All] [● Running !] [◐ Waiting @] [○ Idle #] [✕ Errors $]
 func (h *Home) renderFilterBar() string {
 	running, waiting, idle, errored := h.countSessionStatuses()
 
-	// Pill styling
-	activePillStyle := lipgloss.NewStyle().
-		Foreground(ColorBg).
-		Background(ColorAccent).
-		Bold(true).
-		Padding(0, 1)
-
-	inactivePillStyle := lipgloss.NewStyle().
-		Foreground(ColorText).
-		Background(ColorSurface).
-		Padding(0, 1)
-
-	dimPillStyle := lipgloss.NewStyle().
-		Foreground(ColorText).
-		Faint(true).
-		Padding(0, 1)
-
-	// Build pills
-	var pills []string
-
-	// "All" pill
-	allLabel := "All"
-	if h.statusFilter == "" {
-		pills = append(pills, activePillStyle.Render(allLabel))
-	} else {
-		pills = append(pills, inactivePillStyle.Render(allLabel))
+	type pillDef struct {
+		label  string
+		hint   string
+		status session.Status
 	}
-
-	// Running pill (green when active, dim if 0)
-	runningLabel := fmt.Sprintf("● %d", running)
-	if h.statusFilter == session.StatusRunning {
-		pills = append(pills, lipgloss.NewStyle().
-			Foreground(ColorBg).
-			Background(ColorGreen).
-			Bold(true).
-			Padding(0, 1).Render(runningLabel))
-	} else if running > 0 {
-		pills = append(pills, lipgloss.NewStyle().
-			Foreground(ColorGreen).
-			Background(ColorSurface).
-			Padding(0, 1).Render(runningLabel))
-	} else {
-		pills = append(pills, dimPillStyle.Render(runningLabel))
+	defs := []pillDef{
+		{"All", "", ""},
+		{fmt.Sprintf("● Running"), "!", session.StatusRunning},
+		{fmt.Sprintf("◐ Waiting"), "@", session.StatusWaiting},
+		{fmt.Sprintf("○ Idle"), "#", session.StatusIdle},
 	}
-
-	// Waiting pill (yellow when active)
-	waitingLabel := fmt.Sprintf("◐ %d", waiting)
-	if h.statusFilter == session.StatusWaiting {
-		pills = append(pills, lipgloss.NewStyle().
-			Foreground(ColorBg).
-			Background(ColorYellow).
-			Bold(true).
-			Padding(0, 1).Render(waitingLabel))
-	} else if waiting > 0 {
-		pills = append(pills, lipgloss.NewStyle().
-			Foreground(ColorYellow).
-			Background(ColorSurface).
-			Padding(0, 1).Render(waitingLabel))
-	} else {
-		pills = append(pills, dimPillStyle.Render(waitingLabel))
-	}
-
-	// Idle pill (gray when active)
-	idleLabel := fmt.Sprintf("○ %d", idle)
-	if h.statusFilter == session.StatusIdle {
-		pills = append(pills, lipgloss.NewStyle().
-			Foreground(ColorBg).
-			Background(ColorTextDim).
-			Bold(true).
-			Padding(0, 1).Render(idleLabel))
-	} else if idle > 0 {
-		pills = append(pills, lipgloss.NewStyle().
-			Foreground(ColorText).
-			Background(ColorSurface).
-			Padding(0, 1).Render(idleLabel))
-	} else {
-		pills = append(pills, dimPillStyle.Render(idleLabel))
-	}
-
-	// Error pill (red when active)
 	if errored > 0 || h.statusFilter == session.StatusError {
-		errorLabel := fmt.Sprintf("✕ %d", errored)
-		if h.statusFilter == session.StatusError {
-			pills = append(pills, lipgloss.NewStyle().
-				Foreground(ColorBg).
-				Background(ColorRed).
-				Bold(true).
-				Padding(0, 1).Render(errorLabel))
-		} else if errored > 0 {
-			pills = append(pills, lipgloss.NewStyle().
-				Foreground(ColorRed).
-				Background(ColorSurface).
-				Padding(0, 1).Render(errorLabel))
+		defs = append(defs, pillDef{"✕ Errors", "$", session.StatusError})
+	}
+
+	hintDim := lipgloss.NewStyle().Foreground(ColorComment).Faint(true)
+
+	var pills []string
+	col := 1
+	for i, d := range defs {
+		isActive := h.statusFilter == d.status
+		var label string
+		if d.hint != "" {
+			label = d.label + " " + hintDim.Render(d.hint)
+		} else {
+			label = d.label
 		}
+
+		var rendered string
+		switch {
+		case isActive && d.status == "":
+			rendered = filterPillAllActiveStyle.Render(label)
+		case isActive && d.status == session.StatusRunning:
+			rendered = filterPillRunningActiveStyle.Render(label)
+		case isActive && d.status == session.StatusWaiting:
+			rendered = filterPillWaitingActiveStyle.Render(label)
+		case isActive && d.status == session.StatusIdle:
+			rendered = filterPillIdleActiveStyle.Render(label)
+		case isActive && d.status == session.StatusError:
+			rendered = filterPillErrorActiveStyle.Render(label)
+		default:
+			// Inactive: show count inline for non-All pills
+			switch d.status {
+			case session.StatusRunning:
+				if running > 0 {
+					rendered = lipgloss.NewStyle().Foreground(ColorGreen).Background(ColorSurface).Padding(0, 1).Render(fmt.Sprintf("● Running %d !", running))
+				} else {
+					rendered = filterPillDimStyle.Render("● Running")
+				}
+			case session.StatusWaiting:
+				if waiting > 0 {
+					rendered = lipgloss.NewStyle().Foreground(ColorYellow).Background(ColorSurface).Padding(0, 1).Render(fmt.Sprintf("◐ Waiting %d @", waiting))
+				} else {
+					rendered = filterPillDimStyle.Render("◐ Waiting")
+				}
+			case session.StatusIdle:
+				if idle > 0 {
+					rendered = lipgloss.NewStyle().Foreground(ColorText).Background(ColorSurface).Padding(0, 1).Render(fmt.Sprintf("○ Idle %d #", idle))
+				} else {
+					rendered = filterPillDimStyle.Render("○ Idle")
+				}
+			case session.StatusError:
+				rendered = lipgloss.NewStyle().Foreground(ColorRed).Background(ColorSurface).Padding(0, 1).Render(fmt.Sprintf("✕ Errors %d $", errored))
+			default:
+				rendered = filterPillInactiveStyle.Render(label)
+			}
+		}
+
+		w := lipgloss.Width(rendered)
+		h.filterPillRegions[i] = [3]int{col, col + w, i}
+		col += w + 1 // +1 for space separator
+		pills = append(pills, rendered)
 	}
 
 	// Sort mode indicator
 	if h.sortMode == "status" {
-		sortPill := lipgloss.NewStyle().
-			Foreground(ColorBg).
-			Background(ColorAccent).
-			Bold(true).
-			Padding(0, 1).Render("⇅ sorted")
-		pills = append(pills, sortPill)
+		pills = append(pills, lipgloss.NewStyle().
+			Foreground(ColorBg).Background(ColorAccent).Bold(true).Padding(0, 1).Render("⇅ sorted"))
 	}
 
-	// Hint for keyboard shortcuts (shift+number to filter, 0 to clear)
-	hintStyle := lipgloss.NewStyle().Foreground(ColorComment).Faint(true)
-	hint := hintStyle.Render("  !@#$ filter • 0 all")
-
-	// Join pills with spaces (leading space replaces Padding)
-	filterRow := " " + strings.Join(pills, " ") + hint
-
-	return lipgloss.NewStyle().
-		MaxWidth(h.width).
-		Render(filterRow)
+	filterRow := " " + strings.Join(pills, " ")
+	return lipgloss.NewStyle().MaxWidth(h.width).Render(filterRow)
 }
 
 // updateSizes updates component sizes
@@ -6085,10 +6139,16 @@ func (h *Home) View() string {
 	b.WriteString("\n")
 
 	// ═══════════════════════════════════════════════════════════════════
-	// FILTER BAR (quick status filters)
+	// NAV TAB BAR (Sessions · PRs · Todos)
+	// ═══════════════════════════════════════════════════════════════════
+	b.WriteString(h.renderNavTabs())
+	b.WriteString("\n")
+
+	// ═══════════════════════════════════════════════════════════════════
+	// FILTER BAR (labeled status filter pills — Sessions view only)
 	// ═══════════════════════════════════════════════════════════════════
 	// Always show filter bar for consistent layout (prevents viewport jumping)
-	filterBarHeight := 1
+	filterBarHeight := 2 // nav tab row + filter row
 	b.WriteString(h.renderFilterBar())
 	b.WriteString("\n")
 
@@ -7887,11 +7947,37 @@ func (h *Home) showTodoDialog() tea.Cmd {
 	return nil
 }
 
+// cycleView advances the top-level view by dir (+1 or -1).
+// Views cycle: sessions ("") → prs → todos → sessions.
+func (h *Home) cycleView(dir int) (tea.Model, tea.Cmd) {
+	views := []string{"", "prs", "todos"}
+	current := 0
+	for i, v := range views {
+		if v == h.viewMode {
+			current = i
+			break
+		}
+	}
+	next := ((current + dir) % len(views) + len(views)) % len(views)
+	switch views[next] {
+	case "prs":
+		return h.handleMainKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'P'}})
+	case "todos":
+		h.viewMode = "todos"
+		return h, h.showTodoDialog()
+	default:
+		h.viewMode = ""
+		h.todoDialog.Hide()
+	}
+	return h, nil
+}
+
 // handleTodoDialogKey processes key events for the todo dialog.
 func (h *Home) handleTodoDialogKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	action := h.todoDialog.HandleKey(msg)
 	switch action {
 	case TodoActionClose:
+		h.viewMode = ""
 		h.todoDialog.Hide()
 
 	case TodoActionSaveTodo:
@@ -8003,6 +8089,7 @@ func (h *Home) handleTodoDialogKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		if todo.SessionID != "" {
 			// Already linked to a session — attach to it
+			h.viewMode = ""
 			h.todoDialog.Hide()
 			h.instancesMu.RLock()
 			inst := h.instanceByID[todo.SessionID]
@@ -8023,6 +8110,7 @@ func (h *Home) handleTodoDialogKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		branchName := TodoBranchName(todo.Title)
 		h.pendingTodoID = todo.ID
 		h.pendingTodoPrompt = todo.Prompt
+		h.viewMode = ""
 		h.todoDialog.Hide()
 		h.newDialog.ShowInGroupWithWorktree(groupPath, groupName, projectPath, branchName)
 		return h, nil

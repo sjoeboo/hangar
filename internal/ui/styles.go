@@ -716,6 +716,20 @@ func initStyles() {
 	prDetailHeaderStyle      = lipgloss.NewStyle().Foreground(ColorAccent).Bold(true)
 	prDetailActiveTabStyle   = lipgloss.NewStyle().Foreground(ColorBg).Background(ColorAccent).Bold(true).Padding(0, 1)
 	prDetailInactiveTabStyle = lipgloss.NewStyle().Foreground(ColorComment).Padding(0, 1)
+
+	// Nav tab styles (Sessions | PRs | Todos tab row)
+	navTabActiveStyle   = lipgloss.NewStyle().Foreground(ColorBg).Background(ColorAccent).Bold(true).Padding(0, 1)
+	navTabInactiveStyle = lipgloss.NewStyle().Foreground(ColorComment).Background(ColorSurface).Padding(0, 1)
+
+	// Filter pill styles (Running / Waiting / Idle / Error pills)
+	filterPillAllActiveStyle     = lipgloss.NewStyle().Foreground(ColorBg).Background(ColorAccent).Bold(true).Padding(0, 1)
+	filterPillRunningActiveStyle = lipgloss.NewStyle().Foreground(ColorBg).Background(ColorGreen).Bold(true).Padding(0, 1)
+	filterPillWaitingActiveStyle = lipgloss.NewStyle().Foreground(ColorBg).Background(ColorYellow).Bold(true).Padding(0, 1)
+	filterPillIdleActiveStyle    = lipgloss.NewStyle().Foreground(ColorBg).Background(ColorTextDim).Bold(true).Padding(0, 1)
+	filterPillErrorActiveStyle   = lipgloss.NewStyle().Foreground(ColorBg).Background(ColorRed).Bold(true).Padding(0, 1)
+	filterPillInactiveStyle      = lipgloss.NewStyle().Foreground(ColorText).Background(ColorSurface).Padding(0, 1)
+	filterPillDimStyle           = lipgloss.NewStyle().Foreground(ColorText).Faint(true).Padding(0, 1)
+
 	prDetailSeparatorStyle   = lipgloss.NewStyle().Foreground(ColorBorder)
 	prDetailDimStyle         = lipgloss.NewStyle().Foreground(ColorTextDim).Italic(true)
 	prDetailErrStyle         = lipgloss.NewStyle().Foreground(ColorRed)

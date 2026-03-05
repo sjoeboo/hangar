@@ -1,48 +1,57 @@
-# Session Handoff - 2026-03-05
+# Session Handoff — 2026-03-05
 
 ## What Was Accomplished
 
-- Added CHANGELOG entries for v2.2.0 (auto-open browser) and v2.3.0 (PR management overhaul)
-- Designed and implemented daemon-first architecture (PR #40 open)
-- TUI no longer hosts embedded API server — probes port, connects via WS, auto-forks daemon if needed
-- Added `--detach` / `-d` flag to `hangar web start`
-- Added `hook_changed` WS event broadcast from apiserver hooks handler
-- Created `DaemonClient` (`internal/ui/daemon_client.go`) with tests
-- Removed broken `--web` flag and `runWebInProcess`
-- Design doc: `docs/plans/2026-03-04-daemon-first-architecture-design.md`
+### Planning (complete)
+All 4 decisions made via better-plan-mode (see `.decisions/` for HTML docs):
+- Decision 1: Extensible Nav Bar — Sessions | PRs | Todos tabs
+- Decision 2: Rounded Pills tab style (matches existing tmux tabs)
+- Decision 3: Labeled Status Pills filter bar (removes cryptic !@#$ hint)
+- Decision 4: Tabs + Filter Pills + Session Click mouse support
 
-## Current State
+### Implementation (complete, builds clean)
 
-- Branch: `feature/changelog-1` (worktree: `.worktrees/feature-changelog-1`)
-- PR #40: https://github.com/sjoeboo/hangar/pull/40 (open, all code committed + pushed)
+**Wave 1 agents (finished):**
+- `internal/ui/styles.go` — `navTabActiveStyle`, `navTabInactiveStyle`, 7x `filterPill*Style` added to `initStyles()`
+- `internal/ui/pr_detail.go` — matching var declarations added
+- `internal/ui/help.go` — new VIEWS section (Tab/P/t), SEARCH & FILTER updated (!/@/#/0 keys)
 
-## ONLY REMAINING TASK: Add v2.4.0 Changelog Entry
+**home.go changes:**
+- `viewMode` now supports "todos" (was only "" or "prs")
+- `navTabRegions [3][2]int` and `filterPillRegions [][3]int` fields added to Home struct
+- `t` key sets `h.viewMode = "todos"` before calling `showTodoDialog()`
+- `h.viewMode = ""` added to all 3 `todoDialog.Hide()` call sites
+- `cycleView(dir int)` helper — `[`/`]` keys cycle Sessions→PRs→Todos
+- `renderNavTabs()` — renders `Sessions · PRs · Todos` pill row, tracks click regions
+- `renderFilterBar()` rewritten — labeled pills, removes `!@#$` hint, tracks click regions
+- Nav tab row wired into View() above filter bar
+- `filterBarHeight` updated from 1→2 in all 3 locations
+- Mouse click handler: nav tab row (Y==1) and filter pill row (Y==2) in `handleMouseMsg()`
 
-Add `## [2.4.0] - 2026-03-05` at the top of CHANGELOG.md (above [2.3.0]).
+## Build Status
+`go build ./internal/ui/` — CLEAN (only pre-existing webui embed error unrelated to our changes)
 
-### Added
-- **Daemon-first architecture** — TUI probes port 47437 on startup; if a daemon is running it subscribes via WebSocket for real-time events, otherwise it auto-forks `hangar web start --detach` as a background child (killed when TUI exits). Three clean modes:
-  - **TUI only** (`hangar`): daemon auto-started with `--detach`, dies with TUI
-  - **Web only** (`hangar web start`): persistent daemon, `hangar web stop` to kill
-  - **Both** (`hangar web start` then `hangar`): TUI connects to pre-existing daemon, leaves it running on exit
-- **`--detach` / `-d` flag for `hangar web start`** — re-execs the process in the background with stdout/stderr redirected to `~/.hangar/logs/web.log`; returns control immediately. The TUI's auto-fork uses this flag.
-- **`hook_changed` WebSocket event** — API server broadcasts `hook_changed` (payload: `instance_id`, `hook_event_name`, `status`) when a Claude Code lifecycle hook fires, enabling TUI clients connected to an external daemon to receive real-time status updates
-- **`DaemonClient`** (`internal/ui/daemon_client.go`) — WebSocket client in the TUI translating daemon events into Bubble Tea messages (`hook_changed` → `hookStatusChangedMsg`, `sessions_changed`/`session_created`/`session_deleted` → `storageChangedMsg`), following the same one-shot `tea.Cmd` pattern as `listenForHookChanges`
+## Open Issues to Verify
 
-### Removed
-- **`hangar --web` flag** — was broken (port conflict + duplicate `pr.Manager` in same process); TUI auto-start replaces it
-- **`runWebInProcess()`** — dead code removed from `cmd/hangar/web_cmd.go`
+1. **Mouse Y offset** — nav tab click hardcoded to Y==1, filter to Y==2. If header takes >1 row (update/maintenance banner), clicks shift. May need dynamic Y tracking.
 
-### Reference link to add at bottom of CHANGELOG:
-```
-[2.4.0]: https://github.com/sjoeboo/hangar/releases/tag/v2.4.0
-```
+2. **listItemAt() offset** — session list clicks may be off by 1 since we added a new row. If session row clicks are broken, check `listItemAt()` and its top-offset constant.
 
-Then commit + push:
-```bash
-git add CHANGELOG.md
-git commit -m "docs: add v2.4.0 changelog entry for daemon-first architecture"
-git push
-```
+3. **`[`/`]` key conflicts** — grep home.go for `case "["` and `case "]"` to ensure no existing bindings conflict.
 
-PR #40 is then ready to merge.
+4. **Filter pill inactive rendering** — new filter bar shows counts inline (`● Running 3 !`). Verify at narrow terminal widths.
+
+## Next Steps
+
+1. `go run ./cmd/hangar` — visual test of tab bar + labeled filter pills
+2. Click nav tabs and filter pills — verify mouse works
+3. Fix Y offset / listItemAt if session clicks are broken
+4. `git add -A && git commit -m "feat(tui): tab nav bar + labeled filter pills + mouse support"`
+5. Push + open PR against master
+
+## Key Files Changed
+- `internal/ui/home.go` — main changes
+- `internal/ui/styles.go` — new style initializations
+- `internal/ui/pr_detail.go` — new style declarations
+- `internal/ui/help.go` — key bindings updated
+- `.decisions/` — planning docs
