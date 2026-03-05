@@ -355,7 +355,7 @@ func renderHunkHeader(h *diff.Hunk) string {
 	if h.Section != "" {
 		hdr += " " + h.Section
 	}
-	return lipgloss.NewStyle().Foreground(ColorComment).Render("  " + hdr)
+	return diffHunkHeaderStyle.Render("  " + hdr)
 }
 
 func renderDiffLine(line string) string {
@@ -364,13 +364,13 @@ func renderDiffLine(line string) string {
 	}
 	switch line[0] {
 	case '+':
-		return lipgloss.NewStyle().Foreground(ColorGreen).Render(line)
+		return diffLineAddStyle.Render(line)
 	case '-':
-		return lipgloss.NewStyle().Foreground(ColorRed).Render(line)
+		return diffLineDelStyle.Render(line)
 	case '\\':
 		// "\ No newline at end of file"
-		return lipgloss.NewStyle().Foreground(ColorComment).Italic(true).Render(line)
+		return diffLineNoNewlineStyle.Render(line)
 	default:
-		return lipgloss.NewStyle().Foreground(ColorTextDim).Render(line)
+		return diffLineContextStyle.Render(line)
 	}
 }
