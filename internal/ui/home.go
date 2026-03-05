@@ -5877,23 +5877,30 @@ func renderPill(label string, textFg, pillBg, barBg lipgloss.Color, bold bool) s
 }
 
 // renderHeaderBar renders the top status/logo bar (row 0) used by all three tab views.
+// Every individually-rendered element carries explicit Background(ColorSurface) so that
+// lipgloss \x1b[0m resets between elements don't expose terminal-default color.
 func (h *Home) renderHeaderBar() string {
 	running, waiting, idle, _ := h.countSessionStatuses()
 	logo := RenderLogoCompact(running, waiting, idle, ColorSurface)
-	titleStyle := lipgloss.NewStyle().Bold(true).Foreground(ColorAccent)
-	titleText := "Hangar"
-	if h.profile != "" && h.profile != session.DefaultProfile {
-		titleText = "Hangar " + lipgloss.NewStyle().Foreground(ColorCyan).Bold(true).Render("["+h.profile+"]")
+	bg := func(s string) string {
+		return lipgloss.NewStyle().Background(ColorSurface).Render(s)
 	}
-	title := titleStyle.Render(titleText)
-	versionBadge := lipgloss.NewStyle().Foreground(ColorComment).Faint(true).Render("v" + Version)
-	headerLeft := lipgloss.JoinHorizontal(lipgloss.Left, logo, "  ", title)
+	var title string
+	if h.profile != "" && h.profile != session.DefaultProfile {
+		title = lipgloss.NewStyle().Bold(true).Foreground(ColorAccent).Background(ColorSurface).Render("Hangar") +
+			bg(" ") +
+			lipgloss.NewStyle().Foreground(ColorCyan).Bold(true).Background(ColorSurface).Render("["+h.profile+"]")
+	} else {
+		title = lipgloss.NewStyle().Bold(true).Foreground(ColorAccent).Background(ColorSurface).Render("Hangar")
+	}
+	versionBadge := lipgloss.NewStyle().Foreground(ColorComment).Faint(true).Background(ColorSurface).Render("v" + Version)
+	headerLeft := logo + bg("  ") + title
 	pad := h.width - lipgloss.Width(headerLeft) - lipgloss.Width(versionBadge) - 2
 	if pad < 1 {
 		pad = 1
 	}
 	return lipgloss.NewStyle().Background(ColorSurface).MaxWidth(h.width).Padding(0, 1).
-		Render(headerLeft + strings.Repeat(" ", pad) + versionBadge)
+		Render(headerLeft + bg(strings.Repeat(" ", pad)) + versionBadge)
 }
 
 // renderNavTabs renders the top-level view tab bar: Sessions · PRs · Todos
@@ -5964,8 +5971,13 @@ func (h *Home) renderFilterBar() string {
 	for i, d := range defs {
 		isActive := h.statusFilter == d.status
 		var label string
-		if d.hint != "" {
+		if d.hint != "" && !isActive {
+			// Inactive: pre-render hint with dim style (no pill bg context needed)
 			label = d.label + " " + hintDim.Render(d.hint)
+		} else if d.hint != "" {
+			// Active: plain hint text — avoids \x1b[0m reset inside the pill body
+			// that would make the trailing space appear as a dark line before the cap
+			label = d.label + " " + d.hint
 		} else {
 			label = d.label
 		}
