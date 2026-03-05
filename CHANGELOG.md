@@ -5,6 +5,130 @@ All notable changes to Hangar will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.3.0] - 2026-03-04
+
+### Added
+
+- **`internal/pr/` package — unified PR data layer** — a new first-class package replaces the
+  ad-hoc `prCacheEntry` map in the TUI and the `internalPRCache` in the API server. Key types:
+  - `pr.Manager` — lifecycle-managed goroutine pool that fetches and caches PR data; shared by
+    the TUI, the API server, and the standalone `hangar web start` server.
+  - `pr.PR` — rich PR record with: `Number`, `Title`, `State`, `IsDraft`, `Body`, `URL`,
+    `Repo`, `HeadBranch`, `BaseBranch`, `Author`, `ReviewDecision`,
+    `ChecksPassed`/`ChecksFailed`/`ChecksPending`, `HasChecks`, `Source`, `SessionID`.
+  - `pr.FetchDetail` — fetches full PR detail (files changed, diff hunks, review comments,
+    commit messages) for the overlay. Diff content is capped at 512 KB.
+  - `pr.RepoFromDir` — exported helper that resolves the GitHub/GHE repo slug from a
+    directory's git remote URL.
+  - `pr.AddComment`, `pr.ApprovePR`, `pr.RequestChanges` — `gh` CLI wrappers for write
+    operations triggered from the overlay.
+
+- **TUI: PR dashboard overhaul** — the `P` key PR overview gains a 4-tab bar:
+  - **All** — every PR known to the manager (worktree sessions + Mine + Review Requests)
+  - **Mine** — open PRs authored by the current GitHub user (searched via `gh search prs`)
+  - **Review Requests** — PRs where the current user has been asked to review
+  - **Sessions** — only sessions with an associated open PR (the previous behavior)
+
+  Column layout: `#`, `Age`, `Repo`, `Title`, `Author`, `Checks`, `Review`, `State`. Age is
+  formatted compactly (`<1d`, `3d`, `2w`, `14mo`, `2y`).
+
+- **TUI: PR Detail Overlay** (`internal/ui/pr_detail.go`) — pressing `Enter` on any PR in
+  the overview opens a full-screen overlay with 5 tabs (cycle with `Tab`):
+  - **Overview** — number, state, branch, repo, author, draft status, review decision, CI counts
+  - **Description** — PR body rendered with [glamour](https://github.com/charmbracelet/glamour)
+    GFM markdown (code blocks, bold, lists, inline code)
+  - **Diff** — collapsible file list; each row shows path, status, and `+`/`−` counts. `j`/`k`
+    navigate between files; `Enter`/`Space` expand or collapse hunks. Single-file PRs
+    auto-expand. The footer hint line updates to show diff-specific key bindings.
+  - **Conversation** — review comments and timeline rendered with glamour markdown
+  - `c` — add a review comment (reuses the send-text dialog, wired to `pr.AddComment`)
+  - `o` — open PR in browser
+  - `q` — close overlay
+  - All lipgloss styles are pre-compiled at package level to eliminate per-frame allocations.
+
+- **TUI: PR overview quality-of-life**
+  - `D` toggle — hide/show draft PRs in the overview table; draft rows are dimmed
+  - Review decision icons in the `Review` column: `✓` (approved), `△` (changes requested)
+  - `s` key — create a review session for the selected PR: locates the matching local project
+    via `RepoFromDir`, creates a worktree session on `pr.HeadBranch`, and opens it
+  - Mine / Review Requests tabs refresh automatically after the first session PR is loaded
+
+- **WebUI: PR Overview table** — the `/prs` page switches from a card layout to a
+  column table matching the TUI: `#`, `Age`, `Repo`, `Title`, `Author`, `Checks`, `Review`,
+  `State`. The `Author` column is hidden on the **Mine** tab (redundant).
+
+- **WebUI: PR Detail drawer** — clicking a PR row opens a side drawer with 4 tabs:
+  - **Overview** — state badges, branch, checks, review decision
+  - **Description** — PR body rendered via `react-markdown` + `remark-gfm`
+  - **Diff** — expandable file hunks; files default to collapsed; capped at 300 lines/file
+    with a "show more" button; wrapped in an `ErrorBoundary` so crashes show a scoped error
+  - **Conversation** — review comments rendered with `react-markdown`
+
+- **WebUI: Draft toggle + refresh** — a "Hide drafts" button filters draft PRs from the table;
+  draft rows are dimmed (`opacity-60`, italic title) when visible. A `⟳` refresh button spins
+  while a fetch is in flight. `staleTime` is `0`, `refetchInterval` is 15 s, and
+  `refetchOnWindowFocus` is enabled.
+
+- **WebUI: Shift+Enter in terminal** — `xterm.js` collapses `Shift+Enter` to a plain
+  carriage return. `TerminalView` now intercepts the key event before xterm handles it and
+  sends the Kitty keyboard protocol sequence (`\x1b[13;2u`) directly over the WebSocket, so
+  Claude Code can insert a newline instead of submitting.
+
+- **`hangar --web` flag** — a new global flag starts the API + web UI server in-process
+  before the TUI launches. Both interfaces share a single process; the browser opens
+  automatically once the server is ready. The server shuts down cleanly (including
+  `pr.Manager.Stop()`) when the TUI exits.
+
+- **API: new PR endpoints** — five routes added to `internal/apiserver/pr_handlers.go`:
+
+  | Method | Path | Description |
+  |--------|------|-------------|
+  | `GET` | `/api/v1/prs` | List all PRs (source filter: `all`/`mine`/`review_requested`/`sessions`) |
+  | `GET` | `/api/v1/prs/{key}` | Full PR record by `owner/repo#number` key |
+  | `GET` | `/api/v1/prs/{key}/detail` | Full detail: diff, conversation, commits |
+  | `POST` | `/api/v1/prs/{key}/review/comment` | Add a review comment |
+  | `POST` | `/api/v1/prs/{key}/review/state` | Set review state (approve / request-changes) |
+
+- **Standalone web server: PR data without TUI** — `hangar web start` now creates a
+  `pr.Manager` and runs a session-polling goroutine (every 90 s) that reads worktree
+  sessions from SQLite and calls `UpdateSessionPR` for each, so `/api/v1/prs` returns live
+  data even when the TUI is not running.
+
+### Fixed
+
+- **GHE PR detail loading** — `remoteURLToRepo` now preserves the GHE host prefix in the
+  repo key so `FetchDetail` can resolve the correct API endpoint for GitHub Enterprise repos.
+- **Mine / Review Requests tabs** — removed fields not supported by `gh search prs` that
+  caused empty results on some GitHub API versions.
+- **Draft state detection** — `fetchPRInfo` now explicitly requests `isDraft` in the `gh pr
+  view` JSON template; previously draft PRs showed as non-draft in the overlay.
+- **Author field blank in All / Sessions tabs** — `FetchSessionPR` now includes `author`
+  in the field list passed to `gh pr view`.
+- **`os.Environ()` mutation hazard** — four sites in `fetch.go` that appended to
+  `os.Environ()` now use a defensive copy to avoid potential shared-backing-array corruption
+  across concurrent fetch goroutines.
+- **WebUI: sidebar PR badge counts all PRs** — the count badge in the nav sidebar now
+  reflects the total from `pr.Manager` (all tabs) rather than only session-owned PRs.
+- **WebUI: null review comments** — Go's nil-slice serialization was producing `null` for
+  `review.comments`; the client now guards against this before iterating.
+
+## [2.2.0] - 2026-03-04
+
+### Added
+
+- **Auto-open browser on `hangar web start`** — when the web server starts successfully,
+  Hangar automatically opens the UI URL in the default browser (`open` on macOS,
+  `xdg-open` on Linux, `rundll32` on Windows). Pass `--no-open` to suppress this behavior.
+  The URL is always printed to stdout so you can open it manually regardless.
+
+- **Readiness poll before browser open** — Hangar polls `/api/v1/status` in a goroutine
+  until the server responds before opening the browser tab, so the tab never hits
+  "connection refused" while the server is still binding.
+
+- **Browser opens for already-running server** — if `hangar web start` detects the server
+  is already running, it now opens the browser (respecting `--no-open`) rather than exiting
+  silently.
+
 ## [2.1.2] - 2026-03-04
 
 ### Added
@@ -447,4 +571,6 @@ Thanks to @mnicholson and all upstream contributors for the excellent foundation
   display in session list
 - **Help text** — removed stale MCP/Skills references; corrected key descriptions
 
+[2.3.0]: https://github.com/sjoeboo/hangar/releases/tag/v2.3.0
+[2.2.0]: https://github.com/sjoeboo/hangar/releases/tag/v2.2.0
 [1.0.0]: https://github.com/sjoeboo/hangar/releases/tag/v1.0.0
