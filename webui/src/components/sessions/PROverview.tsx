@@ -8,8 +8,30 @@ import { PRDetail } from '@/components/prs/PRDetail'
 import { cn } from '@/lib/utils'
 
 type Tab = 'all' | 'mine' | 'review_requested' | 'sessions'
+type SortCol = 'age' | 'title' | 'author' | 'state' | 'checks'
 
-const STATE_ORDER: Record<string, number> = { OPEN: 0, DRAFT: 1, MERGED: 2, CLOSED: 3 }
+function checksScore(pr: PRFullInfo): number {
+  if ((pr.checks_failed ?? 0) > 0) return 3
+  if ((pr.checks_pending ?? 0) > 0) return 2
+  if ((pr.checks_passed ?? 0) > 0) return 1
+  return 0
+}
+
+function sortPRs(prs: PRFullInfo[], col: SortCol, asc: boolean): PRFullInfo[] {
+  const sorted = [...prs].sort((a, b) => {
+    let cmp = 0
+    switch (col) {
+      case 'title':  cmp = a.title.localeCompare(b.title); break
+      case 'author': cmp = (a.author ?? '').localeCompare(b.author ?? ''); break
+      case 'state':  cmp = a.state.localeCompare(b.state); break
+      case 'checks': cmp = checksScore(b) - checksScore(a); break
+      default: // 'age' — newest first by default
+        cmp = new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+    }
+    return asc ? -cmp : cmp
+  })
+  return sorted
+}
 
 // Strip GHE host prefix: "ghe.example.com/owner/repo" → "owner/repo"
 function stripRepoHost(repo: string): string {
@@ -93,6 +115,18 @@ export function PROverview() {
   const [activeTab, setActiveTab] = useState<Tab>('all')
   const [selectedPR, setSelectedPR] = useState<PRFullInfo | null>(null)
   const [hideDrafts, setHideDrafts] = useState(false)
+  const [sortCol, setSortCol] = useState<SortCol>('age')
+  const [sortAsc, setSortAsc] = useState(false)
+
+  const handleSort = (col: SortCol) => {
+    if (col === sortCol) {
+      setSortAsc((v) => !v)
+    } else {
+      setSortCol(col)
+      setSortAsc(false)
+    }
+  }
+  const sortInd = (col: SortCol) => col === sortCol ? (sortAsc ? ' ↑' : ' ↓') : ''
 
   const { data: dashboard, isLoading, isFetching, refetch } = usePRDashboard()
 
@@ -111,23 +145,17 @@ export function PROverview() {
         session_id: s.id,
       } as PRFullInfo
     })
-    .sort((a, b) => (STATE_ORDER[a.state] ?? 4) - (STATE_ORDER[b.state] ?? 4))
+    .sort(() => 0) // sorted below by sortPRs
 
-  const allPRs = (dashboard?.all ?? []).sort(
-    (a, b) => (STATE_ORDER[a.state] ?? 4) - (STATE_ORDER[b.state] ?? 4)
-  )
-  const minePRs = (dashboard?.mine ?? []).sort(
-    (a, b) => (STATE_ORDER[a.state] ?? 4) - (STATE_ORDER[b.state] ?? 4)
-  )
-  const reviewPRs = (dashboard?.review_requested ?? []).sort(
-    (a, b) => (STATE_ORDER[a.state] ?? 4) - (STATE_ORDER[b.state] ?? 4)
-  )
+  const allPRs = sortPRs(dashboard?.all ?? [], sortCol, sortAsc)
+  const minePRs = sortPRs(dashboard?.mine ?? [], sortCol, sortAsc)
+  const reviewPRs = sortPRs(dashboard?.review_requested ?? [], sortCol, sortAsc)
 
   const tabData: Record<Tab, PRFullInfo[]> = {
     all: allPRs,
     mine: minePRs,
     review_requested: reviewPRs,
-    sessions: sessionPRs,
+    sessions: sortPRs(sessionPRs, sortCol, sortAsc),
   }
 
   const tabs: { key: Tab; label: string; count: number }[] = [
@@ -230,15 +258,15 @@ export function PROverview() {
         ) : (
           <table className="w-full text-xs border-separate border-spacing-0">
             <thead>
-              <tr className="text-muted-foreground uppercase tracking-wider">
+              <tr className="text-muted-foreground uppercase tracking-wider select-none">
                 <th className="text-left py-1 px-2 font-medium w-10">#</th>
-                <th className="text-left py-1 px-2 font-medium w-10">Age</th>
-                {showAuthor && <th className="text-left py-1 px-2 font-medium w-28">Author</th>}
+                <th className="text-left py-1 px-2 font-medium w-10 cursor-pointer hover:text-foreground" onClick={() => handleSort('age')}>Age{sortInd('age')}</th>
+                {showAuthor && <th className="text-left py-1 px-2 font-medium w-28 cursor-pointer hover:text-foreground" onClick={() => handleSort('author')}>Author{sortInd('author')}</th>}
                 {showRepo && <th className="text-left py-1 px-2 font-medium w-36">Repo</th>}
-                <th className="text-left py-1 px-2 font-medium">Title</th>
-                <th className="text-left py-1 px-2 font-medium w-20">Checks</th>
+                <th className="text-left py-1 px-2 font-medium cursor-pointer hover:text-foreground" onClick={() => handleSort('title')}>Title{sortInd('title')}</th>
+                <th className="text-left py-1 px-2 font-medium w-20 cursor-pointer hover:text-foreground" onClick={() => handleSort('checks')}>Checks{sortInd('checks')}</th>
                 <th className="text-left py-1 px-2 font-medium w-24">Review</th>
-                <th className="text-left py-1 px-2 font-medium w-16">State</th>
+                <th className="text-left py-1 px-2 font-medium w-16 cursor-pointer hover:text-foreground" onClick={() => handleSort('state')}>State{sortInd('state')}</th>
               </tr>
             </thead>
             <tbody>

@@ -6,36 +6,36 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/charmbracelet/glamour"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/glamour"
 	"github.com/charmbracelet/lipgloss"
 	prpkg "github.com/sjoeboo/hangar/internal/pr"
 )
 
-// ── Pre-compiled styles (avoid allocations in render hot path) ──────────────
+// ── Pre-compiled styles (initialized by initStyles() after InitTheme sets colors) ──
 var (
-	prDetailHeaderStyle      = lipgloss.NewStyle().Foreground(ColorAccent).Bold(true)
-	prDetailActiveTabStyle   = lipgloss.NewStyle().Foreground(ColorBg).Background(ColorAccent).Bold(true).Padding(0, 1)
-	prDetailInactiveTabStyle = lipgloss.NewStyle().Foreground(ColorComment).Padding(0, 1)
-	prDetailSeparatorStyle   = lipgloss.NewStyle().Foreground(ColorBorder)
-	prDetailDimStyle         = lipgloss.NewStyle().Foreground(ColorTextDim).Italic(true)
-	prDetailErrStyle         = lipgloss.NewStyle().Foreground(ColorRed)
-	prDetailBgStyle          = lipgloss.NewStyle().Background(ColorBg)
-	prDetailLabelStyle       = lipgloss.NewStyle().Foreground(ColorComment)
-	prDetailValueStyle       = lipgloss.NewStyle().Foreground(ColorText)
-	prDetailSectionHdrStyle  = lipgloss.NewStyle().Foreground(ColorComment).Bold(true)
-	prDetailAuthorStyle      = lipgloss.NewStyle().Foreground(ColorAccent).Bold(true)
-	prDetailTimeStyle        = lipgloss.NewStyle().Foreground(ColorComment)
-	prDetailPathYellowStyle  = lipgloss.NewStyle().Foreground(ColorYellow)
+	prDetailHeaderStyle      lipgloss.Style
+	prDetailActiveTabStyle   lipgloss.Style
+	prDetailInactiveTabStyle lipgloss.Style
+	prDetailSeparatorStyle   lipgloss.Style
+	prDetailDimStyle         lipgloss.Style
+	prDetailErrStyle         lipgloss.Style
+	prDetailBgStyle          lipgloss.Style
+	prDetailLabelStyle       lipgloss.Style
+	prDetailValueStyle       lipgloss.Style
+	prDetailSectionHdrStyle  lipgloss.Style
+	prDetailAuthorStyle      lipgloss.Style
+	prDetailTimeStyle        lipgloss.Style
+	prDetailPathYellowStyle  lipgloss.Style
 	prDetailFocusBgColor     = lipgloss.Color("#1e2d3a")
-	prDetailFocusPadStyle    = lipgloss.NewStyle().Background(lipgloss.Color("#1e2d3a"))
+	prDetailFocusPadStyle    lipgloss.Style
 
 	// Pre-compiled per-color styles for dynamic state/status rendering.
-	prDetailGreenStyle  = lipgloss.NewStyle().Foreground(ColorGreen)
-	prDetailRedStyle    = lipgloss.NewStyle().Foreground(ColorRed)
-	prDetailPurpleStyle = lipgloss.NewStyle().Foreground(ColorPurple)
-	prDetailYellowStyle = lipgloss.NewStyle().Foreground(ColorYellow)
-	prDetailCommentStyle = lipgloss.NewStyle().Foreground(ColorComment)
+	prDetailGreenStyle   lipgloss.Style
+	prDetailRedStyle     lipgloss.Style
+	prDetailPurpleStyle  lipgloss.Style
+	prDetailYellowStyle  lipgloss.Style
+	prDetailCommentStyle lipgloss.Style
 )
 
 // PRDetailOverlay is a full-screen overlay showing PR detail with three tabs:
@@ -63,7 +63,7 @@ type PRDetailOverlay struct {
 	loading bool
 	err     error
 
-	tab         int // 0=Overview, 1=Description, 2=Diff, 3=Conversation
+	tab          int // 0=Overview, 1=Description, 2=Diff, 3=Conversation
 	scrollOffset int
 
 	// lines is the flat rendered-line cache for the current tab, rebuilt by rebuildLines.
@@ -186,7 +186,7 @@ func (o *PRDetailOverlay) View() string {
 	}
 
 	b.WriteString(sep + "\n")
-	hint := "  Tab/Shift+Tab switch tab · j/k scroll · g/G top/bottom · o browser · c comment · q close"
+	hint := "  Tab/Shift+Tab switch tab · j/k scroll · g/G top/bottom · o browser · a approve · c comment · q close"
 	if o.tab == 2 && len(o.diffFiles) > 0 {
 		hint = "  j/k navigate files · enter toggle · d/u half-page scroll · g/G top/bottom · o browser · q close"
 	}
@@ -254,6 +254,12 @@ func (o *PRDetailOverlay) HandleKey(key string) (bool, tea.Cmd) {
 	case "o":
 		if o.pr != nil && o.pr.URL != "" {
 			exec.Command("open", o.pr.URL).Start() //nolint:errcheck
+		}
+		return true, nil
+	case "a":
+		if o.pr != nil {
+			pr := o.pr
+			return true, func() tea.Msg { return prDetailApproveRequestMsg{pr: pr} }
 		}
 		return true, nil
 	case "c":

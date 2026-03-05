@@ -159,26 +159,30 @@ type Home struct {
 	statusFilter session.Status // Filter sessions by status ("" = all, or specific status)
 	sortMode     string         // "" = default, "status" = running→waiting→idle
 	// PR overview view
-	viewMode     string // "" or "sessions" = normal, "prs" = PR overview full-screen
-	prViewCursor  int          // cursor position within PR overview list
-	prHideDrafts  bool         // when true, draft PRs are hidden from PR overview
-	prApproved    map[string]bool // "repo#number" keys for PRs the user approved this session
+	viewMode     string          // "" or "sessions" = normal, "prs" = PR overview full-screen
+	prViewCursor int             // cursor position within PR overview list
+	prHideDrafts bool            // when true, draft PRs are hidden from PR overview
+	prApproved   map[string]bool // "repo#number" keys for PRs the user approved this session
 	// prViewTab selects the active PR filter tab in the PR overview:
 	//   0 = All, 1 = Mine, 2 = Review Requested, 3 = Sessions
 	prViewTab int
+	// prSortCol is the active sort column: "age" | "title" | "author" | "state" | "checks"
+	prSortCol string
+	// prSortAsc controls sort direction; false = descending (default: newest first for "age")
+	prSortAsc bool
 	// prManager is the unified PR data layer (global lists + per-session cache).
 	prManager *prpkg.Manager
 	// pendingPRComment holds the PR the user wants to comment on; populated when
 	// the "c" key is pressed in PR view to open sendTextDialog.
 	pendingPRComment *prpkg.PR
-	err            error
-	errTime        time.Time  // When error occurred (for auto-dismiss)
-	isReloading    bool       // Visual feedback during auto-reload
-	initialLoading bool       // True until first loadSessionsMsg received (shows splash screen)
-	isQuitting     bool       // True when user pressed q, shows quitting splash
-	reloadVersion  uint64     // Incremented on each reload to prevent stale background saves
-	reloadMu       sync.Mutex // Protects reloadVersion, isReloading, and lastLoadMtime for thread-safe access
-	lastLoadMtime  time.Time  // File mtime when we last loaded (for external change detection)
+	err              error
+	errTime          time.Time  // When error occurred (for auto-dismiss)
+	isReloading      bool       // Visual feedback during auto-reload
+	initialLoading   bool       // True until first loadSessionsMsg received (shows splash screen)
+	isQuitting       bool       // True when user pressed q, shows quitting splash
+	reloadVersion    uint64     // Incremented on each reload to prevent stale background saves
+	reloadMu         sync.Mutex // Protects reloadVersion, isReloading, and lastLoadMtime for thread-safe access
+	lastLoadMtime    time.Time  // File mtime when we last loaded (for external change detection)
 
 	// Unified session cache (preview, worktree dirty/remote, PR info).
 	// Replaces four independent map-pairs with a single TTL-aware store.
@@ -219,10 +223,10 @@ type Home struct {
 	// Hook-based status detection (Claude Code lifecycle hooks)
 	hookWatcher        *session.StatusFileWatcher
 	hookServer         *apiserver.APIServer // Embedded HTTP/WS API server (nil if disabled)
-	hookServerPort     int                    // Port the HTTP server is listening on (0 = command hooks)
-	configuredHookPort int                    // Port from config, set at Init time (0 if unconfigured)
-	pendingHooksPrompt bool                   // True if user should be prompted to install hooks
-	daemonClient       *DaemonClient          // WebSocket client to external daemon (nil if not connected)
+	hookServerPort     int                  // Port the HTTP server is listening on (0 = command hooks)
+	configuredHookPort int                  // Port from config, set at Init time (0 if unconfigured)
+	pendingHooksPrompt bool                 // True if user should be prompted to install hooks
+	daemonClient       *DaemonClient        // WebSocket client to external daemon (nil if not connected)
 
 	// File watcher for external changes (auto-reload)
 	storageWatcher *StorageWatcher
@@ -384,16 +388,62 @@ func (h *Home) prViewSessions() []*session.Instance {
 // For tabs 0 and 3 (All / Sessions), the manager data is augmented with any
 // session PRs found in UICache that aren't in the manager yet (e.g. in tests
 // or before the manager's first refresh completes).
+// prSortColumns lists the columns cycling order for the S key.
+var prSortColumns = []string{"age", "title", "author", "state", "checks"}
+
+// prSortPRs sorts a PR slice in-place according to h.prSortCol and h.prSortAsc.
+func (h *Home) prSortPRs(prs []*prpkg.PR) {
+	col := h.prSortCol
+	asc := h.prSortAsc
+	sort.SliceStable(prs, func(i, j int) bool {
+		a, b := prs[i], prs[j]
+		var less bool
+		switch col {
+		case "title":
+			less = strings.ToLower(a.Title) < strings.ToLower(b.Title)
+		case "author":
+			less = strings.ToLower(a.Author) < strings.ToLower(b.Author)
+		case "state":
+			less = a.State < b.State
+		case "checks":
+			// Priority: failed > pending > passed > no checks
+			checkScore := func(p *prpkg.PR) int {
+				if p.ChecksFailed > 0 {
+					return 3
+				}
+				if p.ChecksPending > 0 {
+					return 2
+				}
+				if p.ChecksPassed > 0 {
+					return 1
+				}
+				return 0
+			}
+			less = checkScore(a) > checkScore(b)
+		default: // "age" — sort by UpdatedAt (newest first when desc)
+			less = a.UpdatedAt.After(b.UpdatedAt)
+		}
+		if asc {
+			return less
+		}
+		return !less
+	})
+}
+
 func (h *Home) prViewPRs() []*prpkg.PR {
 	switch h.prViewTab {
 	case 1:
 		if h.prManager != nil {
-			return h.prManager.GetMine()
+			prs := h.prManager.GetMine()
+			h.prSortPRs(prs)
+			return prs
 		}
 		return nil
 	case 2:
 		if h.prManager != nil {
-			return h.prManager.GetReviewRequested()
+			prs := h.prManager.GetReviewRequested()
+			h.prSortPRs(prs)
+			return prs
 		}
 		return nil
 	default: // 0 = All, 3 = Sessions
@@ -448,8 +498,9 @@ func (h *Home) prViewPRs() []*prpkg.PR {
 					filtered = append(filtered, p)
 				}
 			}
-			return filtered
+			result = filtered
 		}
+		h.prSortPRs(result)
 		return result
 	}
 }
@@ -668,6 +719,12 @@ type prDetailLoadedMsg struct {
 	err    error
 }
 
+// prDetailApproveRequestMsg is sent by PRDetailOverlay when the user presses 'a'
+// to approve the currently displayed PR.
+type prDetailApproveRequestMsg struct {
+	pr *prpkg.PR
+}
+
 // prDetailCommentRequestMsg is sent by PRDetailOverlay when the user presses 'c'
 // to add a comment on the currently displayed PR.
 type prDetailCommentRequestMsg struct {
@@ -754,6 +811,8 @@ func NewHomeWithProfileAndMode(profile string) *Home {
 		flatItems:            []session.Item{},
 		cache:                newUICache(),
 		prApproved:           make(map[string]bool),
+		prSortCol:            "age",
+		prSortAsc:            false,
 		launchingSessions:    make(map[string]time.Time),
 		resumingSessions:     make(map[string]time.Time),
 		forkingSessions:      make(map[string]time.Time),
@@ -2619,6 +2678,24 @@ func (h *Home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		h.prDetailOverlay.SetDetail(msg.detail, msg.err)
 		return h, nil
 
+	case prDetailApproveRequestMsg:
+		h.prDetailOverlay.Hide()
+		if h.prManager != nil && msg.pr.Repo != "" {
+			ghPath := h.prManager.GHPath()
+			if ghPath != "" {
+				repo, number := msg.pr.Repo, msg.pr.Number
+				h.setError(fmt.Errorf("Approving PR…"))
+				return h, func() tea.Msg {
+					err := prpkg.Approve(ghPath, repo, number, "")
+					if err != nil {
+						return errMsg{err: err}
+					}
+					return prActionResultMsg{action: "approve", repo: repo, number: number}
+				}
+			}
+		}
+		return h, nil
+
 	case prDetailCommentRequestMsg:
 		h.prDetailOverlay.Hide()
 		h.pendingPRComment = msg.pr
@@ -3136,6 +3213,62 @@ func (h *Home) handleNewDialogKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return h, cmd
 }
 
+// handlePRMouseMsg handles mouse events in the PR overview (viewMode=="prs").
+// Scroll wheel moves cursor; left-click selects a row (click selected row = open detail).
+// prDataRowOffset is: header(1)+tabs(1)+colheader(1)+border(1) = 4 lines.
+const prDataRowOffset = 4
+
+func (h *Home) handlePRMouseMsg(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
+	prs := h.prViewPRs()
+	contentHeight := h.height - 7
+	if contentHeight < 1 {
+		contentHeight = 1
+	}
+	startIdx := 0
+	if h.prViewCursor >= contentHeight {
+		startIdx = h.prViewCursor - contentHeight + 1
+	}
+
+	switch msg.Button {
+	case tea.MouseButtonWheelUp:
+		if h.prViewCursor > 0 {
+			h.prViewCursor--
+		}
+	case tea.MouseButtonWheelDown:
+		if h.prViewCursor < len(prs)-1 {
+			h.prViewCursor++
+		}
+	case tea.MouseButtonLeft:
+		rowIdx := msg.Y - prDataRowOffset
+		if rowIdx < 0 || rowIdx >= contentHeight {
+			return h, nil
+		}
+		prIdx := startIdx + rowIdx
+		if prIdx < 0 || prIdx >= len(prs) {
+			return h, nil
+		}
+		if prIdx == h.prViewCursor {
+			// Second click on already-selected row: open detail (same as Enter)
+			p := prs[prIdx]
+			h.prDetailOverlay.Show(p)
+			h.prDetailOverlay.SetSize(h.width, h.height)
+			if h.prManager != nil && p.Repo != "" {
+				ghPath := h.prManager.GHPath()
+				if ghPath != "" {
+					repo, number := p.Repo, p.Number
+					return h, func() tea.Msg {
+						detail, err := prpkg.FetchDetail(ghPath, repo, number)
+						return prDetailLoadedMsg{detail: detail, err: err}
+					}
+				}
+			}
+		} else {
+			h.prViewCursor = prIdx
+		}
+	}
+	return h, nil
+}
+
 // handleMouseMsg processes mouse events for the session list.
 // Single left-click moves the cursor; double-click attaches the session.
 // Group rows toggle on single click. Scroll wheel scrolls the list.
@@ -3157,6 +3290,11 @@ func (h *Home) handleMouseMsg(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 		h.todoDialog.IsVisible() || h.reviewDialog.IsVisible() ||
 		h.prDetailOverlay.IsVisible() {
 		return h, nil
+	}
+
+	// Route mouse to PR overview when active.
+	if h.viewMode == "prs" {
+		return h.handlePRMouseMsg(msg)
 	}
 
 	switch msg.Button {
@@ -4199,6 +4337,24 @@ func (h *Home) handlePRViewKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case "D":
 		h.prHideDrafts = !h.prHideDrafts
+		h.prViewCursor = 0
+		return h, nil
+
+	case "S":
+		// Cycle: desc → asc → next-col-desc → next-col-asc → ...
+		if !h.prSortAsc {
+			h.prSortAsc = true
+		} else {
+			idx := 0
+			for i, col := range prSortColumns {
+				if col == h.prSortCol {
+					idx = i
+					break
+				}
+			}
+			h.prSortCol = prSortColumns[(idx+1)%len(prSortColumns)]
+			h.prSortAsc = false
+		}
 		h.prViewCursor = 0
 		return h, nil
 
@@ -6826,11 +6982,27 @@ func (h *Home) renderPROverview() string {
 
 	// ── Column header ────────────────────────────────────────────────────
 	colStyle := lipgloss.NewStyle().Foreground(ColorComment).Bold(true)
-	lastColLabel := "TITLE"
+	sortInd := func(col string) string {
+		if h.prSortCol != col {
+			return ""
+		}
+		if h.prSortAsc {
+			return "↑"
+		}
+		return "↓"
+	}
+	lastColLabel := "TITLE" + sortInd("title")
 	if h.prViewTab == 3 {
 		lastColLabel = "SESSION"
 	}
-	b.WriteString(colStyle.Render(fmt.Sprintf("  %-7s  %-8s  %-14s  %-*s  %-*s  %-*s  %s", "PR", "STATE", "CHECKS", repoColWidth, "REPO", ageColWidth, "AGE", authorColWidth, "AUTHOR", lastColLabel)))
+	b.WriteString(colStyle.Render(fmt.Sprintf("  %-7s  %-8s  %-14s  %-*s  %-*s  %-*s  %s",
+		"PR",
+		"STATE"+sortInd("state"),
+		"CHECKS"+sortInd("checks"),
+		repoColWidth, "REPO",
+		ageColWidth, "AGE"+sortInd("age"),
+		authorColWidth, "AUTHOR"+sortInd("author"),
+		lastColLabel)))
 	b.WriteString("\n")
 	borderStyle := lipgloss.NewStyle().Foreground(ColorBorder)
 	b.WriteString(borderStyle.Render(strings.Repeat("─", max(0, h.width))))
@@ -6860,18 +7032,37 @@ func (h *Home) renderPROverview() string {
 			p := prs[i]
 			selected := i == h.prViewCursor
 
+			// selBg applies the selection background to a style when selected.
+			// Each column must carry its own background to prevent inner \x1b[0m
+			// resets from clearing the row-level highlight mid-line.
+			applySelBg := func(s lipgloss.Style) lipgloss.Style {
+				if !selected {
+					return s
+				}
+				return s.Background(ColorBorder)
+			}
+			// sp returns n spaces, with selection background when selected.
+			sp := func(n int) string {
+				if n <= 0 {
+					return ""
+				}
+				if !selected {
+					return strings.Repeat(" ", n)
+				}
+				return lipgloss.NewStyle().Background(ColorBorder).Render(strings.Repeat(" ", n))
+			}
+
 			// PR number
-			prNumStyle := lipgloss.NewStyle().Foreground(ColorAccent).Bold(true)
-			prNum := prNumStyle.Render(fmt.Sprintf("#%-5d", p.Number))
+			prNum := applySelBg(lipgloss.NewStyle().Foreground(ColorAccent).Bold(true)).Render(fmt.Sprintf("#%-5d", p.Number))
 
 			// Review decision icon (✓ approved, △ changes requested, blank otherwise)
 			prKey := p.Repo + "#" + prpkg.NumberStr(p.Number)
-			reviewIcon := "  "
+			reviewIcon := sp(2)
 			switch {
 			case h.prApproved[prKey] || p.ReviewDecision == "APPROVED":
-				reviewIcon = lipgloss.NewStyle().Foreground(ColorGreen).Render("✓ ")
+				reviewIcon = applySelBg(lipgloss.NewStyle().Foreground(ColorGreen)).Render("✓ ")
 			case p.ReviewDecision == "CHANGES_REQUESTED":
-				reviewIcon = lipgloss.NewStyle().Foreground(ColorRed).Render("△ ")
+				reviewIcon = applySelBg(lipgloss.NewStyle().Foreground(ColorRed)).Render("△ ")
 			}
 
 			// State
@@ -6879,19 +7070,19 @@ func (h *Home) renderPROverview() string {
 			var stateLabel string
 			switch p.State {
 			case "OPEN":
-				stateStyle = lipgloss.NewStyle().Foreground(ColorGreen)
+				stateStyle = applySelBg(lipgloss.NewStyle().Foreground(ColorGreen))
 				stateLabel = "open"
 			case "DRAFT":
-				stateStyle = lipgloss.NewStyle().Foreground(ColorComment)
+				stateStyle = applySelBg(lipgloss.NewStyle().Foreground(ColorComment))
 				stateLabel = "draft"
 			case "MERGED":
-				stateStyle = lipgloss.NewStyle().Foreground(ColorPurple)
+				stateStyle = applySelBg(lipgloss.NewStyle().Foreground(ColorPurple))
 				stateLabel = "merged"
 			case "CLOSED":
-				stateStyle = lipgloss.NewStyle().Foreground(ColorRed)
+				stateStyle = applySelBg(lipgloss.NewStyle().Foreground(ColorRed))
 				stateLabel = "closed"
 			default:
-				stateStyle = lipgloss.NewStyle().Foreground(ColorComment)
+				stateStyle = applySelBg(lipgloss.NewStyle().Foreground(ColorComment))
 				stateLabel = strings.ToLower(p.State)
 			}
 			stateCol := stateStyle.Render(fmt.Sprintf("%-8s", stateLabel))
@@ -6900,19 +7091,19 @@ func (h *Home) renderPROverview() string {
 			var checkParts []string
 			if p.HasChecks {
 				if p.ChecksFailed > 0 {
-					checkParts = append(checkParts, lipgloss.NewStyle().Foreground(ColorRed).Render(fmt.Sprintf("✗%d", p.ChecksFailed)))
+					checkParts = append(checkParts, applySelBg(lipgloss.NewStyle().Foreground(ColorRed)).Render(fmt.Sprintf("✗%d", p.ChecksFailed)))
 				}
 				if p.ChecksPending > 0 {
-					checkParts = append(checkParts, lipgloss.NewStyle().Foreground(ColorYellow).Render(fmt.Sprintf("●%d", p.ChecksPending)))
+					checkParts = append(checkParts, applySelBg(lipgloss.NewStyle().Foreground(ColorYellow)).Render(fmt.Sprintf("●%d", p.ChecksPending)))
 				}
 				if p.ChecksPassed > 0 {
-					checkParts = append(checkParts, lipgloss.NewStyle().Foreground(ColorGreen).Render(fmt.Sprintf("✓%d", p.ChecksPassed)))
+					checkParts = append(checkParts, applySelBg(lipgloss.NewStyle().Foreground(ColorGreen)).Render(fmt.Sprintf("✓%d", p.ChecksPassed)))
 				}
 			}
-			checksRaw := strings.Join(checkParts, " ")
+			checksRaw := strings.Join(checkParts, sp(1))
 			checksVisible := lipgloss.Width(checksRaw)
 			if checksVisible < 14 {
-				checksRaw += strings.Repeat(" ", 14-checksVisible)
+				checksRaw += sp(14 - checksVisible)
 			} else if checksVisible > 14 {
 				var truncParts []string
 				width := 0
@@ -6926,10 +7117,10 @@ func (h *Home) renderPROverview() string {
 						width += w
 					}
 				}
-				checksRaw = strings.Join(truncParts, " ")
+				checksRaw = strings.Join(truncParts, sp(1))
 				checksVisible = lipgloss.Width(checksRaw)
 				if checksVisible < 14 {
-					checksRaw += strings.Repeat(" ", 14-checksVisible)
+					checksRaw += sp(14 - checksVisible)
 				}
 			}
 
@@ -6942,11 +7133,11 @@ func (h *Home) renderPROverview() string {
 			if len(repoRunes) > repoColWidth {
 				repoDisplay = string(repoRunes[:repoColWidth-1]) + "…"
 			}
-			repoCol := lipgloss.NewStyle().Foreground(ColorComment).Render(fmt.Sprintf("%-*s", repoColWidth, repoDisplay))
+			repoCol := applySelBg(lipgloss.NewStyle().Foreground(ColorComment)).Render(fmt.Sprintf("%-*s", repoColWidth, repoDisplay))
 
 			// Age column: how long the PR has been open.
 			ageStr := prAgeStr(p.CreatedAt)
-			ageCol := lipgloss.NewStyle().Foreground(ColorComment).Render(fmt.Sprintf("%-*s", ageColWidth, ageStr))
+			ageCol := applySelBg(lipgloss.NewStyle().Foreground(ColorComment)).Render(fmt.Sprintf("%-*s", ageColWidth, ageStr))
 
 			// Author column: cap at 16 chars.
 			authorDisplay := p.Author
@@ -6954,12 +7145,14 @@ func (h *Home) renderPROverview() string {
 			if len(authorRunes) > authorColWidth {
 				authorDisplay = string(authorRunes[:authorColWidth-1]) + "…"
 			}
-			authorCol := lipgloss.NewStyle().Foreground(ColorComment).Render(fmt.Sprintf("%-*s", authorColWidth, authorDisplay))
+			authorCol := applySelBg(lipgloss.NewStyle().Foreground(ColorComment)).Render(fmt.Sprintf("%-*s", authorColWidth, authorDisplay))
 
 			// Last column: for Sessions tab show session title (with status colour),
-			// for other tabs show PR title.
+			// for other tabs show PR title (with a status dot prefix when session-linked).
 			displayTitle := p.Title
 			var colTitleStyle lipgloss.Style
+			var dotPrefix string
+			var dotPrefixWidth int
 			if h.prViewTab == 3 && p.SessionID != "" {
 				h.instancesMu.RLock()
 				inst := h.instanceByID[p.SessionID]
@@ -6967,32 +7160,50 @@ func (h *Home) renderPROverview() string {
 				if inst != nil {
 					displayTitle = inst.Title
 					if inst.GetStatusThreadSafe() == session.StatusRunning {
-						colTitleStyle = lipgloss.NewStyle().Foreground(ColorText).Bold(true)
+						colTitleStyle = applySelBg(lipgloss.NewStyle().Foreground(ColorText).Bold(true))
 					} else {
-						colTitleStyle = lipgloss.NewStyle().Foreground(ColorComment)
+						colTitleStyle = applySelBg(lipgloss.NewStyle().Foreground(ColorComment))
 					}
 				} else {
-					colTitleStyle = lipgloss.NewStyle().Foreground(ColorComment)
+					colTitleStyle = applySelBg(lipgloss.NewStyle().Foreground(ColorComment))
 				}
-			} else if p.State == "DRAFT" {
-				colTitleStyle = lipgloss.NewStyle().Foreground(ColorTextDim).Italic(true)
 			} else {
-				colTitleStyle = lipgloss.NewStyle().Foreground(ColorText)
+				// All/Mine/ReviewRequested tabs: show a status dot when session-linked.
+				if h.prViewTab == 0 && p.SessionID != "" {
+					h.instancesMu.RLock()
+					inst := h.instanceByID[p.SessionID]
+					h.instancesMu.RUnlock()
+					dotColor := ColorComment
+					if inst != nil {
+						switch inst.GetStatusThreadSafe() {
+						case session.StatusRunning:
+							dotColor = ColorGreen
+						case session.StatusWaiting:
+							dotColor = ColorYellow
+						}
+					}
+					dotPrefix = applySelBg(lipgloss.NewStyle().Foreground(dotColor)).Render("●") + " "
+					dotPrefixWidth = 2
+				}
+				if p.State == "DRAFT" {
+					colTitleStyle = applySelBg(lipgloss.NewStyle().Foreground(ColorTextDim).Italic(true))
+				} else {
+					colTitleStyle = applySelBg(lipgloss.NewStyle().Foreground(ColorText))
+				}
 			}
-			maxTitleWidth := h.width - 2 - 7 - 2 - 2 - 2 - 8 - 2 - 14 - 2 - repoColWidth - 2 - ageColWidth - 2 - authorColWidth - 2 - 4
+			maxTitleWidth := h.width - 2 - 7 - 2 - 2 - 2 - 8 - 2 - 14 - 2 - repoColWidth - 2 - ageColWidth - 2 - authorColWidth - 2 - 4 - dotPrefixWidth
 			runes := []rune(displayTitle)
 			if maxTitleWidth > 0 && len(runes) > maxTitleWidth {
 				displayTitle = string(runes[:maxTitleWidth-1]) + "…"
 			}
 			titleCol := colTitleStyle.Render(displayTitle)
 
-			row := fmt.Sprintf("  %s  %s  %s  %s  %s  %s  %s  %s", prNum, reviewIcon, stateCol, checksRaw, repoCol, ageCol, authorCol, titleCol)
+			s2 := sp(2)
+			row := sp(2) + prNum + s2 + reviewIcon + s2 + stateCol + s2 + checksRaw + s2 + repoCol + s2 + ageCol + s2 + authorCol + s2 + dotPrefix + titleCol
 
-			if selected {
-				row = lipgloss.NewStyle().
-					Background(ColorSurface).
-					Width(h.width).
-					Render(row)
+			// Pad to full terminal width so the selection background covers the line.
+			if rowVisible := lipgloss.Width(row); rowVisible < h.width {
+				row += sp(h.width - rowVisible)
 			}
 
 			b.WriteString(row)
@@ -7029,6 +7240,7 @@ func (h *Home) renderPROverview() string {
 			}
 			return "Hide drafts"
 		}()),
+		renderKey("S", "Sort:"+h.prSortCol),
 		renderKey("r", "Refresh"),
 		renderKey("P/Esc", "Back"),
 	}, sep)

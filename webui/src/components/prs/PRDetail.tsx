@@ -382,7 +382,7 @@ export function PRDetail({ pr, onClose, onNavigateToSession }: PRDetailProps) {
             {mutationError && (
               <p className="w-full mt-1 text-xs text-(--oasis-red)">{mutationError}</p>
             )}
-            {!isOwn && isOpen && (
+            {isOpen && (
               <>
                 <button
                   onClick={() => setActionModal({ kind: 'review_approve' })}
