@@ -5,6 +5,34 @@ All notable changes to Hangar will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.4.0] - 2026-03-05
+
+### Added
+
+- **Daemon-first architecture** — TUI probes port 47437 on startup; if a daemon is running it
+  subscribes via WebSocket for real-time events, otherwise it auto-forks `hangar web start --detach`
+  as a background child (killed when TUI exits). Three clean modes:
+  - **TUI only** (`hangar`): daemon auto-started with `--detach`, dies with TUI
+  - **Web only** (`hangar web start`): persistent daemon, `hangar web stop` to kill
+  - **Both** (`hangar web start` then `hangar`): TUI connects to pre-existing daemon, leaves it
+    running on exit
+- **`--detach` / `-d` flag for `hangar web start`** — re-execs the process in the background with
+  stdout/stderr redirected to `~/.hangar/logs/web.log`; returns control immediately. The TUI's
+  auto-fork uses this flag.
+- **`hook_changed` WebSocket event** — API server broadcasts `hook_changed` (payload:
+  `instance_id`, `hook_event_name`, `status`) when a Claude Code lifecycle hook fires, enabling TUI
+  clients connected to an external daemon to receive real-time status updates.
+- **`DaemonClient`** (`internal/ui/daemon_client.go`) — WebSocket client in the TUI translating
+  daemon events into Bubble Tea messages (`hook_changed` → `hookStatusChangedMsg`,
+  `sessions_changed`/`session_created`/`session_deleted` → `storageChangedMsg`), following the same
+  one-shot `tea.Cmd` pattern as `listenForHookChanges`.
+
+### Removed
+
+- **`hangar --web` flag** — was broken (port conflict + duplicate `pr.Manager` in same process);
+  TUI auto-start replaces it.
+- **`runWebInProcess()`** — dead code removed from `cmd/hangar/web_cmd.go`.
+
 ## [2.3.0] - 2026-03-04
 
 ### Added
@@ -571,6 +599,7 @@ Thanks to @mnicholson and all upstream contributors for the excellent foundation
   display in session list
 - **Help text** — removed stale MCP/Skills references; corrected key descriptions
 
+[2.4.0]: https://github.com/sjoeboo/hangar/releases/tag/v2.4.0
 [2.3.0]: https://github.com/sjoeboo/hangar/releases/tag/v2.3.0
 [2.2.0]: https://github.com/sjoeboo/hangar/releases/tag/v2.2.0
 [1.0.0]: https://github.com/sjoeboo/hangar/releases/tag/v1.0.0
