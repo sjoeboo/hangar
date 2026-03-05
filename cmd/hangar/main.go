@@ -489,13 +489,15 @@ func probeDaemon(port int) bool {
 	return resp.StatusCode == http.StatusOK
 }
 
-// startDaemonChild forks "hangar web start --no-open" and waits up to 3s for it to be ready.
+// startDaemonChild forks "hangar web start --no-open --detach" and waits up to 3s for it to be ready.
+// Using --detach causes the child to re-exec itself as a true background daemon so it is not
+// kept alive as a direct subprocess of the TUI process.
 func startDaemonChild(port int) (*os.Process, bool) {
 	self, err := os.Executable()
 	if err != nil {
 		return nil, false
 	}
-	cmd := exec.Command(self, "web", "start", "--no-open")
+	cmd := exec.Command(self, "web", "start", "--no-open", "--detach")
 	cmd.Stdout = nil
 	cmd.Stderr = nil
 	if err := cmd.Start(); err != nil {

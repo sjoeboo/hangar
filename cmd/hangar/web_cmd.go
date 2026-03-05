@@ -34,8 +34,10 @@ func handleWeb(profile string, args []string) {
 	case "start":
 		fs := flag.NewFlagSet("web start", flag.ExitOnError)
 		noOpen := fs.Bool("no-open", false, "Do not open browser after start")
+		detach := fs.Bool("detach", false, "Run server in background as a daemon")
+		fs.BoolVar(detach, "d", false, "Run server in background as a daemon (shorthand)")
 		_ = fs.Parse(normalizeArgs(fs, rest))
-		handleWebStart(profile, *noOpen)
+		handleWebStart(profile, *noOpen, *detach)
 	case "stop":
 		handleWebStop()
 	case "status":
@@ -51,7 +53,54 @@ func handleWeb(profile string, args []string) {
 // The caller can background it with: hangar web start &
 // A PID file at ~/.hangar/web.pid lets "hangar web stop" find the process.
 // Pass noOpen=true (via --no-open flag) to suppress auto-opening the browser.
-func handleWebStart(profile string, noOpen bool) {
+// Pass detach=true (via --detach/-d flag) to re-exec self as a background daemon.
+func handleWebStart(profile string, noOpen bool, detach bool) {
+	if detach {
+		// Re-exec self without --detach, redirect output to log file, then return.
+		// The child runs in the foreground but the shell regains control immediately.
+		hangarDir, err := session.GetHangarDir()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Failed to resolve hangar dir: %v\n", err)
+			os.Exit(1)
+		}
+		logsDir := filepath.Join(hangarDir, "logs")
+		if err := os.MkdirAll(logsDir, 0755); err != nil {
+			fmt.Fprintf(os.Stderr, "Failed to create logs dir: %v\n", err)
+			os.Exit(1)
+		}
+		logPath := filepath.Join(logsDir, "web.log")
+		logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Failed to open log file: %v\n", err)
+			os.Exit(1)
+		}
+		// Build args: all original args minus --detach / -d
+		self, err := os.Executable()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Failed to resolve executable: %v\n", err)
+			os.Exit(1)
+		}
+		childArgs := []string{"web", "start", "--no-open"}
+		if profile != "" {
+			childArgs = append([]string{"--profile", profile}, childArgs...)
+		}
+		cmd := exec.Command(self, childArgs...)
+		cmd.Stdout = logFile
+		cmd.Stderr = logFile
+		if err := cmd.Start(); err != nil {
+			logFile.Close()
+			fmt.Fprintf(os.Stderr, "Failed to start background server: %v\n", err)
+			os.Exit(1)
+		}
+		logFile.Close()
+		port, bindAddr := webLoadConfig()
+		uiURL := fmt.Sprintf("http://%s:%d/ui/", webDisplayAddr(bindAddr), port)
+		fmt.Printf("Hangar web server starting in background\n")
+		fmt.Printf("  URL: %s\n", uiURL)
+		fmt.Printf("  Log: %s\n", logPath)
+		fmt.Printf("  Stop: hangar web stop\n")
+		return
+	}
 	pidFile := webPIDFile()
 
 	// If a PID file exists and the process is alive, don't start a second one.
