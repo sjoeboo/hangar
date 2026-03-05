@@ -3295,11 +3295,21 @@ func (h *Home) handleMouseMsg(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 
 	// Todo tab view: nav tab row is at Y==0 (no header above it in this layout).
 	if h.todoDialog.IsVisible() {
-		if msg.Button == tea.MouseButtonLeft && msg.Action == tea.MouseActionPress && msg.Y == 0 {
+		if msg.Button == tea.MouseButtonLeft && msg.Action == tea.MouseActionPress && msg.Y == 1 {
 			views := []string{"", "prs", "todos"}
 			for i, region := range h.navTabRegions {
 				if i < len(views) && msg.X >= region[0] && msg.X < region[1] {
-					return h.handleMainKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(map[string]string{"prs": "P", "todos": "t", "": "q"}[views[i]])})
+					switch views[i] {
+					case "todos":
+						// already here
+					case "prs":
+						h.todoDialog.Hide()
+						h.viewMode = "prs"
+					default: // sessions
+						h.todoDialog.Hide()
+						h.viewMode = ""
+					}
+					return h, nil
 				}
 			}
 		}
@@ -5866,6 +5876,44 @@ func renderPill(label string, textFg, pillBg, barBg lipgloss.Color, bold bool) s
 	return capL + body + capR
 }
 
+// renderHeaderBar renders the top status/logo bar (row 0) used by all three tab views.
+func (h *Home) renderHeaderBar() string {
+	running, waiting, idle, errored := h.countSessionStatuses()
+	logo := RenderLogoCompact(running, waiting, idle)
+	titleStyle := lipgloss.NewStyle().Bold(true).Foreground(ColorAccent)
+	titleText := "Hangar"
+	if h.profile != "" && h.profile != session.DefaultProfile {
+		titleText = "Hangar " + lipgloss.NewStyle().Foreground(ColorCyan).Bold(true).Render("["+h.profile+"]")
+	}
+	title := titleStyle.Render(titleText)
+	var statsParts []string
+	statsSep := lipgloss.NewStyle().Foreground(ColorBorder).Render(" • ")
+	if running > 0 {
+		statsParts = append(statsParts, lipgloss.NewStyle().Foreground(ColorGreen).Render(fmt.Sprintf("● %d running", running)))
+	}
+	if waiting > 0 {
+		statsParts = append(statsParts, lipgloss.NewStyle().Foreground(ColorYellow).Render(fmt.Sprintf("◐ %d waiting", waiting)))
+	}
+	if idle > 0 {
+		statsParts = append(statsParts, lipgloss.NewStyle().Foreground(ColorText).Render(fmt.Sprintf("○ %d idle", idle)))
+	}
+	if errored > 0 {
+		statsParts = append(statsParts, lipgloss.NewStyle().Foreground(ColorRed).Render(fmt.Sprintf("✕ %d error", errored)))
+	}
+	stats := "no sessions"
+	if len(statsParts) > 0 {
+		stats = strings.Join(statsParts, statsSep)
+	}
+	versionBadge := lipgloss.NewStyle().Foreground(ColorComment).Faint(true).Render("v" + Version)
+	headerLeft := lipgloss.JoinHorizontal(lipgloss.Left, logo, "  ", title, "  ", stats)
+	pad := h.width - lipgloss.Width(headerLeft) - lipgloss.Width(versionBadge) - 2
+	if pad < 1 {
+		pad = 1
+	}
+	return lipgloss.NewStyle().Background(ColorSurface).MaxWidth(h.width).Padding(0, 1).
+		Render(headerLeft + strings.Repeat(" ", pad) + versionBadge)
+}
+
 // renderNavTabs renders the top-level view tab bar: Sessions · PRs · Todos
 // navTabX fields track rendered column positions for mouse hit-testing.
 func (h *Home) renderNavTabs() string {
@@ -5884,9 +5932,9 @@ func (h *Home) renderNavTabs() string {
 	for i, tab := range tabs {
 		var rendered string
 		if h.viewMode == tab.mode {
-			rendered = renderPill(tab.label, ColorBg, ColorAccent, ColorBg, true)
+			rendered = renderPill(tab.label, ColorBg, ColorAccent, ColorSurface, true)
 		} else {
-			rendered = renderPill(tab.label, ColorComment, ColorSurface, ColorBg, false)
+			rendered = renderPill(tab.label, ColorComment, ColorSurface, ColorSurface, false)
 		}
 		// Track click region for mouse support
 		w := lipgloss.Width(rendered)
@@ -5903,7 +5951,8 @@ func (h *Home) renderNavTabs() string {
 		pad = 1
 	}
 	row := " " + strings.Join(parts, "") + strings.Repeat(" ", pad) + hint
-	return lipgloss.NewStyle().Background(ColorBg).Width(h.width).Render(row)
+	// ColorSurface background creates visual separation from the filter bar below (ColorBg)
+	return lipgloss.NewStyle().Background(ColorSurface).Width(h.width).Render(row)
 }
 
 // renderFilterBar renders labeled status filter pills.
@@ -5953,30 +6002,30 @@ func (h *Home) renderFilterBar() string {
 		case isActive && d.status == session.StatusError:
 			rendered = renderPill(label, ColorBg, ColorRed, ColorBg, true)
 		default:
-			// Inactive: show count inline for non-All pills, pill-shaped with surface bg
+			// Inactive: plain styled text with count — no powerline caps to avoid visual noise
 			switch d.status {
 			case session.StatusRunning:
 				if running > 0 {
-					rendered = renderPill(fmt.Sprintf("● Running %d !", running), ColorGreen, ColorSurface, ColorBg, false)
+					rendered = lipgloss.NewStyle().Foreground(ColorGreen).Padding(0, 1).Render(fmt.Sprintf("● Running %d", running))
 				} else {
 					rendered = filterPillDimStyle.Render("● Running")
 				}
 			case session.StatusWaiting:
 				if waiting > 0 {
-					rendered = renderPill(fmt.Sprintf("◐ Waiting %d @", waiting), ColorYellow, ColorSurface, ColorBg, false)
+					rendered = lipgloss.NewStyle().Foreground(ColorYellow).Padding(0, 1).Render(fmt.Sprintf("◐ Waiting %d", waiting))
 				} else {
 					rendered = filterPillDimStyle.Render("◐ Waiting")
 				}
 			case session.StatusIdle:
 				if idle > 0 {
-					rendered = renderPill(fmt.Sprintf("○ Idle %d #", idle), ColorText, ColorSurface, ColorBg, false)
+					rendered = lipgloss.NewStyle().Foreground(ColorText).Padding(0, 1).Render(fmt.Sprintf("○ Idle %d", idle))
 				} else {
 					rendered = filterPillDimStyle.Render("○ Idle")
 				}
 			case session.StatusError:
-				rendered = renderPill(fmt.Sprintf("✕ Errors %d $", errored), ColorRed, ColorSurface, ColorBg, false)
+				rendered = lipgloss.NewStyle().Foreground(ColorRed).Padding(0, 1).Render(fmt.Sprintf("✕ Errors %d", errored))
 			default:
-				rendered = renderPill(label, ColorText, ColorSurface, ColorBg, false)
+				rendered = filterPillInactiveStyle.Render(label)
 			}
 		}
 
@@ -6005,7 +6054,7 @@ func (h *Home) updateSizes() {
 	h.worktreeFinishDialog.SetSize(h.width, h.height)
 	h.reviewDialog.SetSize(h.width, h.height)
 	h.sendTextDialog.SetSize(h.width, h.height)
-	h.todoDialog.SetSize(h.width, h.height-1) // -1 for nav tab row above
+	h.todoDialog.SetSize(h.width, h.height-2) // -2 for header + nav tab rows above
 	h.diffView.SetSize(h.width, h.height)
 }
 
@@ -6097,8 +6146,8 @@ func (h *Home) View() string {
 		return h.reviewDialog.View()
 	}
 	if h.todoDialog.IsVisible() {
-		h.todoDialog.SetSize(h.width, h.height-1)
-		return h.renderNavTabs() + "\n" + h.todoDialog.View()
+		h.todoDialog.SetSize(h.width, h.height-2)
+		return h.renderHeaderBar() + "\n" + h.renderNavTabs() + "\n" + h.todoDialog.View()
 	}
 	if h.prDetailOverlay.IsVisible() {
 		return h.prDetailOverlay.View()
@@ -7992,7 +8041,7 @@ func (h *Home) showTodoDialog() tea.Cmd {
 		h.setError(fmt.Errorf("load todos: %w", err))
 		return nil
 	}
-	h.todoDialog.SetSize(h.width, h.height-1)
+	h.todoDialog.SetSize(h.width, h.height-2)
 	h.todoDialog.Show(projectPath, groupPath, groupName, todos)
 	return nil
 }
