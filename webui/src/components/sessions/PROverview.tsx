@@ -10,8 +10,6 @@ import { cn } from '@/lib/utils'
 type Tab = 'all' | 'mine' | 'review_requested' | 'sessions'
 type SortCol = 'age' | 'title' | 'author' | 'state' | 'checks'
 
-const STATE_ORDER: Record<string, number> = { OPEN: 0, DRAFT: 1, MERGED: 2, CLOSED: 3 }
-
 function checksScore(pr: PRFullInfo): number {
   if ((pr.checks_failed ?? 0) > 0) return 3
   if ((pr.checks_pending ?? 0) > 0) return 2
