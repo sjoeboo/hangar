@@ -17,7 +17,21 @@ var (
 	prDetailHeaderStyle      lipgloss.Style
 	prDetailActiveTabStyle   lipgloss.Style
 	prDetailInactiveTabStyle lipgloss.Style
-	prDetailSeparatorStyle   lipgloss.Style
+
+	// Nav tab styles (Sessions | PRs | Todos tab row)
+	navTabActiveStyle   lipgloss.Style
+	navTabInactiveStyle lipgloss.Style
+
+	// Filter pill styles (Running / Waiting / Idle / Error pills)
+	filterPillAllActiveStyle     lipgloss.Style
+	filterPillRunningActiveStyle lipgloss.Style
+	filterPillWaitingActiveStyle lipgloss.Style
+	filterPillIdleActiveStyle    lipgloss.Style
+	filterPillErrorActiveStyle   lipgloss.Style
+	filterPillInactiveStyle      lipgloss.Style
+	filterPillDimStyle           lipgloss.Style
+
+	prDetailSeparatorStyle lipgloss.Style
 	prDetailDimStyle         lipgloss.Style
 	prDetailErrStyle         lipgloss.Style
 	prDetailBgStyle          lipgloss.Style

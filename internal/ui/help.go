@@ -109,6 +109,14 @@ func (h *HelpOverlay) View() string {
 			},
 		},
 		{
+			title: "VIEWS",
+			items: [][2]string{
+				{"Tab / Shift+Tab", "Switch view (Sessions / PRs / Todos)"},
+				{"P", "PR overview"},
+				{"t", "Todo kanban board"},
+			},
+		},
+		{
 			title: "SESSIONS",
 			items: [][2]string{
 				{"n", "New session"},
@@ -151,9 +159,10 @@ func (h *HelpOverlay) View() string {
 			title: "SEARCH & FILTER",
 			items: [][2]string{
 				{"/", "Open search"},
-				{"/waiting", "Filter waiting"},
-				{"/running", "Filter running"},
-				{"/idle", "Filter idle"},
+				{"!", "Filter: Running only"},
+				{"@", "Filter: Waiting only"},
+				{"#", "Filter: Idle only"},
+				{"0", "Clear filter (show all)"},
 			},
 		},
 		{

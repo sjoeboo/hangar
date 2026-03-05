@@ -728,6 +728,35 @@ func (s *StateDB) LoadTodos(projectPath string) ([]*TodoRow, error) {
 	return result, rows.Err()
 }
 
+// LoadAllTodos returns all todos across all projects, ordered by project_path then sort_order.
+func (s *StateDB) LoadAllTodos() ([]*TodoRow, error) {
+	rows, err := s.db.Query(`
+		SELECT id, project_path, title, description, prompt, status, session_id, sort_order, created_at, updated_at
+		FROM todos ORDER BY project_path, sort_order, created_at
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var result []*TodoRow
+	for rows.Next() {
+		r := &TodoRow{}
+		var createdUnix, updatedUnix int64
+		if err := rows.Scan(
+			&r.ID, &r.ProjectPath, &r.Title, &r.Description, &r.Prompt,
+			&r.Status, &r.SessionID, &r.Order,
+			&createdUnix, &updatedUnix,
+		); err != nil {
+			return nil, err
+		}
+		r.CreatedAt = time.Unix(createdUnix, 0)
+		r.UpdatedAt = time.Unix(updatedUnix, 0)
+		result = append(result, r)
+	}
+	return result, rows.Err()
+}
+
 // DeleteTodo removes a todo by ID.
 func (s *StateDB) DeleteTodo(id string) error {
 	_, err := s.db.Exec("DELETE FROM todos WHERE id = ?", id)

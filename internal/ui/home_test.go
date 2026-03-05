@@ -956,13 +956,13 @@ func TestListItemAt(t *testing.T) {
 		h.height = 30
 		h.flatItems = makeItems(5)
 		h.viewOffset = 0
-		// listStartRow = 4 (no banners, viewOffset=0)
-		// row 4 → item 0, row 5 → item 1, row 6 → item 2
-		if got := h.listItemAt(5, 4); got != 0 {
-			t.Errorf("row 4 → want 0, got %d", got)
+		// listStartRow = 6 (no banners, viewOffset=0)
+		// row 6 → item 0, row 7 → item 1, row 8 → item 2
+		if got := h.listItemAt(5, 6); got != 0 {
+			t.Errorf("row 6 → want 0, got %d", got)
 		}
-		if got := h.listItemAt(5, 6); got != 2 {
-			t.Errorf("row 6 → want 2, got %d", got)
+		if got := h.listItemAt(5, 8); got != 2 {
+			t.Errorf("row 8 → want 2, got %d", got)
 		}
 	})
 
@@ -984,8 +984,8 @@ func TestListItemAt(t *testing.T) {
 		h.width = 120
 		h.height = 30
 		h.flatItems = makeItems(3)
-		// listStartRow=4, items at rows 4,5,6 → row 7 is out of bounds
-		if got := h.listItemAt(5, 7); got != -1 {
+		// listStartRow=6, items at rows 6,7,8 → row 9 is out of bounds
+		if got := h.listItemAt(5, 9); got != -1 {
 			t.Errorf("row beyond items → want -1, got %d", got)
 		}
 	})
@@ -997,11 +997,11 @@ func TestListItemAt(t *testing.T) {
 		h.flatItems = makeItems(5)
 		leftWidth := int(float64(120) * 0.35) // = 42
 		// click at x=50 is in the right panel
-		if got := h.listItemAt(50, 4); got != -1 {
+		if got := h.listItemAt(50, 5); got != -1 {
 			t.Errorf("right panel click → want -1, got %d", got)
 		}
 		// click at x=41 is in left panel
-		if got := h.listItemAt(leftWidth-1, 4); got != 0 {
+		if got := h.listItemAt(leftWidth-1, 6); got != 0 {
 			t.Errorf("left panel click → want 0, got %d", got)
 		}
 	})
@@ -1013,10 +1013,10 @@ func TestListItemAt(t *testing.T) {
 		h.flatItems = makeItems(10)
 		h.viewOffset = 3
 		// viewOffset>0 adds 1 row for "more above" indicator
-		// listStartRow = 4 + 1 = 5
-		// row 5 → item 3 (viewOffset + 0)
-		if got := h.listItemAt(5, 5); got != 3 {
-			t.Errorf("row 5 with viewOffset=3 → want 3, got %d", got)
+		// listStartRow = 6 + 1 = 7
+		// row 7 → item 3 (viewOffset + 0)
+		if got := h.listItemAt(5, 7); got != 3 {
+			t.Errorf("row 7 with viewOffset=3 → want 3, got %d", got)
 		}
 	})
 }
@@ -1038,8 +1038,8 @@ func TestHandleMouseMsg(t *testing.T) {
 		h.flatItems = makeSessionItems(5)
 		h.cursor = 0
 
-		// listStartRow=4 (no banners, viewOffset=0), Y=5 → item 1
-		msg := tea.MouseMsg{Button: tea.MouseButtonLeft, Action: tea.MouseActionPress, X: 5, Y: 5}
+		// listStartRow=6 (no banners, viewOffset=0), Y=7 → item 1
+		msg := tea.MouseMsg{Button: tea.MouseButtonLeft, Action: tea.MouseActionPress, X: 5, Y: 7}
 		model, _ := h.Update(msg)
 		updated := model.(*Home)
 		if updated.cursor != 1 {
@@ -1070,8 +1070,8 @@ func TestHandleMouseMsg(t *testing.T) {
 		h.flatItems = makeSessionItems(5)
 		h.cursor = 0
 
-		// Y=4 → listStartRow=4 → item 0
-		msg := tea.MouseMsg{Button: tea.MouseButtonLeft, Action: tea.MouseActionPress, X: 5, Y: 4}
+		// Y=6 → listStartRow=6 → item 0
+		msg := tea.MouseMsg{Button: tea.MouseButtonLeft, Action: tea.MouseActionPress, X: 5, Y: 6}
 		model, _ := h.Update(msg)
 		h = model.(*Home)
 		if h.lastClickIndex != 0 {
@@ -1131,8 +1131,8 @@ func TestHandleMouseMsg(t *testing.T) {
 		}
 		h.cursor = 0
 
-		// Y=4 → listStartRow=4 → item 0 (the group)
-		msg := tea.MouseMsg{Button: tea.MouseButtonLeft, Action: tea.MouseActionPress, X: 5, Y: 4}
+		// Y=6 → listStartRow=6 → item 0 (the group)
+		msg := tea.MouseMsg{Button: tea.MouseButtonLeft, Action: tea.MouseActionPress, X: 5, Y: 6}
 		model, _ := h.Update(msg)
 		updated := model.(*Home)
 
@@ -1561,8 +1561,8 @@ func TestPRView_RenderShowsPRs(t *testing.T) {
 	if !strings.Contains(view, "Fix auth bug") {
 		t.Error("View should contain session title")
 	}
-	if !strings.Contains(view, "PR Overview") {
-		t.Error("View should show 'PR Overview' header label")
+	if !strings.Contains(view, "PRs") {
+		t.Error("View should show PRs nav tab")
 	}
 }
 
