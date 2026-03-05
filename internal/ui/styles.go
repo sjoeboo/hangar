@@ -732,6 +732,16 @@ func initStyles() {
 	prDetailPurpleStyle      = lipgloss.NewStyle().Foreground(ColorPurple)
 	prDetailYellowStyle      = lipgloss.NewStyle().Foreground(ColorYellow)
 	prDetailCommentStyle     = lipgloss.NewStyle().Foreground(ColorComment)
+
+	// DiffView overlay + shared diff line styles
+	diffViewHeaderStyle    = lipgloss.NewStyle().Foreground(ColorAccent).Bold(true)
+	diffViewSeparatorStyle = lipgloss.NewStyle().Foreground(ColorBorder)
+	diffViewFooterStyle    = lipgloss.NewStyle().Foreground(ColorTextDim).Italic(true)
+	diffHunkHeaderStyle    = lipgloss.NewStyle().Foreground(ColorComment)
+	diffLineAddStyle       = lipgloss.NewStyle().Foreground(ColorGreen)
+	diffLineDelStyle       = lipgloss.NewStyle().Foreground(ColorRed)
+	diffLineContextStyle   = lipgloss.NewStyle().Foreground(ColorTextDim)
+	diffLineNoNewlineStyle = lipgloss.NewStyle().Foreground(ColorComment).Italic(true)
 }
 
 // Helper Functions

@@ -5,19 +5,47 @@ All notable changes to Hangar will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [2.4.1] - 2026-03-04
+## [2.5.0] - 2026-03-04
 
 ### Added
 
-- **TUI: Approve PR from detail overlay** — the `a` key now works in the `PRDetailOverlay` (Enter → detail view), not just in the PR list. Hint bar updated to show `a approve`.
-- **TUI: PR list sorting** — `S` key cycles through sort columns (`age` → `title` → `author` → `state` → `checks`); pressing again on the same column flips direction. Default is newest-first by age. Active column shown with `↑`/`↓` arrow in the column header.
-- **TUI: Mouse support in PR overview** — scroll wheel moves cursor; single click selects a row; clicking an already-selected row opens the detail overlay (equivalent to Enter).
-- **WebUI: PR list sorting** — clicking column headers (Age, Author, Title, Checks, State) sorts the list; clicking the same header again reverses direction. `↑`/`↓` indicator shown on the active column. Default is newest-first.
+- **TUI: Session diff view — collapsible file tree** — the `D` key overlay now renders a
+  collapsible per-file list identical to the PR Detail overlay's Diff tab. Each row shows the
+  file path (colorized green/red/yellow by added/deleted/modified status), a `▶`/`▼` expand
+  indicator, and `+N -N` change counts. `j`/`k` navigate between files; `Enter`/`Space`
+  expand or collapse hunks; single-file diffs auto-expand. Focus highlight, color palette,
+  and key bindings are now identical between the session diff view and the PR diff view.
+  Inline `lipgloss.NewStyle()` calls in `renderDiffLine` and `renderHunkHeader` replaced with
+  pre-compiled package-level style vars for allocation consistency.
+
+- **TUI: Approve PR from detail overlay** — the `a` key now works in the `PRDetailOverlay`
+  (Enter → detail view), not just in the PR list. Hint bar updated to show `a approve`.
+
+- **TUI: PR list sorting** — `S` key cycles through sort columns (`age` → `title` → `author`
+  → `state` → `checks`); pressing again on the same column flips direction. Default is
+  newest-first by age. Active column shown with `↑`/`↓` arrow in the column header.
+
+- **TUI: Mouse support in PR overview** — scroll wheel moves cursor; single click selects a
+  row; clicking an already-selected row opens the detail overlay (equivalent to Enter).
+
+- **WebUI: Click-to-edit todos** — todo titles in the kanban board are now inline-editable:
+  click a title to enter edit mode, type to update, press Enter or click away to save.
+
+- **WebUI: PR list sorting** — clicking column headers (Age, Author, Title, Checks, State)
+  sorts the list; clicking the same header again reverses direction. `↑`/`↓` indicator shown
+  on the active column. Default is newest-first.
 
 ### Fixed
 
-- **WebUI: Approve button now consistent across all tabs** — the Approve and Request Changes buttons previously only appeared for PRs where `source !== 'mine'`, which caused them to be hidden for session-linked PRs that were also authored by the current user. Buttons now appear for all open PRs; GitHub's API prevents actual self-approval at the backend.
-- **TUI: PR selection highlight covers entire row** — the old highlight applied a background to the pre-ANSI-styled row string, but inner `\x1b[0m` reset sequences cleared the background mid-row, causing a patchy look. Each column style now carries the selection background (`ColorBorder`) individually so the highlight is solid and full-width.
+- **WebUI: Approve button now consistent across all tabs** — the Approve and Request Changes
+  buttons previously only appeared for PRs where `source !== 'mine'`, which caused them to be
+  hidden for session-linked PRs also authored by the current user. Buttons now appear for all
+  open PRs; GitHub's API prevents actual self-approval at the backend.
+
+- **TUI: PR selection highlight covers entire row** — the old highlight applied a background
+  to the pre-ANSI-styled row string, but inner `\x1b[0m` reset sequences cleared the
+  background mid-row, causing a patchy look. Each column style now carries the selection
+  background individually so the highlight is solid and full-width.
 
 ## [2.4.0] - 2026-03-05
 
@@ -613,6 +641,7 @@ Thanks to @mnicholson and all upstream contributors for the excellent foundation
   display in session list
 - **Help text** — removed stale MCP/Skills references; corrected key descriptions
 
+[2.5.0]: https://github.com/sjoeboo/hangar/releases/tag/v2.5.0
 [2.4.0]: https://github.com/sjoeboo/hangar/releases/tag/v2.4.0
 [2.3.0]: https://github.com/sjoeboo/hangar/releases/tag/v2.3.0
 [2.2.0]: https://github.com/sjoeboo/hangar/releases/tag/v2.2.0
