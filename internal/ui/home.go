@@ -3394,8 +3394,8 @@ func (h *Home) handleMouseMsg(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 			}
 			return h, nil
 		}
-		// Filter pill bar click (row 2, after nav tab row)
-		if msg.Y == 2 {
+		// Filter pill bar click (row 3: header=0, nav=1, separator=2, filter=3)
+		if msg.Y == 3 {
 			statuses := []session.Status{"", session.StatusRunning, session.StatusWaiting, session.StatusIdle, session.StatusError}
 			for _, region := range h.filterPillRegions {
 				if msg.X >= region[0] && msg.X < region[1] && region[2] < len(statuses) {
@@ -5914,9 +5914,9 @@ func (h *Home) renderNavTabs() string {
 	for i, tab := range tabs {
 		var rendered string
 		if h.viewMode == tab.mode {
-			rendered = renderPill(tab.label, ColorBg, ColorAccent, ColorSurface, true)
+			rendered = renderPill(tab.label, ColorBg, ColorAccent, ColorBg, true)
 		} else {
-			rendered = lipgloss.NewStyle().Foreground(ColorComment).Background(ColorSurface).Padding(0, 1).Render(tab.label)
+			rendered = lipgloss.NewStyle().Foreground(ColorComment).Padding(0, 1).Render(tab.label)
 		}
 		// Track click region for mouse support
 		w := lipgloss.Width(rendered)
@@ -5933,8 +5933,7 @@ func (h *Home) renderNavTabs() string {
 		pad = 1
 	}
 	row := " " + strings.Join(parts, "") + strings.Repeat(" ", pad) + hint
-	// ColorSurface background creates visual separation from the filter bar below (ColorBg)
-	return lipgloss.NewStyle().Background(ColorSurface).Width(h.width).Render(row)
+	return lipgloss.NewStyle().Background(ColorBg).Width(h.width).Render(row)
 }
 
 // renderFilterBar renders labeled status filter pills.
