@@ -3217,12 +3217,12 @@ func (h *Home) handleNewDialogKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 // handlePRMouseMsg handles mouse events in the PR overview (viewMode=="prs").
 // Scroll wheel moves cursor; left-click selects a row (click selected row = open detail).
-// prDataRowOffset is: header(1)+tabs(1)+colheader(1)+border(1) = 4 lines.
-const prDataRowOffset = 4
+// prDataRowOffset is: header(1)+navtab(1)+tabs(1)+colheader(1)+border(1) = 5 lines.
+const prDataRowOffset = 5
 
 func (h *Home) handlePRMouseMsg(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 	prs := h.prViewPRs()
-	contentHeight := h.height - 7
+	contentHeight := h.height - 8
 	if contentHeight < 1 {
 		contentHeight = 1
 	}
@@ -3289,13 +3289,42 @@ func (h *Home) handleMouseMsg(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 		h.confirmDialog.IsVisible() || h.geminiModelDialog.IsVisible() ||
 		h.sessionPickerDialog.IsVisible() || h.sendTextDialog.IsVisible() ||
 		h.worktreeFinishDialog.IsVisible() ||
-		h.todoDialog.IsVisible() || h.reviewDialog.IsVisible() ||
-		h.prDetailOverlay.IsVisible() {
+		h.reviewDialog.IsVisible() || h.prDetailOverlay.IsVisible() {
 		return h, nil
 	}
 
-	// Route mouse to PR overview when active.
+	// Todo tab view: nav tab row is at Y==0 (no header above it in this layout).
+	if h.todoDialog.IsVisible() {
+		if msg.Button == tea.MouseButtonLeft && msg.Action == tea.MouseActionPress && msg.Y == 0 {
+			views := []string{"", "prs", "todos"}
+			for i, region := range h.navTabRegions {
+				if i < len(views) && msg.X >= region[0] && msg.X < region[1] {
+					return h.handleMainKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(map[string]string{"prs": "P", "todos": "t", "": "q"}[views[i]])})
+				}
+			}
+		}
+		return h, nil
+	}
+
+	// Route mouse to PR overview when active (nav tab at Y==1 intercepted first).
 	if h.viewMode == "prs" {
+		if msg.Button == tea.MouseButtonLeft && msg.Action == tea.MouseActionPress && msg.Y == 1 {
+			views := []string{"", "prs", "todos"}
+			for i, region := range h.navTabRegions {
+				if i < len(views) && msg.X >= region[0] && msg.X < region[1] {
+					switch views[i] {
+					case "prs":
+						return h, nil // already here
+					case "todos":
+						h.viewMode = "todos"
+						return h, h.showTodoDialog()
+					default:
+						h.viewMode = ""
+					}
+					return h, nil
+				}
+			}
+		}
 		return h.handlePRMouseMsg(msg)
 	}
 
@@ -4373,6 +4402,11 @@ func (h *Home) handlePRViewKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "P", "esc":
 		h.viewMode = ""
 		return h, nil
+
+	case "]":
+		return h.cycleView(1)
+	case "[":
+		return h.cycleView(-1)
 
 	case "tab":
 		h.prViewTab = (h.prViewTab + 1) % 4
@@ -7990,6 +8024,13 @@ func (h *Home) cycleView(dir int) (tea.Model, tea.Cmd) {
 
 // handleTodoDialogKey processes key events for the todo dialog.
 func (h *Home) handleTodoDialogKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// Nav cycling takes priority over dialog's own key handling
+	switch msg.String() {
+	case "]":
+		return h.cycleView(1)
+	case "[":
+		return h.cycleView(-1)
+	}
 	action := h.todoDialog.HandleKey(msg)
 	switch action {
 	case TodoActionClose:

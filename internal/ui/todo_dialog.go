@@ -57,10 +57,11 @@ func buildColumns(todos []*session.Todo) []kanbanColumn {
 type todoDialogMode int
 
 const (
-	todoModeKanban todoDialogMode = iota
-	todoModeNew                   // new-todo form
-	todoModeEdit                  // edit-todo form
-	todoModeStatus                // status picker
+	todoModeKanban        todoDialogMode = iota
+	todoModeNew                          // new-todo form
+	todoModeEdit                         // edit-todo form
+	todoModeStatus                       // status picker
+	todoModeProjectFilter                // project filter picker
 )
 
 // TodoDialog shows and manages todos for a project.
@@ -92,6 +93,11 @@ type TodoDialog struct {
 	// status picker
 	statusOptions []session.TodoStatus
 	statusCursor  int
+
+	// project filter
+	filterProject  string   // "" = all projects
+	filterProjects []string // unique project paths (populated on Show/SetTodos)
+	filterCursor   int      // cursor in the picker list
 }
 
 // NewTodoDialog creates a new TodoDialog.
@@ -125,8 +131,20 @@ func NewTodoDialog() *TodoDialog {
 	}
 }
 
+// rebuildFilterProjects rebuilds the list of unique project paths from d.todos.
+func (d *TodoDialog) rebuildFilterProjects() {
+	seen := map[string]bool{}
+	d.filterProjects = nil
+	for _, t := range d.todos {
+		if !seen[t.ProjectPath] {
+			seen[t.ProjectPath] = true
+			d.filterProjects = append(d.filterProjects, t.ProjectPath)
+		}
+	}
+}
+
 // rebuildCols rebuilds the derived column structure from d.todos.
-// Preserves the cursor position by todo ID where possible; otherwise clamps.
+// Applies filterProject if set. Preserves cursor by todo ID where possible.
 func (d *TodoDialog) rebuildCols() {
 	// Snapshot current selected ID before rebuild
 	var prevID string
@@ -134,7 +152,17 @@ func (d *TodoDialog) rebuildCols() {
 		prevID = t.ID
 	}
 
-	d.cols = buildColumns(d.todos)
+	todos := d.todos
+	if d.filterProject != "" {
+		var filtered []*session.Todo
+		for _, t := range todos {
+			if t.ProjectPath == d.filterProject {
+				filtered = append(filtered, t)
+			}
+		}
+		todos = filtered
+	}
+	d.cols = buildColumns(todos)
 
 	// Ensure selectedRow has one entry per column
 	newRow := make([]int, len(d.cols))
@@ -196,6 +224,8 @@ func (d *TodoDialog) Show(projectPath, groupPath, groupName string, todos []*ses
 	d.selectedRow = nil
 	d.mode = todoModeKanban
 	d.errorMsg = ""
+	d.filterProject = ""
+	d.rebuildFilterProjects()
 	d.rebuildCols()
 }
 
@@ -218,6 +248,7 @@ func (d *TodoDialog) SetSize(w, h int) {
 // SetTodos replaces the current todo list (used after reloads).
 func (d *TodoDialog) SetTodos(todos []*session.Todo) {
 	d.todos = todos
+	d.rebuildFilterProjects()
 	d.rebuildCols()
 }
 
@@ -334,6 +365,32 @@ func (d *TodoDialog) HandleKey(msg tea.KeyMsg) TodoAction {
 		return d.handleFormKey(msg)
 	case todoModeStatus:
 		return d.handleStatusKey(msg.String())
+	case todoModeProjectFilter:
+		return d.handleProjectFilterKey(msg.String())
+	}
+	return TodoActionNone
+}
+
+func (d *TodoDialog) handleProjectFilterKey(key string) TodoAction {
+	// Build combined list: "" (All) + each unique project
+	options := append([]string{""}, d.filterProjects...)
+	switch key {
+	case "up", "k":
+		if d.filterCursor > 0 {
+			d.filterCursor--
+		}
+	case "down", "j":
+		if d.filterCursor < len(options)-1 {
+			d.filterCursor++
+		}
+	case "enter":
+		if d.filterCursor < len(options) {
+			d.filterProject = options[d.filterCursor]
+			d.rebuildCols()
+		}
+		d.mode = todoModeKanban
+	case "esc", "f":
+		d.mode = todoModeKanban
 	}
 	return TodoActionNone
 }
@@ -488,9 +545,55 @@ func (d *TodoDialog) View() string {
 		return d.viewForm()
 	case todoModeStatus:
 		return d.viewStatusPicker()
+	case todoModeProjectFilter:
+		return d.viewProjectFilter()
 	default:
 		return d.viewKanban()
 	}
+}
+
+func (d *TodoDialog) viewProjectFilter() string {
+	borderStyle := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color("#5fd7ff")).
+		Padding(1, 2)
+
+	header := lipgloss.NewStyle().Bold(true).Render("Filter by Project")
+
+	options := append([]string{""}, d.filterProjects...)
+	var rows []string
+	for i, p := range options {
+		label := p
+		if p == "" {
+			label = "All Projects"
+		} else {
+			if idx := strings.LastIndex(label, "/"); idx >= 0 {
+				label = label[idx+1:]
+			}
+		}
+		active := p == d.filterProject
+		cursor := "  "
+		if i == d.filterCursor {
+			cursor = "▌ "
+		}
+		var line string
+		switch {
+		case i == d.filterCursor && active:
+			line = lipgloss.NewStyle().Foreground(lipgloss.Color("#5fd7ff")).Bold(true).Render(cursor+label+" ✓")
+		case i == d.filterCursor:
+			line = lipgloss.NewStyle().Foreground(lipgloss.Color("#5fd7ff")).Render(cursor + label)
+		case active:
+			line = lipgloss.NewStyle().Foreground(lipgloss.Color("#c0ccd8")).Render(cursor + label + " ✓")
+		default:
+			line = lipgloss.NewStyle().Foreground(lipgloss.Color("#7a8a9a")).Render(cursor + label)
+		}
+		rows = append(rows, line)
+	}
+
+	hint := lipgloss.NewStyle().Foreground(lipgloss.Color("#5a6a7a")).Render("↑↓ move  enter select  esc cancel")
+	content := header + "\n\n" + strings.Join(rows, "\n") + "\n\n" + hint
+	return lipgloss.Place(d.width, d.height, lipgloss.Center, lipgloss.Center,
+		borderStyle.Render(content))
 }
 
 func (d *TodoDialog) viewForm() string {
@@ -609,6 +712,17 @@ func (d *TodoDialog) handleKanbanKey(key string) TodoAction {
 				return TodoActionMoveCardRight
 			}
 		}
+	case "f":
+		// Set filterCursor to the currently active filter
+		options := append([]string{""}, d.filterProjects...)
+		d.filterCursor = 0
+		for i, p := range options {
+			if p == d.filterProject {
+				d.filterCursor = i
+				break
+			}
+		}
+		d.mode = todoModeProjectFilter
 	case "n":
 		d.openNewForm()
 	case "e":
@@ -729,10 +843,18 @@ func (d *TodoDialog) viewKanban() string {
 		Padding(0, 1).
 		Width(d.width - 4)
 
-	header := lipgloss.NewStyle().Bold(true).Render("All Todos")
+	filterLabel := ""
+	if d.filterProject != "" {
+		proj := d.filterProject
+		if idx := strings.LastIndex(proj, "/"); idx >= 0 {
+			proj = proj[idx+1:]
+		}
+		filterLabel = lipgloss.NewStyle().Foreground(lipgloss.Color("#5fd7ff")).Render(" [" + proj + "]")
+	}
+	header := lipgloss.NewStyle().Bold(true).Render("All Todos") + filterLabel
 
 	hint := lipgloss.NewStyle().Foreground(lipgloss.Color("#5a6a7a")).Render(
-		"←/→ col  ↑/↓ card  n new  enter open  s status  e edit  d delete  shift+←/→ move  esc close",
+		"←/→ col  ↑/↓ card  f filter  n new  enter open  s status  e edit  d delete  shift+←/→ move  esc close",
 	)
 
 	// Empty board
