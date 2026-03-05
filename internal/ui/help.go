@@ -143,6 +143,8 @@ func (h *HelpOverlay) View() string {
 				{"v", "Review PR (create review session)"},
 				{"o", "Open PR in browser"},
 				{"D", "Show git diff overlay for focused session"},
+				{"e", "Open directory in editor (configured)"},
+				{"E", "Open directory in editor (pick)"},
 			},
 		},
 		{
