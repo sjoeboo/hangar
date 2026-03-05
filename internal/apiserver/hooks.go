@@ -51,6 +51,18 @@ func (s *APIServer) handleHook(w http.ResponseWriter, r *http.Request) {
 
 	if status != "" {
 		s.watcher.Notify(instanceID, status, payload.SessionID, payload.HookEventName)
+		select {
+		case s.hub.broadcast <- WsMessage{
+			Type: "hook_changed",
+			Data: WsHookChangedData{
+				InstanceID:    instanceID,
+				HookEventName: payload.HookEventName,
+				Status:        status,
+			},
+		}:
+		default:
+			// hub not running or full — skip broadcast
+		}
 	}
 
 	w.WriteHeader(http.StatusOK)

@@ -34,8 +34,10 @@ func handleWeb(profile string, args []string) {
 	case "start":
 		fs := flag.NewFlagSet("web start", flag.ExitOnError)
 		noOpen := fs.Bool("no-open", false, "Do not open browser after start")
+		detach := fs.Bool("detach", false, "Run server in background as a daemon")
+		fs.BoolVar(detach, "d", false, "Run server in background as a daemon (shorthand)")
 		_ = fs.Parse(normalizeArgs(fs, rest))
-		handleWebStart(profile, *noOpen)
+		handleWebStart(profile, *noOpen, *detach)
 	case "stop":
 		handleWebStop()
 	case "status":
@@ -51,7 +53,54 @@ func handleWeb(profile string, args []string) {
 // The caller can background it with: hangar web start &
 // A PID file at ~/.hangar/web.pid lets "hangar web stop" find the process.
 // Pass noOpen=true (via --no-open flag) to suppress auto-opening the browser.
-func handleWebStart(profile string, noOpen bool) {
+// Pass detach=true (via --detach/-d flag) to re-exec self as a background daemon.
+func handleWebStart(profile string, noOpen bool, detach bool) {
+	if detach {
+		// Re-exec self without --detach, redirect output to log file, then return.
+		// The child runs in the foreground but the shell regains control immediately.
+		hangarDir, err := session.GetHangarDir()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Failed to resolve hangar dir: %v\n", err)
+			os.Exit(1)
+		}
+		logsDir := filepath.Join(hangarDir, "logs")
+		if err := os.MkdirAll(logsDir, 0755); err != nil {
+			fmt.Fprintf(os.Stderr, "Failed to create logs dir: %v\n", err)
+			os.Exit(1)
+		}
+		logPath := filepath.Join(logsDir, "web.log")
+		logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Failed to open log file: %v\n", err)
+			os.Exit(1)
+		}
+		// Build args: all original args minus --detach / -d
+		self, err := os.Executable()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Failed to resolve executable: %v\n", err)
+			os.Exit(1)
+		}
+		childArgs := []string{"web", "start", "--no-open"}
+		if profile != "" {
+			childArgs = append([]string{"--profile", profile}, childArgs...)
+		}
+		cmd := exec.Command(self, childArgs...)
+		cmd.Stdout = logFile
+		cmd.Stderr = logFile
+		if err := cmd.Start(); err != nil {
+			logFile.Close()
+			fmt.Fprintf(os.Stderr, "Failed to start background server: %v\n", err)
+			os.Exit(1)
+		}
+		logFile.Close()
+		port, bindAddr := webLoadConfig()
+		uiURL := fmt.Sprintf("http://%s:%d/ui/", webDisplayAddr(bindAddr), port)
+		fmt.Printf("Hangar web server starting in background\n")
+		fmt.Printf("  URL: %s\n", uiURL)
+		fmt.Printf("  Log: %s\n", logPath)
+		fmt.Printf("  Stop: hangar web stop\n")
+		return
+	}
 	pidFile := webPIDFile()
 
 	// If a PID file exists and the process is alive, don't start a second one.
@@ -178,102 +227,6 @@ func handleWebStart(profile string, noOpen bool) {
 	if err := srv.Start(ctx); err != nil {
 		fmt.Fprintf(os.Stderr, "Server error: %v\n", err)
 		os.Exit(1)
-	}
-}
-
-// runWebInProcess starts the API + web UI server in-process and returns a cancel
-// func that shuts it down. Used by "hangar --web" to co-locate the web server
-// with the TUI in the same process; the caller defers the returned cancel.
-func runWebInProcess(profile string, noOpen bool) context.CancelFunc {
-	port, bindAddr := webLoadConfig()
-	ctx, cancel := context.WithCancel(context.Background())
-
-	getInstances := func() []*session.Instance {
-		storage, err := session.NewStorageWithProfile(profile)
-		if err != nil {
-			return nil
-		}
-		defer storage.Close()
-		instances, _ := storage.Load()
-		return instances
-	}
-
-	watcher, err := session.NewStatusFileWatcher()
-	if err != nil {
-		watcher = nil
-	}
-
-	prManager := pr.New()
-	prManager.Start()
-
-	go func() {
-		pollSessionPRs := func() {
-			for _, inst := range getInstances() {
-				if inst.IsWorktree() && inst.WorktreePath != "" {
-					prManager.UpdateSessionPR(inst.ID, inst.WorktreePath)
-				}
-			}
-		}
-		pollSessionPRs()
-		ticker := time.NewTicker(90 * time.Second)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-ticker.C:
-				pollSessionPRs()
-			}
-		}
-	}()
-
-	getPRInfo := func(sessionID string) *apiserver.PRInfo {
-		p, exists := prManager.GetSessionPR(sessionID)
-		if !exists || p == nil {
-			return nil
-		}
-		return &apiserver.PRInfo{
-			Number:        p.Number,
-			Title:         p.Title,
-			State:         p.State,
-			URL:           p.URL,
-			ChecksPassed:  p.ChecksPassed,
-			ChecksFailed:  p.ChecksFailed,
-			ChecksPending: p.ChecksPending,
-			HasChecks:     p.HasChecks,
-		}
-	}
-
-	cfg := apiserver.APIConfig{Port: port, BindAddress: bindAddr}
-	srv := apiserver.New(cfg, watcher, getInstances, getPRInfo, nil, prManager, profile, Version)
-
-	go func() {
-		if err := srv.Start(ctx); err != nil && ctx.Err() == nil {
-			fmt.Fprintf(os.Stderr, "Web server error: %v\n", err)
-		}
-	}()
-
-	uiURL := fmt.Sprintf("http://%s:%d/ui/", webDisplayAddr(bindAddr), port)
-	if !noOpen {
-		statusURL := fmt.Sprintf("http://127.0.0.1:%d/api/v1/status", port)
-		go func() {
-			client := &http.Client{Timeout: time.Second}
-			deadline := time.Now().Add(5 * time.Second)
-			for time.Now().Before(deadline) {
-				resp, err := client.Get(statusURL)
-				if err == nil {
-					resp.Body.Close()
-					openBrowser(uiURL)
-					return
-				}
-				time.Sleep(100 * time.Millisecond)
-			}
-		}()
-	}
-
-	return func() {
-		cancel()
-		prManager.Stop()
 	}
 }
 

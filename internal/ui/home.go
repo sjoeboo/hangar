@@ -222,6 +222,7 @@ type Home struct {
 	hookServerPort     int                    // Port the HTTP server is listening on (0 = command hooks)
 	configuredHookPort int                    // Port from config, set at Init time (0 if unconfigured)
 	pendingHooksPrompt bool                   // True if user should be prompted to install hooks
+	daemonClient       *DaemonClient          // WebSocket client to external daemon (nil if not connected)
 
 	// File watcher for external changes (auto-reload)
 	storageWatcher *StorageWatcher
@@ -955,63 +956,26 @@ func NewHomeWithProfileAndMode(profile string) *Home {
 		}
 	}
 
-	// Start embedded HTTP/WS API server if configured
+	// Connect to the daemon WebSocket for real-time hook events.
+	// The daemon is started externally (by main.go) before the TUI launches.
 	{
 		port := 0
 		if userConfig != nil {
 			port = userConfig.API.GetPort(&userConfig.Claude)
 		}
 		h.configuredHookPort = port
-		if hooksEnabled && port > 0 && h.hookWatcher != nil {
-			bindAddr := "0.0.0.0"
-			if userConfig != nil {
-				bindAddr = userConfig.API.GetBindAddress()
+		if port > 0 {
+			dc := newDaemonClient(port)
+			if dc != nil {
+				h.daemonClient = dc
+				// Upgrade HTTP hooks to point at the running daemon.
+				go func() {
+					configDir := session.GetClaudeConfigDir()
+					if _, err := session.InjectClaudeHooks(configDir, port); err != nil {
+						uiLog.Warn("hook_upgrade_failed", slog.String("error", err.Error()))
+					}
+				}()
 			}
-			cfg := apiserver.APIConfig{Port: port, BindAddress: bindAddr}
-			getInstances := func() []*session.Instance {
-				h.instancesMu.RLock()
-				snap := make([]*session.Instance, len(h.instances))
-				copy(snap, h.instances)
-				h.instancesMu.RUnlock()
-				return snap
-			}
-
-			getPRInfo := func(sessionID string) *apiserver.PRInfo {
-				pr, ok := h.cache.GetPR(sessionID)
-				if !ok || pr == nil {
-					return nil
-				}
-				return &apiserver.PRInfo{
-					Number:        pr.Number,
-					Title:         pr.Title,
-					State:         pr.State,
-					URL:           pr.URL,
-					ChecksPassed:  pr.ChecksPassed,
-					ChecksFailed:  pr.ChecksFailed,
-					ChecksPending: pr.ChecksPending,
-					HasChecks:     pr.HasChecks,
-				}
-			}
-			triggerReload := func() {
-				if h.storageWatcher != nil {
-					h.storageWatcher.TriggerReload()
-				}
-			}
-			srv := apiserver.New(cfg, h.hookWatcher, getInstances, getPRInfo, triggerReload, h.prManager, h.profile, Version)
-			h.hookServer = srv
-			h.hookServerPort = port
-			go func() {
-				if err := srv.Start(h.ctx); err != nil {
-					uiLog.Warn("apiserver_failed", slog.String("error", err.Error()))
-				}
-			}()
-			// Silently upgrade command hooks → HTTP hooks now that the server is running
-			go func() {
-				configDir := session.GetClaudeConfigDir()
-				if _, err := session.InjectClaudeHooks(configDir, port); err != nil {
-					uiLog.Warn("hook_upgrade_failed", slog.String("error", err.Error()))
-				}
-			}()
 		}
 	}
 
@@ -1486,6 +1450,11 @@ func (h *Home) Init() tea.Cmd {
 	// Start listening for hook status changes (immediate TUI refresh on hook events)
 	if h.hookWatcher != nil {
 		cmds = append(cmds, listenForHookChanges(h.hookWatcher))
+	}
+
+	// Start listening for daemon WebSocket events
+	if h.daemonClient != nil {
+		cmds = append(cmds, listenForDaemonEvents(h.daemonClient))
 	}
 
 	// Start listening for OS theme changes
@@ -4493,7 +4462,14 @@ func (h *Home) handleConfirmDialogKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			if db := statedb.GetGlobal(); db != nil {
 				_ = db.SetMeta("hooks_prompted", "accepted")
 			}
-			return h, listenForHookChanges(h.hookWatcher)
+			hookCmds := []tea.Cmd{}
+			if h.hookWatcher != nil {
+				hookCmds = append(hookCmds, listenForHookChanges(h.hookWatcher))
+			}
+			if h.daemonClient != nil {
+				hookCmds = append(hookCmds, listenForDaemonEvents(h.daemonClient))
+			}
+			return h, tea.Batch(hookCmds...)
 		case "n", "N", "esc":
 			h.confirmDialog.Hide()
 			h.pendingHooksPrompt = false
@@ -4634,6 +4610,10 @@ func (h *Home) performFinalShutdown(_ bool) tea.Cmd {
 			case <-time.After(3 * time.Second):
 				// best-effort drain; don't block shutdown indefinitely
 			}
+		}
+		// Close daemon WebSocket client
+		if h.daemonClient != nil {
+			h.daemonClient.Close()
 		}
 		// Close hook watcher (Claude Code lifecycle hooks)
 		if h.hookWatcher != nil {

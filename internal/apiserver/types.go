@@ -188,6 +188,13 @@ type SessionOutputData struct {
 	Output    string `json:"output"`
 }
 
+// WsHookChangedData is the data payload for the hook_changed WS event.
+type WsHookChangedData struct {
+	InstanceID    string `json:"instance_id"`
+	HookEventName string `json:"hook_event_name"`
+	Status        string `json:"status"`
+}
+
 // PRInfo holds pull-request metadata for a session, sourced from the TUI's
 // PR cache. All fields are omitempty so the object is absent when no PR exists.
 type PRInfo struct {
