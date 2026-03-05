@@ -11,6 +11,19 @@ import (
 	"github.com/sourcegraph/go-diff/diff"
 )
 
+// ── Pre-compiled styles (initialized by initStyles() after InitTheme sets colors) ──
+var (
+	// Pre-compiled styles for DiffView overlay and shared diff line rendering.
+	diffViewHeaderStyle    lipgloss.Style
+	diffViewSeparatorStyle lipgloss.Style
+	diffViewFooterStyle    lipgloss.Style
+	diffHunkHeaderStyle    lipgloss.Style
+	diffLineAddStyle       lipgloss.Style
+	diffLineDelStyle       lipgloss.Style
+	diffLineContextStyle   lipgloss.Style
+	diffLineNoNewlineStyle lipgloss.Style
+)
+
 // editorFinishedMsg is returned by the tea.ExecProcess callback when the
 // editor process exits. The err field is non-nil if the editor exited with a
 // non-zero status or could not be started.
