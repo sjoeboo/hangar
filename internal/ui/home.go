@@ -7967,8 +7967,18 @@ func (h *Home) showTodoDialog() tea.Cmd {
 		h.setError(fmt.Errorf("load todos: %w", err))
 		return nil
 	}
-	h.todoDialog.SetSize(h.width, h.height-2)
+	// Collect all known project paths from the group tree
+	var allProjectPaths []string
+	if h.groupTree != nil {
+		for _, g := range h.groupTree.GroupList {
+			if p := h.getDefaultPathForGroup(g.Path); p != "" {
+				allProjectPaths = append(allProjectPaths, p)
+			}
+		}
+	}
+	h.todoDialog.SetSize(h.width, h.height-3)
 	h.todoDialog.Show(projectPath, groupPath, groupName, todos)
+	h.todoDialog.SetAllProjects(allProjectPaths)
 	return nil
 }
 

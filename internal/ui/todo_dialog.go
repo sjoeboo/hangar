@@ -61,7 +61,8 @@ const (
 	todoModeNew                          // new-todo form
 	todoModeEdit                         // edit-todo form
 	todoModeStatus                       // status picker
-	todoModeProjectFilter                // project filter picker
+	todoModeProjectFilter                // project filter picker (f key)
+	todoModeNewProject                   // project picker before new-todo form (n key, all-projects view)
 )
 
 // TodoDialog shows and manages todos for a project.
@@ -95,9 +96,10 @@ type TodoDialog struct {
 	statusCursor  int
 
 	// project filter
-	filterProject  string   // "" = all projects
-	filterProjects []string // unique project paths (populated on Show/SetTodos)
-	filterCursor   int      // cursor in the picker list
+	filterProject    string   // "" = all projects
+	filterProjects   []string // unique project paths with todos (populated on Show/SetTodos)
+	allProjectPaths  []string // all known project paths (set by home via SetAllProjects)
+	filterCursor     int      // cursor in the picker list (reused for new-project picker)
 }
 
 // NewTodoDialog creates a new TodoDialog.
@@ -131,16 +133,32 @@ func NewTodoDialog() *TodoDialog {
 	}
 }
 
-// rebuildFilterProjects rebuilds the list of unique project paths from d.todos.
+// rebuildFilterProjects rebuilds the list of unique project paths, merging
+// paths from existing todos with all known project paths (from allProjectPaths).
 func (d *TodoDialog) rebuildFilterProjects() {
 	seen := map[string]bool{}
 	d.filterProjects = nil
+	// All known projects first (preserves order from home's group list)
+	for _, p := range d.allProjectPaths {
+		if p != "" && !seen[p] {
+			seen[p] = true
+			d.filterProjects = append(d.filterProjects, p)
+		}
+	}
+	// Then any todo projects not already included
 	for _, t := range d.todos {
-		if !seen[t.ProjectPath] {
+		if t.ProjectPath != "" && !seen[t.ProjectPath] {
 			seen[t.ProjectPath] = true
 			d.filterProjects = append(d.filterProjects, t.ProjectPath)
 		}
 	}
+}
+
+// SetAllProjects sets the full list of known project paths so the filter and
+// new-todo pickers can show all projects, not just those with existing todos.
+func (d *TodoDialog) SetAllProjects(paths []string) {
+	d.allProjectPaths = paths
+	d.rebuildFilterProjects()
 }
 
 // rebuildCols rebuilds the derived column structure from d.todos.
@@ -367,6 +385,32 @@ func (d *TodoDialog) HandleKey(msg tea.KeyMsg) TodoAction {
 		return d.handleStatusKey(msg.String())
 	case todoModeProjectFilter:
 		return d.handleProjectFilterKey(msg.String())
+	case todoModeNewProject:
+		return d.handleNewProjectKey(msg.String())
+	}
+	return TodoActionNone
+}
+
+// handleNewProjectKey handles input in the new-todo project picker.
+// On enter, sets d.projectPath to the selection and opens the new-todo form.
+func (d *TodoDialog) handleNewProjectKey(key string) TodoAction {
+	options := d.filterProjects
+	switch key {
+	case "up", "k":
+		if d.filterCursor > 0 {
+			d.filterCursor--
+		}
+	case "down", "j":
+		if d.filterCursor < len(options)-1 {
+			d.filterCursor++
+		}
+	case "enter":
+		if d.filterCursor < len(options) {
+			d.projectPath = options[d.filterCursor]
+		}
+		d.openNewForm()
+	case "esc":
+		d.mode = todoModeKanban
 	}
 	return TodoActionNone
 }
@@ -547,9 +591,53 @@ func (d *TodoDialog) View() string {
 		return d.viewStatusPicker()
 	case todoModeProjectFilter:
 		return d.viewProjectFilter()
+	case todoModeNewProject:
+		return d.viewNewProjectPicker()
 	default:
 		return d.viewKanban()
 	}
+}
+
+// viewNewProjectPicker renders the project selection overlay for new todos.
+func (d *TodoDialog) viewNewProjectPicker() string {
+	borderStyle := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color("#5fd7ff")).
+		Padding(1, 2)
+
+	header := lipgloss.NewStyle().Bold(true).Render("Select Project for New Todo")
+
+	options := d.filterProjects
+	var rows []string
+	for i, p := range options {
+		label := p
+		if idx := strings.LastIndex(label, "/"); idx >= 0 {
+			label = label[idx+1:]
+		}
+		isDefault := p == d.projectPath
+		cursor := "  "
+		if i == d.filterCursor {
+			cursor = "▌ "
+		}
+		suffix := ""
+		if isDefault {
+			suffix = " (active)"
+		}
+		var line string
+		if i == d.filterCursor {
+			line = lipgloss.NewStyle().Foreground(lipgloss.Color("#5fd7ff")).Bold(true).Render(cursor + label + suffix)
+		} else if isDefault {
+			line = lipgloss.NewStyle().Foreground(lipgloss.Color("#c0ccd8")).Render(cursor + label + suffix)
+		} else {
+			line = lipgloss.NewStyle().Foreground(lipgloss.Color("#7a8a9a")).Render(cursor + label)
+		}
+		rows = append(rows, line)
+	}
+
+	hint := lipgloss.NewStyle().Foreground(lipgloss.Color("#5a6a7a")).Render("↑↓ move  enter select  esc cancel")
+	content := header + "\n\n" + strings.Join(rows, "\n") + "\n\n" + hint
+	return lipgloss.Place(d.width, d.height, lipgloss.Center, lipgloss.Center,
+		borderStyle.Render(content))
 }
 
 func (d *TodoDialog) viewProjectFilter() string {
@@ -724,7 +812,21 @@ func (d *TodoDialog) handleKanbanKey(key string) TodoAction {
 		}
 		d.mode = todoModeProjectFilter
 	case "n":
-		d.openNewForm()
+		// If viewing all projects (no filter) and multiple projects exist,
+		// show project picker first so the user can assign the new todo.
+		if d.filterProject == "" && len(d.filterProjects) > 1 {
+			// Pre-select the active project path in the picker
+			d.filterCursor = 0
+			for i, p := range d.filterProjects {
+				if p == d.projectPath {
+					d.filterCursor = i
+					break
+				}
+			}
+			d.mode = todoModeNewProject
+		} else {
+			d.openNewForm()
+		}
 	case "e":
 		if t := d.SelectedTodo(); t != nil {
 			d.openEditForm(t)
