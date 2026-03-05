@@ -710,6 +710,28 @@ func initStyles() {
 	// Group preview session list and hints
 	styleGroupSessionTool = lipgloss.NewStyle().Foreground(ColorPurple).Faint(true)
 	styleGroupHint = lipgloss.NewStyle().Foreground(ColorComment).Italic(true)
+
+	// PR detail overlay styles (must be here — pr_detail.go vars are package-level
+	// and would capture empty Color* values before InitTheme runs).
+	prDetailHeaderStyle      = lipgloss.NewStyle().Foreground(ColorAccent).Bold(true)
+	prDetailActiveTabStyle   = lipgloss.NewStyle().Foreground(ColorBg).Background(ColorAccent).Bold(true).Padding(0, 1)
+	prDetailInactiveTabStyle = lipgloss.NewStyle().Foreground(ColorComment).Padding(0, 1)
+	prDetailSeparatorStyle   = lipgloss.NewStyle().Foreground(ColorBorder)
+	prDetailDimStyle         = lipgloss.NewStyle().Foreground(ColorTextDim).Italic(true)
+	prDetailErrStyle         = lipgloss.NewStyle().Foreground(ColorRed)
+	prDetailBgStyle          = lipgloss.NewStyle().Background(ColorBg)
+	prDetailLabelStyle       = lipgloss.NewStyle().Foreground(ColorComment)
+	prDetailValueStyle       = lipgloss.NewStyle().Foreground(ColorText)
+	prDetailSectionHdrStyle  = lipgloss.NewStyle().Foreground(ColorComment).Bold(true)
+	prDetailAuthorStyle      = lipgloss.NewStyle().Foreground(ColorAccent).Bold(true)
+	prDetailTimeStyle        = lipgloss.NewStyle().Foreground(ColorComment)
+	prDetailPathYellowStyle  = lipgloss.NewStyle().Foreground(ColorYellow)
+	prDetailFocusPadStyle    = lipgloss.NewStyle().Background(lipgloss.Color("#1e2d3a"))
+	prDetailGreenStyle       = lipgloss.NewStyle().Foreground(ColorGreen)
+	prDetailRedStyle         = lipgloss.NewStyle().Foreground(ColorRed)
+	prDetailPurpleStyle      = lipgloss.NewStyle().Foreground(ColorPurple)
+	prDetailYellowStyle      = lipgloss.NewStyle().Foreground(ColorYellow)
+	prDetailCommentStyle     = lipgloss.NewStyle().Foreground(ColorComment)
 }
 
 // Helper Functions

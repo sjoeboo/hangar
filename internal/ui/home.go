@@ -4341,20 +4341,19 @@ func (h *Home) handlePRViewKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return h, nil
 
 	case "S":
-		// Cycle sort column; if already on this column, flip direction.
-		idx := 0
-		for i, col := range prSortColumns {
-			if col == h.prSortCol {
-				idx = i
-				break
-			}
-		}
-		next := prSortColumns[(idx+1)%len(prSortColumns)]
-		if next == h.prSortCol {
-			h.prSortAsc = !h.prSortAsc
+		// Cycle: desc → asc → next-col-desc → next-col-asc → ...
+		if !h.prSortAsc {
+			h.prSortAsc = true
 		} else {
-			h.prSortCol = next
-			h.prSortAsc = false // default to descending for each new column
+			idx := 0
+			for i, col := range prSortColumns {
+				if col == h.prSortCol {
+					idx = i
+					break
+				}
+			}
+			h.prSortCol = prSortColumns[(idx+1)%len(prSortColumns)]
+			h.prSortAsc = false
 		}
 		h.prViewCursor = 0
 		return h, nil
@@ -7149,9 +7148,11 @@ func (h *Home) renderPROverview() string {
 			authorCol := applySelBg(lipgloss.NewStyle().Foreground(ColorComment)).Render(fmt.Sprintf("%-*s", authorColWidth, authorDisplay))
 
 			// Last column: for Sessions tab show session title (with status colour),
-			// for other tabs show PR title.
+			// for other tabs show PR title (with a status dot prefix when session-linked).
 			displayTitle := p.Title
 			var colTitleStyle lipgloss.Style
+			var dotPrefix string
+			var dotPrefixWidth int
 			if h.prViewTab == 3 && p.SessionID != "" {
 				h.instancesMu.RLock()
 				inst := h.instanceByID[p.SessionID]
@@ -7166,12 +7167,31 @@ func (h *Home) renderPROverview() string {
 				} else {
 					colTitleStyle = applySelBg(lipgloss.NewStyle().Foreground(ColorComment))
 				}
-			} else if p.State == "DRAFT" {
-				colTitleStyle = applySelBg(lipgloss.NewStyle().Foreground(ColorTextDim).Italic(true))
 			} else {
-				colTitleStyle = applySelBg(lipgloss.NewStyle().Foreground(ColorText))
+				// All/Mine/ReviewRequested tabs: show a status dot when session-linked.
+				if h.prViewTab == 0 && p.SessionID != "" {
+					h.instancesMu.RLock()
+					inst := h.instanceByID[p.SessionID]
+					h.instancesMu.RUnlock()
+					dotColor := ColorComment
+					if inst != nil {
+						switch inst.GetStatusThreadSafe() {
+						case session.StatusRunning:
+							dotColor = ColorGreen
+						case session.StatusWaiting:
+							dotColor = ColorYellow
+						}
+					}
+					dotPrefix = applySelBg(lipgloss.NewStyle().Foreground(dotColor)).Render("●") + " "
+					dotPrefixWidth = 2
+				}
+				if p.State == "DRAFT" {
+					colTitleStyle = applySelBg(lipgloss.NewStyle().Foreground(ColorTextDim).Italic(true))
+				} else {
+					colTitleStyle = applySelBg(lipgloss.NewStyle().Foreground(ColorText))
+				}
 			}
-			maxTitleWidth := h.width - 2 - 7 - 2 - 2 - 2 - 8 - 2 - 14 - 2 - repoColWidth - 2 - ageColWidth - 2 - authorColWidth - 2 - 4
+			maxTitleWidth := h.width - 2 - 7 - 2 - 2 - 2 - 8 - 2 - 14 - 2 - repoColWidth - 2 - ageColWidth - 2 - authorColWidth - 2 - 4 - dotPrefixWidth
 			runes := []rune(displayTitle)
 			if maxTitleWidth > 0 && len(runes) > maxTitleWidth {
 				displayTitle = string(runes[:maxTitleWidth-1]) + "…"
@@ -7179,7 +7199,7 @@ func (h *Home) renderPROverview() string {
 			titleCol := colTitleStyle.Render(displayTitle)
 
 			s2 := sp(2)
-			row := sp(2) + prNum + s2 + reviewIcon + s2 + stateCol + s2 + checksRaw + s2 + repoCol + s2 + ageCol + s2 + authorCol + s2 + titleCol
+			row := sp(2) + prNum + s2 + reviewIcon + s2 + stateCol + s2 + checksRaw + s2 + repoCol + s2 + ageCol + s2 + authorCol + s2 + dotPrefix + titleCol
 
 			// Pad to full terminal width so the selection background covers the line.
 			if rowVisible := lipgloss.Width(row); rowVisible < h.width {
