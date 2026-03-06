@@ -19,7 +19,8 @@ internal/
   session/           # Core session model, config, hooks, status detection, todos
   statedb/           # SQLite state (WAL mode, heartbeat-based primary election)
   tmux/              # tmux interaction — zero-subprocess control mode architecture
-  ui/                # Bubble Tea TUI (home.go is 10,322 lines; see extraction plan)
+  ui/                # Bubble Tea TUI (home.go ~8,300 lines + extracted renderers/handlers)
+  pr/                # PR data layer: fetch (gh CLI), manager (cache/dedup), actions, types
   git/               # Git worktree operations + diff fetching
   update/            # Self-update logic
   profile/           # Multi-profile support
@@ -27,40 +28,55 @@ internal/
   clipboard/         # Cross-platform clipboard
   experiments/       # Simple feature flag system
   platform/          # WSL/macOS/Linux detection, fsnotify support check
+  webui/             # Embedded web UI (assets built separately; see Build section)
 ```
 
 ### Key Files
 
 | File | Lines | Purpose |
 |------|-------|---------|
-| `internal/ui/home.go` | 10,322 | Main TUI model — all key bindings, view rendering, state |
-| `internal/session/instance.go` | 4,131 | Session data model + AI tool integration + status detection |
-| `internal/session/groups.go` | 1,105 | Hierarchical group tree with flatten-for-TUI |
-| `internal/ui/newdialog.go` | 1,006 | New session creation dialog with worktree/MCP selection |
-| `internal/ui/styles.go` | 719 | Color palette, lipgloss styles, theme (oasis_lagoon_dark) |
-| `internal/session/storage.go` | 678 | SQLite-backed session persistence |
-| `internal/session/transition_daemon.go` | 395 | Adaptive polling background daemon |
-| `internal/ui/diff_view.go` | 363 | Inline diff overlay (D key) |
-| `internal/ui/todo_dialog.go` | 875 | Kanban todo board (t key) |
-| `internal/tmux/pipemanager.go` | 421 | tmux control pipe lifecycle + reconnect |
-| `internal/tmux/detector.go` | 539 | Status detection via prompt/spinner patterns |
-| `internal/statedb/statedb.go` | 773 | SQLite wrapper with schema migrations |
+| `internal/ui/home.go` | ~8,350 | Main TUI model — key bindings, view routing, state, message dispatch |
+| `internal/ui/update_handlers.go` | ~1,160 | Message handlers extracted from home.go (reviewSessionCreated, prFetched, etc.) |
+| `internal/ui/preview_renderer.go` | ~1,550 | Preview pane rendering (extracted from home.go) |
+| `internal/ui/pr_detail.go` | ~770 | PR detail overlay — Overview/Diff/Conversation tabs |
+| `internal/session/instance.go` | ~4,130 | Session data model + AI tool integration + status detection |
+| `internal/session/groups.go` | ~1,105 | Hierarchical group tree with flatten-for-TUI |
+| `internal/ui/newdialog.go` | ~1,006 | New session creation dialog with worktree/MCP selection |
+| `internal/ui/todo_dialog.go` | ~875 | Kanban todo board (t key) |
+| `internal/ui/styles.go` | ~720 | Color palette, lipgloss styles, theme (oasis_lagoon_dark) |
+| `internal/statedb/statedb.go` | ~773 | SQLite wrapper with schema migrations |
+| `internal/session/storage.go` | ~678 | SQLite-backed session persistence |
+| `internal/tmux/detector.go` | ~539 | Status detection via prompt/spinner patterns |
+| `internal/pr/fetch.go` | — | `gh` CLI wrappers: `FetchPRForWorktree`, `FetchDetail`, `fetchSearchPRs` |
+| `internal/pr/manager.go` | — | Global PR cache/dedup layer with TTL and background refresh |
+| `internal/ui/review_dialog.go` | ~278 | Two-step review session creation dialog (PR# or branch → confirm) |
+| `internal/ui/list_renderer.go` | ~401 | Session list rendering (extracted from home.go) |
+| `internal/ui/layout_renderer.go` | ~125 | Responsive layout dispatch (extracted from home.go) |
+| `internal/tmux/pipemanager.go` | ~421 | tmux control pipe lifecycle + reconnect |
 | `cmd/hangar/main.go` | ~2700 | CLI dispatch and handleAdd |
 | `cmd/hangar/session_cmd.go` | ~2000 | 12 session subcommands |
 | `internal/session/claude_hooks.go` | — | Claude Code lifecycle hook injection/removal |
-| `internal/session/todo.go` | 178 | Todo domain model, Storage CRUD |
+| `internal/session/todo.go` | ~178 | Todo domain model, Storage CRUD |
 | `internal/session/config.go` | — | `GetHangarDir()` — base config directory |
 
 ## Build & Test
 
 ```bash
-go build ./...                  # Build
+go build ./...                  # Build (requires webui assets — see gotcha below)
 go test ./...                   # All tests
 go test -race ./...             # Tests with race detector (passes clean)
 go test ./internal/ui/...       # UI tests only
 go test ./internal/session/...  # Session tests
 go run ./cmd/hangar              # Run locally
 ```
+
+**Build gotcha — webui assets**: `go build ./...` fails with `pattern all:assets/dist: no matching files found` unless the web UI has been built. To work around without a full frontend build:
+```bash
+mkdir -p internal/webui/assets/dist && touch internal/webui/assets/dist/.keep
+go build ./...
+rm internal/webui/assets/dist/.keep
+```
+Alternatively, build individual packages that don't depend on webui: `go build ./internal/ui/ ./internal/session/ ./internal/pr/`
 
 **Pre-existing failing tests** (do not fix without understanding root cause):
 - `TestNewDialog_WorktreeToggle_ViaKeyPress`
@@ -73,23 +89,24 @@ Hangar uses the [Bubble Tea](https://github.com/charmbracelet/bubbletea) framewo
 - **State changes** go through `Update(msg tea.Msg) (tea.Model, tea.Cmd)` — never mutate state in `View()`
 - **Async work** returns `tea.Cmd` functions that produce `tea.Msg` results dispatched back to `Update()`
 - **Dialogs** are structs with `IsVisible()`, `Show()`, `Hide()`, `View()`, `HandleKey()`, `SetSize()` methods
-- **Adding a new dialog** requires wiring in 7 places in `home.go`: struct field, init, key routing, mouse guard, trigger key, SetSize, View check
+- **Adding a new dialog** requires wiring in ~6 places: struct field + init in `home.go`, key routing in `Update()`, mouse guard, trigger key, `SetSize` call, `View()` check. Message handlers for the dialog's result messages go in `update_handlers.go`
 
 ### home.go Internal Structure
 
-`Update()` is 1,400+ lines with 45+ message type cases. Key message flow:
+`Update()` dispatches to per-dialog key handlers (`handleXxxDialogKey`) and per-view handlers (`handleMainKey`, `handlePRViewKey`). Heavier message handlers live in `update_handlers.go`. Key message flow:
 ```
 tea.KeyMsg → handleMainKey() → handleXxxDialogKey() / direct state mutation
 loadSessionsMsg → rebuilds instances + groupTree + flatItems
 storageChangedMsg → triggers reload with debounce
 statusUpdateMsg → round-robin background status update (5-10 sessions/tick)
+reviewSessionCreatedMsg → handled in update_handlers.go, switches viewMode to ""
 ```
 
 **Rendering pipeline** (called every frame):
 ```
-View() → layout dispatch (single/stacked/dual column)
-       → renderPreviewPane() [1,033 lines — main bottleneck]
-       → renderSessionList() → renderSessionItem() per visible item
+View() → layout dispatch via layout_renderer.go (single/stacked/dual column)
+       → preview_renderer.go renderPreviewPane()
+       → list_renderer.go renderSessionList() → renderSessionItem() per visible item
 ```
 
 **Performance optimizations already in place:**
@@ -98,17 +115,6 @@ View() → layout dispatch (single/stacked/dual column)
 - Preview cache per session (30s TTL)
 - Worktree dirty cache (5m TTL)
 - PR cache (60s TTL)
-
-### Extraction Plan for home.go (future work)
-
-```
-home.go (~10k lines) should be split into:
-  home.go               (~4,000) — core model, Init/Update/View routing
-  sessionListRenderer.go (~400)  — renderSessionList, renderSessionItem
-  previewRenderer.go    (~500)   — renderPreviewPane split into sections
-  layoutRenderer.go     (~150)   — responsive layout dispatch
-  statusManager.go      (~150)   — status counting, caching, filtering
-```
 
 ## Session Status Detection
 
@@ -136,17 +142,24 @@ eventWatcher (fsnotify) ──────────────────�
 |-----|--------|
 | `enter` | Attach to session |
 | `n` | New session |
+| `N` | Quick create (auto-name, smart defaults) |
 | `p` | New project/group |
+| `v` | Open review dialog for current project (PR# or branch) |
 | `x` | Send message to session |
+| `f` | Quick fork session |
+| `F` | Fork with dialog (customize title/group) |
 | `M` | Move session to group |
 | `r` | Rename session/group |
 | `R` | Restart session |
 | `W` | Worktree finish (archive branch) |
 | `D` | Inline diff view overlay (worktree sessions) |
-| `P` | PR overview — all sessions with PRs |
+| `P` | PR overview — all PRs (mine, review requests, sessions) |
 | `t` | Todo kanban board (per-project) |
 | `d` | Delete session/group |
+| `e` | Open worktree/project directory in configured editor |
+| `E` | Open editor picker overlay |
 | `o` | Open PR in browser |
+| `V` | Toggle bulk select mode |
 | `G` | Open lazygit |
 | `S` | Settings |
 | `/` | Search |
@@ -156,6 +169,8 @@ eventWatcher (fsnotify) ──────────────────�
 | `Ctrl+Q` | Detach from session |
 | `q` | Quit |
 
+**PR view keys** (`P` to enter): `s` create review session · `enter` detail · `a` approve · `c` comment · `o` browser · `S` cycle sort · `Tab` switch tab
+
 ## View Modes
 
 `home.go` uses a `viewMode` field to switch between top-level views:
@@ -163,9 +178,10 @@ eventWatcher (fsnotify) ──────────────────�
 | `viewMode` | Description |
 |------------|-------------|
 | `""` (default) | Main session list |
-| `"prs"` | PR overview (P key) — shows all sessions with PRs |
+| `"prs"` | PR overview (P key) — All / Mine / Review Requests / Sessions tabs |
+| `"todos"` | Todo kanban board (t key) |
 
-The diff overlay (`DiffView`) and todo dialog (`TodoDialog`) are separate overlays rendered on top of the main view, not separate view modes.
+The diff overlay (`DiffView`), PR detail overlay (`PRDetailOverlay`), and other dialogs are rendered on top of the current view, not separate view modes. `viewMode` is always reset to `""` when a review session is created (so the user lands on the session list).
 
 ## Claude Code Hooks
 
@@ -193,6 +209,8 @@ and use the command hook fallback only, set `hookServerPort: 0` in `~/.hangar/co
 - **Complex tasks**: Use agent teams (`TeamCreate`) when possible for multi-step work; fall back to parallel subagents via `Task`.
 - **Styles**: Pre-compile `lipgloss.Style` at module level, not inside render functions — creating styles in hot loops causes measurable allocation overhead.
 - **Mutex discipline**: Always hold `instancesMu` for the full operation when modifying both `instances` slice and `instanceByID` map together. Don't unlock between slice and map operations.
+- **PR data gotcha**: `gh search prs` does not return `headRefName` — `PR.HeadBranch` will be empty for globally-fetched PRs (All/Mine/Review Requests tabs). Use `prpkg.FetchDetail(ghPath, repo, number)` to resolve it. Session-linked PRs (fetched via `gh pr view` in the worktree dir) always have `HeadBranch` set.
+- **`h.setError()` for status messages**: `setError` is also used for transient non-error status messages (e.g. "Approving PR…", "Fetching PR branch info…") — it's the only status bar mechanism; messages auto-dismiss after ~3s.
 
 ## Environment Variables
 

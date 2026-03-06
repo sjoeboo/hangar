@@ -5,6 +5,28 @@ All notable changes to Hangar will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.8.0] - 2026-03-06
+
+### Added
+
+- **TUI: Review session from PR view** — press `s` on any PR in the PR overview (All / Mine /
+  Review Requests / Sessions tabs) to create a review worktree session for that PR's head branch.
+  Works the same from the PR detail overlay (`s` key). If no project matches the PR's remote,
+  the project creation dialog opens automatically; once you confirm, the review session is
+  created immediately using the new project. After creation, the view switches to the session
+  list and the new session is auto-selected.
+
+### Fixed
+
+- **TUI: PR overview `s` key works for all tabs** — PRs fetched via `gh search prs` (All / Mine /
+  Review Requests tabs) don't include `headRefName`; the `s` key now resolves the head branch
+  via an async `gh pr view` call before creating the worktree, showing "Fetching PR branch
+  info…" while it runs.
+
+- **TUI: Navigation after review session creation** — creating a review session from the PR
+  view now immediately switches to the session list (showing the pending placeholder row) rather
+  than waiting for the worktree to finish building before navigating.
+
 ## [2.7.0] - 2026-03-05
 
 ### Added

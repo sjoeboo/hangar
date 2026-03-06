@@ -200,7 +200,7 @@ func (o *PRDetailOverlay) View() string {
 	}
 
 	b.WriteString(sep + "\n")
-	hint := "  Tab/Shift+Tab switch tab · j/k scroll · g/G top/bottom · o browser · a approve · c comment · q close"
+	hint := "  Tab/Shift+Tab switch tab · j/k scroll · g/G top/bottom · o browser · a approve · c comment · s review · q close"
 	if o.tab == 2 && len(o.diffFiles) > 0 {
 		hint = "  j/k navigate files · enter toggle · d/u half-page scroll · g/G top/bottom · o browser · q close"
 	}
@@ -280,6 +280,21 @@ func (o *PRDetailOverlay) HandleKey(key string) (bool, tea.Cmd) {
 		if o.pr != nil {
 			pr := o.pr
 			return true, func() tea.Msg { return prDetailCommentRequestMsg{pr: pr} }
+		}
+		return true, nil
+	case "s":
+		if o.pr != nil {
+			// Prefer the detail's PR copy which has HeadBranch populated (detail was
+			// fetched via gh pr view which includes headRefName; the list PR from
+			// gh search prs does not).
+			var pr *prpkg.PR
+			if o.detail != nil && o.detail.HeadBranch != "" {
+				prCopy := o.detail.PR
+				pr = &prCopy
+			} else {
+				pr = o.pr
+			}
+			return true, func() tea.Msg { return prDetailCreateReviewMsg{pr: pr} }
 		}
 		return true, nil
 	case "tab":

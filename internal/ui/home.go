@@ -179,6 +179,10 @@ type Home struct {
 	// pendingPRComment holds the PR the user wants to comment on; populated when
 	// the "c" key is pressed in PR view to open sendTextDialog.
 	pendingPRComment *prpkg.PR
+	// pendingPRReview holds a PR that the user wants to review but no matching
+	// project was found; set when "s" is pressed and no project matches, so that
+	// after the user creates a project via the GroupDialog we can auto-start the session.
+	pendingPRReview *prpkg.PR
 	err              error
 	errTime          time.Time  // When error occurred (for auto-dismiss)
 	isReloading      bool       // Visual feedback during auto-reload
@@ -733,6 +737,20 @@ type prDetailApproveRequestMsg struct {
 // to add a comment on the currently displayed PR.
 type prDetailCommentRequestMsg struct {
 	pr *prpkg.PR
+}
+
+// prDetailCreateReviewMsg is sent by PRDetailOverlay when the user presses 's'
+// to start a review session for the currently displayed PR.
+type prDetailCreateReviewMsg struct {
+	pr *prpkg.PR
+}
+
+// prReviewResolveBranchMsg is returned by the async head-branch fetch that runs
+// when the user presses 's' on a PR whose HeadBranch is not yet populated
+// (global search results omit headRefName).
+type prReviewResolveBranchMsg struct {
+	pr  *prpkg.PR
+	err error
 }
 
 // errMsg carries a generic error for display in the status bar.
@@ -2709,6 +2727,18 @@ func (h *Home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		h.sendTextDialog.Show("PR #" + prpkg.NumberStr(msg.pr.Number))
 		return h, nil
 
+	case prDetailCreateReviewMsg:
+		h.prDetailOverlay.Hide()
+		return h, h.startPRReviewSession(msg.pr)
+
+	case prReviewResolveBranchMsg:
+		h.pendingPRReview = nil
+		if msg.err != nil {
+			h.setError(fmt.Errorf("failed to fetch PR info: %w", msg.err))
+			return h, nil
+		}
+		return h, h.startPRReviewSession(msg.pr)
+
 	case errMsg:
 		h.setError(msg.err)
 		return h, nil
@@ -4636,30 +4666,10 @@ func (h *Home) handlePRViewKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return h, tea.Batch(cmds...)
 
 	case "s":
-		// Create a review session for the selected PR: find matching project by remote URL,
-		// then create a worktree from the PR's head branch.
+		// Create a review session for the selected PR.
 		if h.prViewCursor < len(prs) {
 			p := prs[h.prViewCursor]
-			if p.Repo != "" && p.HeadBranch != "" {
-				projects, err := session.LoadProjects()
-				if err == nil {
-					for _, proj := range projects {
-						if proj.BaseDir == "" {
-							continue
-						}
-						if prpkg.RepoFromDir(proj.BaseDir) == p.Repo {
-							sessionName := fmt.Sprintf("review/pr-%s", prpkg.NumberStr(p.Number))
-							h.pendingWorktrees = append(h.pendingWorktrees, pendingWorktreeItem{
-								branchName: sessionName,
-								groupPath:  proj.Name,
-								startedAt:  time.Now(),
-							})
-							return h, h.createReviewSession(proj.BaseDir, p.HeadBranch, sessionName, proj.Name, "")
-						}
-					}
-				}
-				h.setError(fmt.Errorf("no project found for repo %s — add it with 'hangar project add'", p.Repo))
-			}
+			return h, h.startPRReviewSession(p)
 		}
 		return h, nil
 	}
@@ -4996,6 +5006,25 @@ func (h *Home) handleGroupDialogKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				}
 				h.rebuildFlatItems()
 				h.saveInstances() // Persist the new project
+
+				// If a PR review was pending (user pressed 's' with no matching project),
+				// try to use this new project for it.
+				if h.pendingPRReview != nil {
+					p := h.pendingPRReview
+					h.pendingPRReview = nil
+					if baseDir != "" && prpkg.RepoFromDir(baseDir) == p.Repo {
+						h.groupDialog.Hide()
+						sessionName := fmt.Sprintf("review/pr-%s", prpkg.NumberStr(p.Number))
+						h.pendingWorktrees = append(h.pendingWorktrees, pendingWorktreeItem{
+							branchName: sessionName,
+							groupPath:  name,
+							startedAt:  time.Now(),
+						})
+						h.viewMode = ""
+						return h, h.createReviewSession(baseDir, p.HeadBranch, sessionName, name, "")
+					}
+					h.setError(fmt.Errorf("project path does not match PR repo %s — press 's' again to retry", p.Repo))
+				}
 			}
 		case GroupDialogRename:
 			name := h.groupDialog.GetValue()
@@ -7391,6 +7420,7 @@ func (h *Home) renderPROverview() string {
 	sep := sepStyle.Render(" │ ")
 	hints := strings.Join([]string{
 		renderKey("Enter", "Detail"),
+		renderKey("s", "Review session"),
 		renderKey("o", "Browser"),
 		renderKey("a", "Approve"),
 		renderKey("c", "Comment"),
@@ -7861,6 +7891,64 @@ func resolvePRBranch(repoDir, prNum string) (branch, title string, err error) {
 		title = parts[1]
 	}
 	return branch, title, nil
+}
+
+// startPRReviewSession finds the project matching the PR's repo and kicks off a review session.
+// If HeadBranch is empty (gh search prs omits headRefName), it kicks off an async gh pr view
+// to resolve it before proceeding.  If no matching project exists, it stores the PR as
+// pendingPRReview and opens the GroupDialog so the user can create the project; review
+// creation resumes after the dialog confirms.
+func (h *Home) startPRReviewSession(p *prpkg.PR) tea.Cmd {
+	if p == nil || p.Repo == "" {
+		return nil
+	}
+	// HeadBranch is not populated by gh search prs — resolve it asynchronously.
+	if p.HeadBranch == "" {
+		ghPath := ""
+		if h.prManager != nil {
+			ghPath = h.prManager.GHPath()
+		}
+		if ghPath == "" {
+			h.setError(fmt.Errorf("gh not available — cannot fetch PR branch"))
+			return nil
+		}
+		h.pendingPRReview = p
+		h.setError(fmt.Errorf("Fetching PR branch info…"))
+		repo, number := p.Repo, p.Number
+		return func() tea.Msg {
+			detail, err := prpkg.FetchDetail(ghPath, repo, number)
+			if err != nil {
+				return prReviewResolveBranchMsg{err: err}
+			}
+			pr := detail.PR // copy with HeadBranch populated
+			return prReviewResolveBranchMsg{pr: &pr}
+		}
+	}
+	projects, err := session.LoadProjects()
+	if err == nil {
+		for _, proj := range projects {
+			if proj.BaseDir == "" {
+				continue
+			}
+			if prpkg.RepoFromDir(proj.BaseDir) == p.Repo {
+				sessionName := fmt.Sprintf("review/pr-%s", prpkg.NumberStr(p.Number))
+				h.pendingWorktrees = append(h.pendingWorktrees, pendingWorktreeItem{
+					branchName: sessionName,
+					groupPath:  proj.Name,
+					startedAt:  time.Now(),
+				})
+				h.pendingPRReview = nil
+				// Switch to sessions view immediately so the user sees the pending
+				// placeholder row while the worktree is being created in the background.
+				h.viewMode = ""
+				return h.createReviewSession(proj.BaseDir, p.HeadBranch, sessionName, proj.Name, "")
+			}
+		}
+	}
+	// No matching project — prompt the user to create one.
+	h.pendingPRReview = p
+	h.groupDialog.Show()
+	return nil
 }
 
 // createReviewSession fetches the branch, creates a worktree, and starts a Claude session.
