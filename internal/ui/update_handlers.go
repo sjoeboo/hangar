@@ -931,6 +931,9 @@ func (h *Home) handleReviewSessionCreated(msg reviewSessionCreatedMsg) tea.Cmd {
 	h.rebuildFlatItems()
 	h.search.SetItems(h.instances)
 
+	// Switch to sessions view so the user can see the session being created.
+	h.viewMode = ""
+
 	// Auto-select the new session
 	for i, item := range h.flatItems {
 		if item.Type == session.ItemTypeSession && item.Session != nil && item.Session.ID == inst.ID {
