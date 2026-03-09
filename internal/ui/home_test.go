@@ -1168,7 +1168,7 @@ func TestSessionRowPRBadgeStates(t *testing.T) {
 		{"OPEN", 10, "[#10]", true},
 		{"MERGED", 20, "[#20]", true},
 		{"CLOSED", 30, "[#30]", true},
-		{"DRAFT", 40, "[#40]", false},
+		{"DRAFT", 40, "[#40]", true},
 	}
 
 	for _, tt := range tests {

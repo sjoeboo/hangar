@@ -239,11 +239,13 @@ func (d *WorktreeFinishDialog) viewOptions(titleStyle, labelStyle, valueStyle, c
 		switch pr.State {
 		case "OPEN":
 			stateStyle = PRBadgeOpen
+		case "DRAFT":
+			stateStyle = PRBadgeDraft
 		case "MERGED":
 			stateStyle = PRBadgeMerged
 		case "CLOSED":
 			stateStyle = PRBadgeClosed
-		default: // DRAFT, unknown
+		default:
 			stateStyle = labelStyle
 		}
 		titleRunes := []rune(pr.Title)

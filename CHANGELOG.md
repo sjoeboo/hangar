@@ -5,6 +5,15 @@ All notable changes to Hangar will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.8.1] - 2026-03-08
+
+### Fixed
+
+- **TUI: Draft PR badge visible in sidebar** — sessions with draft PRs now show the `[#N]` badge
+  in the sidebar list, rendered in a dimmed style (`ColorComment`) to visually distinguish them
+  from open PRs. Previously, draft PRs were silently excluded from badge rendering. The same
+  dimmed style is applied consistently in the worktree finish dialog.
+
 ## [2.8.0] - 2026-03-06
 
 ### Added

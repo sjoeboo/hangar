@@ -352,12 +352,14 @@ func (h *Home) renderSessionItem(b *strings.Builder, item session.Item, selected
 			switch pr.State {
 			case "OPEN":
 				badgeStyle = PRBadgeOpen
+			case "DRAFT":
+				badgeStyle = PRBadgeDraft
 			case "MERGED":
 				badgeStyle = PRBadgeMerged
 			case "CLOSED":
 				badgeStyle = PRBadgeClosed
 			default:
-				validState = false // DRAFT and unknown states: no badge
+				validState = false // unknown states: no badge
 			}
 			if validState {
 				if selected {
