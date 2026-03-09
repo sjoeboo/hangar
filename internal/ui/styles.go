@@ -243,6 +243,7 @@ var (
 
 	// PR badge styles — colored by state, distinct from session status icons
 	PRBadgeOpen   lipgloss.Style
+	PRBadgeDraft  lipgloss.Style
 	PRBadgeMerged lipgloss.Style
 	PRBadgeClosed lipgloss.Style
 
@@ -575,6 +576,7 @@ func initStyles() {
 	SessionStatusSelStyle = lipgloss.NewStyle().Foreground(ColorBg).Background(ColorAccent)
 
 	PRBadgeOpen = lipgloss.NewStyle().Foreground(ColorGreen)
+	PRBadgeDraft = lipgloss.NewStyle().Foreground(ColorComment)
 	PRBadgeMerged = lipgloss.NewStyle().Foreground(ColorPurple)
 	PRBadgeClosed = lipgloss.NewStyle().Foreground(ColorRed)
 
