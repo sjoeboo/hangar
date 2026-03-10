@@ -29,7 +29,7 @@ func newTestWatcher(t *testing.T) *session.StatusFileWatcher {
 func newTestServer(t *testing.T) *apiserver.APIServer {
 	t.Helper()
 	watcher := newTestWatcher(t)
-	cfg := apiserver.APIConfig{Port: 0, BindAddress: "127.0.0.1"}
+	cfg := apiserver.APIConfig{Port: 0, BindAddress: "127.0.0.1", CORSAllowAll: true}
 	return apiserver.New(cfg, watcher, nil, nil, nil, nil, "", "test")
 }
 

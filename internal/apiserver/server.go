@@ -23,8 +23,9 @@ import (
 
 // APIConfig holds the resolved configuration for the API server.
 type APIConfig struct {
-	Port        int
-	BindAddress string
+	Port         int
+	BindAddress  string
+	CORSAllowAll bool // When true, allow all origins; when false (default), restrict to localhost.
 }
 
 // APIServer is the embedded HTTP/WebSocket server.
@@ -112,6 +113,9 @@ func New(cfg APIConfig, watcher *session.StatusFileWatcher, getInstances func() 
 	mux.HandleFunc("/api/v1/prs/comment", s.handlePRComment)
 	mux.HandleFunc("/api/v1/prs/state", s.handlePRState)
 
+	// Health check
+	mux.HandleFunc("/api/v1/health", s.handleHealth)
+
 	// WebSocket
 	mux.HandleFunc("/api/v1/ws", s.handleWS)
 
@@ -137,8 +141,11 @@ func New(cfg APIConfig, watcher *session.StatusFileWatcher, getInstances func() 
 		http.StripPrefix("/ui", uiHandler).ServeHTTP(w, r)
 	})
 
+	// Configure WebSocket origin checking to match CORS policy.
+	wsAllowAllOrigins = cfg.CORSAllowAll
+
 	s.server = &http.Server{
-		Handler:      corsMiddleware(mux),
+		Handler:      corsMiddleware(cfg.CORSAllowAll, mux),
 		ReadTimeout:  30 * time.Second,
 		WriteTimeout: 60 * time.Second,
 	}
@@ -214,10 +221,16 @@ func (s *APIServer) bridgeWatcherToHub(ctx context.Context) {
 	}
 }
 
-// corsMiddleware adds permissive CORS headers — appropriate for Tailscale trust model.
-func corsMiddleware(next http.Handler) http.Handler {
+// corsMiddleware adds CORS headers. By default, only localhost origins are
+// allowed. Set allowAllOrigins=true (via config) for Tailscale/remote access.
+func corsMiddleware(allowAllOrigins bool, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Access-Control-Allow-Origin", "*")
+		origin := r.Header.Get("Origin")
+		if allowAllOrigins {
+			w.Header().Set("Access-Control-Allow-Origin", "*")
+		} else if isLocalhostOrigin(origin) {
+			w.Header().Set("Access-Control-Allow-Origin", origin)
+		}
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PATCH, DELETE, OPTIONS")
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, X-Hangar-Instance-Id")
 		if r.Method == http.MethodOptions {
@@ -226,6 +239,25 @@ func corsMiddleware(next http.Handler) http.Handler {
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+// isLocalhostOrigin checks if an origin is from localhost.
+func isLocalhostOrigin(origin string) bool {
+	if origin == "" {
+		return true // Same-origin requests have no Origin header
+	}
+	// Accept common localhost patterns
+	for _, prefix := range []string{
+		"http://localhost", "https://localhost",
+		"http://127.0.0.1", "https://127.0.0.1",
+		"http://[::1]", "https://[::1]",
+		"http://0.0.0.0", "https://0.0.0.0",
+	} {
+		if strings.HasPrefix(origin, prefix) {
+			return true
+		}
+	}
+	return false
 }
 
 // handleStatus serves GET /api/v1/status.
@@ -259,16 +291,32 @@ func (s *APIServer) instances() []*session.Instance {
 	return s.getInstances()
 }
 
+// handleHealth serves GET /api/v1/health — lightweight connectivity check.
+func (s *APIServer) handleHealth(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{
+		"status":  "ok",
+		"version": s.version,
+	})
+}
+
 // writeJSON marshals v as JSON and writes it with the given status code.
 func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(v)
+	if err := json.NewEncoder(w).Encode(v); err != nil {
+		slog.Error("json_encode_failed", "error", err)
+	}
 }
 
 // writeError writes a JSON error response: {"error": "..."}.
 func writeError(w http.ResponseWriter, status int, msg string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(map[string]string{"error": msg})
+	if err := json.NewEncoder(w).Encode(map[string]string{"error": msg}); err != nil {
+		slog.Error("json_encode_failed", "error", err, "status", status)
+	}
 }

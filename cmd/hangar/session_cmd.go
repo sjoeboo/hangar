@@ -955,11 +955,13 @@ func loadSessionData(profile string) (*session.Storage, []*session.Instance, []*
 
 	instances, groupsData, err := storage.LoadWithGroups()
 	if err != nil {
+		storage.Close()
 		return nil, nil, nil, fmt.Errorf("failed to load sessions: %w", err)
 	}
 
 	// LoadWithGroups reconnects tmux sessions with lazy loading.
 	// Status uses cached values from JSON; session IDs are not synced at load time.
+	// NOTE: caller is responsible for closing the returned storage.
 
 	return storage, instances, groupsData, nil
 }
@@ -980,11 +982,15 @@ func findSessionByTmuxAcrossProfiles() (*session.Instance, string) {
 	}
 
 	for _, p := range profiles {
-		_, instances, _, err := loadSessionData(p)
+		storage, instances, _, err := loadSessionData(p)
 		if err != nil {
 			continue
 		}
-		if inst := findSessionByTmux(instances); inst != nil {
+		inst := findSessionByTmux(instances)
+		if storage != nil {
+			storage.Close()
+		}
+		if inst != nil {
 			return inst, p
 		}
 	}
@@ -1009,32 +1015,25 @@ func findSessionByTmux(instances []*session.Instance) *session.Instance {
 	currentPath := parts[1]
 
 	// Parse hangar session name: hangar_<title>_<id>
-	if strings.HasPrefix(sessionName, "hangar_") {
-		// Extract title (everything between hangar_ and the last _id)
-		withoutPrefix := strings.TrimPrefix(sessionName, "hangar_")
-		lastUnderscore := strings.LastIndex(withoutPrefix, "_")
-		if lastUnderscore > 0 {
-			title := withoutPrefix[:lastUnderscore]
-
-			// Try to find by title
-			for _, inst := range instances {
-				if strings.EqualFold(inst.Title, title) {
-					return inst
-				}
+	if title, _ := session.ParseTmuxSessionName(sessionName); title != sessionName {
+		// Try to find by title
+		for _, inst := range instances {
+			if strings.EqualFold(inst.Title, title) {
+				return inst
 			}
-
-			// Try to find by sanitized title (replace - with space, etc.)
-			normalizedTitle := strings.ReplaceAll(title, "-", " ")
-			for _, inst := range instances {
-				if strings.EqualFold(inst.Title, normalizedTitle) {
-					return inst
-				}
-			}
-
-			// For hangar sessions, we have the title - don't fall back to path matching
-			// as that could match a different session with same path in another profile
-			return nil
 		}
+
+		// Try to find by sanitized title (replace - with space, etc.)
+		normalizedTitle := strings.ReplaceAll(title, "-", " ")
+		for _, inst := range instances {
+			if strings.EqualFold(inst.Title, normalizedTitle) {
+				return inst
+			}
+		}
+
+		// For hangar sessions, we have the title - don't fall back to path matching
+		// as that could match a different session with same path in another profile
+		return nil
 	}
 
 	// Try to find by path (only for non-hangar tmux sessions)
@@ -2032,9 +2031,11 @@ func findInstanceDataByTmuxFast(tmuxSessionName, preferredProfile string) (*sess
 		instances, _, err := storage.LoadLite()
 		if err == nil {
 			if inst := matchInstanceDataByTmuxName(instances, tmuxSessionName); inst != nil {
+				storage.Close()
 				return inst, preferredProfile
 			}
 		}
+		storage.Close()
 	}
 
 	// Search all profiles
@@ -2053,11 +2054,14 @@ func findInstanceDataByTmuxFast(tmuxSessionName, preferredProfile string) (*sess
 		}
 		instances, _, err := storage.LoadLite()
 		if err != nil {
+			storage.Close()
 			continue
 		}
 		if inst := matchInstanceDataByTmuxName(instances, tmuxSessionName); inst != nil {
+			storage.Close()
 			return inst, p
 		}
+		storage.Close()
 	}
 
 	return nil, ""

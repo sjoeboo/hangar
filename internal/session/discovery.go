@@ -7,6 +7,20 @@ import (
 	"github.com/sjoeboo/hangar/internal/tmux"
 )
 
+// ParseTmuxSessionName extracts the title and ID hash from a hangar tmux session name.
+// Format: hangar_<title>_<8-char-hash> -> (title, hash).
+// Returns the full name and empty hash if parsing fails.
+func ParseTmuxSessionName(name string) (title, hash string) {
+	withoutPrefix := strings.TrimPrefix(name, tmux.SessionPrefix)
+	if withoutPrefix == name {
+		return name, "" // Not a hangar session
+	}
+	if idx := strings.LastIndex(withoutPrefix, "_"); idx > 0 {
+		return withoutPrefix[:idx], withoutPrefix[idx+1:]
+	}
+	return withoutPrefix, ""
+}
+
 // DiscoverExistingTmuxSessions finds all tmux sessions and converts them to instances
 func DiscoverExistingTmuxSessions(existingInstances []*Instance) ([]*Instance, error) {
 	// Get all tmux sessions
@@ -39,13 +53,7 @@ func DiscoverExistingTmuxSessions(existingInstances []*Instance) ([]*Instance, e
 		isOrphaned := false
 		if strings.HasPrefix(sess.Name, tmux.SessionPrefix) {
 			isOrphaned = true
-			// Extract title from session name: hangar_<title>_<8-char-hash>
-			namePart := strings.TrimPrefix(sess.Name, tmux.SessionPrefix)
-			if lastUnderscore := strings.LastIndex(namePart, "_"); lastUnderscore > 0 {
-				title = namePart[:lastUnderscore]
-			} else {
-				title = namePart
-			}
+			title, _ = ParseTmuxSessionName(sess.Name)
 			// Put orphaned sessions in a "Recovered" group so user knows they were recovered
 			groupPath = "recovered"
 		}

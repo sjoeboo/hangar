@@ -228,21 +228,21 @@ func (s *StateDB) Migrate() error {
 		return fmt.Errorf("statedb: create todos: %w", err)
 	}
 
-	// Migration v3: add prompt column to todos table for existing databases.
-	// SQLite's ALTER TABLE ADD COLUMN has no IF NOT EXISTS syntax, so we must
-	// execute it unconditionally and swallow the "duplicate column name" error
-	// when the column already exists (i.e. database was already at schema v3).
-	// modernc.org/sqlite does not expose a typed sentinel for this condition,
-	// so string matching on the error message is the only available approach.
-	if _, err := tx.Exec(`ALTER TABLE todos ADD COLUMN prompt TEXT NOT NULL DEFAULT ''`); err != nil {
-		if !strings.Contains(err.Error(), "duplicate column name") {
+	// Read current schema version to determine which migrations to apply.
+	// For new databases (no metadata row), existingSchemaVer stays 0.
+	var existingSchemaVer int
+	_ = tx.QueryRow(`SELECT CAST(value AS INTEGER) FROM metadata WHERE key = 'schema_version'`).Scan(&existingSchemaVer)
+
+	// Migration v3: add prompt column to todos table.
+	if existingSchemaVer < 3 {
+		if _, err := tx.Exec(`ALTER TABLE todos ADD COLUMN prompt TEXT NOT NULL DEFAULT ''`); err != nil {
 			return fmt.Errorf("statedb: add prompt column: %w", err)
 		}
 	}
 
 	// Migration v4: add session_type column to instances table.
-	if _, err := tx.Exec(`ALTER TABLE instances ADD COLUMN session_type TEXT NOT NULL DEFAULT ''`); err != nil {
-		if !strings.Contains(err.Error(), "duplicate column name") {
+	if existingSchemaVer < 4 {
+		if _, err := tx.Exec(`ALTER TABLE instances ADD COLUMN session_type TEXT NOT NULL DEFAULT ''`); err != nil {
 			return fmt.Errorf("statedb: add session_type column: %w", err)
 		}
 	}

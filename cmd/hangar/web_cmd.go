@@ -195,7 +195,7 @@ func handleWebStart(profile string, noOpen bool, detach bool) {
 		}
 	}
 
-	cfg := apiserver.APIConfig{Port: port, BindAddress: bindAddr}
+	cfg := apiserver.APIConfig{Port: port, BindAddress: bindAddr, CORSAllowAll: true}
 	srv := apiserver.New(cfg, watcher, getInstances, getPRInfo, nil, prManager, profile, Version)
 
 	uiURL := fmt.Sprintf("http://%s:%d/ui/", webDisplayAddr(bindAddr), port)

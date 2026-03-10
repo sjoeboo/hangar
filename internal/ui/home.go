@@ -4743,7 +4743,7 @@ func (h *Home) handleConfirmDialogKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 						if userCfg != nil {
 							bindAddr = userCfg.API.GetBindAddress()
 						}
-						cfg2 := apiserver.APIConfig{Port: port, BindAddress: bindAddr}
+						cfg2 := apiserver.APIConfig{Port: port, BindAddress: bindAddr, CORSAllowAll: true}
 						getInstances2 := func() []*session.Instance {
 							h.instancesMu.RLock()
 							snap := make([]*session.Instance, len(h.instances))

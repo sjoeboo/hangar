@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/sjoeboo/hangar/internal/session"
@@ -88,6 +90,13 @@ func (s *APIServer) createProject(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.Name == "" || req.BaseDir == "" {
 		writeError(w, http.StatusBadRequest, "name and base_dir are required")
+		return
+	}
+
+	// Validate and clean the base directory
+	req.BaseDir = filepath.Clean(req.BaseDir)
+	if _, err := os.Stat(req.BaseDir); err != nil {
+		writeError(w, http.StatusBadRequest, fmt.Sprintf("base_dir does not exist: %s", req.BaseDir))
 		return
 	}
 

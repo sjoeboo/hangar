@@ -535,9 +535,15 @@ func extractBinaryFromTarGz(tarPath string) ([]byte, error) {
 			return nil, err
 		}
 
+		// Reject path traversal and absolute paths
+		cleanName := filepath.Clean(header.Name)
+		if strings.Contains(cleanName, "..") || filepath.IsAbs(cleanName) {
+			continue
+		}
+
 		// Look for the hangar binary
-		if header.Typeflag == tar.TypeReg && header.Name == "hangar" {
-			data, err := io.ReadAll(tr)
+		if header.Typeflag == tar.TypeReg && cleanName == "hangar" {
+			data, err := io.ReadAll(io.LimitReader(tr, 200<<20))
 			if err != nil {
 				return nil, err
 			}
