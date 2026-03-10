@@ -15,11 +15,20 @@ const (
 	wsMaxMsgSize = 65536
 )
 
+// wsAllowAllOrigins controls WebSocket origin checking.
+// When false (default), only localhost origins are accepted.
+// Set by New() from APIConfig.CORSAllowAll before the server starts.
+var wsAllowAllOrigins bool
+
 var wsUpgrader = websocket.Upgrader{
 	ReadBufferSize:  1024,
 	WriteBufferSize: 4096,
-	// Permissive origin check — Tailscale trust model.
-	CheckOrigin: func(r *http.Request) bool { return true },
+	CheckOrigin: func(r *http.Request) bool {
+		if wsAllowAllOrigins {
+			return true
+		}
+		return isLocalhostOrigin(r.Header.Get("Origin"))
+	},
 }
 
 // Client represents a single WebSocket connection.

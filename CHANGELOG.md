@@ -5,6 +5,57 @@ All notable changes to Hangar will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.9.1] - 2026-03-10
+
+### Fixed
+
+- **Storage resource leaks** — added `defer storage.Close()` (or explicit `Close()` in loops) at
+  10+ sites across `cmd/hangar/main.go` and `cmd/hangar/session_cmd.go` where
+  `session.NewStorageWithProfile()` was opened but never closed. In WAL mode, leaked handles
+  prevent the WAL file from checkpointing, causing unbounded growth in multi-process scenarios.
+  Extracted `mustOpenStorage()` helper for the common open+check+exit pattern.
+
+- **Schema migration fragility** — replaced `strings.Contains(err.Error(), "duplicate column name")`
+  with version-gated migrations that read `schema_version` from the metadata table before running
+  ALTER TABLE statements. Migrations now only execute for versions above the stored version.
+
+- **Debounce timer fires after shutdown** — `time.AfterFunc` callbacks in `hook_watcher.go` and
+  `event_watcher.go` could execute after the watcher's context was cancelled. Added
+  `select { case <-ctx.Done(): return }` at the start of each callback.
+
+- **Magic group name strings** — extracted `PinnedGroupTower` and `PinnedGroupConductor` constants
+  in `groups.go` to replace hardcoded `"tower"` and `"conductor"` strings.
+
+### Changed
+
+- **CORS restricted to localhost by default** — the API server's `corsMiddleware` and WebSocket
+  `CheckOrigin` now reject non-localhost origins unless `APIConfig.CORSAllowAll` is set to `true`.
+  Both existing call sites (`web_cmd.go` and `home.go`) default to `true` for backward
+  compatibility. The `isLocalhostOrigin()` helper accepts `localhost`, `127.0.0.1`, `[::1]`, and
+  `0.0.0.0` on both HTTP and HTTPS.
+
+- **TUI style allocation reduction** — pre-compiled `baseCenterStyle`, `baseStatusStyle`, and four
+  `logoCompact*Base` styles at module level in `preview_renderer.go` and `styles.go`, eliminating
+  11+ `lipgloss.NewStyle()` allocations per render frame.
+
+- **Tar extraction hardened** — `internal/update/update.go` now rejects path traversal (`..`) and
+  absolute paths in tar entries via `filepath.Clean`, and caps binary extraction at 200 MB with
+  `io.LimitReader`.
+
+- **API path validation** — `createSession` and `createProject` now run `filepath.Clean` +
+  `os.Stat` on the provided path/base_dir before accepting the request.
+
+- **Session name parsing centralized** — extracted `session.ParseTmuxSessionName()` in
+  `discovery.go`, replacing duplicate `TrimPrefix` + `LastIndex("_")` logic in `session_cmd.go`.
+
+### Added
+
+- **`GET /api/v1/health` endpoint** — returns `{"status":"ok","version":"..."}` for connectivity
+  checks (useful for the macOS app and monitoring).
+
+- **JSON encode error logging** — `writeJSON` and `writeError` in `server.go` now log encoding
+  failures via `slog.Error` instead of silently discarding them.
+
 ## [2.9.0] - 2026-03-09
 
 ### Added

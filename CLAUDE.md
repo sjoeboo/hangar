@@ -211,6 +211,9 @@ and use the command hook fallback only, set `hookServerPort: 0` in `~/.hangar/co
 - **Mutex discipline**: Always hold `instancesMu` for the full operation when modifying both `instances` slice and `instanceByID` map together. Don't unlock between slice and map operations.
 - **PR data gotcha**: `gh search prs` does not return `headRefName` — `PR.HeadBranch` will be empty for globally-fetched PRs (All/Mine/Review Requests tabs). Use `prpkg.FetchDetail(ghPath, repo, number)` to resolve it. Session-linked PRs (fetched via `gh pr view` in the worktree dir) always have `HeadBranch` set.
 - **`h.setError()` for status messages**: `setError` is also used for transient non-error status messages (e.g. "Approving PR…", "Fetching PR branch info…") — it's the only status bar mechanism; messages auto-dismiss after ~3s.
+- **Storage discipline**: Always `defer storage.Close()` (or explicit `storage.Close()` in loops) after `session.NewStorageWithProfile()`. Use `mustOpenStorage()` in `cmd/hangar/main.go` for the common open+check+exit pattern.
+- **CORS policy**: Localhost-only by default; set `APIConfig.CORSAllowAll = true` for remote/Tailscale access. WebSocket `CheckOrigin` uses the same policy. Both `web_cmd.go` and `home.go` currently default to `CORSAllowAll: true` for backward compatibility.
+- **API health check**: `GET /api/v1/health` returns `{"status":"ok","version":"..."}` — useful for macOS app connectivity checks.
 
 ## Environment Variables
 
@@ -229,28 +232,23 @@ and use the command hook fallback only, set `hookServerPort: 0` in `~/.hangar/co
    - `delete(h.instanceByID, msg.deletedID)` happens outside the `instancesMu.Lock()` block in `sessionDeletedMsg` handler
    - Fix: wrap both slice removal AND map delete in a single lock/unlock
 
-2. **Storage not closed in dispatch()** (`internal/session/transition_notifier.go:123`)
-   - `dispatch()` opens `NewStorageWithProfile()` but never calls `defer storage.Close()`
-   - File handles accumulate until GC; fix with `defer storage.Close()`
+2. ~~**Storage not closed in dispatch()**~~ — **FIXED** (`transition_notifier.go` already has `defer storage.Close()`)
 
 3. **session set path field not validated** (`cmd/hangar/session_cmd.go:879`)
    - `session set <id> path <value>` stores any string without `os.Stat()` validation
-   - Fix: validate path exists before storing
+   - Note: API `createSession` and `createProject` now validate paths; CLI `set` still doesn't
 
-4. **Debounce timer not stopped on shutdown** (`internal/session/hook_watcher.go`, `event_watcher.go`)
-   - `debounceTimer` may fire after context cancellation; add `debounceTimer.Stop()` in cleanup
+4. ~~**Debounce timer not stopped on shutdown**~~ — **FIXED** (ctx.Done() check added to AfterFunc callbacks in hook_watcher.go and event_watcher.go)
 
 ### Low Priority
 
 5. **Session name parsing breaks with underscores in title**
-   - `session_cmd.go`: uses `strings.LastIndex("_")` to split `hangar_<title>_<id>`
+   - Now centralized in `session.ParseTmuxSessionName()` — uses `strings.LastIndex("_")` to split
    - Titles with underscores produce wrong title extraction (ID is UUID suffix so this usually works, but it's fragile)
 
-6. **String-based error matching in schema migration** (`internal/statedb/statedb.go:236`)
-   - `strings.Contains(err.Error(), "duplicate column name")` is fragile across SQLite versions
+6. ~~**String-based error matching in schema migration**~~ — **FIXED** (replaced with version-gated migrations in statedb.go)
 
-7. **"conductor" magic string in groups** (`internal/session/groups.go:172`)
-   - Gets special `Order = -1` treatment; if user creates group named "conductor" it re-orders unexpectedly
+7. ~~**"conductor" magic string in groups**~~ — **FIXED** (extracted to `PinnedGroupTower`/`PinnedGroupConductor` constants in groups.go)
 
 8. **pendingTitleChanges map may race** (`internal/ui/home.go:2285+`)
    - Iterated without mutex during reload; low severity as it's only written in Update()
@@ -280,7 +278,7 @@ The tmux layer uses a **zero-subprocess control mode** architecture:
 - WAL mode for concurrent readers
 - 5-second busy timeout for inter-process serialization
 - Heartbeat-based primary election among multiple hangar instances
-- Schema version in metadata table with ALTER TABLE migrations (v1→v4+)
+- Schema version in metadata table; migrations are version-gated (only run ALTER TABLE when stored version < target)
 
 ## Dependencies (all current as of Feb 2026)
 

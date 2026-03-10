@@ -109,6 +109,12 @@ func (w *StatusEventWatcher) Start() {
 				debounceTimer.Stop()
 			}
 			debounceTimer = time.AfterFunc(100*time.Millisecond, func() {
+				// Don't process if watcher is shutting down
+				select {
+				case <-w.ctx.Done():
+					return
+				default:
+				}
 				pendingMu.Lock()
 				files := make([]string, 0, len(pendingFiles))
 				for f := range pendingFiles {

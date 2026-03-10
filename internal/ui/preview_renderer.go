@@ -21,6 +21,12 @@ import (
 	"github.com/sjoeboo/hangar/internal/tmux"
 )
 
+// baseCenterStyle is the base centered alignment style; callers apply .Width(w) at render time.
+var baseCenterStyle = lipgloss.NewStyle().Align(lipgloss.Center)
+
+// baseStatusStyle is the base for runtime-colored status text.
+var baseStatusStyle = lipgloss.NewStyle()
+
 // renderSectionDivider creates a modern section divider with optional centered label
 // Format: ─────────── Label ─────────── (lines extend to fill width)
 func renderSectionDivider(label string, width int) string {
@@ -229,9 +235,7 @@ func (h *Home) renderLaunchingState(inst *session.Instance, width int, startTime
 	}
 
 	// Centered layout (runtime width — must stay inline)
-	centerStyle := lipgloss.NewStyle().
-		Width(width - 4).
-		Align(lipgloss.Center)
+	centerStyle := baseCenterStyle.Width(width - 4)
 
 	spinnerLine := styleSpinnerLaunch.Render(spinner + "  " + spinner + "  " + spinner)
 	b.WriteString(centerStyle.Render(spinnerLine))
@@ -273,9 +277,7 @@ func (h *Home) renderMcpLoadingState(inst *session.Instance, width int, startTim
 	spinner := spinnerFrames[h.animationFrame]
 
 	// Centered layout (runtime width — must stay inline)
-	centerStyle := lipgloss.NewStyle().
-		Width(width - 4).
-		Align(lipgloss.Center)
+	centerStyle := baseCenterStyle.Width(width - 4)
 
 	spinnerLine := styleSpinnerMCP.Render(spinner + "  " + spinner + "  " + spinner)
 	b.WriteString(centerStyle.Render(spinnerLine))
@@ -306,9 +308,7 @@ func (h *Home) renderForkingState(inst *session.Instance, width int, startTime t
 	var b strings.Builder
 
 	// Centered layout (runtime width — must stay inline)
-	centerStyle := lipgloss.NewStyle().
-		Width(width - 4).
-		Align(lipgloss.Center)
+	centerStyle := baseCenterStyle.Width(width - 4)
 
 	// Braille spinner frames
 	spinnerFrames := []string{"⣾", "⣽", "⣻", "⢿", "⡿", "⣟", "⣯", "⣷"}
@@ -373,7 +373,7 @@ func (h *Home) renderSessionInfoCard(inst *session.Instance, width, height int) 
 	default:
 		statusColor = ColorTextDim
 	}
-	statusStyle := lipgloss.NewStyle().Foreground(statusColor)
+	statusStyle := baseStatusStyle.Foreground(statusColor)
 	b.WriteString(fmt.Sprintf("%s %s\n", stylePreviewLabelDim.Render("Status:"), statusStyle.Render(string(cardStatus))))
 
 	// Tool
@@ -499,7 +499,7 @@ func (h *Home) renderPreviewPaneCore(selected *session.Instance, width, height i
 	}
 
 	// Header with session name and status (statusColor is runtime — stays inline)
-	statusBadge := lipgloss.NewStyle().Foreground(statusColor).Render(statusIcon + " " + string(selected.Status))
+	statusBadge := baseStatusStyle.Foreground(statusColor).Render(statusIcon + " " + string(selected.Status))
 	b.WriteString(stylePreviewBoldName.Render(selected.Title))
 	b.WriteString("  ")
 	b.WriteString(statusBadge)
@@ -552,7 +552,7 @@ func (h *Home) renderPreviewPaneCore(selected *session.Instance, width, height i
 				case "CLOSED":
 					stateColor = ColorRed
 				}
-				stateStyle := lipgloss.NewStyle().Foreground(stateColor)
+				stateStyle := baseStatusStyle.Foreground(stateColor)
 				titleMax := width - 4 - 9 - 6 - len(stateLabel) - 3
 				title := pr.Title
 				if titleMax > 10 && runewidth.StringWidth(title) > titleMax {
@@ -1459,7 +1459,7 @@ func (h *Home) renderGroupPreview(group *session.Group, width, height int) strin
 				statusIcon, statusColor = "✕", ColorRed
 			}
 			// statusColor is runtime-dependent — stays inline
-			status := lipgloss.NewStyle().Foreground(statusColor).Render(statusIcon)
+			status := baseStatusStyle.Foreground(statusColor).Render(statusIcon)
 			name := stylePreviewLabel.Render(sess.Title)
 			tool := styleGroupSessionTool.Render(sess.Tool)
 

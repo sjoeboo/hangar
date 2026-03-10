@@ -366,6 +366,14 @@ var (
 	ColorPrimary  lipgloss.Color
 )
 
+// Pre-compiled styles for RenderLogoCompact (called every render frame).
+var (
+	logoCompactBracketBase = lipgloss.NewStyle().Foreground(ColorAccent).Bold(true)
+	logoCompactBorderBase  = lipgloss.NewStyle().Foreground(ColorBorder)
+	logoCompactSpaceBase   = lipgloss.NewStyle()
+	logoCompactIndicBase   = lipgloss.NewStyle().Bold(true)
+)
+
 // LogoBorderStyle for the grid lines
 var LogoBorderStyle lipgloss.Style
 
@@ -895,9 +903,9 @@ func getLogoIndicators(running, waiting, idle int) []string {
 // exposing the terminal default background between segments.
 func RenderLogoCompact(running, waiting, idle int, bg lipgloss.Color) string {
 	indicators := getLogoIndicators(running, waiting, idle)
-	bracketStyle := lipgloss.NewStyle().Foreground(ColorAccent).Background(bg).Bold(true)
-	borderStyle := lipgloss.NewStyle().Foreground(ColorBorder).Background(bg)
-	sp := lipgloss.NewStyle().Background(bg).Render(" ")
+	bracketStyle := logoCompactBracketBase.Background(bg)
+	borderStyle := logoCompactBorderBase.Background(bg)
+	sp := logoCompactSpaceBase.Background(bg).Render(" ")
 	indicator := func(ind string) string {
 		var color lipgloss.Color
 		switch ind {
@@ -908,7 +916,7 @@ func RenderLogoCompact(running, waiting, idle int, bg lipgloss.Color) string {
 		default:
 			color = ColorTextDim
 		}
-		return lipgloss.NewStyle().Foreground(color).Background(bg).Bold(true).Render(ind)
+		return logoCompactIndicBase.Foreground(color).Background(bg).Render(ind)
 	}
 	return bracketStyle.Render("⟨") +
 		sp + indicator(indicators[0]) +

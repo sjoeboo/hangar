@@ -11,6 +11,13 @@ import (
 	"github.com/sjoeboo/hangar/internal/git"
 )
 
+// Pinned group names — these groups receive fixed sort order
+// so they always appear at the top of the sidebar.
+const (
+	PinnedGroupTower     = "tower"
+	PinnedGroupConductor = "conductor"
+)
+
 // ItemType represents the type of item in the flattened list
 type ItemType int
 
@@ -263,11 +270,11 @@ func (t *GroupTree) rebuildGroupList() {
 	t.GroupList = make([]*Group, 0, len(t.Groups))
 	for _, g := range t.Groups {
 		// Always pin the "tower" group above everything else.
-		if g.Path == "tower" && g.Order >= -1 {
+		if g.Path == PinnedGroupTower && g.Order >= -1 {
 			g.Order = -2
 		}
 		// Always pin the "conductor" group just below tower.
-		if g.Path == "conductor" && g.Order >= 0 {
+		if g.Path == PinnedGroupConductor && g.Order >= 0 {
 			g.Order = -1
 		}
 		t.GroupList = append(t.GroupList, g)

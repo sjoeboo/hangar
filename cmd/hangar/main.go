@@ -784,11 +784,8 @@ func handleAdd(profile string, args []string) {
 	}
 
 	// Load existing sessions with profile
-	storage, err := session.NewStorageWithProfile(profile)
-	if err != nil {
-		fmt.Printf("Error: failed to initialize storage: %v\n", err)
-		os.Exit(1)
-	}
+	storage := mustOpenStorage(profile)
+	defer storage.Close()
 
 	instances, groups, err := storage.LoadWithGroups()
 	if err != nil {
@@ -1170,11 +1167,8 @@ func handleList(profile string, args []string) {
 		return
 	}
 
-	storage, err := session.NewStorageWithProfile(profile)
-	if err != nil {
-		fmt.Printf("Error: failed to initialize storage: %v\n", err)
-		os.Exit(1)
-	}
+	storage := mustOpenStorage(profile)
+	defer storage.Close()
 
 	instances, _, err := storage.LoadWithGroups()
 	if err != nil {
@@ -1277,6 +1271,7 @@ func handleListAllProfiles(jsonOutput bool) {
 				continue
 			}
 			instances, _, err := storage.LoadWithGroups()
+			storage.Close()
 			if err != nil {
 				continue
 			}
@@ -1311,6 +1306,7 @@ func handleListAllProfiles(jsonOutput bool) {
 			continue
 		}
 		instances, _, err := storage.LoadWithGroups()
+		storage.Close()
 		if err != nil {
 			continue
 		}
@@ -1591,11 +1587,8 @@ func handleStatus(profile string, args []string) {
 	}
 
 	// Load sessions
-	storage, err := session.NewStorageWithProfile(profile)
-	if err != nil {
-		fmt.Printf("Error: failed to initialize storage: %v\n", err)
-		os.Exit(1)
-	}
+	storage := mustOpenStorage(profile)
+	defer storage.Close()
 
 	instances, _, err := storage.LoadWithGroups()
 	if err != nil {
@@ -2261,6 +2254,7 @@ func handleUninstall(args []string) {
 							if instances, _, err := s.LoadWithGroups(); err == nil {
 								sessionCount += len(instances)
 							}
+							s.Close()
 						}
 					} else if data, err := os.ReadFile(jsonFile); err == nil {
 						profileCount++
@@ -2539,6 +2533,17 @@ func handleUninstall(args []string) {
 // Uses GetCurrentSessionID() which checks if the current tmux session name matches hangar_*.
 func isNestedSession() bool {
 	return GetCurrentSessionID() != ""
+}
+
+// mustOpenStorage opens a Storage for the given profile, fatally exiting on failure.
+// Caller must defer storage.Close() unless the storage is passed to a long-lived owner.
+func mustOpenStorage(profileName string) *session.Storage {
+	storage, err := session.NewStorageWithProfile(profileName)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: failed to initialize storage: %v\n", err)
+		os.Exit(1)
+	}
+	return storage
 }
 
 // formatSize formats bytes into human-readable size

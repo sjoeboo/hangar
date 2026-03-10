@@ -6,6 +6,8 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -278,6 +280,14 @@ func (s *APIServer) createSession(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "title and path are required")
 		return
 	}
+
+	// Validate and clean the path
+	req.Path = filepath.Clean(req.Path)
+	if _, err := os.Stat(req.Path); err != nil {
+		writeError(w, http.StatusBadRequest, fmt.Sprintf("path does not exist: %s", req.Path))
+		return
+	}
+
 	tool := req.Tool
 	if tool == "" {
 		tool = "claude"
