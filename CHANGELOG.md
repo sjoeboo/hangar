@@ -5,6 +5,24 @@ All notable changes to Hangar will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.10.0] - 2026-03-13
+
+### Added
+
+- **Hide closed/merged PRs toggle** — press `X` in the PR overview to toggle hiding MERGED and
+  CLOSED PRs from all tabs. Mirrors the existing `D` (hide drafts) toggle. The toggle state is
+  shown in the help bar.
+
+- **`ClearClosedSessionPRs()` on PR manager** — new method that evicts MERGED/CLOSED entries from
+  the per-session PR cache. Called automatically when pressing `r` (refresh) in the PR view, so
+  stale closed/merged PRs no longer persist until Hangar restarts.
+
+### Changed
+
+- **`r` (refresh) in PR view enhanced** — now also triggers a global PR list refresh
+  (`TriggerRefresh`) and clears closed/merged session PR cache entries, in addition to the existing
+  per-session re-fetch behavior.
+
 ## [2.9.1] - 2026-03-10
 
 ### Fixed
