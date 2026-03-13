@@ -18,7 +18,7 @@ require (
 	github.com/sourcegraph/go-diff v0.7.0
 	github.com/stretchr/testify v1.11.1
 	github.com/thiagokokada/dark-mode-go v0.0.2
-	golang.org/x/sync v0.19.0
+	golang.org/x/sync v0.20.0
 	golang.org/x/term v0.41.0
 	golang.org/x/time v0.14.0
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1
