@@ -1580,6 +1580,77 @@ func TestPRView_RenderEmpty(t *testing.T) {
 	}
 }
 
+func TestPRView_XKeyToggleHideClosed(t *testing.T) {
+	home := NewHome()
+	home.width = 120
+	home.height = 40
+	home.viewMode = "prs"
+	home.prViewCursor = 2
+
+	if home.prHideClosed {
+		t.Fatal("prHideClosed should default to false")
+	}
+
+	// Press X — should toggle on and reset cursor
+	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'X'}}
+	model, _ := home.Update(msg)
+	h := model.(*Home)
+	if !h.prHideClosed {
+		t.Error("prHideClosed should be true after first X press")
+	}
+	if h.prViewCursor != 0 {
+		t.Errorf("prViewCursor should reset to 0, got %d", h.prViewCursor)
+	}
+
+	// Press X again — should toggle off
+	h.prViewCursor = 1
+	model, _ = h.Update(msg)
+	h = model.(*Home)
+	if h.prHideClosed {
+		t.Error("prHideClosed should be false after second X press")
+	}
+	if h.prViewCursor != 0 {
+		t.Errorf("prViewCursor should reset to 0, got %d", h.prViewCursor)
+	}
+}
+
+func TestPRView_HideClosedFiltersFromView(t *testing.T) {
+	home := NewHome()
+	home.width = 120
+	home.height = 30
+	home.viewMode = "prs"
+	home.ghPath = "/usr/bin/gh"
+	home.initialLoading = false
+
+	// Seed sessions with OPEN and MERGED PRs
+	sess1 := &session.Instance{ID: "s1", Title: "Open PR session", GroupPath: "test-project", WorktreePath: "/tmp/s1"}
+	sess2 := &session.Instance{ID: "s2", Title: "Merged PR session", GroupPath: "test-project", WorktreePath: "/tmp/s2"}
+	home.instances = []*session.Instance{sess1, sess2}
+	home.groupTree = session.NewGroupTree(home.instances)
+	home.rebuildFlatItems()
+	home.cache.SetPR("s1", &prCacheEntry{Number: 10, Title: "Open PR session", State: "OPEN", URL: "https://github.com/x/y/pull/10"})
+	home.cache.SetPR("s2", &prCacheEntry{Number: 20, Title: "Merged PR session", State: "MERGED", URL: "https://github.com/x/y/pull/20"})
+
+	// Without filter: both visible
+	view := home.View()
+	if !strings.Contains(view, "#10") {
+		t.Error("OPEN PR #10 should be visible when filter is off")
+	}
+	if !strings.Contains(view, "#20") {
+		t.Error("MERGED PR #20 should be visible when filter is off")
+	}
+
+	// With filter: only OPEN visible
+	home.prHideClosed = true
+	view = home.View()
+	if !strings.Contains(view, "#10") {
+		t.Error("OPEN PR #10 should be visible when filter is on")
+	}
+	if strings.Contains(view, "#20") {
+		t.Error("MERGED PR #20 should be hidden when filter is on")
+	}
+}
+
 func TestBulkSelectMode_VKeyToggle(t *testing.T) {
 	home := NewHome()
 	home.width = 100
