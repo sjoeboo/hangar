@@ -255,6 +255,26 @@ func (m *Manager) SetSessionPR(sessionID string, p *PR) {
 	m.notifyChange()
 }
 
+// ClearClosedSessionPRs removes session PR entries whose state is MERGED or
+// CLOSED. Returns the number of entries removed. This is intended for manual
+// refresh actions where the user wants stale PRs cleaned out.
+func (m *Manager) ClearClosedSessionPRs() int {
+	m.mu.Lock()
+	var removed int
+	for sid, p := range m.sessionPRs {
+		if p != nil && (p.State == "MERGED" || p.State == "CLOSED") {
+			delete(m.sessionPRs, sid)
+			delete(m.sessionFetched, sid)
+			removed++
+		}
+	}
+	m.mu.Unlock()
+	if removed > 0 {
+		m.notifyChange()
+	}
+	return removed
+}
+
 // UpdateSessionPR triggers an async fetch for the given worktree session.
 // If a fresh result is already cached (within sessionPRTTL), this is a no-op.
 func (m *Manager) UpdateSessionPR(sessionID, worktreePath string) {
