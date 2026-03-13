@@ -17,12 +17,20 @@ const (
 	SourceReviewRequested
 )
 
+// PR state constants as returned by the GitHub API.
+const (
+	StateOpen   = "OPEN"
+	StateDraft  = "DRAFT"
+	StateMerged = "MERGED"
+	StateClosed = "CLOSED"
+)
+
 // PR holds pull-request metadata. It is the core data type for the PR dashboard.
 type PR struct {
 	Number        int
 	Title         string
 	Body          string `json:"body,omitempty"`
-	State         string // OPEN, DRAFT, MERGED, CLOSED
+	State         string // StateOpen, StateDraft, StateMerged, StateClosed
 	IsDraft       bool
 	URL           string
 	Repo          string // "owner/repo"
