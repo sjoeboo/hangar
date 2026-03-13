@@ -169,7 +169,7 @@ eventWatcher (fsnotify) ──────────────────�
 | `Ctrl+Q` | Detach from session |
 | `q` | Quit |
 
-**PR view keys** (`P` to enter): `s` create review session · `enter` detail · `a` approve · `c` comment · `o` browser · `S` cycle sort · `Tab` switch tab
+**PR view keys** (`P` to enter): `s` create review session · `enter` detail · `a` approve · `c` comment · `o` browser · `D` hide drafts · `X` hide closed · `S` cycle sort · `r` refresh · `Tab` switch tab
 
 ## View Modes
 
@@ -214,6 +214,8 @@ and use the command hook fallback only, set `hookServerPort: 0` in `~/.hangar/co
 - **Storage discipline**: Always `defer storage.Close()` (or explicit `storage.Close()` in loops) after `session.NewStorageWithProfile()`. Use `mustOpenStorage()` in `cmd/hangar/main.go` for the common open+check+exit pattern.
 - **CORS policy**: Localhost-only by default; set `APIConfig.CORSAllowAll = true` for remote/Tailscale access. WebSocket `CheckOrigin` uses the same policy. Both `web_cmd.go` and `home.go` currently default to `CORSAllowAll: true` for backward compatibility.
 - **API health check**: `GET /api/v1/health` returns `{"status":"ok","version":"..."}` — useful for macOS app connectivity checks.
+- **TUI / Web UI feature parity**: When adding or modifying user-facing features (filters, toggles, actions, views), always implement in both the TUI (`internal/ui/`) and the Web UI (`webui/src/`). The two interfaces share the same Go API server and should offer equivalent functionality. Check the web UI component that corresponds to the TUI view you're changing (e.g., `PROverview.tsx` ↔ `handlePRViewKey` in `home.go`).
+- **PR state constants**: Use `prpkg.StateOpen`, `StateDraft`, `StateMerged`, `StateClosed` (defined in `internal/pr/types.go`) instead of raw string literals like `"MERGED"`. This prevents typos that would silently break state comparisons.
 
 ## Environment Variables
 

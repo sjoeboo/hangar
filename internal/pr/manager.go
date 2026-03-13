@@ -247,12 +247,39 @@ func (m *Manager) SessionPRStaleAt(sessionID string) (fetchedAt time.Time, exist
 
 // SetSessionPR stores a (possibly nil) PR for a session directly.
 // Used when the caller has already done the gh fetch (e.g. TUI migration path).
+// If the PR state is MERGED or CLOSED, the entry is evicted instead of stored
+// so that terminal-state PRs don't persist in the session cache.
 func (m *Manager) SetSessionPR(sessionID string, p *PR) {
 	m.mu.Lock()
-	m.sessionPRs[sessionID] = p
-	m.sessionFetched[sessionID] = time.Now()
+	if p != nil && (p.State == StateMerged || p.State == StateClosed) {
+		delete(m.sessionPRs, sessionID)
+		delete(m.sessionFetched, sessionID)
+	} else {
+		m.sessionPRs[sessionID] = p
+		m.sessionFetched[sessionID] = time.Now()
+	}
 	m.mu.Unlock()
 	m.notifyChange()
+}
+
+// ClearClosedSessionPRs removes session PR entries whose state is MERGED or
+// CLOSED. Returns the number of entries removed. This is intended for manual
+// refresh actions where the user wants stale PRs cleaned out.
+func (m *Manager) ClearClosedSessionPRs() int {
+	m.mu.Lock()
+	var removed int
+	for sid, p := range m.sessionPRs {
+		if p != nil && (p.State == StateMerged || p.State == StateClosed) {
+			delete(m.sessionPRs, sid)
+			delete(m.sessionFetched, sid)
+			removed++
+		}
+	}
+	m.mu.Unlock()
+	if removed > 0 {
+		m.notifyChange()
+	}
+	return removed
 }
 
 // UpdateSessionPR triggers an async fetch for the given worktree session.
@@ -278,8 +305,13 @@ func (m *Manager) UpdateSessionPR(sessionID, worktreePath string) {
 			return
 		}
 		m.mu.Lock()
-		m.sessionPRs[sessionID] = p
-		m.sessionFetched[sessionID] = time.Now()
+		if p != nil && (p.State == StateMerged || p.State == StateClosed) {
+			delete(m.sessionPRs, sessionID)
+			delete(m.sessionFetched, sessionID)
+		} else {
+			m.sessionPRs[sessionID] = p
+			m.sessionFetched[sessionID] = time.Now()
+		}
 		m.mu.Unlock()
 		m.notifyChange()
 	}()

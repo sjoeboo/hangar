@@ -475,8 +475,8 @@ func parseChecks(p *PR, checks []ghCheck) {
 func StateFromSearchResult(state string, isDraft bool) string { return stateFromSearchResult(state, isDraft) }
 
 func stateFromSearchResult(state string, isDraft bool) string {
-	if isDraft && state == "OPEN" {
-		return "DRAFT"
+	if isDraft && state == StateOpen {
+		return StateDraft
 	}
 	return state
 }

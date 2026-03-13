@@ -5,6 +5,34 @@ All notable changes to Hangar will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.10.0] - 2026-03-13
+
+### Added
+
+- **Hide closed/merged PRs toggle (TUI + Web UI)** — press `X` in the TUI PR overview to toggle
+  hiding MERGED and CLOSED PRs from all tabs. Mirrors the existing `D` (hide drafts) toggle. The
+  web UI also gains a matching "Hide closed" button next to the existing "Hide drafts" button.
+
+- **Auto-eviction of closed/merged session PRs** — `SetSessionPR` now automatically evicts entries
+  with MERGED or CLOSED state instead of storing them. This means closed/merged PRs are removed from
+  the session cache as soon as the next periodic re-fetch detects the state change — no manual
+  refresh required.
+
+- **PR state constants** — added `StateOpen`, `StateDraft`, `StateMerged`, `StateClosed` constants
+  in `internal/pr/types.go` to replace raw string literals and prevent typos.
+
+### Changed
+
+- **`r` (refresh) in PR view enhanced** — now also triggers a global PR list refresh
+  (`TriggerRefresh`) and clears closed/merged session PR cache entries, in addition to the existing
+  per-session re-fetch behavior.
+
+### Fixed
+
+- **`InvalidateDetail` called with wrong arguments** — the `r` key handler was passing a filesystem
+  path instead of `owner/repo` to `InvalidateDetail`, causing it to silently do nothing. Now
+  correctly passes the PR's repo and number.
+
 ## [2.9.1] - 2026-03-10
 
 ### Fixed

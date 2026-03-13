@@ -166,6 +166,7 @@ type Home struct {
 	filterPillRegions [][3]int   // [startCol, endCol, pillIndex] for mouse hit-testing
 	prViewCursor int             // cursor position within PR overview list
 	prHideDrafts bool            // when true, draft PRs are hidden from PR overview
+	prHideClosed bool            // when true, merged/closed PRs are hidden from PR overview
 	prApproved   map[string]bool // "repo#number" keys for PRs the user approved this session
 	// prViewTab selects the active PR filter tab in the PR overview:
 	//   0 = All, 1 = Mine, 2 = Review Requested, 3 = Sessions
@@ -499,12 +500,18 @@ func (h *Home) prViewPRs() []*prpkg.PR {
 				SessionID:     item.Session.ID,
 			})
 		}
-		if h.prHideDrafts {
+		// Filters only apply to All/Sessions tabs; Mine and Review Requested
+		// tabs return pre-filtered (--state open) data from the GitHub API.
+		if h.prHideDrafts || h.prHideClosed {
 			filtered := result[:0]
 			for _, p := range result {
-				if p.State != "DRAFT" {
-					filtered = append(filtered, p)
+				if h.prHideDrafts && p.State == prpkg.StateDraft {
+					continue
 				}
+				if h.prHideClosed && (p.State == prpkg.StateMerged || p.State == prpkg.StateClosed) {
+					continue
+				}
+				filtered = append(filtered, p)
 			}
 			result = filtered
 		}
@@ -4536,6 +4543,11 @@ func (h *Home) handlePRViewKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		h.prViewCursor = 0
 		return h, nil
 
+	case "X":
+		h.prHideClosed = !h.prHideClosed
+		h.prViewCursor = 0
+		return h, nil
+
 	case "S":
 		// Cycle: desc → asc → next-col-desc → next-col-asc → ...
 		if !h.prSortAsc {
@@ -4632,7 +4644,7 @@ func (h *Home) handlePRViewKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				repo, number, state := p.Repo, p.Number, p.State
 				return h, func() tea.Msg {
 					var err error
-					if state == "CLOSED" {
+					if state == prpkg.StateClosed {
 						err = prpkg.Reopen(ghPath, repo, number)
 					} else {
 						err = prpkg.Close(ghPath, repo, number)
@@ -4647,13 +4659,19 @@ func (h *Home) handlePRViewKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return h, nil
 
 	case "r":
-		// Force re-fetch PR data for all sessions
+		// Force re-fetch PR data for all sessions; also evict merged/closed from cache
+		if h.prManager != nil {
+			h.prManager.ClearClosedSessionPRs()
+			h.prManager.TriggerRefresh()
+		}
 		var cmds []tea.Cmd
 		for _, item := range h.flatItems {
 			if item.Type == session.ItemTypeSession && item.Session != nil && item.Session.IsWorktree() && item.Session.WorktreePath != "" {
 				h.cache.InvalidatePRTimestamp(item.Session.ID)
 				if h.prManager != nil {
-					h.prManager.InvalidateDetail(item.Session.WorktreePath, 0)
+					if p, exists := h.prManager.GetSessionPR(item.Session.ID); exists && p != nil {
+						h.prManager.InvalidateDetail(p.Repo, p.Number)
+					}
 				}
 				sid := item.Session.ID
 				wtPath := item.Session.WorktreePath
@@ -7430,6 +7448,12 @@ func (h *Home) renderPROverview() string {
 				return "Show drafts"
 			}
 			return "Hide drafts"
+		}()),
+		renderKey("X", func() string {
+			if h.prHideClosed {
+				return "Show closed"
+			}
+			return "Hide closed"
 		}()),
 		renderKey("S", "Sort:"+h.prSortCol),
 		renderKey("r", "Refresh"),

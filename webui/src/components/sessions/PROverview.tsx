@@ -115,6 +115,7 @@ export function PROverview() {
   const [activeTab, setActiveTab] = useState<Tab>('all')
   const [selectedPR, setSelectedPR] = useState<PRFullInfo | null>(null)
   const [hideDrafts, setHideDrafts] = useState(false)
+  const [hideClosed, setHideClosed] = useState(false)
   const [sortCol, setSortCol] = useState<SortCol>('age')
   const [sortAsc, setSortAsc] = useState(false)
 
@@ -166,9 +167,11 @@ export function PROverview() {
   ]
 
   const rawActivePRs = tabData[activeTab]
-  const activePRs = hideDrafts
-    ? rawActivePRs.filter((p) => !p.is_draft && p.state !== 'DRAFT')
-    : rawActivePRs
+  const activePRs = rawActivePRs.filter((p) => {
+    if (hideDrafts && (p.is_draft || p.state === 'DRAFT')) return false
+    if (hideClosed && (p.state === 'MERGED' || p.state === 'CLOSED')) return false
+    return true
+  })
   const showRepo = activeTab !== 'sessions'
   const showAuthor = activeTab !== 'mine'
 
@@ -211,6 +214,17 @@ export function PROverview() {
             )}
           >
             {hideDrafts ? 'Show drafts' : 'Hide drafts'}
+          </button>
+          <button
+            onClick={() => setHideClosed((v) => !v)}
+            className={cn(
+              'ml-1 mb-1 px-2 py-1 rounded text-xs font-medium border transition-colors',
+              hideClosed
+                ? 'bg-(--oasis-accent)/20 text-(--oasis-accent) border-(--oasis-accent)/30'
+                : 'bg-muted text-muted-foreground border-border hover:bg-accent'
+            )}
+          >
+            {hideClosed ? 'Show closed' : 'Hide closed'}
           </button>
           {tabs.map((tab) => (
             <button
