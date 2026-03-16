@@ -70,8 +70,16 @@ var toolNames = []string{"Claude", "Shell", "None"}
 var toolValues = []string{"claude", "shell", ""}
 
 // Theme names for radio selection
-var themeNames = []string{"Dark", "Light", "System"}
-var themeValues = []string{"dark", "light", "system"}
+var themeNames = []string{
+	"Oasis Dark", "Oasis Light",
+	"Terminal",
+	"System",
+}
+var themeValues = []string{
+	"oasis-lagoon-dark", "oasis-lagoon-light",
+	"terminal",
+	"system",
+}
 
 // NewSettingsPanel creates a new settings panel
 func NewSettingsPanel() *SettingsPanel {
@@ -130,14 +138,19 @@ func (s *SettingsPanel) SetProfile(profile string) {
 
 // LoadConfig populates panel values from a UserConfig
 func (s *SettingsPanel) LoadConfig(config *session.UserConfig) {
-	// Load theme
-	switch config.Theme {
-	case "light":
-		s.selectedTheme = 1
-	case "system":
-		s.selectedTheme = 2
-	default:
+	// Load theme — find index in themeValues, default to 0 (Oasis Dark)
+	s.selectedTheme = 0
+	for i, v := range themeValues {
+		if config.Theme == v {
+			s.selectedTheme = i
+			break
+		}
+	}
+	// Backward-compat: "dark" and "light" map to oasis variants
+	if config.Theme == "dark" {
 		s.selectedTheme = 0
+	} else if config.Theme == "light" {
+		s.selectedTheme = 1
 	}
 
 	// Default tool

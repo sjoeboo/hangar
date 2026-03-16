@@ -298,7 +298,8 @@ func TestSetupWizard_GetConfig_DefaultTheme(t *testing.T) {
 	wizard := NewSetupWizard()
 	config := wizard.GetConfig()
 
-	if config.Theme != "dark" {
-		t.Errorf("Default theme should be 'dark', got %q", config.Theme)
+	if config.Theme != "oasis-lagoon-dark" {
+		// Default wizard selectedTheme=0 maps to themeValues[0] which is "oasis-lagoon-dark"
+		t.Errorf("Default wizard theme should be 'oasis-lagoon-dark', got %q", config.Theme)
 	}
 }

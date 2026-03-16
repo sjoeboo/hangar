@@ -11,113 +11,170 @@ import (
 type Theme string
 
 const (
-	ThemeDark  Theme = "dark"
-	ThemeLight Theme = "light"
+	ThemeOasisLagoonDark  Theme = "oasis-lagoon-dark"
+	ThemeOasisLagoonLight Theme = "oasis-lagoon-light"
+
+	// Backward-compat aliases (used internally for system theme resolution)
+	ThemeDark  = ThemeOasisLagoonDark
+	ThemeLight = ThemeOasisLagoonLight
 )
+
+// colorPalette holds the semantic color slots for a theme.
+// Fields use lipgloss.TerminalColor so palettes can mix hex (lipgloss.Color),
+// ANSI palette slots (lipgloss.ANSIColor), and transparent (lipgloss.NoColor).
+type colorPalette struct {
+	Bg, Surface, Border, Text, TextDim  lipgloss.TerminalColor
+	Accent, Purple, Cyan, Green, Yellow lipgloss.TerminalColor
+	Orange, Red, Comment                lipgloss.TerminalColor
+
+	// InvertFg is the foreground color for inverted/highlighted elements
+	// (e.g. dark text on colored badge/pill/selection background).
+	// For hex themes this equals Bg. For the terminal theme it is ANSIColor(0)
+	// because Bg is NoColor{} (transparent) which can't be used as foreground.
+	InvertFg lipgloss.TerminalColor
+}
 
 // currentTheme holds the active theme (set at init)
 var currentTheme Theme = ThemeDark
 
-// Dark Theme - Oasis Lagoon
-var darkColors = struct {
-	Bg, Surface, Border, Text, TextDim  lipgloss.Color
-	Accent, Purple, Cyan, Green, Yellow lipgloss.Color
-	Orange, Red, Comment                lipgloss.Color
-}{
-	Bg:      lipgloss.Color("#101825"), // bg.core
-	Surface: lipgloss.Color("#22385C"), // bg.surface
-	Border:  lipgloss.Color("#264870"), // mid-navy
-	Text:    lipgloss.Color("#D9E6FA"), // fg.core
-	TextDim: lipgloss.Color("#8FB0D0"), // blue-gray dim
-	Accent:  lipgloss.Color("#58B8FD"), // lagoon primary blue
-	Purple:  lipgloss.Color("#C695FF"), // terminal magenta
-	Cyan:    lipgloss.Color("#68C0B6"), // terminal cyan/teal
-	Green:   lipgloss.Color("#53D390"), // cactus green
-	Yellow:  lipgloss.Color("#F0E68C"), // khaki
-	Orange:  lipgloss.Color("#F8B471"), // sunrise orange
-	Red:     lipgloss.Color("#FF7979"), // terminal red
-	Comment: lipgloss.Color("#4D88A7"), // fg.comment
+// hex is shorthand for lipgloss.Color in palette definitions.
+func hex(s string) lipgloss.TerminalColor { return lipgloss.Color(s) }
+
+// ansi is shorthand for lipgloss.ANSIColor in palette definitions.
+func ansi(n int) lipgloss.TerminalColor { return lipgloss.ANSIColor(n) }
+
+// ── Oasis Lagoon (original) ─────────────────────────────────────────
+
+var oasisLagoonDark = colorPalette{
+	Bg:       hex("#101825"), // bg.core
+	InvertFg: hex("#101825"), // same as Bg
+	Surface:  hex("#22385C"), // bg.surface
+	Border:   hex("#264870"), // mid-navy
+	Text:     hex("#D9E6FA"), // fg.core
+	TextDim:  hex("#8FB0D0"), // blue-gray dim
+	Accent:   hex("#58B8FD"), // lagoon primary blue
+	Purple:   hex("#C695FF"), // terminal magenta
+	Cyan:     hex("#68C0B6"), // terminal cyan/teal
+	Green:    hex("#53D390"), // cactus green
+	Yellow:   hex("#F0E68C"), // khaki
+	Orange:   hex("#F8B471"), // sunrise orange
+	Red:      hex("#FF7979"), // terminal red
+	Comment:  hex("#4D88A7"), // fg.comment
 }
 
-// Light Theme - Oasis Dawn
-// Derived from oasis.nvim palette: light_terminal colors + lagoon/teal numeric scales
-var lightColors = struct {
-	Bg, Surface, Border, Text, TextDim  lipgloss.Color
-	Accent, Purple, Cyan, Green, Yellow lipgloss.Color
-	Orange, Red, Comment                lipgloss.Color
-}{
-	Bg:      lipgloss.Color("#EEF4FF"), // lagoon[50] - lightest lagoon tint
-	Surface: lipgloss.Color("#D0E8FE"), // lagoon[100] - soft blue surface
-	Border:  lipgloss.Color("#B2DCFE"), // lagoon[200] - medium lagoon border
-	Text:    lipgloss.Color("#10426d"), // light_terminal.bright_blue - dark navy text
-	TextDim: lipgloss.Color("#1f3f71"), // light_terminal.bright_blue variant
-	Accent:  lipgloss.Color("#1670AD"), // lagoon[800] - medium lagoon accent
-	Purple:  lipgloss.Color("#46259f"), // light_terminal.magenta
-	Cyan:    lipgloss.Color("#064658"), // light_terminal.cyan
-	Green:   lipgloss.Color("#1b491d"), // light_terminal.green
-	Yellow:  lipgloss.Color("#6b2e00"), // light_terminal.yellow
-	Orange:  lipgloss.Color("#533c00"), // light_terminal.bright_yellow
-	Red:     lipgloss.Color("#663021"), // light_terminal.red
-	Comment: lipgloss.Color("#0D4266"), // lagoon[900] - deep lagoon comment
+var oasisLagoonLight = colorPalette{
+	Bg:       hex("#EEF4FF"), // lagoon[50] - lightest lagoon tint
+	InvertFg: hex("#EEF4FF"), // same as Bg
+	Surface:  hex("#D0E8FE"), // lagoon[100] - soft blue surface
+	Border:   hex("#B2DCFE"), // lagoon[200] - medium lagoon border
+	Text:     hex("#10426d"), // light_terminal.bright_blue - dark navy text
+	TextDim:  hex("#1f3f71"), // light_terminal.bright_blue variant
+	Accent:   hex("#1670AD"), // lagoon[800] - medium lagoon accent
+	Purple:   hex("#46259f"), // light_terminal.magenta
+	Cyan:     hex("#064658"), // light_terminal.cyan
+	Green:    hex("#1b491d"), // light_terminal.green
+	Yellow:   hex("#6b2e00"), // light_terminal.yellow
+	Orange:   hex("#533c00"), // light_terminal.bright_yellow
+	Red:      hex("#663021"), // light_terminal.red
+	Comment:  hex("#0D4266"), // lagoon[900] - deep lagoon comment
+}
+
+// ── Terminal Adaptive ───────────────────────────────────────────────
+// Uses ANSI palette slots 0-15 so colors follow the terminal's theme.
+// Change your terminal theme (Tokyo Night, Catppuccin, Gruvbox, etc.)
+// and Hangar adapts automatically.
+
+const ThemeTerminal Theme = "terminal"
+
+var terminalAdaptive = colorPalette{
+	Bg:       lipgloss.NoColor{}, // transparent — terminal bg shows through
+	InvertFg: ansi(0),            // ANSI black — dark text on colored backgrounds
+	Surface:  lipgloss.NoColor{}, // transparent — no distinct elevation
+	Border:   ansi(8),            // bright black — universally a muted gray
+	Text:    ansi(15), // bright white — primary foreground
+	TextDim: ansi(7),  // white (normal) — mid-gray in dark themes
+	Accent:  ansi(12), // bright blue — primary accent
+	Purple:  ansi(13), // bright magenta
+	Cyan:    ansi(14), // bright cyan
+	Green:   ansi(10), // bright green
+	Yellow:  ansi(11), // bright yellow (often orange-ish in themes)
+	Orange:  ansi(3),  // yellow (normal) — closest to orange in ANSI
+	Red:     ansi(9),  // bright red
+	Comment: ansi(8),  // bright black — muted/comment text
+}
+
+// palettes maps theme names to their color palette.
+var palettes = map[Theme]colorPalette{
+	ThemeOasisLagoonDark:  oasisLagoonDark,
+	ThemeOasisLagoonLight: oasisLagoonLight,
+	ThemeTerminal:         terminalAdaptive,
+}
+
+// Backward-compat: old names that users may have in config.toml
+var themeAliases = map[string]Theme{
+	"dark":  ThemeOasisLagoonDark,
+	"light": ThemeOasisLagoonLight,
 }
 
 // Active color variables (set by InitTheme)
 var (
-	ColorBg      lipgloss.Color
-	ColorSurface lipgloss.Color
-	ColorBorder  lipgloss.Color
-	ColorText    lipgloss.Color
-	ColorTextDim lipgloss.Color
-	ColorAccent  lipgloss.Color
-	ColorPurple  lipgloss.Color
-	ColorCyan    lipgloss.Color
-	ColorGreen   lipgloss.Color
-	ColorYellow  lipgloss.Color
-	ColorOrange  lipgloss.Color
-	ColorRed     lipgloss.Color
-	ColorComment lipgloss.Color
+	ColorBg       lipgloss.TerminalColor
+	ColorInvertFg lipgloss.TerminalColor // dark text for inverted/highlighted elements
+	ColorSurface  lipgloss.TerminalColor
+	ColorBorder  lipgloss.TerminalColor
+	ColorText    lipgloss.TerminalColor
+	ColorTextDim lipgloss.TerminalColor
+	ColorAccent  lipgloss.TerminalColor
+	ColorPurple  lipgloss.TerminalColor
+	ColorCyan    lipgloss.TerminalColor
+	ColorGreen   lipgloss.TerminalColor
+	ColorYellow  lipgloss.TerminalColor
+	ColorOrange  lipgloss.TerminalColor
+	ColorRed     lipgloss.TerminalColor
+	ColorComment lipgloss.TerminalColor
 )
 
 // themeMu protects global color/style variables during live theme switches.
 // Write lock held by InitTheme; read lock held by GetToolStyle (map access).
 var themeMu sync.RWMutex
 
+// ResolveThemeName normalizes a theme string to a canonical Theme value.
+// Handles backward-compat aliases ("dark" → "oasis-lagoon-dark", "light" → "oasis-lagoon-light").
+// Returns ThemeTerminal for unrecognized values.
+func ResolveThemeName(name string) Theme {
+	// Check aliases first (backward compat)
+	if t, ok := themeAliases[name]; ok {
+		return t
+	}
+	// Check canonical names
+	t := Theme(name)
+	if _, ok := palettes[t]; ok {
+		return t
+	}
+	return ThemeTerminal
+}
+
 // InitTheme sets the active color palette based on theme name
 // Must be called before any UI rendering
 func InitTheme(theme string) {
 	themeMu.Lock()
 	defer themeMu.Unlock()
-	if theme == "light" {
-		currentTheme = ThemeLight
-		ColorBg = lightColors.Bg
-		ColorSurface = lightColors.Surface
-		ColorBorder = lightColors.Border
-		ColorText = lightColors.Text
-		ColorTextDim = lightColors.TextDim
-		ColorAccent = lightColors.Accent
-		ColorPurple = lightColors.Purple
-		ColorCyan = lightColors.Cyan
-		ColorGreen = lightColors.Green
-		ColorYellow = lightColors.Yellow
-		ColorOrange = lightColors.Orange
-		ColorRed = lightColors.Red
-		ColorComment = lightColors.Comment
-	} else {
-		currentTheme = ThemeDark
-		ColorBg = darkColors.Bg
-		ColorSurface = darkColors.Surface
-		ColorBorder = darkColors.Border
-		ColorText = darkColors.Text
-		ColorTextDim = darkColors.TextDim
-		ColorAccent = darkColors.Accent
-		ColorPurple = darkColors.Purple
-		ColorCyan = darkColors.Cyan
-		ColorGreen = darkColors.Green
-		ColorYellow = darkColors.Yellow
-		ColorOrange = darkColors.Orange
-		ColorRed = darkColors.Red
-		ColorComment = darkColors.Comment
-	}
+	currentTheme = ResolveThemeName(theme)
+	p := palettes[currentTheme]
+	ColorBg = p.Bg
+	ColorInvertFg = p.InvertFg
+	ColorSurface = p.Surface
+	ColorBorder = p.Border
+	ColorText = p.Text
+	ColorTextDim = p.TextDim
+	ColorAccent = p.Accent
+	ColorPurple = p.Purple
+	ColorCyan = p.Cyan
+	ColorGreen = p.Green
+	ColorYellow = p.Yellow
+	ColorOrange = p.Orange
+	ColorRed = p.Red
+	ColorComment = p.Comment
 	// Reinitialize styles with new colors
 	initStyles()
 }
@@ -128,8 +185,8 @@ func GetCurrentTheme() Theme {
 }
 
 func init() {
-	// Default to dark theme at package init
-	InitTheme("dark")
+	// Default to terminal-adaptive theme at package init
+	InitTheme(string(ThemeTerminal))
 }
 
 // Base Styles
@@ -319,8 +376,8 @@ var (
 	styleInfoCardHeader lipgloss.Style // Bold(true).Foreground(ColorAccent)
 
 	// Badge styles
-	styleToolBadge  lipgloss.Style // Foreground(ColorBg).Background(ColorPurple).Padding(0,1)
-	styleGroupBadge lipgloss.Style // Foreground(ColorBg).Background(ColorCyan).Padding(0,1)
+	styleToolBadge  lipgloss.Style // Foreground(ColorInvertFg).Background(ColorPurple).Padding(0,1)
+	styleGroupBadge lipgloss.Style // Foreground(ColorInvertFg).Background(ColorCyan).Padding(0,1)
 
 	// List renderer styles
 	styleListEmptyBorder lipgloss.Style // Border(RoundedBorder).BorderForeground(ColorBorder)
@@ -360,10 +417,10 @@ var MenuStyle lipgloss.Style
 // Additional Styles
 var (
 	SubtitleStyle lipgloss.Style
-	ColorError    lipgloss.Color
-	ColorSuccess  lipgloss.Color
-	ColorWarning  lipgloss.Color
-	ColorPrimary  lipgloss.Color
+	ColorError    lipgloss.TerminalColor
+	ColorSuccess  lipgloss.TerminalColor
+	ColorWarning  lipgloss.TerminalColor
+	ColorPrimary  lipgloss.TerminalColor
 )
 
 // Pre-compiled styles for RenderLogoCompact (called every render frame).
@@ -402,7 +459,7 @@ func initStyles() {
 		Padding(0, 1)
 
 	HighlightStyle = lipgloss.NewStyle().
-		Foreground(ColorBg).
+		Foreground(ColorInvertFg).
 		Background(ColorAccent).
 		Bold(true)
 
@@ -469,7 +526,7 @@ func initStyles() {
 
 	SearchMatchStyle = lipgloss.NewStyle().
 		Background(ColorYellow).
-		Foreground(ColorBg).
+		Foreground(ColorInvertFg).
 		Bold(true)
 
 	// Dialog Styles
@@ -491,7 +548,7 @@ func initStyles() {
 		MarginRight(1)
 
 	DialogButtonActiveStyle = lipgloss.NewStyle().
-		Foreground(ColorBg).
+		Foreground(ColorInvertFg).
 		Background(ColorAccent).
 		Padding(0, 2).
 		MarginRight(1).
@@ -531,19 +588,19 @@ func initStyles() {
 
 	// Tag Styles
 	TagStyle = lipgloss.NewStyle().
-		Foreground(ColorBg).
+		Foreground(ColorInvertFg).
 		Background(ColorPurple).
 		Padding(0, 1).
 		MarginRight(1)
 
 	TagActiveStyle = lipgloss.NewStyle().
-		Foreground(ColorBg).
+		Foreground(ColorInvertFg).
 		Background(ColorGreen).
 		Padding(0, 1).
 		MarginRight(1)
 
 	TagErrorStyle = lipgloss.NewStyle().
-		Foreground(ColorBg).
+		Foreground(ColorInvertFg).
 		Background(ColorRed).
 		Padding(0, 1).
 		MarginRight(1)
@@ -567,21 +624,21 @@ func initStyles() {
 		PaddingLeft(2)
 
 	SessionItemSelectedStyle = lipgloss.NewStyle().
-		Foreground(ColorBg).
+		Foreground(ColorInvertFg).
 		Background(ColorAccent).
 		Bold(true).
 		PaddingLeft(0)
 
 	// Tree connector styles
 	TreeConnectorStyle = lipgloss.NewStyle().Foreground(ColorText)
-	TreeConnectorSelStyle = lipgloss.NewStyle().Foreground(ColorBg).Background(ColorAccent)
+	TreeConnectorSelStyle = lipgloss.NewStyle().Foreground(ColorInvertFg).Background(ColorAccent)
 
 	// Session status indicator styles
 	SessionStatusRunning = lipgloss.NewStyle().Foreground(ColorGreen)
 	SessionStatusWaiting = lipgloss.NewStyle().Foreground(ColorYellow)
 	SessionStatusIdle = lipgloss.NewStyle().Foreground(ColorTextDim)
 	SessionStatusError = lipgloss.NewStyle().Foreground(ColorRed)
-	SessionStatusSelStyle = lipgloss.NewStyle().Foreground(ColorBg).Background(ColorAccent)
+	SessionStatusSelStyle = lipgloss.NewStyle().Foreground(ColorInvertFg).Background(ColorAccent)
 
 	PRBadgeOpen = lipgloss.NewStyle().Foreground(ColorGreen)
 	PRBadgeDraft = lipgloss.NewStyle().Foreground(ColorComment)
@@ -592,7 +649,7 @@ func initStyles() {
 	SessionTitleDefault = lipgloss.NewStyle().Foreground(ColorText)
 	SessionTitleActive = lipgloss.NewStyle().Foreground(ColorText).Bold(true)
 	SessionTitleError = lipgloss.NewStyle().Foreground(ColorText).Underline(true)
-	SessionTitleSelStyle = lipgloss.NewStyle().Bold(true).Foreground(ColorBg).Background(ColorAccent)
+	SessionTitleSelStyle = lipgloss.NewStyle().Bold(true).Foreground(ColorInvertFg).Background(ColorAccent)
 
 	// Selection indicator
 	SessionSelectionPrefix = lipgloss.NewStyle().Foreground(ColorAccent).Bold(true)
@@ -607,9 +664,9 @@ func initStyles() {
 	GroupStatusWaiting = lipgloss.NewStyle().Foreground(ColorYellow)
 
 	// Group selected styles
-	GroupNameSelStyle = lipgloss.NewStyle().Bold(true).Foreground(ColorBg).Background(ColorAccent)
-	GroupCountSelStyle = lipgloss.NewStyle().Foreground(ColorBg).Background(ColorAccent)
-	GroupExpandSelStyle = lipgloss.NewStyle().Foreground(ColorBg).Background(ColorAccent)
+	GroupNameSelStyle = lipgloss.NewStyle().Bold(true).Foreground(ColorInvertFg).Background(ColorAccent)
+	GroupCountSelStyle = lipgloss.NewStyle().Foreground(ColorInvertFg).Background(ColorAccent)
+	GroupExpandSelStyle = lipgloss.NewStyle().Foreground(ColorInvertFg).Background(ColorAccent)
 
 	// ToolStyleCache - reinitialize with current theme colors
 	ToolStyleCache = map[string]lipgloss.Style{
@@ -686,11 +743,11 @@ func initStyles() {
 
 	// Badge styles
 	styleToolBadge = lipgloss.NewStyle().
-		Foreground(ColorBg).
+		Foreground(ColorInvertFg).
 		Background(ColorPurple).
 		Padding(0, 1)
 	styleGroupBadge = lipgloss.NewStyle().
-		Foreground(ColorBg).
+		Foreground(ColorInvertFg).
 		Background(ColorCyan).
 		Padding(0, 1)
 
@@ -724,19 +781,19 @@ func initStyles() {
 	// PR detail overlay styles (must be here — pr_detail.go vars are package-level
 	// and would capture empty Color* values before InitTheme runs).
 	prDetailHeaderStyle      = lipgloss.NewStyle().Foreground(ColorAccent).Bold(true)
-	prDetailActiveTabStyle   = lipgloss.NewStyle().Foreground(ColorBg).Background(ColorAccent).Bold(true).Padding(0, 1)
+	prDetailActiveTabStyle   = lipgloss.NewStyle().Foreground(ColorInvertFg).Background(ColorAccent).Bold(true).Padding(0, 1)
 	prDetailInactiveTabStyle = lipgloss.NewStyle().Foreground(ColorComment).Padding(0, 1)
 
 	// Nav tab styles (Sessions | PRs | Todos tab row)
-	navTabActiveStyle   = lipgloss.NewStyle().Foreground(ColorBg).Background(ColorAccent).Bold(true).Padding(0, 1)
+	navTabActiveStyle   = lipgloss.NewStyle().Foreground(ColorInvertFg).Background(ColorAccent).Bold(true).Padding(0, 1)
 	navTabInactiveStyle = lipgloss.NewStyle().Foreground(ColorComment).Background(ColorSurface).Padding(0, 1)
 
 	// Filter pill styles (Running / Waiting / Idle / Error pills)
-	filterPillAllActiveStyle     = lipgloss.NewStyle().Foreground(ColorBg).Background(ColorAccent).Bold(true).Padding(0, 1)
-	filterPillRunningActiveStyle = lipgloss.NewStyle().Foreground(ColorBg).Background(ColorGreen).Bold(true).Padding(0, 1)
-	filterPillWaitingActiveStyle = lipgloss.NewStyle().Foreground(ColorBg).Background(ColorYellow).Bold(true).Padding(0, 1)
-	filterPillIdleActiveStyle    = lipgloss.NewStyle().Foreground(ColorBg).Background(ColorTextDim).Bold(true).Padding(0, 1)
-	filterPillErrorActiveStyle   = lipgloss.NewStyle().Foreground(ColorBg).Background(ColorRed).Bold(true).Padding(0, 1)
+	filterPillAllActiveStyle     = lipgloss.NewStyle().Foreground(ColorInvertFg).Background(ColorAccent).Bold(true).Padding(0, 1)
+	filterPillRunningActiveStyle = lipgloss.NewStyle().Foreground(ColorInvertFg).Background(ColorGreen).Bold(true).Padding(0, 1)
+	filterPillWaitingActiveStyle = lipgloss.NewStyle().Foreground(ColorInvertFg).Background(ColorYellow).Bold(true).Padding(0, 1)
+	filterPillIdleActiveStyle    = lipgloss.NewStyle().Foreground(ColorInvertFg).Background(ColorTextDim).Bold(true).Padding(0, 1)
+	filterPillErrorActiveStyle   = lipgloss.NewStyle().Foreground(ColorInvertFg).Background(ColorRed).Bold(true).Padding(0, 1)
 	filterPillInactiveStyle      = lipgloss.NewStyle().Foreground(ColorComment).Padding(0, 1)
 	filterPillDimStyle           = lipgloss.NewStyle().Foreground(ColorText).Faint(true).Padding(0, 1)
 
@@ -827,7 +884,7 @@ func ToolIcon(tool string) string {
 
 // ToolColor returns the brand color for a given tool
 // Claude=orange (Anthropic), Gemini=purple (Google AI), Codex=cyan, Aider=red
-func ToolColor(tool string) lipgloss.Color {
+func ToolColor(tool string) lipgloss.TerminalColor {
 	switch tool {
 	case "claude":
 		return ColorOrange // Anthropic's orange
@@ -857,7 +914,7 @@ func GetToolStyle(tool string) lipgloss.Style {
 
 // RenderLogoIndicator renders a single indicator with appropriate color
 func RenderLogoIndicator(indicator string) string {
-	var color lipgloss.Color
+	var color lipgloss.TerminalColor
 	switch indicator {
 	case "●":
 		color = ColorGreen // Running
@@ -901,13 +958,13 @@ func getLogoIndicators(running, waiting, idle int) []string {
 // bg must match the row's background color so that each segment
 // explicitly declares it — preventing lipgloss \x1b[0m resets from
 // exposing the terminal default background between segments.
-func RenderLogoCompact(running, waiting, idle int, bg lipgloss.Color) string {
+func RenderLogoCompact(running, waiting, idle int, bg lipgloss.TerminalColor) string {
 	indicators := getLogoIndicators(running, waiting, idle)
 	bracketStyle := logoCompactBracketBase.Background(bg)
 	borderStyle := logoCompactBorderBase.Background(bg)
 	sp := logoCompactSpaceBase.Background(bg).Render(" ")
 	indicator := func(ind string) string {
-		var color lipgloss.Color
+		var color lipgloss.TerminalColor
 		switch ind {
 		case "●":
 			color = ColorGreen

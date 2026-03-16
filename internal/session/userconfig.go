@@ -1081,23 +1081,46 @@ func GetDefaultTool() string {
 	return config.DefaultTool
 }
 
-// GetTheme returns the current theme, defaulting to "dark"
+// ValidThemeNames lists all accepted theme values for config validation.
+var ValidThemeNames = []string{
+	"dark", "light", "system", // backward-compat aliases
+	"oasis-lagoon-dark", "oasis-lagoon-light",
+	"terminal",
+}
+
+// isValidTheme returns true if name is a recognized theme or alias.
+func isValidTheme(name string) bool {
+	for _, v := range ValidThemeNames {
+		if name == v {
+			return true
+		}
+	}
+	return false
+}
+
+// GetTheme returns the current theme, defaulting to "terminal"
 func GetTheme() string {
 	config, err := LoadUserConfig()
 	if err != nil || config == nil {
-		return "dark"
+		return "terminal"
 	}
-	switch config.Theme {
-	case "dark", "light", "system":
+	if isValidTheme(config.Theme) {
 		return config.Theme
-	default:
-		return "dark"
 	}
+	return "terminal"
 }
 
-// ResolveTheme resolves the configured theme to "dark" or "light".
-// If theme is "system", detects the OS dark mode setting.
-// Falls back to "dark" on detection failure.
+// SystemThemeDarkVariant is the theme used when system detects dark mode.
+// SystemThemeLightVariant is the theme used when system detects light mode.
+// These default to the Oasis Lagoon themes for backward compatibility.
+const (
+	SystemThemeDarkVariant  = "oasis-lagoon-dark"
+	SystemThemeLightVariant = "oasis-lagoon-light"
+)
+
+// ResolveTheme resolves the configured theme to a concrete theme name.
+// If theme is "system", detects the OS dark mode setting and returns
+// the default dark/light variant. Otherwise returns the theme as-is.
 func ResolveTheme() string {
 	theme := GetTheme()
 	if theme != "system" {
@@ -1105,12 +1128,12 @@ func ResolveTheme() string {
 	}
 	isDark, err := dark.IsDarkMode()
 	if err != nil {
-		return "dark"
+		return SystemThemeDarkVariant
 	}
 	if isDark {
-		return "dark"
+		return SystemThemeDarkVariant
 	}
-	return "light"
+	return SystemThemeLightVariant
 }
 
 // GetLogSettings returns log management settings with defaults applied

@@ -30,7 +30,7 @@ type SetupWizard struct {
 	claudeSettingsCursor int // 0=dangerous mode, 1=config dir
 
 	// Theme setting
-	selectedTheme int // 0=dark, 1=light
+	selectedTheme int // index into themeValues
 }
 
 // Wizard steps
@@ -176,11 +176,11 @@ func (w *SetupWizard) GetConfig() *session.UserConfig {
 		Minimal:  true,
 	}
 
-	// Theme (defaults to dark)
-	if w.selectedTheme == 1 {
-		config.Theme = "light"
+	// Theme (defaults to oasis-lagoon-dark)
+	if w.selectedTheme >= 0 && w.selectedTheme < len(themeValues) {
+		config.Theme = themeValues[w.selectedTheme]
 	} else {
-		config.Theme = "dark"
+		config.Theme = themeValues[0]
 	}
 
 	return config
@@ -281,7 +281,7 @@ func (w *SetupWizard) View() string {
 		Foreground(ColorText)
 
 	selectedStyle := lipgloss.NewStyle().
-		Foreground(ColorBg).
+		Foreground(ColorInvertFg).
 		Background(ColorAccent).
 		Bold(true).
 		Padding(0, 1)

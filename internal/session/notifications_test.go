@@ -711,9 +711,9 @@ func TestMinimalMode_FormatBar_ShowsIconsAndCounts(t *testing.T) {
 	assert.Contains(t, bar, "◐ 1")
 	assert.Contains(t, bar, "○ 1")
 	assert.Contains(t, bar, "│")
-	assert.Contains(t, bar, "#53d390") // running color (oasisGreen)
-	assert.Contains(t, bar, "#f0e68c") // waiting color (oasisYellow)
-	assert.Contains(t, bar, "#8fb0d0") // idle color (oasisDim)
+	assert.Contains(t, bar, "colour10") // running color (bright green)
+	assert.Contains(t, bar, "colour11") // waiting color (bright yellow)
+	assert.Contains(t, bar, "colour7")  // idle color (dim)
 }
 
 // TestMinimalMode_FormatBar_SkipsZeroCounts verifies that statuses with 0 sessions
@@ -762,8 +762,8 @@ func TestMinimalMode_FormatBar_IncludesErrorCount(t *testing.T) {
 
 	assert.Contains(t, bar, "◐ 1")
 	assert.Contains(t, bar, "✕ 2")
-	assert.Contains(t, bar, "#f0e68c") // waiting color (oasisYellow)
-	assert.Contains(t, bar, "#ff7979") // error color (oasisRed)
+	assert.Contains(t, bar, "colour11") // waiting color (bright yellow)
+	assert.Contains(t, bar, "colour9")  // error color (bright red)
 }
 
 // TestMinimalMode_IncludesCurrentSession verifies the current session IS counted in minimal mode.
@@ -782,7 +782,7 @@ func TestMinimalMode_IncludesCurrentSession(t *testing.T) {
 
 	// Both sessions should be counted (● 2)
 	assert.Contains(t, bar, "● 2")
-	assert.Contains(t, bar, "#53d390") // running color (oasisGreen)
+	assert.Contains(t, bar, "colour10") // running color (bright green)
 }
 
 // TestMinimalMode_NoEntries verifies GetEntries returns empty in minimal mode —
@@ -828,6 +828,6 @@ func TestMinimalMode_OnlySingleStatus(t *testing.T) {
 
 	// Only waiting — single group has no │ separator
 	assert.Contains(t, bar, "◐ 3")
-	assert.Contains(t, bar, "#f0e68c") // waiting color (oasisYellow)
+	assert.Contains(t, bar, "colour11") // waiting color (bright yellow)
 	assert.NotContains(t, bar, "│")
 }

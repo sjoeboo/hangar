@@ -5,6 +5,41 @@ All notable changes to Hangar will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.11.0] - 2026-03-16
+
+### Added
+
+- **Terminal-adaptive theme** — new `theme = "terminal"` option that uses ANSI palette colors
+  (0-15) instead of hardcoded hex values. When enabled, Hangar's TUI and tmux status bar
+  automatically follow your terminal's color scheme — change your terminal to Tokyo Night,
+  Catppuccin, Gruvbox, Rosé Pine, or any other theme and Hangar adapts instantly. This is now
+  the **default theme** for new installations.
+
+- **Named theme system** — themes are now identified by canonical names (`oasis-lagoon-dark`,
+  `oasis-lagoon-light`, `terminal`) instead of just `dark`/`light`. Old values are aliased for
+  backward compatibility.
+
+- **Theme-aware tmux status bar** — `ConfigureStatusBar()` and the notification pill now use
+  ANSI color names (`colour12`, `colour10`, `default`) in terminal mode, so the powerline
+  status bar blends with your terminal theme instead of always showing Oasis Lagoon colors.
+
+- **`ColorInvertFg`** — new semantic color for inverted/highlighted elements (dark text on
+  colored backgrounds). Separated from `ColorBg` so the terminal theme can use `NoColor{}`
+  (transparent) for backgrounds while still rendering readable inverted text.
+
+### Changed
+
+- **Default theme is now `terminal`** — previously defaulted to `dark` (Oasis Lagoon Dark).
+  Existing users with `theme = "dark"` or `theme = "light"` in their config are unaffected —
+  those values are aliased to `oasis-lagoon-dark` and `oasis-lagoon-light` respectively.
+
+- **`colorPalette` uses `lipgloss.TerminalColor` interface** — palette fields changed from
+  `lipgloss.Color` (hex string) to `lipgloss.TerminalColor` (interface), enabling palettes to
+  mix hex colors, ANSI palette slots (`lipgloss.ANSIColor`), and transparent (`lipgloss.NoColor`).
+
+- **Settings panel theme options** — expanded from `Dark / Light / System` to
+  `Oasis Dark / Oasis Light / Terminal / System`.
+
 ## [2.10.0] - 2026-03-13
 
 ### Added

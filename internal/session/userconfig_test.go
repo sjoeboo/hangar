@@ -253,8 +253,8 @@ func TestGetTheme_Default(t *testing.T) {
 	ClearUserConfigCache()
 
 	theme := GetTheme()
-	if theme != "dark" {
-		t.Errorf("GetTheme: got %q, want %q", theme, "dark")
+	if theme != "terminal" {
+		t.Errorf("GetTheme: got %q, want %q", theme, "terminal")
 	}
 }
 
@@ -265,7 +265,7 @@ func TestGetTheme_Light(t *testing.T) {
 	defer os.Setenv("HOME", originalHome)
 	ClearUserConfigCache()
 
-	// Create config with light theme
+	// Create config with light theme — "light" is a valid alias
 	hangarDir := filepath.Join(tempDir, ".hangar")
 	_ = os.MkdirAll(hangarDir, 0700)
 	config := &UserConfig{Theme: "light"}
@@ -275,6 +275,25 @@ func TestGetTheme_Light(t *testing.T) {
 	theme := GetTheme()
 	if theme != "light" {
 		t.Errorf("GetTheme: got %q, want %q", theme, "light")
+	}
+}
+
+func TestGetTheme_Terminal(t *testing.T) {
+	tempDir := t.TempDir()
+	originalHome := os.Getenv("HOME")
+	os.Setenv("HOME", tempDir)
+	defer os.Setenv("HOME", originalHome)
+	ClearUserConfigCache()
+
+	hangarDir := filepath.Join(tempDir, ".hangar")
+	_ = os.MkdirAll(hangarDir, 0700)
+	config := &UserConfig{Theme: "terminal"}
+	_ = SaveUserConfig(config)
+	ClearUserConfigCache()
+
+	theme := GetTheme()
+	if theme != "terminal" {
+		t.Errorf("GetTheme: got %q, want %q", theme, "terminal")
 	}
 }
 

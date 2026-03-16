@@ -2574,9 +2574,9 @@ func (h *Home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return h, h.loadSessions
 
 	case systemThemeMsg:
-		theme := "light"
+		theme := session.SystemThemeLightVariant
 		if msg.dark {
-			theme = "dark"
+			theme = session.SystemThemeDarkVariant
 		}
 		InitTheme(theme)
 		// IMPORTANT: Re-issue listener to keep watching for theme changes.
@@ -5989,7 +5989,7 @@ func (h *Home) countSessionStatuses() (running, waiting, idle, errored int) {
 // renderPill renders a single-line terminal pill using Nerd Font powerline caps.
 // barBg is the background color of the row the pill sits on; cap fg is set to
 // pillBg so the cap blends into the surrounding row background.
-func renderPill(label string, textFg, pillBg, barBg lipgloss.Color, bold bool) string {
+func renderPill(label string, textFg, pillBg, barBg lipgloss.TerminalColor, bold bool) string {
 	capL := lipgloss.NewStyle().Foreground(pillBg).Background(barBg).Render("\uE0B6")
 	body := lipgloss.NewStyle().Foreground(textFg).Background(pillBg).Bold(bold).Render(" " + label + " ")
 	capR := lipgloss.NewStyle().Foreground(pillBg).Background(barBg).Render("\uE0B4")
@@ -6041,7 +6041,7 @@ func (h *Home) renderNavTabs() string {
 	for i, tab := range tabs {
 		var rendered string
 		if h.viewMode == tab.mode {
-			rendered = renderPill(tab.label, ColorBg, ColorAccent, ColorBg, true)
+			rendered = renderPill(tab.label, ColorInvertFg, ColorAccent, ColorBg, true)
 		} else {
 			rendered = lipgloss.NewStyle().Foreground(ColorComment).Padding(0, 1).Render(tab.label)
 		}
@@ -6105,15 +6105,15 @@ func (h *Home) renderFilterBar() string {
 		var rendered string
 		switch {
 		case isActive && d.status == "":
-			rendered = renderPill(label, ColorBg, ColorAccent, ColorBg, true)
+			rendered = renderPill(label, ColorInvertFg, ColorAccent, ColorBg, true)
 		case isActive && d.status == session.StatusRunning:
-			rendered = renderPill(label, ColorBg, ColorGreen, ColorBg, true)
+			rendered = renderPill(label, ColorInvertFg, ColorGreen, ColorBg, true)
 		case isActive && d.status == session.StatusWaiting:
-			rendered = renderPill(label, ColorBg, ColorYellow, ColorBg, true)
+			rendered = renderPill(label, ColorInvertFg, ColorYellow, ColorBg, true)
 		case isActive && d.status == session.StatusIdle:
-			rendered = renderPill(label, ColorBg, ColorTextDim, ColorBg, true)
+			rendered = renderPill(label, ColorInvertFg, ColorTextDim, ColorBg, true)
 		case isActive && d.status == session.StatusError:
-			rendered = renderPill(label, ColorBg, ColorRed, ColorBg, true)
+			rendered = renderPill(label, ColorInvertFg, ColorRed, ColorBg, true)
 		default:
 			// Inactive: plain styled text with count — no powerline caps to avoid visual noise
 			switch d.status {
@@ -6150,7 +6150,7 @@ func (h *Home) renderFilterBar() string {
 
 	// Sort mode indicator
 	if h.sortMode == "status" {
-		pills = append(pills, renderPill("⇅ sorted", ColorBg, ColorAccent, ColorBg, true))
+		pills = append(pills, renderPill("⇅ sorted", ColorInvertFg, ColorAccent, ColorBg, true))
 	}
 
 	filterRow := " " + strings.Join(pills, " ")
@@ -6309,7 +6309,7 @@ func (h *Home) View() string {
 	if h.updateInfo != nil && h.updateInfo.Available {
 		updateBannerHeight = 1
 		updateStyle := lipgloss.NewStyle().
-			Foreground(ColorBg).
+			Foreground(ColorInvertFg).
 			Background(ColorYellow).
 			Bold(true).
 			MaxWidth(h.width).
@@ -6327,7 +6327,7 @@ func (h *Home) View() string {
 	if h.maintenanceMsg != "" {
 		maintenanceBannerHeight = 1
 		maintStyle := lipgloss.NewStyle().
-			Foreground(ColorBg).
+			Foreground(ColorInvertFg).
 			Background(ColorCyan).
 			Bold(true).
 			MaxWidth(h.width).
@@ -6832,7 +6832,7 @@ func (h *Home) renderHelpBarMinimal() string {
 	border := borderStyle.Render(strings.Repeat("─", max(0, h.width)))
 
 	keyStyle := lipgloss.NewStyle().
-		Foreground(ColorBg).
+		Foreground(ColorInvertFg).
 		Background(ColorAccent).
 		Bold(true)
 	sepStyle := lipgloss.NewStyle().Foreground(ColorBorder)
@@ -6961,7 +6961,7 @@ func (h *Home) renderHelpBarCompact() string {
 // helpKeyShort formats a compact keyboard shortcut (no padding)
 func (h *Home) helpKeyShort(key, desc string) string {
 	keyStyle := lipgloss.NewStyle().
-		Foreground(ColorBg).
+		Foreground(ColorInvertFg).
 		Background(ColorAccent).
 		Bold(true)
 	descStyle := lipgloss.NewStyle().Foreground(ColorText)
@@ -7104,7 +7104,7 @@ func (h *Home) renderHelpBarBulkMode() string {
 	border := borderStyle.Render(strings.Repeat("─", max(0, h.width)))
 
 	keyStyle := lipgloss.NewStyle().
-		Foreground(ColorBg).
+		Foreground(ColorInvertFg).
 		Background(ColorAccent).
 		Bold(true)
 	dimStyle := lipgloss.NewStyle().Foreground(ColorTextDim)
@@ -7170,7 +7170,7 @@ func (h *Home) renderPROverview() string {
 
 	// ── Tab bar ──────────────────────────────────────────────────────────
 	tabNames := []string{"All", "Mine", "Review Requests", "Sessions"}
-	activeTabStyle := lipgloss.NewStyle().Foreground(ColorBg).Background(ColorAccent).Bold(true).Padding(0, 1)
+	activeTabStyle := lipgloss.NewStyle().Foreground(ColorInvertFg).Background(ColorAccent).Bold(true).Padding(0, 1)
 	inactiveTabStyle := lipgloss.NewStyle().Foreground(ColorComment).Padding(0, 1)
 	var tabParts []string
 	for i, name := range tabNames {
@@ -7467,7 +7467,7 @@ func (h *Home) renderPROverview() string {
 // helpKey formats a keyboard shortcut for the help bar
 func (h *Home) helpKey(key, desc string) string {
 	keyStyle := lipgloss.NewStyle().
-		Foreground(ColorBg).
+		Foreground(ColorInvertFg).
 		Background(ColorAccent).
 		Bold(true).
 		Padding(0, 1)

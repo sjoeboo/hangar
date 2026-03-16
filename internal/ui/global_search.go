@@ -24,7 +24,7 @@ var (
 	globalSelectedStyle = lipgloss.NewStyle().
 				Padding(0, 2).
 				Background(ColorCyan).
-				Foreground(ColorBg)
+				Foreground(ColorInvertFg)
 
 	globalSearchHeaderStyle = lipgloss.NewStyle().
 				Foreground(ColorCyan).
@@ -32,7 +32,7 @@ var (
 
 	highlightStyle = lipgloss.NewStyle().
 			Background(ColorYellow).
-			Foreground(ColorBg).
+			Foreground(ColorInvertFg).
 			Bold(true)
 )
 
@@ -556,7 +556,7 @@ func (gs *GlobalSearch) formatPreviewContent(content string, maxWidth int) []str
 
 		// Determine base style and prefix for user vs assistant messages
 		var prefix string
-		var baseColor lipgloss.Color
+		var baseColor lipgloss.TerminalColor
 		if strings.HasPrefix(rawLine, "User:") || strings.HasPrefix(rawLine, "[User]") {
 			prefix = "👤 "
 			rawLine = strings.TrimPrefix(strings.TrimPrefix(rawLine, "User:"), "[User]")
