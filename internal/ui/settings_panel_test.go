@@ -508,28 +508,28 @@ func containsSubstring(s, substr string) bool {
 
 func TestSettingsPanel_ThemeToggle(t *testing.T) {
 	panel := NewSettingsPanel()
-	// Set dark explicitly (avoid loading config from disk)
+	// Set oasis-dark explicitly (avoid loading config from disk)
 	panel.selectedTheme = 0
 	panel.visible = true
 
-	// Navigate right to select light
+	// Navigate right to select oasis-light
 	panel.cursor = int(SettingTheme)
 	panel, _, shouldSave := panel.Update(tea.KeyMsg{Type: tea.KeyRight})
 
 	if panel.selectedTheme != 1 {
-		t.Errorf("Theme should be 1 (light) after right, got %d", panel.selectedTheme)
+		t.Errorf("Theme should be 1 (oasis-lagoon-light) after right, got %d", panel.selectedTheme)
 	}
 	if !shouldSave {
 		t.Error("Should trigger save on theme change")
 	}
 
-	// Navigate right to select system
+	// Navigate right to select tokyonight-night
 	panel, _, shouldSave = panel.Update(tea.KeyMsg{Type: tea.KeyRight})
 	if panel.selectedTheme != 2 {
-		t.Errorf("Theme should be 2 (system) after right, got %d", panel.selectedTheme)
+		t.Errorf("Theme should be 2 (tokyonight-night) after right, got %d", panel.selectedTheme)
 	}
 	if !shouldSave {
-		t.Error("Should trigger save on theme change to system")
+		t.Error("Should trigger save on theme change")
 	}
 
 	// Theme changes should not require restart (applied live)
@@ -544,11 +544,14 @@ func TestSettingsPanel_LoadConfig_Theme(t *testing.T) {
 		theme    string
 		expected int
 	}{
-		{"dark", "dark", 0},
-		{"light", "light", 1},
-		{"system", "system", 2},
-		{"empty defaults to dark", "", 0},
-		{"invalid defaults to dark", "invalid", 0},
+		{"oasis-lagoon-dark", "oasis-lagoon-dark", 0},
+		{"oasis-lagoon-light", "oasis-lagoon-light", 1},
+		{"terminal", "terminal", 2},
+		{"system", "system", 3},
+		{"dark alias", "dark", 0},
+		{"light alias", "light", 1},
+		{"empty defaults to oasis dark", "", 0},
+		{"invalid defaults to oasis dark", "invalid", 0},
 	}
 
 	for _, tt := range tests {
@@ -570,9 +573,10 @@ func TestSettingsPanel_GetConfig_Theme(t *testing.T) {
 		selectedTheme int
 		expected      string
 	}{
-		{"dark", 0, "dark"},
-		{"light", 1, "light"},
-		{"system", 2, "system"},
+		{"oasis-lagoon-dark", 0, "oasis-lagoon-dark"},
+		{"oasis-lagoon-light", 1, "oasis-lagoon-light"},
+		{"terminal", 2, "terminal"},
+		{"system", 3, "system"},
 	}
 
 	for _, tt := range tests {

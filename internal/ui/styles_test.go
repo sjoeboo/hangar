@@ -4,19 +4,21 @@ import (
 	"os"
 	"strings"
 	"testing"
+
+	"github.com/charmbracelet/lipgloss"
 )
 
 func TestColorsDefined(t *testing.T) {
-	colors := []string{
-		string(ColorBg),
-		string(ColorSurface),
-		string(ColorBorder),
-		string(ColorText),
-		string(ColorAccent),
+	colors := []lipgloss.TerminalColor{
+		ColorBg,
+		ColorSurface,
+		ColorBorder,
+		ColorText,
+		ColorAccent,
 	}
 	for _, c := range colors {
-		if c == "" {
-			t.Error("Color should not be empty")
+		if c == nil {
+			t.Error("Color should not be nil")
 		}
 	}
 }
@@ -72,8 +74,8 @@ func TestInitTheme_Dark(t *testing.T) {
 	if GetCurrentTheme() != ThemeDark {
 		t.Errorf("Expected ThemeDark, got %v", GetCurrentTheme())
 	}
-	if ColorBg != darkColors.Bg {
-		t.Errorf("ColorBg should be dark theme color")
+	if ColorBg != palettes[ThemeOasisLagoonDark].Bg {
+		t.Errorf("ColorBg should be oasis-lagoon-dark theme color")
 	}
 }
 
@@ -82,33 +84,54 @@ func TestInitTheme_Light(t *testing.T) {
 	if GetCurrentTheme() != ThemeLight {
 		t.Errorf("Expected ThemeLight, got %v", GetCurrentTheme())
 	}
-	if ColorBg != lightColors.Bg {
-		t.Errorf("ColorBg should be light theme color")
+	if ColorBg != palettes[ThemeOasisLagoonLight].Bg {
+		t.Errorf("ColorBg should be oasis-lagoon-light theme color")
 	}
 	// Reset to dark for other tests
 	InitTheme("dark")
 }
 
-func TestInitTheme_InvalidFallsToDark(t *testing.T) {
+func TestInitTheme_CanonicalNames(t *testing.T) {
+	InitTheme("oasis-lagoon-dark")
+	if GetCurrentTheme() != ThemeOasisLagoonDark {
+		t.Errorf("Expected ThemeOasisLagoonDark, got %v", GetCurrentTheme())
+	}
+
+	InitTheme("oasis-lagoon-light")
+	if GetCurrentTheme() != ThemeOasisLagoonLight {
+		t.Errorf("Expected ThemeOasisLagoonLight, got %v", GetCurrentTheme())
+	}
+
+	InitTheme("terminal")
+	if GetCurrentTheme() != ThemeTerminal {
+		t.Errorf("Expected ThemeTerminal, got %v", GetCurrentTheme())
+	}
+	// Terminal theme uses ANSIColor — verify colors are set (non-nil)
+	if ColorBg == nil || ColorText == nil || ColorAccent == nil {
+		t.Error("Terminal theme colors should be non-nil")
+	}
+
+	// Reset for other tests
+	InitTheme("dark")
+}
+
+func TestInitTheme_InvalidFallsToTerminal(t *testing.T) {
 	InitTheme("invalid")
-	if GetCurrentTheme() != ThemeDark {
-		t.Errorf("Invalid theme should fall back to dark")
+	if GetCurrentTheme() != ThemeTerminal {
+		t.Errorf("Invalid theme should fall back to terminal")
 	}
 }
 
 func TestInitTheme_StylesReinitialized(t *testing.T) {
 	// Initialize with light theme
 	InitTheme("light")
-	// Check that a style uses light theme colors
-	// BaseStyle should have ColorText foreground, which for light theme is #343b58
-	if ColorText != lightColors.Text {
+	if ColorText != palettes[ThemeOasisLagoonLight].Text {
 		t.Errorf("ColorText should be light theme value after InitTheme(light)")
 	}
 
 	// Switch to dark theme
 	InitTheme("dark")
-	// Check that colors switched
-	if ColorText != darkColors.Text {
+	if ColorText != palettes[ThemeOasisLagoonDark].Text {
 		t.Errorf("ColorText should be dark theme value after InitTheme(dark)")
 	}
 }

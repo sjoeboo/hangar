@@ -752,7 +752,7 @@ func (d *NewDialog) View() string {
 		if i == d.commandCursor {
 			// Selected: bright background, bold (active pill)
 			btnStyle = lipgloss.NewStyle().
-				Foreground(ColorBg).
+				Foreground(ColorInvertFg).
 				Background(ColorAccent).
 				Bold(true).
 				Padding(0, 2)

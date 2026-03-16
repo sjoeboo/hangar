@@ -22,7 +22,7 @@ var (
 	selectedResultStyle = lipgloss.NewStyle().
 				Padding(0, 2).
 				Background(ColorAccent).
-				Foreground(ColorBg)
+				Foreground(ColorInvertFg)
 
 	overlayStyle = lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).

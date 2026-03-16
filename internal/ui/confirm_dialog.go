@@ -169,7 +169,7 @@ func (c *ConfirmDialog) View() string {
 	// Build warning message and buttons based on action type
 	var title, warning, details string
 	var buttons string
-	var borderColor lipgloss.Color
+	var borderColor lipgloss.TerminalColor
 
 	// Styles (shared)
 	detailsStyle := lipgloss.NewStyle().
@@ -184,13 +184,13 @@ func (c *ConfirmDialog) View() string {
 		borderColor = ColorRed
 
 		buttonYes := lipgloss.NewStyle().
-			Foreground(ColorBg).
+			Foreground(ColorInvertFg).
 			Background(ColorRed).
 			Padding(0, 2).
 			Bold(true).
 			Render("y Delete")
 		buttonNo := lipgloss.NewStyle().
-			Foreground(ColorBg).
+			Foreground(ColorInvertFg).
 			Background(ColorAccent).
 			Padding(0, 2).
 			Bold(true).
@@ -207,13 +207,13 @@ func (c *ConfirmDialog) View() string {
 		borderColor = ColorRed
 
 		buttonYes := lipgloss.NewStyle().
-			Foreground(ColorBg).
+			Foreground(ColorInvertFg).
 			Background(ColorRed).
 			Padding(0, 2).
 			Bold(true).
 			Render("y Delete")
 		buttonNo := lipgloss.NewStyle().
-			Foreground(ColorBg).
+			Foreground(ColorInvertFg).
 			Background(ColorAccent).
 			Padding(0, 2).
 			Bold(true).
@@ -231,13 +231,13 @@ func (c *ConfirmDialog) View() string {
 
 		// "Keep running" is the default (green), "Shut down" is secondary (red)
 		buttonKeep := lipgloss.NewStyle().
-			Foreground(ColorBg).
+			Foreground(ColorInvertFg).
 			Background(ColorGreen).
 			Padding(0, 2).
 			Bold(true).
 			Render("k Keep running")
 		buttonShutdown := lipgloss.NewStyle().
-			Foreground(ColorBg).
+			Foreground(ColorInvertFg).
 			Background(ColorRed).
 			Padding(0, 2).
 			Bold(true).
@@ -254,13 +254,13 @@ func (c *ConfirmDialog) View() string {
 		borderColor = ColorAccent
 
 		buttonYes := lipgloss.NewStyle().
-			Foreground(ColorBg).
+			Foreground(ColorInvertFg).
 			Background(ColorGreen).
 			Padding(0, 2).
 			Bold(true).
 			Render("y Create")
 		buttonNo := lipgloss.NewStyle().
-			Foreground(ColorBg).
+			Foreground(ColorInvertFg).
 			Background(ColorRed).
 			Padding(0, 2).
 			Bold(true).
@@ -277,13 +277,13 @@ func (c *ConfirmDialog) View() string {
 		borderColor = ColorAccent
 
 		buttonYes := lipgloss.NewStyle().
-			Foreground(ColorBg).
+			Foreground(ColorInvertFg).
 			Background(ColorGreen).
 			Padding(0, 2).
 			Bold(true).
 			Render("y Install")
 		buttonNo := lipgloss.NewStyle().
-			Foreground(ColorBg).
+			Foreground(ColorInvertFg).
 			Background(ColorAccent).
 			Padding(0, 2).
 			Bold(true).
@@ -314,10 +314,10 @@ func (c *ConfirmDialog) View() string {
 		borderColor = ColorRed
 
 		buttonYes := lipgloss.NewStyle().
-			Foreground(ColorBg).Background(ColorRed).Padding(0, 2).Bold(true).
+			Foreground(ColorInvertFg).Background(ColorRed).Padding(0, 2).Bold(true).
 			Render(fmt.Sprintf("y Delete %s", c.targetName))
 		buttonNo := lipgloss.NewStyle().
-			Foreground(ColorBg).Background(ColorAccent).Padding(0, 2).Bold(true).
+			Foreground(ColorInvertFg).Background(ColorAccent).Padding(0, 2).Bold(true).
 			Render("n Cancel")
 		escHint := lipgloss.NewStyle().Foreground(ColorTextDim).Render("(Esc to cancel)")
 		buttons = lipgloss.JoinHorizontal(lipgloss.Center, buttonYes, "  ", buttonNo, "  ", escHint)
@@ -329,10 +329,10 @@ func (c *ConfirmDialog) View() string {
 		borderColor = ColorAccent
 
 		buttonYes := lipgloss.NewStyle().
-			Foreground(ColorBg).Background(ColorAccent).Padding(0, 2).Bold(true).
+			Foreground(ColorInvertFg).Background(ColorAccent).Padding(0, 2).Bold(true).
 			Render("y Restart")
 		buttonNo := lipgloss.NewStyle().
-			Foreground(ColorBg).Background(ColorRed).Padding(0, 2).Bold(true).
+			Foreground(ColorInvertFg).Background(ColorRed).Padding(0, 2).Bold(true).
 			Render("n Cancel")
 		escHint := lipgloss.NewStyle().Foreground(ColorTextDim).Render("(Esc to cancel)")
 		buttons = lipgloss.JoinHorizontal(lipgloss.Center, buttonYes, "  ", buttonNo, "  ", escHint)

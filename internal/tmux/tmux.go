@@ -501,6 +501,10 @@ type Session struct {
 	// When false, the status bar configuration is skipped entirely.
 	// Default: true (set via SetInjectStatusLine from user config)
 	injectStatusLine bool
+
+	// theme controls which color palette ConfigureStatusBar uses.
+	// "terminal" uses ANSI color names; everything else uses Oasis hex.
+	theme string
 }
 
 type envCacheEntry struct {
@@ -603,6 +607,21 @@ func (s *Session) SetInjectStatusLine(inject bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.injectStatusLine = inject
+}
+
+// SetTheme sets the color palette used by ConfigureStatusBar.
+// "terminal" uses ANSI color names; anything else uses Oasis hex.
+func (s *Session) SetTheme(theme string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.theme = theme
+}
+
+// GetTheme returns the configured theme for this session.
+func (s *Session) GetTheme() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.theme
 }
 
 // LogFile returns the path to this session's log file
@@ -1035,22 +1054,64 @@ func (s *Session) Exists() bool {
 	return cmd.Run() == nil
 }
 
-// oasis_lagoon_dark color palette constants used throughout the status bar theme.
-const (
-	oasisCore          = "#101825" // darkest bg (clock fg, active window fg)
-	oasisMantle        = "#1a283f" // status bar bg
-	oasisSurface       = "#22385c" // raised surfaces, inactive windows, notification pill bg
-	oasisPrimary       = "#58b8fd" // active accent / clock bg, notification icon color
-	oasisStrongPrimary = "#1ca0fd" // inactive window fg
-	oasisSecondary     = "#f8b471" // orange — active window tab bg
-	oasisFg            = "#d9e6fa" // foreground text
-	oasisGreen         = "#53d390" // running sessions
-	oasisYellow        = "#f0e68c" // waiting sessions
-	oasisRed           = "#ff7979" // error sessions
-	oasisDim           = "#8fb0d0" // idle / dim text
-)
+// statusBarPalette holds tmux-compatible color strings for the status bar.
+// Values are either hex ("#rrggbb") or tmux ANSI names ("colour12", "default").
+type statusBarPalette struct {
+	Core          string // darkest bg (inverted text fg, active window fg)
+	Mantle        string // status bar bg
+	Surface       string // raised surfaces, inactive windows, notification pill bg
+	Primary       string // active accent / clock bg
+	StrongPrimary string // inactive window fg (brighter accent)
+	Secondary     string // orange — active window tab bg
+	Fg            string // foreground text
+	Green         string // running sessions
+	Yellow        string // waiting sessions
+	Red           string // error sessions
+	Dim           string // idle / dim text
+}
 
-// ConfigureStatusBar sets up the tmux status bar with the oasis_lagoon_dark theme.
+// oasis_lagoon_dark color palette for the status bar.
+var oasisStatusBar = statusBarPalette{
+	Core:          "#101825",
+	Mantle:        "#1a283f",
+	Surface:       "#22385c",
+	Primary:       "#58b8fd",
+	StrongPrimary: "#1ca0fd",
+	Secondary:     "#f8b471",
+	Fg:            "#d9e6fa",
+	Green:         "#53d390",
+	Yellow:        "#f0e68c",
+	Red:           "#ff7979",
+	Dim:           "#8fb0d0",
+}
+
+// Terminal-adaptive palette: uses tmux ANSI color names so the status bar
+// follows the terminal's theme (Tokyo Night, Catppuccin, Gruvbox, etc.).
+// "default" means inherit the terminal's default bg/fg.
+var terminalStatusBar = statusBarPalette{
+	Core:          "colour0",   // ANSI black (dark text on colored bg)
+	Mantle:        "default",   // terminal default background
+	Surface:       "colour0",   // ANSI black — close to terminal bg, subtle elevation
+	Primary:       "colour12",  // bright blue (accent)
+	StrongPrimary: "colour4",   // blue (slightly dimmer accent)
+	Secondary:     "colour3",   // yellow (closest to orange in ANSI)
+	Fg:            "colour15",  // bright white (primary text)
+	Green:         "colour10",  // bright green
+	Yellow:        "colour11",  // bright yellow
+	Red:           "colour9",   // bright red
+	Dim:           "colour7",   // white (mid-gray dim text)
+}
+
+// getStatusBarPalette returns the palette to use based on the theme name.
+func getStatusBarPalette(theme string) statusBarPalette {
+	if theme == "terminal" {
+		return terminalStatusBar
+	}
+	return oasisStatusBar
+}
+
+// ConfigureStatusBar sets up the tmux status bar theme.
+// Uses Oasis Lagoon hex colors by default, or ANSI terminal colors when theme="terminal".
 //
 // Layout:
 //   - status-left:  managed by NotificationManager (hangar session icons)
@@ -1065,45 +1126,33 @@ func (s *Session) ConfigureStatusBar() {
 		return
 	}
 
-	// oasis_lagoon_dark powerline status-right:
-	//   [session-name pill] [folder pill] [clock pill]
-	//
-	// Powerline transitions use a block char (█) to fake a capsule edge with a
-	// contrasting background.  The sequence is:
-	//   <surface-bg> session name  <primary-bg><core-fg> folder  <core-bg><primary-fg> HH:MM
-	//
-	// Each pill is padded with one space on each side for breathing room.
-	rightStatus := "" +
-		// Session name pill: surface bg, fg color, bold
-		fmt.Sprintf("#[bg=%s,fg=%s,bold] %s #[nobold]", oasisSurface, oasisPrimary, s.DisplayName) +
-		// Transition: surface→mantle then folder pill bg starts
-		fmt.Sprintf("#[bg=%s,fg=%s]\uE0B0#[bg=%s,fg=%s] #{b:pane_current_path} ", oasisMantle, oasisSurface, oasisMantle, oasisFg) +
-		// Transition: mantle→surface (clock pill - matches session name pill)
-		fmt.Sprintf("#[fg=%s]\uE0B0#[bg=%s,fg=%s,bold] %%H:%%M #[nobold]", oasisSurface, oasisSurface, oasisPrimary)
+	p := getStatusBarPalette(s.theme)
 
-	// Inactive window tab: rounded pill using powerline caps (U+E0B6 left, U+E0B4 right).
-	// Cap fg = pill bg so the rounded cap blends into the mantle status-bar bg.
+	// Powerline status-right:
+	//   [session-name pill] [folder pill] [clock pill]
+	rightStatus := "" +
+		fmt.Sprintf("#[bg=%s,fg=%s,bold] %s #[nobold]", p.Surface, p.Primary, s.DisplayName) +
+		fmt.Sprintf("#[bg=%s,fg=%s]\uE0B0#[bg=%s,fg=%s] #{b:pane_current_path} ", p.Mantle, p.Surface, p.Mantle, p.Fg) +
+		fmt.Sprintf("#[fg=%s]\uE0B0#[bg=%s,fg=%s,bold] %%H:%%M #[nobold]", p.Surface, p.Surface, p.Primary)
+
+	// Inactive window tab: rounded pill using powerline caps
 	winInactive := "" +
-		fmt.Sprintf("#[bg=%s,fg=%s]\uE0B6", oasisMantle, oasisSurface) +
-		fmt.Sprintf("#[bg=%s,fg=%s] #I #W ", oasisSurface, oasisStrongPrimary) +
-		fmt.Sprintf("#[bg=%s,fg=%s]\uE0B4", oasisMantle, oasisSurface)
-	// Active window tab: orange pill, bold text
+		fmt.Sprintf("#[bg=%s,fg=%s]\uE0B6", p.Mantle, p.Surface) +
+		fmt.Sprintf("#[bg=%s,fg=%s] #I #W ", p.Surface, p.StrongPrimary) +
+		fmt.Sprintf("#[bg=%s,fg=%s]\uE0B4", p.Mantle, p.Surface)
+	// Active window tab: accent pill, bold text
 	winActive := "" +
-		fmt.Sprintf("#[bg=%s,fg=%s]\uE0B6", oasisMantle, oasisSecondary) +
-		fmt.Sprintf("#[bg=%s,fg=%s,bold] #I #W #[nobold]", oasisSecondary, oasisCore) +
-		fmt.Sprintf("#[bg=%s,fg=%s]\uE0B4", oasisMantle, oasisSecondary)
+		fmt.Sprintf("#[bg=%s,fg=%s]\uE0B6", p.Mantle, p.Secondary) +
+		fmt.Sprintf("#[bg=%s,fg=%s,bold] #I #W #[nobold]", p.Secondary, p.Core) +
+		fmt.Sprintf("#[bg=%s,fg=%s]\uE0B4", p.Mantle, p.Secondary)
 
 	// PERFORMANCE: Batch all status bar options into a single subprocess call.
-	// Uses tmux command chaining with ; separator (reduces subprocess spawns).
 	cmd := exec.Command("tmux",
-		// Global status bar appearance
 		"set-option", "-t", s.Name, "status", "on", ";",
-		"set-option", "-t", s.Name, "status-style", fmt.Sprintf("bg=%s,fg=%s", oasisMantle, oasisFg), ";",
+		"set-option", "-t", s.Name, "status-style", fmt.Sprintf("bg=%s,fg=%s", p.Mantle, p.Fg), ";",
 		"set-option", "-t", s.Name, "status-left-length", "120", ";",
 		"set-option", "-t", s.Name, "status-right-length", "120", ";",
-		// Right side: session + folder + clock pills
 		"set-option", "-t", s.Name, "status-right", rightStatus, ";",
-		// Window tabs
 		"set-window-option", "-t", s.Name, "window-status-format", winInactive, ";",
 		"set-window-option", "-t", s.Name, "window-status-current-format", winActive, ";",
 		"set-window-option", "-t", s.Name, "window-status-separator", "")

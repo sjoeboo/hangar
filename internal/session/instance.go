@@ -247,6 +247,7 @@ func NewInstance(title, projectPath string) *Instance {
 	tmuxSess := tmux.NewSession(title, projectPath)
 	tmuxSess.InstanceID = id // Pass instance ID for activity hooks
 	tmuxSess.SetInjectStatusLine(GetTmuxSettings().GetInjectStatusLine())
+	tmuxSess.SetTheme(ResolveTheme())
 
 	return &Instance{
 		ID:          id,
@@ -273,6 +274,7 @@ func NewInstanceWithTool(title, projectPath, tool string) *Instance {
 	tmuxSess := tmux.NewSession(title, projectPath)
 	tmuxSess.InstanceID = id // Pass instance ID for activity hooks
 	tmuxSess.SetInjectStatusLine(GetTmuxSettings().GetInjectStatusLine())
+	tmuxSess.SetTheme(ResolveTheme())
 
 	inst := &Instance{
 		ID:          id,
@@ -3288,6 +3290,7 @@ func (i *Instance) Restart() error {
 	i.tmuxSession = tmux.NewSession(i.Title, i.ProjectPath)
 	i.tmuxSession.InstanceID = i.ID // Pass instance ID for activity hooks
 	i.tmuxSession.SetInjectStatusLine(GetTmuxSettings().GetInjectStatusLine())
+	i.tmuxSession.SetTheme(ResolveTheme())
 
 	var command string
 	if i.Tool == "claude" && i.ClaudeSessionID != "" {

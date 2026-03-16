@@ -189,31 +189,53 @@ func (nm *NotificationManager) FormatBar() string {
 	return "⚡ " + strings.Join(parts, " ")
 }
 
-// oasis_lagoon_dark status bar palette (mirrors constants in internal/tmux/tmux.go).
-// Duplicated here to avoid a cross-package import cycle.
-const (
-	notifBg     = "#22385c" // oasisSurface — notification pill background
-	notifAccent = "#58b8fd" // oasisPrimary — ⚡ prefix and default icon color
-	notifMantle = "#1a283f" // oasisMantle — transition color
-	notifGreen  = "#53d390" // running
-	notifYellow = "#f0e68c" // waiting
-	notifDim    = "#8fb0d0" // idle
-	notifRed    = "#ff7979" // error
-)
+// notifPalette holds tmux-compatible color strings for the notification pill.
+type notifPalette struct {
+	Bg, Accent, Mantle       string
+	Green, Yellow, Dim, Red string
+}
 
-// statusColor returns the tmux fg color escape for a given status, using the oasis_lagoon_dark palette.
+var oasisNotifColors = notifPalette{
+	Bg:     "#22385c", // oasisSurface
+	Accent: "#58b8fd", // oasisPrimary
+	Mantle: "#1a283f", // oasisMantle
+	Green:  "#53d390",
+	Yellow: "#f0e68c",
+	Dim:    "#8fb0d0",
+	Red:    "#ff7979",
+}
+
+var terminalNotifColors = notifPalette{
+	Bg:     "colour0",   // ANSI black — close to terminal bg, subtle pill
+	Accent: "colour12",  // bright blue
+	Mantle: "default",   // terminal default bg
+	Green:  "colour10",  // bright green
+	Yellow: "colour11",  // bright yellow
+	Dim:    "colour7",   // white (dim)
+	Red:    "colour9",   // bright red
+}
+
+func getNotifPalette() notifPalette {
+	if GetTheme() == "terminal" || ResolveTheme() == "terminal" {
+		return terminalNotifColors
+	}
+	return oasisNotifColors
+}
+
+// statusColor returns the tmux fg color string for a given status.
 func statusColor(status Status) string {
+	p := getNotifPalette()
 	switch status {
 	case StatusRunning:
-		return notifGreen
+		return p.Green
 	case StatusWaiting:
-		return notifYellow
+		return p.Yellow
 	case StatusIdle:
-		return notifDim
+		return p.Dim
 	case StatusError:
-		return notifRed
+		return p.Red
 	default:
-		return notifDim
+		return p.Dim
 	}
 }
 
@@ -239,10 +261,11 @@ func (nm *NotificationManager) formatBarMinimal() string {
 		return ""
 	}
 	// Pill: surface bg, primary ⚡, icon counts, then powerline cap back to mantle
+	p := getNotifPalette()
 	pill := fmt.Sprintf("#[bg=%s,fg=%s] ⚡ %s #[bg=%s,fg=%s]\uE0B0#[default]",
-		notifBg, notifAccent,
-		strings.Join(parts, fmt.Sprintf(" #[fg=%s]│ ", notifDim)),
-		notifMantle, notifBg)
+		p.Bg, p.Accent,
+		strings.Join(parts, fmt.Sprintf(" #[fg=%s]│ ", p.Dim)),
+		p.Mantle, p.Bg)
 	return pill
 }
 

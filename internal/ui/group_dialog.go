@@ -353,7 +353,7 @@ func (g *GroupDialog) View() string {
 			}
 			if i == g.selected {
 				b.WriteString(lipgloss.NewStyle().
-					Foreground(ColorBg).
+					Foreground(ColorInvertFg).
 					Background(ColorAccent).
 					Bold(true).
 					Padding(0, 1).

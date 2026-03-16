@@ -362,7 +362,7 @@ func (h *Home) renderSessionInfoCard(inst *session.Instance, width, height int) 
 	b.WriteString(fmt.Sprintf("%s %s\n", stylePreviewLabelDim.Render("Path:"), stylePreviewLabel.Render(inst.ProjectPath)))
 
 	// Status with color (runtime-dependent — must stay inline)
-	var statusColor lipgloss.Color
+	var statusColor lipgloss.TerminalColor
 	switch cardStatus {
 	case session.StatusRunning:
 		statusColor = ColorGreen
