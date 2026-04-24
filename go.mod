@@ -1,6 +1,6 @@
 module github.com/sjoeboo/hangar
 
-go 1.25.0
+go 1.25.5
 
 require (
 	github.com/BurntSushi/toml v1.6.0
@@ -11,7 +11,7 @@ require (
 	github.com/creack/pty v1.1.24
 	github.com/fsnotify/fsnotify v1.9.0
 	github.com/gorilla/websocket v1.5.3
-	github.com/mark3labs/mcp-go v0.48.0
+	github.com/mark3labs/mcp-go v0.49.0
 	github.com/mattn/go-runewidth v0.0.23
 	github.com/muesli/termenv v0.16.0
 	github.com/sahilm/fuzzy v0.1.1
