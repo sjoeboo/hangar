@@ -15,7 +15,7 @@ require (
 	github.com/mattn/go-runewidth v0.0.23
 	github.com/muesli/termenv v0.16.0
 	github.com/sahilm/fuzzy v0.1.1
-	github.com/sourcegraph/go-diff v0.7.0
+	github.com/sourcegraph/go-diff v0.8.0
 	github.com/stretchr/testify v1.11.1
 	github.com/thiagokokada/dark-mode-go v0.0.2
 	golang.org/x/sync v0.20.0
