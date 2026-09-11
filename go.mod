@@ -1,6 +1,6 @@
 module github.com/sjoeboo/hangar
 
-go 1.25.5
+go 1.26.0
 
 require (
 	github.com/BurntSushi/toml v1.6.0
@@ -20,7 +20,7 @@ require (
 	github.com/thiagokokada/dark-mode-go v0.0.2
 	golang.org/x/sync v0.22.0
 	golang.org/x/term v0.45.0
-	golang.org/x/time v0.15.0
+	golang.org/x/time v0.16.0
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1
 	modernc.org/sqlite v1.57.0
 )
